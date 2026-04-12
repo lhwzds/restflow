@@ -1,9 +1,11 @@
 use anyhow::{Result, bail};
 use restflow_contracts::request::ChildRunListQuery;
 use restflow_core::daemon::ChatSessionEvent;
-use restflow_core::daemon::{IpcClient, IpcRequest, StreamFrame, is_daemon_available};
+use restflow_core::daemon::{
+    DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available, start_daemon_with_config,
+};
 use restflow_core::models::{
-    ChatSession, ChatSessionSource, ChatSessionSummary,
+    ChatSession, ChatSessionSummary,
     ExecutionContainerKind, ExecutionContainerRef, ExecutionThread, RunListQuery, RunSummary, Task,
 };
 use restflow_core::paths;
@@ -11,12 +13,26 @@ use restflow_core::storage::agent::{DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSIS
 use restflow_contracts::ToolExecutionResult;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, sleep};
 
 use super::event_loop::AppEvent;
 
 #[derive(Clone)]
 pub struct TuiDaemonClient {
     socket_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SessionSelection<'a> {
+    Existing(&'a str),
+    New,
+}
+
+fn session_selection(session_override: Option<&str>) -> SessionSelection<'_> {
+    match session_override {
+        Some(session_id) => SessionSelection::Existing(session_id),
+        None => SessionSelection::New,
+    }
 }
 
 impl TuiDaemonClient {
@@ -26,11 +42,27 @@ impl TuiDaemonClient {
         })
     }
 
-    pub async fn ensure_daemon(&self) -> Result<()> {
-        if is_daemon_available(&self.socket_path).await {
+    pub async fn daemon_running(&self) -> bool {
+        is_daemon_available(&self.socket_path).await
+    }
+
+    pub async fn start_daemon(&self) -> Result<()> {
+        if self.daemon_running().await {
             return Ok(());
         }
-        bail!("RestFlow daemon is not running. Start it with 'restflow daemon start'.")
+
+        let report = restflow_core::daemon::recovery::recover().await?;
+        let _ = report;
+        tokio::task::spawn_blocking(|| start_daemon_with_config(DaemonConfig::default())).await??;
+
+        for _ in 0..100 {
+            if self.daemon_running().await {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        bail!("RestFlow daemon did not become ready in time.")
     }
 
     async fn connect(&self) -> Result<IpcClient> {
@@ -88,26 +120,19 @@ impl TuiDaemonClient {
         agent: &StoredAgent,
         session_override: Option<&str>,
     ) -> Result<Option<ChatSession>> {
-        if let Some(session_id) = session_override {
-            let mut client = self.connect().await?;
-            return client.get_session(session_id.to_string()).await.map(Some);
+        match session_selection(session_override) {
+            SessionSelection::Existing(session_id) => {
+                let mut client = self.connect().await?;
+                client.get_session(session_id.to_string()).await.map(Some)
+            }
+            SessionSelection::New => {
+                let mut client = self.connect().await?;
+                client
+                    .create_session(Some(agent.id.clone()), None, None, None)
+                    .await
+                    .map(Some)
+            }
         }
-
-        let mut client = self.connect().await?;
-        let sessions = client.list_full_sessions().await?;
-        if let Some(existing) = sessions
-            .into_iter()
-            .filter(|session| session.agent_id == agent.id)
-            .filter(|session| session.source_channel.is_none() || session.source_channel == Some(ChatSessionSource::Workspace))
-            .max_by_key(|session| session.updated_at)
-        {
-            return Ok(Some(existing));
-        }
-
-        client
-            .create_session(Some(agent.id.clone()), None, None, None)
-            .await
-            .map(Some)
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -258,9 +283,25 @@ impl TuiDaemonClient {
 
             if let Err(error) = result {
                 let _ = tx.send(AppEvent::Error(format!("Chat stream failed: {error}")));
-            } else {
-                let _ = tx.send(AppEvent::RefreshCurrentSession);
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SessionSelection, session_selection};
+
+    #[test]
+    fn default_chat_session_selection_creates_new_session() {
+        assert_eq!(session_selection(None), SessionSelection::New);
+    }
+
+    #[test]
+    fn explicit_chat_session_selection_reuses_existing_session() {
+        assert_eq!(
+            session_selection(Some("session-123")),
+            SessionSelection::Existing("session-123")
+        );
     }
 }
