@@ -58,6 +58,12 @@ impl ComposerState {
         self.insert_char('\n');
     }
 
+    pub fn clear(&mut self) {
+        self.draft.clear();
+        self.cursor = 0;
+        self.history_cursor = None;
+    }
+
     pub fn backspace(&mut self) {
         if self.cursor == 0 {
             return;
