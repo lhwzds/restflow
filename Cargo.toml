@@ -7,6 +7,7 @@ members = [
     "crates/restflow-storage",
     "crates/restflow-core",
     "crates/restflow-cli",
+    "crates/restflow-tui",
     "crates/restflow-ai",
     "crates/restflow-tools",
     "crates/restflow-browser",
@@ -29,6 +30,7 @@ restflow-traits = { path = "crates/restflow-traits" }
 restflow-telemetry = { path = "crates/restflow-telemetry" }
 restflow-storage = { path = "crates/restflow-storage" }
 restflow-core = { path = "crates/restflow-core" }
+restflow-tui = { path = "crates/restflow-tui" }
 restflow-ai = { path = "crates/restflow-ai" }
 restflow-tools = { path = "crates/restflow-tools" }
 restflow-browser = { path = "crates/restflow-browser" }
