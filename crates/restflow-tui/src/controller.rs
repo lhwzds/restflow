@@ -23,8 +23,8 @@ impl ShellController {
         Self { client }
     }
 
-    pub async fn ensure_daemon(&self) -> Result<()> {
-        self.client.ensure_daemon().await
+    pub async fn daemon_running(&self) -> bool {
+        self.client.daemon_running().await
     }
 
     pub async fn resolve_default_agent(
@@ -68,6 +68,19 @@ impl ShellController {
         match effect {
             ShellEffect::RefreshState => self.refresh_actions(state).await,
             ShellEffect::ReloadCurrentSession => self.reload_current_session_actions(state).await,
+            ShellEffect::StartDaemon {
+                agent_override,
+                session_override,
+            } => match self
+                .start_daemon_actions(
+                    agent_override.as_deref(),
+                    session_override.as_deref(),
+                )
+                .await
+            {
+                Ok(actions) => Ok(actions),
+                Err(error) => Ok(vec![ShellAction::DaemonStartFailed(error.to_string())]),
+            },
             ShellEffect::ActivateOverlaySelection => self.overlay_selection_actions(state).await,
             ShellEffect::SubmitMessage { message } => {
                 self.submit_message_effect(state, message, tx).await?;
@@ -127,6 +140,43 @@ impl ShellController {
         }];
         actions.extend(self.refresh_actions(state).await?);
         Ok(actions)
+    }
+
+    async fn start_daemon_actions(
+        &self,
+        explicit_agent: Option<&str>,
+        session_override: Option<&str>,
+    ) -> Result<Vec<ShellAction>> {
+        self.client.start_daemon().await?;
+        Ok(vec![
+            self.build_daemon_started_action(explicit_agent, session_override)
+                .await?,
+        ])
+    }
+
+    async fn build_daemon_started_action(
+        &self,
+        explicit_agent: Option<&str>,
+        session_override: Option<&str>,
+    ) -> Result<ShellAction> {
+        let agent = self.resolve_default_agent(explicit_agent).await?;
+        let session = if let Some(agent) = agent.as_ref() {
+            self.resolve_or_create_session(agent, session_override).await?
+        } else {
+            None
+        };
+
+        let status = if agent.is_some() {
+            "Connected to daemon".to_string()
+        } else {
+            "No default agent configured. Create one from the standard CLI.".to_string()
+        };
+
+        Ok(ShellAction::DaemonStarted {
+            agent: agent.map(Box::new),
+            session: session.map(Box::new),
+            status,
+        })
     }
 
     async fn overlay_selection_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
