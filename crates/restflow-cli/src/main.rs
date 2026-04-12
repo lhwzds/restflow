@@ -6,17 +6,18 @@ mod error;
 mod executor;
 mod output;
 mod setup;
-mod tui;
 #[cfg(test)]
 mod test_support;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{ChatArgs, Cli, Commands};
+use cli::{Cli, Commands};
 use commands::task as task_commands;
+use std::io::IsTerminal;
 use restflow_core::paths;
 use std::io;
+use restflow_tui::{TuiLaunchOptions, run_tui};
 use tracing_appender::non_blocking::WorkerGuard;
 
 fn init_logging(verbose: bool) -> Option<WorkerGuard> {
@@ -70,6 +71,14 @@ fn executor_db_path_flag(raw_db_path: Option<String>, needs_direct_core: bool) -
     if needs_direct_core { None } else { raw_db_path }
 }
 
+fn should_launch_tui_by_default(
+    command: &Option<Commands>,
+    stdin_is_tty: bool,
+    stdout_is_tty: bool,
+) -> bool {
+    command.is_none() && stdin_is_tty && stdout_is_tty
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(err) = run().await {
@@ -81,6 +90,19 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
     let _config = config::CliConfig::load();
     let _log_guard = init_logging(cli.verbose);
+
+    if should_launch_tui_by_default(
+        &cli.command,
+        io::stdin().is_terminal(),
+        io::stdout().is_terminal(),
+    ) {
+        if cli.db_path.is_some() {
+            anyhow::bail!(
+                "The --db-path flag is not supported for the interactive TUI. Start the daemon against the desired database first."
+            );
+        }
+        return run_tui(TuiLaunchOptions::default()).await;
+    }
 
     if let Some(Commands::Completions { shell }) = cli.command {
         let mut cmd = Cli::command();
@@ -133,20 +155,6 @@ async fn run() -> Result<()> {
 
     if let Some(Commands::Mcp { command }) = &cli.command {
         return commands::mcp::run(command.clone(), cli.format).await;
-    }
-
-    if let Some(Commands::Chat(args)) = &cli.command {
-        if cli.db_path.is_some() {
-            anyhow::bail!(
-                "The --db-path flag is not supported for 'restflow chat'. Start the daemon against the desired database first."
-            );
-        }
-        return commands::chat::run(ChatArgs {
-            agent: args.agent.clone(),
-            session: args.session.clone(),
-            message: args.message.clone(),
-        })
-        .await;
     }
 
     // Commands that need direct core access.
@@ -237,7 +245,10 @@ async fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_needs_direct_core, command_uses_daemon_executor, executor_db_path_flag};
+    use super::{
+        command_needs_direct_core, command_uses_daemon_executor, executor_db_path_flag,
+        should_launch_tui_by_default,
+    };
     use crate::cli::{
         Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs,
     };
@@ -256,6 +267,13 @@ mod tests {
     fn hook_does_not_need_direct_core() {
         let command = hook_command(HookCommands::List);
         assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn default_tui_launch_requires_no_command_and_tty() {
+        assert!(should_launch_tui_by_default(&None, true, true));
+        assert!(!should_launch_tui_by_default(&None, true, false));
+        assert!(!should_launch_tui_by_default(&Some(Commands::Info), true, true));
     }
 
     #[test]
