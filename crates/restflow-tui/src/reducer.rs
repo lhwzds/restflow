@@ -275,6 +275,13 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 state.composer.insert_char(ch);
             }
         }
+        Action::Paste(text) => {
+            if state.overlay.is_none() {
+                for ch in text.chars() {
+                    state.composer.insert_char(ch);
+                }
+            }
+        }
         Action::InputBackspace => {
             if state.overlay.is_none() {
                 state.composer.backspace();
@@ -342,6 +349,7 @@ fn reduce_startup_ui(state: &mut AppState, action: Action, output: &mut ReducerO
         | Action::ScrollUp
         | Action::ScrollDown
         | Action::InputChar(_)
+        | Action::Paste(_)
         | Action::InputBackspace
         | Action::Newline
         | Action::RejectSelected => {}
@@ -529,5 +537,19 @@ mod tests {
         assert!(!output.should_quit);
         assert!(state.is_startup_mode());
         assert_eq!(state.status, "failed");
+    }
+
+    #[test]
+    fn paste_inserts_text_without_submitting() {
+        let mut state = AppState::empty();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::Ui(Action::Paste("hello\nworld".to_string())),
+        );
+
+        assert_eq!(state.composer.draft(), "hello\nworld");
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
     }
 }

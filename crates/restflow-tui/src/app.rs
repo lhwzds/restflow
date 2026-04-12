@@ -1,6 +1,7 @@
 use anyhow::Result;
 use crossterm::cursor::{Hide, Show};
 use crossterm::execute;
+use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -23,7 +24,7 @@ impl TerminalGuard {
     fn new() -> Result<Self> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, Hide)?;
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste, Hide)?;
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
         Ok(Self { terminal })
@@ -33,7 +34,12 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen, Show);
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            Show
+        );
         let _ = self.terminal.show_cursor();
     }
 }

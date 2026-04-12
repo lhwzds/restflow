@@ -17,6 +17,7 @@ pub enum Action {
     ScrollUp,
     ScrollDown,
     InputChar(char),
+    Paste(String),
     InputBackspace,
     Newline,
     Submit,
@@ -27,6 +28,7 @@ pub enum Action {
 
 pub fn map_event(event: Event) -> Action {
     match event {
+        Event::Paste(text) => Action::Paste(text),
         Event::Key(KeyEvent {
             code: KeyCode::Char('c'),
             modifiers,
@@ -141,5 +143,13 @@ mod tests {
     fn maps_ctrl_j_to_newline() {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
         assert_eq!(map_event(event), Action::Newline);
+    }
+
+    #[test]
+    fn maps_paste_event_to_paste_action() {
+        assert_eq!(
+            map_event(Event::Paste("hello\nworld".to_string())),
+            Action::Paste("hello\nworld".to_string())
+        );
     }
 }
