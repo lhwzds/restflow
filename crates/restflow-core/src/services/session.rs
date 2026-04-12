@@ -483,6 +483,9 @@ impl SessionService {
         session: &mut ChatSession,
         request: PersistInteractiveTurnRequest<'_>,
     ) -> Result<()> {
+        if request.assistant_output.trim().is_empty() {
+            anyhow::bail!("assistant_output must not be empty");
+        }
         let _ = replace_latest_user_message_content(
             session,
             request.original_input,
@@ -833,5 +836,28 @@ mod tests {
             reloaded.metadata.last_model.as_deref(),
             Some("minimax-coding-plan-m2-5")
         );
+    }
+
+    #[test]
+    fn persist_interactive_turn_rejects_empty_assistant_output() {
+        let (_storage, service, mut session) = setup();
+        session.add_message(ChatMessage::user("voice input"));
+
+        let error = service
+            .persist_interactive_turn(
+                &mut session,
+                PersistInteractiveTurnRequest {
+                    original_input: "voice input",
+                    persisted_input: "voice transcript",
+                    assistant_output: "   ",
+                    active_model: Some("gpt-5"),
+                    final_model: Some(ModelId::Gpt5),
+                    execution: MessageExecution::new().complete(20, 1),
+                    source: "ipc",
+                },
+            )
+            .expect_err("empty assistant output should be rejected");
+
+        assert!(error.to_string().contains("assistant_output must not be empty"));
     }
 }
