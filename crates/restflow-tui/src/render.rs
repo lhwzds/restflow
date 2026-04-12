@@ -212,7 +212,7 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             Line::from(state.status.clone()),
             Line::from(footer_hint_line(state)),
         ])
-        .block(Block::default().borders(Borders::TOP)),
+        .block(Block::default()),
         chunks[1],
     );
 
