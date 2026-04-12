@@ -178,6 +178,10 @@ impl ReplySender for SessionReplySender {
         let stream_tx = self.stream_tx.clone();
 
         Box::pin(async move {
+            if message.trim().is_empty() {
+                return Ok(());
+            }
+
             buffered_messages.lock().await.push_back(message.clone());
 
             if let Some(tx) = stream_tx {
