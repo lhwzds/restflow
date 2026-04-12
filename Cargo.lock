@@ -3591,13 +3591,11 @@ dependencies = [
  "clap_mangen",
  "colored",
  "comfy-table",
- "crossterm 0.28.1",
  "dirs",
  "flate2",
  "futures",
  "nix 0.31.2",
  "predicates",
- "ratatui",
  "redb",
  "reqwest",
  "restflow-ai",
@@ -3605,6 +3603,7 @@ dependencies = [
  "restflow-core",
  "restflow-storage",
  "restflow-traits",
+ "restflow-tui",
  "rpassword",
  "serde",
  "serde_json",
@@ -3829,6 +3828,23 @@ dependencies = [
  "tokio",
  "ts-rs",
  "url",
+]
+
+[[package]]
+name = "restflow-tui"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "crossterm 0.28.1",
+ "ratatui",
+ "restflow-contracts",
+ "restflow-core",
+ "restflow-traits",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
