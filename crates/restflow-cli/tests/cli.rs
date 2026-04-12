@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::{contains, starts_with};
 
 #[test]
@@ -35,10 +36,11 @@ fn test_cli_status() {
 }
 
 #[test]
-fn test_cli_chat_help() {
+fn test_cli_help_does_not_list_chat_subcommand() {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("restflow"));
-    cmd.args(["chat", "--help"])
+    cmd.arg("--help")
         .assert()
         .success()
-        .stdout(contains("Start interactive terminal chat"));
+        .stdout(contains("daemon"))
+        .stdout(contains("Start interactive terminal chat").not());
 }
