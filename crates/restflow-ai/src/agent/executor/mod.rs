@@ -414,7 +414,7 @@ impl AgentExecutor {
     ) -> Result<AgentResult> {
         let execution_id =
             execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let mut streaming_buffer = StreamingBuffer::default();
+        let mut streaming_buffer = StreamingBuffer::for_mode(config.stream_display_mode);
         let mut state =
             initial_state.unwrap_or_else(|| AgentState::new(execution_id, config.max_iterations));
         state.max_iterations = config.max_iterations;

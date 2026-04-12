@@ -3,6 +3,15 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_FLUSH_INTERVAL_MS: u64 = 300;
 const DEFAULT_CHUNK_THRESHOLD: usize = 20;
+const STREAMING_FLUSH_INTERVAL_MS: u64 = 50;
+const STREAMING_CHUNK_THRESHOLD: usize = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StreamDisplayMode {
+    #[default]
+    Buffered,
+    Streaming,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BufferMode {
@@ -26,14 +35,24 @@ pub struct StreamingBuffer {
 
 impl Default for StreamingBuffer {
     fn default() -> Self {
-        Self::new(
-            Duration::from_millis(DEFAULT_FLUSH_INTERVAL_MS),
-            DEFAULT_CHUNK_THRESHOLD,
-        )
+        Self::for_mode(StreamDisplayMode::Buffered)
     }
 }
 
 impl StreamingBuffer {
+    pub fn for_mode(mode: StreamDisplayMode) -> Self {
+        match mode {
+            StreamDisplayMode::Buffered => Self::new(
+                Duration::from_millis(DEFAULT_FLUSH_INTERVAL_MS),
+                DEFAULT_CHUNK_THRESHOLD,
+            ),
+            StreamDisplayMode::Streaming => Self::new(
+                Duration::from_millis(STREAMING_FLUSH_INTERVAL_MS),
+                STREAMING_CHUNK_THRESHOLD,
+            ),
+        }
+    }
+
     pub fn new(flush_interval: Duration, chunk_threshold: usize) -> Self {
         Self {
             buffers: HashMap::new(),
@@ -142,5 +161,21 @@ mod tests {
                 ("b".to_string(), "world".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn streaming_mode_flushes_on_first_chunk() {
+        let mut buffer = StreamingBuffer::for_mode(StreamDisplayMode::Streaming);
+        assert_eq!(
+            buffer.append("exec-1", "hello", BufferMode::Accumulate),
+            Some("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn buffered_mode_keeps_default_batching_behavior() {
+        let mut buffer = StreamingBuffer::for_mode(StreamDisplayMode::Buffered);
+        assert_eq!(buffer.append("exec-1", "a", BufferMode::Accumulate), None);
+        assert_eq!(buffer.append("exec-1", "b", BufferMode::Accumulate), None);
     }
 }

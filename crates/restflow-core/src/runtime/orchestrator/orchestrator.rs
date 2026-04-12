@@ -15,6 +15,7 @@ use crate::runtime::orchestrator::modes::{background, interactive, subagent};
 use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
 use restflow_ai::agent::{NullEmitter, StreamEmitter};
+use restflow_ai::StreamDisplayMode;
 use restflow_telemetry::{RestflowTrace, RunDescriptor, RunKind, RunLifecycleService};
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
 
@@ -35,6 +36,7 @@ pub struct InteractiveSessionRequest<'a> {
     pub timeout_secs: Option<u64>,
     pub emitter: Option<Box<dyn StreamEmitter>>,
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    pub stream_display_mode: StreamDisplayMode,
 }
 
 #[derive(Debug)]
@@ -128,6 +130,7 @@ impl AgentOrchestratorImpl {
             timeout_secs,
             emitter,
             steer_rx,
+            stream_display_mode,
         } = request;
         self.kernel
             .backend()
@@ -159,6 +162,7 @@ impl AgentOrchestratorImpl {
                     SessionTurnRuntimeOptions {
                         steer_rx,
                         telemetry_context: Some(run_handle.cloned_context()),
+                        stream_display_mode,
                     },
                 ),
             )
@@ -182,6 +186,7 @@ impl AgentOrchestratorImpl {
                 SessionTurnRuntimeOptions {
                     steer_rx,
                     telemetry_context: Some(run_handle.cloned_context()),
+                    stream_display_mode,
                 },
             )
             .await
@@ -560,6 +565,7 @@ mod tests {
                 timeout_secs: None,
                 emitter: None,
                 steer_rx: None,
+                stream_display_mode: StreamDisplayMode::Buffered,
             })
             .await
             .expect("traced interactive run should succeed");
@@ -607,6 +613,7 @@ mod tests {
                 timeout_secs: None,
                 emitter: None,
                 steer_rx: None,
+                stream_display_mode: StreamDisplayMode::Buffered,
             })
             .await
             .expect("traced interactive run should succeed");
@@ -782,6 +789,7 @@ mod tests {
                 timeout_secs: None,
                 emitter: None,
                 steer_rx: None,
+                stream_display_mode: StreamDisplayMode::Buffered,
             })
             .await
             .expect("traced interactive run should succeed");
@@ -929,6 +937,7 @@ mod tests {
                 timeout_secs: Some(0),
                 emitter: None,
                 steer_rx: None,
+                stream_display_mode: StreamDisplayMode::Buffered,
             })
             .await
             .expect_err("interactive run should time out");

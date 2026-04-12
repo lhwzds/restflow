@@ -24,6 +24,7 @@ use crate::runtime::channel::{
 use crate::runtime::orchestrator::{
     AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
 };
+use restflow_ai::StreamDisplayMode;
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::services::session::{PersistInteractiveTurnRequest, SessionService};
 use crate::storage::Storage;
@@ -882,6 +883,7 @@ impl ChatDispatcher {
                 timeout_secs: self.config.response_timeout_secs,
                 emitter: None,
                 steer_rx: None,
+                stream_display_mode: StreamDisplayMode::Buffered,
             })
             .await
         {

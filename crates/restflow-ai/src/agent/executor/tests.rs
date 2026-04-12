@@ -2,6 +2,7 @@ use super::steer::parse_approval_resolution;
 use super::tool_exec::{ToolExecutionOptions, ToolInvocationContext};
 use super::*;
 use crate::agent::ExecutionStep;
+use crate::agent::StreamDisplayMode;
 use crate::agent::PromptFlags;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::llm::{
@@ -173,6 +174,50 @@ impl LlmClient for DelayedLlmClient {
 
     fn supports_streaming(&self) -> bool {
         false
+    }
+}
+
+struct ChunkedStreamingLlmClient {
+    chunks: Vec<StreamChunk>,
+}
+
+impl ChunkedStreamingLlmClient {
+    fn new(chunks: Vec<StreamChunk>) -> Self {
+        Self { chunks }
+    }
+}
+
+#[async_trait]
+impl LlmClient for ChunkedStreamingLlmClient {
+    fn provider(&self) -> &str {
+        "mock"
+    }
+
+    fn model(&self) -> &str {
+        "chunked-model"
+    }
+
+    async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse> {
+        Ok(CompletionResponse {
+            content: Some(
+                self.chunks
+                    .iter()
+                    .map(|chunk| chunk.text.as_str())
+                    .collect::<String>(),
+            ),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        })
+    }
+
+    fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+        let chunks = self.chunks.clone();
+        Box::pin(stream::iter(chunks.into_iter().map(Ok)))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 }
 
@@ -1113,6 +1158,63 @@ async fn test_backward_compat_execute_streaming_emits_complete() {
 
     assert!(result.success);
     assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+#[allow(deprecated)]
+async fn test_stream_display_mode_controls_delta_flush_granularity() {
+    let chunks = vec![
+        StreamChunk {
+            text: "hello".to_string(),
+            thinking: None,
+            tool_call_delta: None,
+            finish_reason: None,
+            usage: None,
+        },
+        StreamChunk {
+            text: " world".to_string(),
+            thinking: None,
+            tool_call_delta: None,
+            finish_reason: Some(FinishReason::Stop),
+            usage: None,
+        },
+    ];
+
+    let buffered_executor = AgentExecutor::new(
+        Arc::new(ChunkedStreamingLlmClient::new(chunks.clone())),
+        Arc::new(ToolRegistry::new()),
+    );
+    let streaming_executor = AgentExecutor::new(
+        Arc::new(ChunkedStreamingLlmClient::new(chunks)),
+        Arc::new(ToolRegistry::new()),
+    );
+
+    let mut buffered_emitter = CapturingEmitter::new();
+    let mut streaming_emitter = CapturingEmitter::new();
+
+    buffered_executor
+        .execute_streaming(
+            AgentConfig::new("buffered").with_stream_display_mode(StreamDisplayMode::Buffered),
+            &mut buffered_emitter,
+        )
+        .await
+        .unwrap();
+    streaming_executor
+        .execute_streaming(
+            AgentConfig::new("streaming").with_stream_display_mode(StreamDisplayMode::Streaming),
+            &mut streaming_emitter,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        buffered_emitter.text.lock().await.clone(),
+        vec!["hello world".to_string()]
+    );
+    assert_eq!(
+        streaming_emitter.text.lock().await.clone(),
+        vec!["hello".to_string(), " world".to_string()]
+    );
 }
 
 #[tokio::test]

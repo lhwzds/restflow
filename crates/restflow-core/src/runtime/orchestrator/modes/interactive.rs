@@ -10,6 +10,7 @@ use crate::runtime::orchestrator::kernel::{
     ExecutionKernel, map_anyhow_error, parse_optional_metadata, require_mode_input,
 };
 use restflow_ai::agent::StreamEmitter;
+use restflow_ai::StreamDisplayMode;
 use restflow_traits::{ExecutionOutcome, ExecutionPlan};
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ pub async fn run_with_session(
         SessionTurnRuntimeOptions {
             steer_rx,
             telemetry_context: None,
+            stream_display_mode: StreamDisplayMode::Buffered,
         },
     )
     .await

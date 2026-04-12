@@ -1,5 +1,6 @@
 use super::*;
 use crate::services::operation_assessment::OperationAssessorAdapter;
+use restflow_ai::StreamDisplayMode;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -369,6 +370,7 @@ pub(super) async fn execute_chat_session(
             timeout_secs: None,
             emitter,
             steer_rx,
+            stream_display_mode: StreamDisplayMode::Streaming,
         })
         .await
         .map_err(anyhow::Error::new)?;

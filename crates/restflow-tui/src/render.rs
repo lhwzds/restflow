@@ -155,19 +155,27 @@ fn render_transcript_cell(cell: &TranscriptCell) -> Vec<Line<'static>> {
     let indent = match cell.group {
         MessageGroup::Conversation | MessageGroup::RuntimeNotice | MessageGroup::ToolActivity => "  ",
     };
-    for line in cell.body.lines() {
+    let body_lines = visible_body_lines(cell.body.as_str());
+    for line in &body_lines {
         lines.push(Line::from(vec![
             Span::raw(indent),
-            Span::raw(line.to_string()),
+            Span::raw(line.clone()),
         ]));
     }
 
-    if cell.body.is_empty() {
+    if body_lines.is_empty() {
         lines.push(Line::from("  "));
     }
 
     lines.push(Line::default());
     lines
+}
+
+fn visible_body_lines(body: &str) -> Vec<String> {
+    body.lines()
+        .skip_while(|line| line.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -649,7 +657,7 @@ fn centered_rect(area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{bottom_anchor_lines, cell_color, footer_shortcuts, overlay_title, shell_status_text, short_id};
+    use super::{bottom_anchor_lines, cell_color, footer_shortcuts, overlay_title, render_transcript_cell, shell_status_text, short_id};
     use crate::state::{AppState, OverlayState, TeamOverlayTab, ThreadFocus};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use ratatui::style::Color;
@@ -763,5 +771,26 @@ mod tests {
         assert_eq!(shell_status_text(&state), "Daemon Offline");
         state.mark_starting_daemon();
         assert_eq!(shell_status_text(&state), "Starting Daemon");
+    }
+
+    #[test]
+    fn transcript_render_skips_leading_blank_lines_in_body() {
+        let cell = TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Default Assistant".to_string(),
+            subtitle: None,
+            body: "\n\n\nI received \"123\".".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        };
+
+        let lines = render_transcript_cell(&cell)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(lines[0], "Default Assistant");
+        assert_eq!(lines[1], "  I received \"123\".");
+        assert_eq!(lines[2], "");
     }
 }

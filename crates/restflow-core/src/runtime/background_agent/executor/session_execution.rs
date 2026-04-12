@@ -1,4 +1,5 @@
 use super::*;
+use restflow_ai::StreamDisplayMode;
 use restflow_telemetry::RunAttemptTracker;
 
 fn should_force_non_stream(model: ModelId) -> bool {
@@ -9,6 +10,7 @@ fn should_force_non_stream(model: ModelId) -> bool {
 pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     pub telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+    pub stream_display_mode: StreamDisplayMode,
 }
 
 impl AgentRuntimeExecutor {
@@ -207,6 +209,7 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
@@ -275,7 +278,8 @@ impl AgentRuntimeExecutor {
             .with_max_tool_result_length(max_tool_result_length)
             .with_max_tool_concurrency(agent_defaults.max_tool_concurrency)
             .with_prune_tool_max_chars(agent_defaults.prune_tool_max_chars)
-            .with_compact_preserve_tokens(agent_defaults.compact_preserve_tokens);
+            .with_compact_preserve_tokens(agent_defaults.compact_preserve_tokens)
+            .with_stream_display_mode(stream_display_mode);
         if let Some(entry) = model_entry
             && !model.is_cli_model()
         {
@@ -386,6 +390,7 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         let model_specs = ModelId::build_model_specs();
         let api_keys = self
@@ -429,6 +434,7 @@ impl AgentRuntimeExecutor {
             agent_id,
             steer_rx,
             telemetry_context,
+            stream_display_mode,
         )
         .await
     }
@@ -447,6 +453,7 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
             return self
@@ -462,6 +469,7 @@ impl AgentRuntimeExecutor {
                     agent_id,
                     steer_rx,
                     telemetry_context,
+                    stream_display_mode,
                 )
                 .await;
         }
@@ -484,6 +492,7 @@ impl AgentRuntimeExecutor {
                     agent_id,
                     steer_rx,
                     telemetry_context,
+                    stream_display_mode,
                 )
                 .await;
         }
@@ -532,6 +541,7 @@ impl AgentRuntimeExecutor {
                     agent_id,
                     steer_rx.take(),
                     telemetry_context.clone(),
+                    stream_display_mode,
                 )
                 .await
             {
@@ -664,6 +674,7 @@ impl AgentRuntimeExecutor {
             SessionTurnRuntimeOptions {
                 steer_rx: None,
                 telemetry_context,
+                stream_display_mode: StreamDisplayMode::Buffered,
             },
         )
         .await
@@ -683,6 +694,7 @@ impl AgentRuntimeExecutor {
         let SessionTurnRuntimeOptions {
             steer_rx,
             telemetry_context,
+            stream_display_mode,
         } = options;
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
@@ -777,12 +789,13 @@ impl AgentRuntimeExecutor {
                         primary_provider,
                         max_history,
                         input_mode,
-                        emitter,
-                        Some(agent_id.as_str()),
-                        steer_rx,
-                        Some(telemetry_context),
-                    )
-                    .await
+                    emitter,
+                    Some(agent_id.as_str()),
+                    steer_rx,
+                    Some(telemetry_context),
+                    stream_display_mode,
+                )
+                .await
                 }
             })
             .await;
@@ -818,6 +831,7 @@ impl AgentRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_ai::StreamDisplayMode;
     use restflow_telemetry::{RestflowTrace, TelemetryContext};
 
     #[test]
@@ -827,6 +841,12 @@ mod tests {
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
         assert!(!should_force_non_stream(ModelId::Gpt5));
+    }
+
+    #[test]
+    fn session_turn_runtime_options_default_to_buffered_display() {
+        let options = SessionTurnRuntimeOptions::default();
+        assert_eq!(options.stream_display_mode, StreamDisplayMode::Buffered);
     }
 
     #[test]

@@ -21,6 +21,7 @@ use crate::agent::model_router::ModelRoutingConfig;
 use crate::agent::resource::{ResourceLimits, ResourceUsage};
 use crate::agent::state::AgentState;
 use crate::agent::stuck::StuckDetectorConfig;
+use crate::agent::streaming_buffer::StreamDisplayMode;
 use crate::error::Result;
 
 pub const MAX_TOOL_RETRIES: usize = 2;
@@ -108,6 +109,8 @@ pub struct AgentConfig {
     pub prompt_flags: PromptFlags,
     /// Maximum number of tool calls that can execute concurrently (default: 100).
     pub max_tool_concurrency: usize,
+    /// Controls how aggressively text deltas are flushed to interactive consumers.
+    pub stream_display_mode: StreamDisplayMode,
 }
 
 impl AgentConfig {
@@ -141,6 +144,7 @@ impl AgentConfig {
             checkpoint_callback: None,
             prompt_flags: PromptFlags::default(),
             max_tool_concurrency: DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
+            stream_display_mode: StreamDisplayMode::Buffered,
         }
     }
 
@@ -252,6 +256,11 @@ impl AgentConfig {
     /// Set resource limits for guardrails.
     pub fn with_resource_limits(mut self, limits: ResourceLimits) -> Self {
         self.resource_limits = limits;
+        self
+    }
+
+    pub fn with_stream_display_mode(mut self, mode: StreamDisplayMode) -> Self {
+        self.stream_display_mode = mode;
         self
     }
 
