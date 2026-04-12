@@ -9,18 +9,25 @@ use super::composer::ComposerMode;
 use super::state::{AppState, OverlayState, TeamOverlayTab};
 use super::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
+const HEADER_HEIGHT: u16 = 2;
+const FOOTER_HEIGHT: u16 = 2;
+const COMPOSER_BORDER_HEIGHT: u16 = 2;
+const COMPOSER_MIN_VISIBLE_ROWS: u16 = 1;
+const COMPOSER_MAX_VISIBLE_ROWS: u16 = 6;
+
 pub fn render(frame: &mut Frame<'_>, state: &AppState) {
     if state.is_startup_mode() {
         render_startup(frame, state);
         return;
     }
 
+    let bottom_height = composer_pane_height(state, frame.area().width);
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
-            Constraint::Min(8),
-            Constraint::Length(5),
+            Constraint::Length(HEADER_HEIGHT),
+            Constraint::Min(1),
+            Constraint::Length(bottom_height),
         ])
         .split(frame.area());
 
@@ -36,7 +43,7 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
 fn render_startup(frame: &mut Frame<'_>, state: &AppState) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(8)])
+        .constraints([Constraint::Length(HEADER_HEIGHT), Constraint::Min(8)])
         .split(frame.area());
 
     render_header(frame, layout[0], state);
@@ -179,25 +186,23 @@ fn visible_body_lines(body: &str) -> Vec<String> {
 }
 
 fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let composer_visible_rows = composer_visible_rows(state, area.width);
+    let composer_height = composer_visible_rows + COMPOSER_BORDER_HEIGHT;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(2)])
+        .constraints([Constraint::Length(composer_height), Constraint::Length(FOOTER_HEIGHT)])
         .split(area);
 
     let composer_title = match state.composer.mode() {
         ComposerMode::Compose => "Message",
         ComposerMode::Command => "Command",
     };
-    let composer_lines = if state.composer.draft().is_empty() {
-        vec![Line::default()]
-    } else {
-        state
-            .composer
-            .draft()
-            .lines()
-            .map(|line| Line::from(line.to_string()))
-            .collect::<Vec<_>>()
-    };
+    let composer_lines = state
+        .composer
+        .visible_lines(composer_content_width(chunks[0].width), composer_visible_rows)
+        .into_iter()
+        .map(Line::from)
+        .collect::<Vec<_>>();
 
     frame.render_widget(
         Paragraph::new(composer_lines)
@@ -215,13 +220,30 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         chunks[1],
     );
 
-    let (cursor_column, cursor_row) = state.composer.cursor_position();
+    let (cursor_column, cursor_row) = state
+        .composer
+        .cursor_position(composer_content_width(chunks[0].width), composer_visible_rows);
     let cursor_x = chunks[0].x + 1 + cursor_column;
     let cursor_y = chunks[0].y + 1 + cursor_row;
     frame.set_cursor_position((
         cursor_x.min(chunks[0].right().saturating_sub(2)),
         cursor_y.min(chunks[0].bottom().saturating_sub(2)),
     ));
+}
+
+fn composer_content_width(area_width: u16) -> u16 {
+    area_width.saturating_sub(2).max(1)
+}
+
+fn composer_visible_rows(state: &AppState, total_width: u16) -> u16 {
+    state
+        .composer
+        .visible_row_count(composer_content_width(total_width))
+        .clamp(COMPOSER_MIN_VISIBLE_ROWS, COMPOSER_MAX_VISIBLE_ROWS)
+}
+
+fn composer_pane_height(state: &AppState, total_width: u16) -> u16 {
+    composer_visible_rows(state, total_width) + COMPOSER_BORDER_HEIGHT + FOOTER_HEIGHT
 }
 
 fn bottom_anchor_lines(
@@ -657,7 +679,7 @@ fn centered_rect(area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{bottom_anchor_lines, cell_color, footer_shortcuts, overlay_title, render_transcript_cell, shell_status_text, short_id};
+    use super::{bottom_anchor_lines, cell_color, composer_pane_height, composer_visible_rows, footer_shortcuts, overlay_title, render_transcript_cell, shell_status_text, short_id};
     use crate::state::{AppState, OverlayState, TeamOverlayTab, ThreadFocus};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use ratatui::style::Color;
@@ -792,5 +814,26 @@ mod tests {
         assert_eq!(lines[0], "Default Assistant");
         assert_eq!(lines[1], "  I received \"123\".");
         assert_eq!(lines[2], "");
+    }
+
+    #[test]
+    fn composer_uses_single_visible_row_for_short_input() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('h');
+
+        assert_eq!(composer_visible_rows(&state, 80), 1);
+        assert_eq!(composer_pane_height(&state, 80), 5);
+    }
+
+    #[test]
+    fn composer_caps_visible_rows_at_six() {
+        let mut state = AppState::empty();
+        for line in ["1", "2", "3", "4", "5", "6", "7"] {
+            state.composer.insert_char(line.chars().next().expect("char"));
+            state.composer.insert_newline();
+        }
+
+        assert_eq!(composer_visible_rows(&state, 80), 6);
+        assert_eq!(composer_pane_height(&state, 80), 10);
     }
 }
