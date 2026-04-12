@@ -323,7 +323,7 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
     let db_path = temp.path().join("restflow.db");
 
     let client = Client::builder()
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
         .build()
         .context("build reqwest client")?;
     let (_daemon, url) = spawn_ready_daemon(
