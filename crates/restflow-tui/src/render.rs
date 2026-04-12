@@ -193,10 +193,6 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .constraints([Constraint::Length(composer_height), Constraint::Length(FOOTER_HEIGHT)])
         .split(area);
 
-    let composer_title = match state.composer.mode() {
-        ComposerMode::Compose => "Message",
-        ComposerMode::Command => "Command",
-    };
     let composer_lines = state
         .composer
         .visible_lines(composer_content_width(chunks[0].width), composer_visible_rows)
@@ -206,7 +202,7 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     frame.render_widget(
         Paragraph::new(composer_lines)
-            .block(Block::default().borders(Borders::ALL).title(composer_title))
+            .block(Block::default().borders(Borders::ALL))
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
