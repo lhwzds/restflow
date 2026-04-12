@@ -10,10 +10,10 @@ mod slash_command;
 mod state;
 mod transcript;
 
-pub use app::run_chat_tui;
+pub use app::run_tui;
 
 #[derive(Debug, Clone, Default)]
-pub struct ChatLaunchOptions {
+pub struct TuiLaunchOptions {
     pub agent: Option<String>,
     pub session: Option<String>,
     pub message: Option<String>,
