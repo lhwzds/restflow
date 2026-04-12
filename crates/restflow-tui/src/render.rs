@@ -5,12 +5,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use restflow_traits::{TeamApprovalStatus, TeamAssignmentStatus, TeamMemberStatus, TeamMessageKind, TeamRole};
 
-use super::composer::ComposerMode;
 use super::state::{AppState, OverlayState, TeamOverlayTab};
 use super::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
 const HEADER_HEIGHT: u16 = 2;
-const FOOTER_HEIGHT: u16 = 2;
+const FOOTER_HEIGHT: u16 = 1;
 const COMPOSER_BORDER_HEIGHT: u16 = 2;
 const COMPOSER_MIN_VISIBLE_ROWS: u16 = 1;
 const COMPOSER_MAX_VISIBLE_ROWS: u16 = 6;
@@ -208,11 +207,7 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     );
 
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(state.status.clone()),
-            Line::from(footer_hint_line(state)),
-        ])
-        .block(Block::default()),
+        Paragraph::new(Line::from(state.status.clone())).block(Block::default()),
         chunks[1],
     );
 
@@ -510,42 +505,8 @@ fn shell_status_text(state: &AppState) -> String {
     }
 }
 
-fn footer_hint_line(state: &AppState) -> String {
-    footer_shortcuts(state).join(" · ")
-}
-
 fn short_id(value: &str) -> String {
     value.chars().take(8).collect()
-}
-
-fn footer_shortcuts(state: &AppState) -> Vec<&'static str> {
-    match state.overlay.as_ref() {
-        Some(OverlayState::SessionPicker { .. }) | Some(OverlayState::RunPicker { .. }) => {
-            vec!["Enter Select", "Esc Close", "↑↓ Move"]
-        }
-        Some(OverlayState::ApprovalPicker { .. }) => {
-            vec!["Enter Approve", "R Reject", "Esc Close", "↑↓ Move"]
-        }
-        Some(OverlayState::TeamView { .. }) => vec!["Esc Close", "↑↓ Scroll", "←→ Tabs"],
-        Some(OverlayState::Help) => vec!["Esc Close"],
-        None => match state.composer.mode() {
-            ComposerMode::Compose => vec![
-                "Enter Send",
-                "Ctrl+J New Line",
-                "Ctrl+P Sessions",
-                "Ctrl+R Runs",
-                "Ctrl+A Approvals",
-                "? Shortcuts",
-            ],
-            ComposerMode::Command => vec![
-                "Enter Run Command",
-                "Esc Back",
-                "/help",
-                "/run open",
-                "/team state",
-            ],
-        },
-    }
 }
 
 fn overlay_title(overlay: &OverlayState) -> &'static str {
@@ -675,8 +636,8 @@ fn centered_rect(area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{bottom_anchor_lines, cell_color, composer_pane_height, composer_visible_rows, footer_shortcuts, overlay_title, render_transcript_cell, shell_status_text, short_id};
-    use crate::state::{AppState, OverlayState, TeamOverlayTab, ThreadFocus};
+    use super::{bottom_anchor_lines, cell_color, composer_pane_height, composer_visible_rows, overlay_title, render_transcript_cell, shell_status_text, short_id};
+    use crate::state::{AppState, OverlayState, ThreadFocus};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use ratatui::style::Color;
     use ratatui::text::Line;
@@ -698,43 +659,12 @@ mod tests {
     }
 
     #[test]
-    fn footer_shortcuts_change_with_mode() {
-        let mut state = AppState::empty();
-        for ch in "/help".chars() {
-            state.composer.insert_char(ch);
-        }
-        assert_eq!(
-            footer_shortcuts(&state),
-            vec![
-                "Enter Run Command",
-                "Esc Back",
-                "/help",
-                "/run open",
-                "/team state",
-            ]
-        );
-    }
-
-    #[test]
     fn overlay_titles_are_user_facing() {
         assert_eq!(
             overlay_title(&OverlayState::RunPicker { selected: 0 }),
             "Open Run"
         );
         assert_eq!(overlay_title(&OverlayState::Help), "Keyboard Shortcuts");
-    }
-
-    #[test]
-    fn overlay_shortcuts_override_composer_shortcuts() {
-        let mut state = AppState::empty();
-        state.overlay = Some(OverlayState::TeamView {
-            tab: TeamOverlayTab::Members,
-            scroll: 0,
-        });
-        assert_eq!(
-            footer_shortcuts(&state),
-            vec!["Esc Close", "↑↓ Scroll", "←→ Tabs"]
-        );
     }
 
     #[test]
@@ -818,7 +748,7 @@ mod tests {
         state.composer.insert_char('h');
 
         assert_eq!(composer_visible_rows(&state, 80), 1);
-        assert_eq!(composer_pane_height(&state, 80), 5);
+        assert_eq!(composer_pane_height(&state, 80), 4);
     }
 
     #[test]
@@ -830,6 +760,6 @@ mod tests {
         }
 
         assert_eq!(composer_visible_rows(&state, 80), 6);
-        assert_eq!(composer_pane_height(&state, 80), 10);
+        assert_eq!(composer_pane_height(&state, 80), 9);
     }
 }
