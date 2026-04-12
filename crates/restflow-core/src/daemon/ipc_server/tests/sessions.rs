@@ -937,6 +937,20 @@ async fn session_reply_sender_buffers_message_and_emits_ack_frame() {
 }
 
 #[tokio::test]
+async fn session_reply_sender_ignores_blank_messages() {
+    let buffer = Arc::new(Mutex::new(VecDeque::new()));
+    let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+    let sender = SessionReplySender::new(buffer.clone(), Some(tx));
+    ReplySender::send(&sender, "   ".to_string()).await.unwrap();
+
+    let guard = buffer.lock().await;
+    assert!(guard.is_empty());
+    drop(guard);
+
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn execute_chat_session_returns_not_found_for_missing_session() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
