@@ -10,6 +10,8 @@ pub(super) enum ExecuteChatSessionError {
     MissingUserMessage,
     #[error("Voice transcription failed: {0}")]
     VoicePreprocessFailed(String),
+    #[error("Interactive execution completed without assistant output")]
+    EmptyAssistantOutput,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -20,6 +22,7 @@ impl ExecuteChatSessionError {
             Self::SessionNotFound => 404,
             Self::MissingUserMessage => 400,
             Self::VoicePreprocessFailed(_) => 400,
+            Self::EmptyAssistantOutput => 500,
             Self::Internal(_) => 500,
         }
     }
@@ -180,13 +183,61 @@ pub(super) fn latest_assistant_payload(session: &ChatSession) -> Option<(String,
         .messages
         .iter()
         .rev()
-        .find(|message| message.role == ChatRole::Assistant)
+        .find(|message| {
+            message.role == ChatRole::Assistant && !message.content.trim().is_empty()
+        })
         .map(|message| {
             (
-                message.content.clone(),
+                message.content.trim().to_string(),
                 message.execution.as_ref().map(|exec| exec.tokens_used),
             )
         })
+}
+
+fn latest_turn_assistant_output(session: &ChatSession, turn_start_index: usize) -> Option<String> {
+    session
+        .messages
+        .iter()
+        .skip(turn_start_index)
+        .rev()
+        .find(|message| {
+            message.role == ChatRole::Assistant && !message.content.trim().is_empty()
+        })
+        .map(|message| message.content.trim().to_string())
+}
+
+fn select_final_assistant_output(
+    execution_output: &str,
+    buffered_replies: &[String],
+    session: &ChatSession,
+    turn_start_index: usize,
+) -> Option<String> {
+    let trimmed = execution_output.trim();
+    if !trimmed.is_empty() {
+        return Some(trimmed.to_string());
+    }
+
+    if let Some(content) = buffered_replies
+        .iter()
+        .rev()
+        .map(|reply| reply.trim())
+        .find(|reply| !reply.is_empty())
+        .map(ToOwned::to_owned)
+    {
+        return Some(content);
+    }
+
+    latest_turn_assistant_output(session, turn_start_index)
+}
+
+fn latest_turn_assistant_matches(
+    session: &ChatSession,
+    turn_start_index: usize,
+    assistant_output: &str,
+) -> bool {
+    let trimmed = assistant_output.trim();
+    !trimmed.is_empty()
+        && latest_turn_assistant_output(session, turn_start_index).as_deref() == Some(trimmed)
 }
 
 pub(super) async fn execute_chat_session(
@@ -258,6 +309,7 @@ pub(super) async fn execute_chat_session(
         SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
     }
 
+    let turn_start_index = session.messages.len();
     let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
     let auth_manager = Arc::new(build_auth_manager(core).await?);
     let reply_sender = Arc::new(SessionReplySender::new(
@@ -345,21 +397,44 @@ pub(super) async fn execute_chat_session(
         let mut guard = reply_buffer.lock().await;
         std::mem::take(&mut *guard)
     };
-    for reply in buffered_replies {
-        session.add_message(ChatMessage::assistant(&reply));
+    let buffered_replies = buffered_replies
+        .into_iter()
+        .filter(|reply| !reply.trim().is_empty())
+        .collect::<Vec<_>>();
+    for reply in &buffered_replies {
+        session.add_message(ChatMessage::assistant(reply.as_str()));
     }
-    SessionService::from_storage(&core.storage).persist_interactive_turn(
-        &mut session,
-        PersistInteractiveTurnRequest {
-            original_input: &original_persisted_input,
-            persisted_input: &final_persisted_input,
-            assistant_output: &exec_result.output,
-            active_model: Some(&exec_result.active_model),
-            final_model: Some(exec_result.final_model),
-            execution,
-            source: "ipc",
-        },
-    )?;
+    let assistant_output = select_final_assistant_output(
+        &exec_result.output,
+        &buffered_replies,
+        &session,
+        turn_start_index,
+    )
+    .ok_or(ExecuteChatSessionError::EmptyAssistantOutput)?;
+    if latest_turn_assistant_matches(&session, turn_start_index, &assistant_output) {
+        if let Some(message) = session.messages.last_mut() {
+            message.execution = Some(execution);
+        }
+        if let Some(model) = Some(exec_result.final_model) {
+            session.metadata.last_model = Some(model.as_serialized_str().to_string());
+        } else if let Some(normalized) = ModelId::normalize_model_id(&exec_result.active_model) {
+            session.metadata.last_model = Some(normalized);
+        }
+        SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
+    } else {
+        SessionService::from_storage(&core.storage).persist_interactive_turn(
+            &mut session,
+            PersistInteractiveTurnRequest {
+                original_input: &original_persisted_input,
+                persisted_input: &final_persisted_input,
+                assistant_output: &assistant_output,
+                active_model: Some(&exec_result.active_model),
+                final_model: Some(exec_result.final_model),
+                execution,
+                source: "ipc",
+            },
+        )?;
+    }
     Ok(session)
 }
 
@@ -440,4 +515,94 @@ pub(super) fn build_agent_system_prompt(
     agent_node: AgentNode,
 ) -> Result<String> {
     crate::runtime::agent::build_agent_system_prompt(core.storage.clone(), &agent_node, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        latest_assistant_payload, latest_turn_assistant_matches, select_final_assistant_output,
+    };
+    use crate::models::{ChatMessage, ChatSession};
+
+    #[test]
+    fn final_output_prefers_non_empty_execution_output() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::assistant("buffered reply"));
+
+        let output =
+            select_final_assistant_output("final answer", &[], &session, session.messages.len());
+
+        assert_eq!(output.as_deref(), Some("final answer"));
+    }
+
+    #[test]
+    fn final_output_uses_latest_non_empty_buffered_reply_when_execution_output_is_blank() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::assistant("older reply"));
+
+        let output = select_final_assistant_output(
+            "   ",
+            &["".to_string(), "ack reply".to_string()],
+            &session,
+            session.messages.len(),
+        );
+
+        assert_eq!(output.as_deref(), Some("ack reply"));
+    }
+
+    #[test]
+    fn final_output_uses_current_turn_assistant_when_execution_output_is_blank() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::assistant("previous turn"));
+        let turn_start_index = session.messages.len();
+        session.add_message(ChatMessage::assistant("current turn"));
+
+        let output = select_final_assistant_output("", &[], &session, turn_start_index);
+
+        assert_eq!(output.as_deref(), Some("current turn"));
+    }
+
+    #[test]
+    fn final_output_is_missing_when_no_non_empty_assistant_text_exists() {
+        let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+        let output = select_final_assistant_output("", &[], &session, 0);
+
+        assert!(output.is_none());
+    }
+
+    #[test]
+    fn latest_turn_assistant_match_requires_matching_current_turn_assistant_message() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::assistant("previous turn"));
+        let turn_start_index = session.messages.len();
+        session.add_message(ChatMessage::assistant("ack reply"));
+
+        assert!(latest_turn_assistant_matches(
+            &session,
+            turn_start_index,
+            "ack reply"
+        ));
+        assert!(!latest_turn_assistant_matches(
+            &session,
+            turn_start_index,
+            "something else"
+        ));
+        assert!(!latest_turn_assistant_matches(
+            &session,
+            turn_start_index,
+            "previous turn"
+        ));
+    }
+
+    #[test]
+    fn latest_assistant_payload_skips_empty_assistant_messages() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::assistant("visible"));
+        session.add_message(ChatMessage::assistant("   "));
+
+        let payload = latest_assistant_payload(&session);
+
+        assert_eq!(payload.as_ref().map(|(content, _)| content.as_str()), Some("visible"));
+    }
 }
