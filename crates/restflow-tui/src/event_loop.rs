@@ -24,7 +24,6 @@ pub enum AppEvent {
     StreamFrame(StreamFrame),
     SessionEvent(ChatSessionEvent),
     TaskEvent(TaskStreamEvent),
-    RefreshCurrentSession,
     Error(String),
 }
 
@@ -32,11 +31,14 @@ pub async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     controller: ShellController,
     mut state: AppState,
-    initial_message: Option<String>,
 ) -> Result<()> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let _input_handle = spawn_input_thread(tx.clone());
-    let session_stream_handle = controller.spawn_session_events(tx.clone());
+    let mut session_stream_handle = if state.is_startup_mode() {
+        None
+    } else {
+        Some(controller.spawn_session_events(tx.clone()))
+    };
     let mut selected_task_stream: Option<(String, tokio::task::JoinHandle<()>)> = None;
 
     if process_action(
@@ -49,7 +51,7 @@ pub async fn run_event_loop(
     .await? {
         return Ok(());
     }
-    if let Some(message) = initial_message
+    if let Some(message) = state.take_pending_initial_message()
         && process_action(
             &controller,
             terminal,
@@ -87,7 +89,6 @@ pub async fn run_event_loop(
                     AppEvent::StreamFrame(frame) => ShellAction::StreamFrame(frame),
                     AppEvent::SessionEvent(event) => ShellAction::SessionEvent(event),
                     AppEvent::TaskEvent(event) => ShellAction::TaskEvent(event),
-                    AppEvent::RefreshCurrentSession => ShellAction::ReloadCurrentSession,
                     AppEvent::Error(message) => ShellAction::Error(message),
                 };
                 if process_action(&controller, terminal, &mut state, action, tx.clone()).await? {
@@ -97,9 +98,12 @@ pub async fn run_event_loop(
         }
 
         sync_task_subscription(&controller, &state, &tx, &mut selected_task_stream);
+        sync_session_subscription(&controller, &state, &tx, &mut session_stream_handle);
     }
 
-    session_stream_handle.abort();
+    if let Some(handle) = session_stream_handle.take() {
+        handle.abort();
+    }
     if let Some((_, handle)) = selected_task_stream.take() {
         handle.abort();
     }
@@ -174,5 +178,24 @@ fn sync_task_subscription(
             }
         }
         (None, None) => {}
+    }
+}
+
+fn sync_session_subscription(
+    controller: &ShellController,
+    state: &AppState,
+    tx: &mpsc::UnboundedSender<AppEvent>,
+    slot: &mut Option<tokio::task::JoinHandle<()>>,
+) {
+    match (slot.is_some(), state.is_startup_mode()) {
+        (false, false) => {
+            *slot = Some(controller.spawn_session_events(tx.clone()));
+        }
+        (true, true) => {
+            if let Some(handle) = slot.take() {
+                handle.abort();
+            }
+        }
+        _ => {}
     }
 }
