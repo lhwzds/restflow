@@ -66,7 +66,7 @@ shell-words = "1.1"
 which = "8"
 tempfile = "3.25.0"
 thiserror = "2.0.17"
-tokio = { version = "1.47.1", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }
 scopeguard = "1"
 tokio-util = "0.7"
 toml = "1.0"
