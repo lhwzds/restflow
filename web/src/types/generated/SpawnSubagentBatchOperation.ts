@@ -3,4 +3,9 @@
 /**
  * Operation for spawn_subagent_batch tool.
  */
-export type SpawnSubagentBatchOperation = "spawn" | "save_team" | "list_teams" | "get_team" | "delete_team";
+export type SpawnSubagentBatchOperation =
+  | 'spawn'
+  | 'save_team'
+  | 'list_teams'
+  | 'get_team'
+  | 'delete_team'

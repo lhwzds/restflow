@@ -3,4 +3,16 @@
 /**
  * Permission types that skills can request
  */
-export type SkillPermission = "file_read" | "file_write" | "shell_exec" | "network" | "environment" | "clipboard" | "notifications" | "keychain" | "camera" | "microphone" | "location" | { "custom": string };
+export type SkillPermission =
+  | 'file_read'
+  | 'file_write'
+  | 'shell_exec'
+  | 'network'
+  | 'environment'
+  | 'clipboard'
+  | 'notifications'
+  | 'keychain'
+  | 'camera'
+  | 'microphone'
+  | 'location'
+  | { custom: string }

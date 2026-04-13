@@ -3,40 +3,41 @@
 /**
  * Agent definition describing a spawnable agent type
  */
-export type AgentDefinition = { 
-/**
- * Unique identifier (e.g., "researcher", "coder")
- */
-id: string, 
-/**
- * Display name
- */
-name: string, 
-/**
- * Description of when to use this agent
- */
-description: string, 
-/**
- * System prompt for the agent
- */
-system_prompt: string, 
-/**
- * List of allowed tool names
- */
-allowed_tools: Array<string>, 
-/**
- * Optional specific model to use
- */
-model: string | null, 
-/**
- * Maximum iterations for ReAct loop
- */
-max_iterations: number | null, 
-/**
- * Whether this agent can be spawned by other agents
- */
-callable: boolean, 
-/**
- * Tags for categorization
- */
-tags: Array<string>, };
+export type AgentDefinition = {
+  /**
+   * Unique identifier (e.g., "researcher", "coder")
+   */
+  id: string
+  /**
+   * Display name
+   */
+  name: string
+  /**
+   * Description of when to use this agent
+   */
+  description: string
+  /**
+   * System prompt for the agent
+   */
+  system_prompt: string
+  /**
+   * List of allowed tool names
+   */
+  allowed_tools: Array<string>
+  /**
+   * Optional specific model to use
+   */
+  model: string | null
+  /**
+   * Maximum iterations for ReAct loop
+   */
+  max_iterations: number | null
+  /**
+   * Whether this agent can be spawned by other agents
+   */
+  callable: boolean
+  /**
+   * Tags for categorization
+   */
+  tags: Array<string>
+}

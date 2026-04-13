@@ -3,24 +3,25 @@
 /**
  * Webhook trigger response
  */
-export type WebhookResponse = { 
-/**
- * Whether the webhook was accepted
- */
-accepted: boolean, 
-/**
- * Run ID if task was triggered
- */
-run_id: string | null, 
-/**
- * Task ID that was triggered
- */
-task_id: string | null, 
-/**
- * Error message if not accepted
- */
-error: string | null, 
-/**
- * Timestamp when the request was processed
- */
-timestamp: number | null, };
+export type WebhookResponse = {
+  /**
+   * Whether the webhook was accepted
+   */
+  accepted: boolean
+  /**
+   * Run ID if task was triggered
+   */
+  run_id: string | null
+  /**
+   * Task ID that was triggered
+   */
+  task_id: string | null
+  /**
+   * Error message if not accepted
+   */
+  error: string | null
+  /**
+   * Timestamp when the request was processed
+   */
+  timestamp: number | null
+}

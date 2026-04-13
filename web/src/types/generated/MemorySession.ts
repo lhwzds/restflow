@@ -17,40 +17,41 @@
  * );
  * ```
  */
-export type MemorySession = { 
-/**
- * Unique identifier for this session
- */
-id: string, 
-/**
- * Agent ID this session belongs to
- */
-agent_id: string, 
-/**
- * Human-readable name/title for this session
- */
-name: string, 
-/**
- * Optional description of the session content
- */
-description: string | null, 
-/**
- * Number of chunks in this session
- */
-chunk_count: number, 
-/**
- * Total token count across all chunks
- */
-total_tokens: number, 
-/**
- * Unix timestamp in milliseconds when this session was created
- */
-created_at: number, 
-/**
- * Unix timestamp in milliseconds when this session was last updated
- */
-updated_at: number, 
-/**
- * Tags for the entire session
- */
-tags: Array<string>, };
+export type MemorySession = {
+  /**
+   * Unique identifier for this session
+   */
+  id: string
+  /**
+   * Agent ID this session belongs to
+   */
+  agent_id: string
+  /**
+   * Human-readable name/title for this session
+   */
+  name: string
+  /**
+   * Optional description of the session content
+   */
+  description: string | null
+  /**
+   * Number of chunks in this session
+   */
+  chunk_count: number
+  /**
+   * Total token count across all chunks
+   */
+  total_tokens: number
+  /**
+   * Unix timestamp in milliseconds when this session was created
+   */
+  created_at: number
+  /**
+   * Unix timestamp in milliseconds when this session was last updated
+   */
+  updated_at: number
+  /**
+   * Tags for the entire session
+   */
+  tags: Array<string>
+}

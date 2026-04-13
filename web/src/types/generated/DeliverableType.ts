@@ -3,4 +3,4 @@
 /**
  * Type of deliverable produced by an agent.
  */
-export type DeliverableType = "report" | "data" | "file" | "artifact";
+export type DeliverableType = 'report' | 'data' | 'file' | 'artifact'

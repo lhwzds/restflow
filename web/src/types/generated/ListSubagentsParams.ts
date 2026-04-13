@@ -3,12 +3,13 @@
 /**
  * Parameters for list_subagents tool.
  */
-export type ListSubagentsParams = { 
-/**
- * Include currently running agents in the response.
- */
-include_running: boolean, 
-/**
- * Parent run scope for running agents.
- */
-parent_run_id: string | null, };
+export type ListSubagentsParams = {
+  /**
+   * Include currently running agents in the response.
+   */
+  include_running: boolean
+  /**
+   * Parent run scope for running agents.
+   */
+  parent_run_id: string | null
+}

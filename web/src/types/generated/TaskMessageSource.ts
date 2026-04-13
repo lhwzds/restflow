@@ -3,4 +3,4 @@
 /**
  * Source for task communication messages.
  */
-export type TaskMessageSource = "user" | "agent" | "system";
+export type TaskMessageSource = 'user' | 'agent' | 'system'

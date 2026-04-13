@@ -3,4 +3,22 @@
 /**
  * Canonical model provider identity shared by runtime and tooling layers.
  */
-export type ModelProvider = "openai" | "anthropic" | "claude-code" | "codex" | "deepseek" | "google" | "groq" | "openrouter" | "xai" | "qwen" | "zai" | "zai-coding-plan" | "moonshot" | "doubao" | "yi" | "siliconflow" | "minimax" | "minimax-coding-plan";
+export type ModelProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'claude-code'
+  | 'codex'
+  | 'deepseek'
+  | 'google'
+  | 'groq'
+  | 'openrouter'
+  | 'xai'
+  | 'qwen'
+  | 'zai'
+  | 'zai-coding-plan'
+  | 'moonshot'
+  | 'doubao'
+  | 'yi'
+  | 'siliconflow'
+  | 'minimax'
+  | 'minimax-coding-plan'

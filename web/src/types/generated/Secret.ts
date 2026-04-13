@@ -3,4 +3,10 @@
 /**
  * A stored secret with metadata
  */
-export type Secret = { key: string, value: string, description: string | null, created_at: number, updated_at: number, };
+export type Secret = {
+  key: string
+  value: string
+  description: string | null
+  created_at: number
+  updated_at: number
+}

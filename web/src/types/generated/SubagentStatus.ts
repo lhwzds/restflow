@@ -3,4 +3,10 @@
 /**
  * Sub-agent status
  */
-export type SubagentStatus = "Pending" | "Running" | "Completed" | "Failed" | "Interrupted" | "TimedOut";
+export type SubagentStatus =
+  | 'Pending'
+  | 'Running'
+  | 'Completed'
+  | 'Failed'
+  | 'Interrupted'
+  | 'TimedOut'

@@ -3,56 +3,57 @@
 /**
  * One batch member specification.
  */
-export type BatchSubagentSpec = { 
-/**
- * Optional agent ID or name.
- *
- * If omitted, a temporary sub-agent is created from inline fields or defaults.
- */
-agent?: string, 
-/**
- * Number of identical sub-agents to spawn for this spec.
- */
-count: number, 
-/**
- * Optional transient per-spec task override.
- *
- * If omitted, top-level `task` is used. This field is never persisted in saved teams.
- */
-task?: string, 
-/**
- * Optional transient per-instance task list.
- *
- * When provided, each spawned instance uses the corresponding entry in this list.
- * This allows one worker spec to fan out with distinct prompts. This field is never
- * persisted in saved teams.
- */
-tasks?: Array<string>, 
-/**
- * Optional per-spec timeout (seconds) passed to sub-agent execution.
- */
-timeout_secs?: bigint, 
-/**
- * Optional model override.
- */
-model?: string, 
-/**
- * Optional provider override paired with model.
- */
-provider?: string, 
-/**
- * Optional name for temporary sub-agent creation.
- */
-inline_name?: string, 
-/**
- * Optional system prompt for temporary sub-agent creation.
- */
-inline_system_prompt?: string, 
-/**
- * Optional allowlist for temporary sub-agent tools.
- */
-inline_allowed_tools?: Array<string>, 
-/**
- * Optional max iterations override for temporary sub-agent creation.
- */
-inline_max_iterations?: number, };
+export type BatchSubagentSpec = {
+  /**
+   * Optional agent ID or name.
+   *
+   * If omitted, a temporary sub-agent is created from inline fields or defaults.
+   */
+  agent?: string
+  /**
+   * Number of identical sub-agents to spawn for this spec.
+   */
+  count: number
+  /**
+   * Optional transient per-spec task override.
+   *
+   * If omitted, top-level `task` is used. This field is never persisted in saved teams.
+   */
+  task?: string
+  /**
+   * Optional transient per-instance task list.
+   *
+   * When provided, each spawned instance uses the corresponding entry in this list.
+   * This allows one worker spec to fan out with distinct prompts. This field is never
+   * persisted in saved teams.
+   */
+  tasks?: Array<string>
+  /**
+   * Optional per-spec timeout (seconds) passed to sub-agent execution.
+   */
+  timeout_secs?: bigint
+  /**
+   * Optional model override.
+   */
+  model?: string
+  /**
+   * Optional provider override paired with model.
+   */
+  provider?: string
+  /**
+   * Optional name for temporary sub-agent creation.
+   */
+  inline_name?: string
+  /**
+   * Optional system prompt for temporary sub-agent creation.
+   */
+  inline_system_prompt?: string
+  /**
+   * Optional allowlist for temporary sub-agent tools.
+   */
+  inline_allowed_tools?: Array<string>
+  /**
+   * Optional max iterations override for temporary sub-agent creation.
+   */
+  inline_max_iterations?: number
+}

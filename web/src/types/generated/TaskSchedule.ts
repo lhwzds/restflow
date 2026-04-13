@@ -3,24 +3,33 @@
 /**
  * Schedule configuration for agent tasks
  */
-export type TaskSchedule = { "type": "once", 
-/**
- * Unix timestamp in milliseconds when to run
- */
-run_at: number, } | { "type": "interval", 
-/**
- * Interval in milliseconds between runs
- */
-interval_ms: number, 
-/**
- * Optional start time (defaults to now)
- */
-start_at: number | null, } | { "type": "cron", 
-/**
- * Cron expression (e.g., "0 9 * * *" for 9 AM daily)
- */
-expression: string, 
-/**
- * Timezone for the cron expression (e.g., "America/Los_Angeles")
- */
-timezone: string | null, };
+export type TaskSchedule =
+  | {
+      type: 'once'
+      /**
+       * Unix timestamp in milliseconds when to run
+       */
+      run_at: number
+    }
+  | {
+      type: 'interval'
+      /**
+       * Interval in milliseconds between runs
+       */
+      interval_ms: number
+      /**
+       * Optional start time (defaults to now)
+       */
+      start_at: number | null
+    }
+  | {
+      type: 'cron'
+      /**
+       * Cron expression (e.g., "0 9 * * *" for 9 AM daily)
+       */
+      expression: string
+      /**
+       * Timezone for the cron expression (e.g., "America/Los_Angeles")
+       */
+      timezone: string | null
+    }
