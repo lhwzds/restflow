@@ -45,14 +45,11 @@ export function extractOperationAssessment(error: unknown): OperationAssessment 
 }
 
 export function formatOperationAssessment(assessment: OperationAssessment): string {
-  const issues =
-    assessment.status === 'block' ? assessment.blockers : assessment.warnings
+  const issues = assessment.status === 'block' ? assessment.blockers : assessment.warnings
   const lines = issues
     .map((issue) => {
       const suggestion = issue.suggestion?.trim()
-      return suggestion
-        ? `- ${issue.message.trim()} (${suggestion})`
-        : `- ${issue.message.trim()}`
+      return suggestion ? `- ${issue.message.trim()} (${suggestion})` : `- ${issue.message.trim()}`
     })
     .filter((line) => line !== '-')
 

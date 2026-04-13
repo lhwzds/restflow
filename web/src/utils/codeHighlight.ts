@@ -75,7 +75,10 @@ function hasLanguageLoader(language: string): language is SupportedLanguage {
   return Object.prototype.hasOwnProperty.call(LANGUAGE_LOADERS, language)
 }
 
-async function ensureLanguageLoaded(highlighter: AppHighlighter, language: string): Promise<boolean> {
+async function ensureLanguageLoaded(
+  highlighter: AppHighlighter,
+  language: string,
+): Promise<boolean> {
   if (language === 'text' || loadedLanguages.has(language)) {
     return true
   }
