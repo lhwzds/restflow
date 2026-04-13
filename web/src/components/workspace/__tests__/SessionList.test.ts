@@ -81,14 +81,22 @@ describe('SessionList', () => {
 
     expect(wrapper.get('[data-testid="workspace-folder-session-1"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]')).toBeTruthy()
-    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').attributes('data-run-depth')).toBe('0')
-    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').text()).toContain('Run · Agent One')
+    expect(
+      wrapper.get('[data-testid="workspace-run-session-1-run-1"]').attributes('data-run-depth'),
+    ).toBe('0')
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').text()).toContain(
+      'Run · Agent One',
+    )
     await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
     expect(wrapper.find('[data-testid="workspace-run-session-1-run-1-child"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').attributes('data-run-depth')).toBe(
-      '1',
+    expect(
+      wrapper
+        .get('[data-testid="workspace-run-session-1-run-1-child"]')
+        .attributes('data-run-depth'),
+    ).toBe('1')
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain(
+      'Child',
     )
-    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain('Child')
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain(
       'Child run · Child Agent',
     )
@@ -158,7 +166,9 @@ describe('SessionList', () => {
     expect(wrapper.get('[data-testid="background-run-task-1-run-1"]')).toBeTruthy()
 
     await wrapper.get('[data-testid="background-folder-task-1"]').find('button').trigger('click')
-    const backgroundButtons = wrapper.get('[data-testid="background-run-task-1-run-1"]').findAll('button')
+    const backgroundButtons = wrapper
+      .get('[data-testid="background-run-task-1-run-1"]')
+      .findAll('button')
     await backgroundButtons[backgroundButtons.length - 1]!.trigger('click')
 
     expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
@@ -195,7 +205,9 @@ describe('SessionList', () => {
     })
 
     expect(wrapper.get('[data-testid="external-folder-telegram:conversation-1"]')).toBeTruthy()
-    expect(wrapper.get('[data-testid="external-run-telegram:conversation-1-run-external-1"]')).toBeTruthy()
+    expect(
+      wrapper.get('[data-testid="external-run-telegram:conversation-1-run-external-1"]'),
+    ).toBeTruthy()
     expect(wrapper.text()).toContain('workspace.sessionSource.telegram')
     expect(wrapper.text()).toContain('123456')
 
@@ -208,7 +220,9 @@ describe('SessionList', () => {
       .findAll('button')
     await externalButtons[externalButtons.length - 1]!.trigger('click')
 
-    const rebuildButton = wrapper.findAll('button').find((item) => item.text().includes('workspace.session.rebuild'))
+    const rebuildButton = wrapper
+      .findAll('button')
+      .find((item) => item.text().includes('workspace.session.rebuild'))
     expect(rebuildButton).toBeDefined()
     await rebuildButton!.trigger('click')
 
@@ -284,12 +298,12 @@ describe('SessionList', () => {
     await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
     await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-2"]').trigger('click')
 
-    expect(wrapper.get('[data-testid="workspace-run-state-session-1-run-1-loading"]').text()).toContain(
-      'Loading child runs',
-    )
-    expect(wrapper.get('[data-testid="workspace-run-state-session-1-run-2-error"]').text()).toContain(
-      'Failed to load child runs',
-    )
+    expect(
+      wrapper.get('[data-testid="workspace-run-state-session-1-run-1-loading"]').text(),
+    ).toContain('Loading child runs')
+    expect(
+      wrapper.get('[data-testid="workspace-run-state-session-1-run-2-error"]').text(),
+    ).toContain('Failed to load child runs')
     expect(wrapper.emitted('toggleRunChildren')).toEqual([
       ['session-1', 'run-1'],
       ['session-1', 'run-2'],

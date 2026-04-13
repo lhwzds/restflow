@@ -132,10 +132,7 @@ onMounted(() => {
 
 async function loadReferenceCounts() {
   try {
-    const [tools, skills] = await Promise.all([
-      getAvailableTools(),
-      listSkills(),
-    ])
+    const [tools, skills] = await Promise.all([getAvailableTools(), listSkills()])
     availableToolCount.value = tools.length
     availableSkillCount.value = skills.length
   } catch (error) {
@@ -245,10 +242,7 @@ async function save() {
 
         <div class="space-y-2">
           <Label>{{ t('workspace.agent.providerLabel') }}</Label>
-          <Select
-            :model-value="provider"
-            @update:model-value="provider = $event as Provider | ''"
-          >
+          <Select :model-value="provider" @update:model-value="provider = $event as Provider | ''">
             <SelectTrigger>
               <SelectValue :placeholder="t('workspace.agent.providerPlaceholder')" />
             </SelectTrigger>

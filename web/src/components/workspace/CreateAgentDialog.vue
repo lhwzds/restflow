@@ -66,9 +66,7 @@ watch(
       name.value = ''
       const firstProvider = providers.value[0]
       provider.value = firstProvider ?? ''
-      model.value = firstProvider
-        ? (modelsStore.getFirstModelByProvider(firstProvider) ?? '')
-        : ''
+      model.value = firstProvider ? (modelsStore.getFirstModelByProvider(firstProvider) ?? '') : ''
     }
   },
   { immediate: true },

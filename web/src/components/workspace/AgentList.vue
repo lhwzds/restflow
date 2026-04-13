@@ -62,11 +62,7 @@ function isDefaultAssistant(agentName: string): boolean {
             <div class="truncate text-xs text-muted-foreground font-mono">{{ agent.id }}</div>
           </div>
 
-          <div
-            v-if="!isDefaultAssistant(agent.name)"
-            class="shrink-0 self-start"
-            @click.stop
-          >
+          <div v-if="!isDefaultAssistant(agent.name)" class="shrink-0 self-start" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button

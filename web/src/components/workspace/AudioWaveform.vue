@@ -142,10 +142,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <canvas
-    ref="canvasRef"
-    class="audio-waveform"
-  />
+  <canvas ref="canvasRef" class="audio-waveform" />
 </template>
 
 <style scoped>

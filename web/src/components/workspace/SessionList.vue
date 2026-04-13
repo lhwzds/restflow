@@ -174,7 +174,10 @@ const filteredExternalFolders = computed(() => {
   return props.externalFolders.filter((f) => displayLabel(f.name).toLowerCase().includes(q))
 })
 
-function runContainsSelectedDescendant(run: RunListItem, selectedRunId: string | null | undefined): boolean {
+function runContainsSelectedDescendant(
+  run: RunListItem,
+  selectedRunId: string | null | undefined,
+): boolean {
   if (!selectedRunId) return false
   return (run.childRuns ?? []).some(
     (child) => child.runId === selectedRunId || runContainsSelectedDescendant(child, selectedRunId),
@@ -290,7 +293,9 @@ function runHierarchyLabel(run: FlattenedRunRow): string {
 }
 
 function runMetaLabel(run: FlattenedRunRow): string {
-  return [runHierarchyLabel(run), run.agentName, formatTime(run.updatedAt)].filter(Boolean).join(' · ')
+  return [runHierarchyLabel(run), run.agentName, formatTime(run.updatedAt)]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function runTitleClass(run: FlattenedRunRow): string {
@@ -310,7 +315,10 @@ function runTitleClass(run: FlattenedRunRow): string {
         <span>{{ t('workspace.newSession') }}</span>
       </button>
       <div class="relative">
-        <Search :size="11" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+        <Search
+          :size="11"
+          class="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60"
+        />
         <input
           v-model="searchQuery"
           type="text"
@@ -447,7 +455,9 @@ function runTitleClass(run: FlattenedRunRow): string {
                 />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
-                    <div class="truncate font-medium" :class="runTitleClass(run)">{{ run.title }}</div>
+                    <div class="truncate font-medium" :class="runTitleClass(run)">
+                      {{ run.title }}
+                    </div>
                     <span
                       v-if="run.depth > 0"
                       class="shrink-0 rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
@@ -468,12 +478,10 @@ function runTitleClass(run: FlattenedRunRow): string {
                   :size="12"
                   class="shrink-0 animate-spin text-muted-foreground"
                 />
-                <Activity
-                  v-else
-                  :size="12"
-                  class="shrink-0 text-destructive"
-                />
-                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{ run.message }}</span>
+                <Activity v-else :size="12" class="shrink-0 text-destructive" />
+                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{
+                  run.message
+                }}</span>
               </div>
               <button
                 v-if="run.state === 'error'"
@@ -497,7 +505,9 @@ function runTitleClass(run: FlattenedRunRow): string {
       </div>
 
       <div class="mx-3 mb-1 mt-3 border-t border-border/40" />
-      <div class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+      <div
+        class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50"
+      >
         Background Agents
       </div>
       <div
@@ -515,7 +525,9 @@ function runTitleClass(run: FlattenedRunRow): string {
         >
           <button
             class="shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
-            :aria-label="folder.expanded ? 'Collapse background folder' : 'Expand background folder'"
+            :aria-label="
+              folder.expanded ? 'Collapse background folder' : 'Expand background folder'
+            "
             @click="emit('toggleBackgroundTask', folder.taskId)"
           >
             <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="12" />
@@ -540,7 +552,11 @@ function runTitleClass(run: FlattenedRunRow): string {
               {{ folder.subtitle || formatTime(folder.updatedAt) }}
             </div>
           </button>
-          <div v-if="folder.chatSessionId" class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" @click.stop>
+          <div
+            v-if="folder.chatSessionId"
+            class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            @click.stop
+          >
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
@@ -615,7 +631,9 @@ function runTitleClass(run: FlattenedRunRow): string {
                 />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
-                    <div class="truncate font-medium" :class="runTitleClass(run)">{{ run.title }}</div>
+                    <div class="truncate font-medium" :class="runTitleClass(run)">
+                      {{ run.title }}
+                    </div>
                     <span
                       v-if="run.depth > 0"
                       class="shrink-0 rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
@@ -636,12 +654,10 @@ function runTitleClass(run: FlattenedRunRow): string {
                   :size="12"
                   class="shrink-0 animate-spin text-muted-foreground"
                 />
-                <Activity
-                  v-else
-                  :size="12"
-                  class="shrink-0 text-destructive"
-                />
-                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{ run.message }}</span>
+                <Activity v-else :size="12" class="shrink-0 text-destructive" />
+                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{
+                  run.message
+                }}</span>
               </div>
               <button
                 v-if="run.state === 'error'"
@@ -665,7 +681,9 @@ function runTitleClass(run: FlattenedRunRow): string {
       </div>
 
       <div class="mx-3 mb-1 mt-3 border-t border-border/40" />
-      <div class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+      <div
+        class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50"
+      >
         External Channels
       </div>
       <div
@@ -695,10 +713,16 @@ function runTitleClass(run: FlattenedRunRow): string {
           >
             <div class="truncate text-sm leading-snug">{{ displayLabel(folder.name) }}</div>
             <div class="flex items-center gap-1 text-[11px] text-muted-foreground/70">
-              <span class="truncate">{{ sourceLabel(folder.sourceChannel) || folder.subtitle || formatTime(folder.updatedAt) }}</span>
+              <span class="truncate">{{
+                sourceLabel(folder.sourceChannel) || folder.subtitle || formatTime(folder.updatedAt)
+              }}</span>
             </div>
           </button>
-          <div v-if="folder.latestSessionId" class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" @click.stop>
+          <div
+            v-if="folder.latestSessionId"
+            class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            @click.stop
+          >
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
@@ -773,7 +797,9 @@ function runTitleClass(run: FlattenedRunRow): string {
                 />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
-                    <div class="truncate font-medium" :class="runTitleClass(run)">{{ run.title }}</div>
+                    <div class="truncate font-medium" :class="runTitleClass(run)">
+                      {{ run.title }}
+                    </div>
                     <span
                       v-if="run.depth > 0"
                       class="shrink-0 rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
@@ -794,12 +820,10 @@ function runTitleClass(run: FlattenedRunRow): string {
                   :size="12"
                   class="shrink-0 animate-spin text-muted-foreground"
                 />
-                <Activity
-                  v-else
-                  :size="12"
-                  class="shrink-0 text-destructive"
-                />
-                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{ run.message }}</span>
+                <Activity v-else :size="12" class="shrink-0 text-destructive" />
+                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{
+                  run.message
+                }}</span>
               </div>
               <button
                 v-if="run.state === 'error'"
@@ -823,7 +847,12 @@ function runTitleClass(run: FlattenedRunRow): string {
       </div>
 
       <div
-        v-if="searchQuery && filteredWorkspaceFolders.length === 0 && filteredBackgroundFolders.length === 0 && filteredExternalFolders.length === 0"
+        v-if="
+          searchQuery &&
+          filteredWorkspaceFolders.length === 0 &&
+          filteredBackgroundFolders.length === 0 &&
+          filteredExternalFolders.length === 0
+        "
         class="px-3 py-6 text-center text-xs text-muted-foreground"
       >
         No sessions match "{{ searchQuery }}"
@@ -839,7 +868,9 @@ function runTitleClass(run: FlattenedRunRow): string {
         class="px-3 py-8 text-center"
       >
         <MessageSquare :size="28" class="mx-auto mb-2 text-muted-foreground/40" />
-        <p class="mb-1 text-sm font-medium text-muted-foreground">{{ t('workspace.noSessions') }}</p>
+        <p class="mb-1 text-sm font-medium text-muted-foreground">
+          {{ t('workspace.noSessions') }}
+        </p>
         <p class="mb-4 text-xs text-muted-foreground/70">Create a session to get started</p>
         <Button
           variant="outline"

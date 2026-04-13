@@ -73,8 +73,8 @@ async function submit() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-      <DialogContent class="max-w-[28rem]">
-        <DialogHeader>
+    <DialogContent class="max-w-[28rem]">
+      <DialogHeader>
         <DialogTitle>{{ t('workspace.session.convertToTask') }}</DialogTitle>
         <DialogDescription>{{ t('workspace.session.convertDescription') }}</DialogDescription>
       </DialogHeader>

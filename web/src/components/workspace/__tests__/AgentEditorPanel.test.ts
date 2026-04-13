@@ -256,15 +256,15 @@ describe('AgentEditorPanel', () => {
   it('saves directly without confirmation retry', async () => {
     mockGetAgent.mockResolvedValue(baseAgent())
     mockUpdateAgent.mockResolvedValueOnce({
-        ...baseAgent(),
-        agent: {
-          ...baseAgent().agent,
-          model_ref: {
-            provider: 'openai',
-            model: 'gpt-5',
-          },
+      ...baseAgent(),
+      agent: {
+        ...baseAgent().agent,
+        model_ref: {
+          provider: 'openai',
+          model: 'gpt-5',
         },
-      })
+      },
+    })
 
     const wrapper = mount(AgentEditorPanel, {
       props: {

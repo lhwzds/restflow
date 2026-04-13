@@ -45,7 +45,11 @@ describe('ChatBox', () => {
         availableAgents: [{ id: 'agent-1', name: 'Agent One', path: 'agents/agent-1' }],
         availableModels: [
           { id: 'gpt-5', name: 'GPT-5', provider: 'openai' },
-          { id: 'minimax-coding-plan-m2-5', name: 'MiniMax M2.5 Coding Plan', provider: 'minimax-coding-plan' },
+          {
+            id: 'minimax-coding-plan-m2-5',
+            name: 'MiniMax M2.5 Coding Plan',
+            provider: 'minimax-coding-plan',
+          },
           {
             id: 'minimax-coding-plan-m2-5-highspeed',
             name: 'MiniMax M2.5 Highspeed Coding Plan',

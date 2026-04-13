@@ -242,10 +242,7 @@ const groupedModels = computed(() => {
           <!-- Recording indicator with waveform -->
           <div class="flex items-center gap-1.5 text-xs text-destructive">
             <span class="w-2 h-2 rounded-full bg-destructive animate-pulse shrink-0" />
-            <AudioWaveform
-              v-if="recorder.mediaStream.value"
-              :stream="recorder.mediaStream.value"
-            />
+            <AudioWaveform v-if="recorder.mediaStream.value" :stream="recorder.mediaStream.value" />
             <span class="tabular-nums">{{ recorder.state.value.duration }}s</span>
           </div>
 
@@ -294,12 +291,14 @@ const groupedModels = computed(() => {
             <!-- Voice-to-text mode -->
             <button
               type="button"
-              :class="cn(
-                'flex items-center gap-1 px-2 h-full text-xs rounded-l-md transition-colors',
-                selectedVoiceMode === 'voice-to-text'
-                  ? 'bg-primary/15 text-primary font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-              )"
+              :class="
+                cn(
+                  'flex items-center gap-1 px-2 h-full text-xs rounded-l-md transition-colors',
+                  selectedVoiceMode === 'voice-to-text'
+                    ? 'bg-primary/15 text-primary font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                )
+              "
               :disabled="recorder.state.value.isTranscribing"
               :title="t('voice.voiceToText')"
               @click="setVoiceMode('voice-to-text')"
@@ -314,12 +313,14 @@ const groupedModels = computed(() => {
             <!-- Voice-message mode -->
             <button
               type="button"
-              :class="cn(
-                'flex items-center gap-1 px-2 h-full text-xs transition-colors',
-                selectedVoiceMode === 'voice-message'
-                  ? 'bg-primary/15 text-primary font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-              )"
+              :class="
+                cn(
+                  'flex items-center gap-1 px-2 h-full text-xs transition-colors',
+                  selectedVoiceMode === 'voice-message'
+                    ? 'bg-primary/15 text-primary font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                )
+              "
               :disabled="recorder.state.value.isTranscribing"
               :title="t('voice.sendVoice')"
               @click="setVoiceMode('voice-message')"

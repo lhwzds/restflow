@@ -111,9 +111,7 @@ const allItems = computed<PaletteItem[]>(() => {
       },
     }))
 
-  const filteredActions = actionItems.filter(
-    (item) => !q || item.label.toLowerCase().includes(q),
-  )
+  const filteredActions = actionItems.filter((item) => !q || item.label.toLowerCase().includes(q))
 
   return [...sessionItems, ...agentItems, ...filteredActions]
 })
@@ -193,7 +191,9 @@ const flatIndexMap = computed(() => {
         </template>
 
         <template v-for="[group, items] in groupedItems" :key="group">
-          <div class="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div
+            class="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60"
+          >
             {{ groupLabels[group] ?? group }}
           </div>
           <button
@@ -211,10 +211,7 @@ const flatIndexMap = computed(() => {
           >
             <component :is="item.icon" :size="14" class="shrink-0 text-muted-foreground" />
             <span class="flex-1 truncate text-left">{{ item.label }}</span>
-            <span
-              v-if="item.subtitle"
-              class="truncate text-xs text-muted-foreground max-w-[8rem]"
-            >
+            <span v-if="item.subtitle" class="truncate text-xs text-muted-foreground max-w-[8rem]">
               {{ item.subtitle }}
             </span>
             <span
@@ -228,7 +225,9 @@ const flatIndexMap = computed(() => {
       </div>
 
       <!-- Footer hint -->
-      <div class="flex items-center gap-3 border-t border-border px-4 py-2 text-[11px] text-muted-foreground/60">
+      <div
+        class="flex items-center gap-3 border-t border-border px-4 py-2 text-[11px] text-muted-foreground/60"
+      >
         <span><kbd class="font-mono">↑↓</kbd> navigate</span>
         <span><kbd class="font-mono">↵</kbd> select</span>
         <span><kbd class="font-mono">Esc</kbd> close</span>
