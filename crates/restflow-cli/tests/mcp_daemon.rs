@@ -260,9 +260,7 @@ fn parse_tool_text_json(text: &str) -> Result<Value> {
 
 fn looks_like_plain_success(text: &str) -> bool {
     let normalized = text.trim().to_ascii_lowercase();
-    normalized.contains("saved")
-        || normalized.contains("created")
-        || normalized.contains("success")
+    normalized.contains("saved") || normalized.contains("created") || normalized.contains("success")
 }
 
 fn assert_plain_success_response(response: &Value, text: &str, operation: &str) {
@@ -410,19 +408,19 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
                         }
                     }
                 }),
-        )
-        .await?;
-        let save_text = tool_call_text(&save_team);
-        if let Ok(value) = parse_tool_text_json(&save_text) {
-            value
-        } else {
-            assert_plain_success_response(&save_team, &save_text, "save_team replay");
-            json!({
-                "operation": "save_team"
-            })
-        }
-    };
-    assert_eq!(save_value["operation"], "save_team");
+            )
+            .await?;
+            let save_text = tool_call_text(&save_team);
+            if let Ok(value) = parse_tool_text_json(&save_text) {
+                value
+            } else {
+                assert_plain_success_response(&save_team, &save_text, "save_team replay");
+                json!({
+                    "operation": "save_team"
+                })
+            }
+        };
+        assert_eq!(save_value["operation"], "save_team");
     } else {
         assert_plain_success_response(&save_team_initial, &save_initial_text, "save_team");
     }

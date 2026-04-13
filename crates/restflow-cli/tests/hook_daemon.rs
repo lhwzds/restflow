@@ -30,8 +30,9 @@ impl DaemonChild {
     }
 
     fn diagnostics(&self) -> String {
-        std::fs::read_to_string(&self.log_path)
-            .unwrap_or_else(|error| format!("<failed to read {}: {error}>", self.log_path.display()))
+        std::fs::read_to_string(&self.log_path).unwrap_or_else(|error| {
+            format!("<failed to read {}: {error}>", self.log_path.display())
+        })
     }
 }
 
@@ -97,7 +98,10 @@ async fn wait_for_daemon_ready(state_dir: &Path, daemon: &mut DaemonChild) -> Re
         sleep(Duration::from_millis(100)).await;
     }
 
-    bail!("timed out waiting for daemon readiness\n{}", daemon.diagnostics())
+    bail!(
+        "timed out waiting for daemon readiness\n{}",
+        daemon.diagnostics()
+    )
 }
 
 fn parse_json_output(output: &[u8]) -> Value {
@@ -122,7 +126,11 @@ async fn hook_commands_route_through_daemon_path() -> Result<()> {
         .args(["--format", "json", "hook", "list"])
         .output()
         .context("run hook list")?;
-    assert!(list.status.success(), "{}", String::from_utf8_lossy(&list.stderr));
+    assert!(
+        list.status.success(),
+        "{}",
+        String::from_utf8_lossy(&list.stderr)
+    );
     let listed = parse_json_output(&list.stdout);
     assert_eq!(listed, Value::Array(Vec::new()));
 
@@ -144,7 +152,11 @@ async fn hook_commands_route_through_daemon_path() -> Result<()> {
         ])
         .output()
         .context("run hook create")?;
-    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
     let created_value = parse_json_output(&created.stdout);
     let hook_id = created_value["id"]
         .as_str()
@@ -156,7 +168,11 @@ async fn hook_commands_route_through_daemon_path() -> Result<()> {
         .args(["--format", "json", "hook", "test", &hook_id])
         .output()
         .context("run hook test")?;
-    assert!(tested.status.success(), "{}", String::from_utf8_lossy(&tested.stderr));
+    assert!(
+        tested.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tested.stderr)
+    );
     let tested_value = parse_json_output(&tested.stdout);
     assert_eq!(tested_value["id"], hook_id);
     assert_eq!(tested_value["tested"], true);
