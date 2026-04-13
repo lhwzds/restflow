@@ -95,7 +95,9 @@ describe('skills API', () => {
     mockedRequestTyped.mockResolvedValue(mockSkill)
 
     const { importSkillFromJson } = await import('../skills')
-    const result = await importSkillFromJson('{"id":"skill-1","name":"Test Skill","content":"# Test Content"}')
+    const result = await importSkillFromJson(
+      '{"id":"skill-1","name":"Test Skill","content":"# Test Content"}',
+    )
 
     expect(mockedRequestTyped).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -27,9 +27,7 @@ export async function getExecutionRunThread(runId: string): Promise<ExecutionThr
   })
 }
 
-export async function listChildRuns(
-  query: ChildRunListQuery,
-): Promise<RunSummary[]> {
+export async function listChildRuns(query: ChildRunListQuery): Promise<RunSummary[]> {
   return requestTyped<RunSummary[]>({
     type: 'ListChildRuns',
     data: { query },

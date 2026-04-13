@@ -201,7 +201,10 @@ describe('Marketplace API', () => {
   })
 
   it('returns install error payload when install fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('install failed', { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('install failed', { status: 500 })),
+    )
 
     const result = await installMarketplaceSkill({ id: 'skill-1' })
 

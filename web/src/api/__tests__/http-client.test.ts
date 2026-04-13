@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BackendError, fetchJson, requestOptional, requestTyped, streamClient } from '../http-client'
+import {
+  BackendError,
+  fetchJson,
+  requestOptional,
+  requestTyped,
+  streamClient,
+} from '../http-client'
 
 declare const global: typeof globalThis
 
@@ -24,10 +30,15 @@ describe('http-client', () => {
   })
 
   it('unwraps successful response envelopes', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createJsonResponse({
-      response_type: 'Success',
-      data: { ok: true },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        createJsonResponse({
+          response_type: 'Success',
+          data: { ok: true },
+        }),
+      ),
+    )
 
     const result = await requestTyped<{ ok: boolean }>({ type: 'Ping' })
 
@@ -35,29 +46,39 @@ describe('http-client', () => {
   })
 
   it('throws structured backend errors', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createJsonResponse({
-      response_type: 'Error',
-      data: {
-        code: 500,
-        kind: 'internal',
-        message: 'boom',
-        details: null,
-      },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        createJsonResponse({
+          response_type: 'Error',
+          data: {
+            code: 500,
+            kind: 'internal',
+            message: 'boom',
+            details: null,
+          },
+        }),
+      ),
+    )
 
     await expect(requestTyped({ type: 'Ping' })).rejects.toBeInstanceOf(BackendError)
   })
 
   it('returns null for typed 404 envelopes', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createJsonResponse({
-      response_type: 'Error',
-      data: {
-        code: 404,
-        kind: 'not_found',
-        message: 'missing',
-        details: null,
-      },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        createJsonResponse({
+          response_type: 'Error',
+          data: {
+            code: 404,
+            kind: 'not_found',
+            message: 'missing',
+            details: null,
+          },
+        }),
+      ),
+    )
 
     const result = await requestOptional({ type: 'GetThing' })
     expect(result).toBeNull()

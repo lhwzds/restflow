@@ -6,10 +6,7 @@ import {
   listExecutionContainers,
   listRuns,
 } from '../execution-console'
-import {
-  listChildExecutionSessions,
-  listExecutionSessions,
-} from '../execution-sessions'
+import { listChildExecutionSessions, listExecutionSessions } from '../execution-sessions'
 import { requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
@@ -55,7 +52,10 @@ describe('execution-console api', () => {
   })
 
   it('requests execution thread by run id', async () => {
-    vi.mocked(requestTyped).mockResolvedValue({ focus: {}, timeline: { events: [], stats: {} } } as any)
+    vi.mocked(requestTyped).mockResolvedValue({
+      focus: {},
+      timeline: { events: [], stats: {} },
+    } as any)
 
     await getExecutionRunThread('run-1')
 

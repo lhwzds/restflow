@@ -68,8 +68,7 @@ export async function updateHook(id: string, request: UpdateHookRequest): Promis
   const hook: Hook = {
     ...existing,
     name: request.name !== undefined ? request.name : existing.name,
-    description:
-      request.description !== undefined ? request.description : existing.description,
+    description: request.description !== undefined ? request.description : existing.description,
     event: request.event !== undefined ? request.event : existing.event,
     action: request.action !== undefined ? request.action : existing.action,
     filter: request.filter !== undefined ? request.filter : existing.filter,

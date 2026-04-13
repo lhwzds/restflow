@@ -26,17 +26,15 @@ describe('Secrets API', () => {
   })
 
   it('creates a secret and reloads metadata', async () => {
-    mockedRequestTyped
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce([
-        {
-          key: 'NEW_KEY',
-          value: '',
-          description: 'Test description',
-          created_at: 1000,
-          updated_at: 1000,
-        },
-      ])
+    mockedRequestTyped.mockResolvedValueOnce(undefined).mockResolvedValueOnce([
+      {
+        key: 'NEW_KEY',
+        value: '',
+        description: 'Test description',
+        created_at: 1000,
+        updated_at: 1000,
+      },
+    ])
 
     const result = await secretsApi.createSecret('NEW_KEY', 'secret-value', 'Test description')
 

@@ -51,11 +51,11 @@ function normalizeIpcResponse(payload: RawEnvelope): IpcResponse {
           payload.data !== undefined
             ? (payload.data as ErrorPayload)
             : ({
-            code: 500,
-            kind: 'internal',
-            message: 'Unknown daemon error',
-            details: null,
-          } as ErrorPayload),
+                code: 500,
+                kind: 'internal',
+                message: 'Unknown daemon error',
+                details: null,
+              } as ErrorPayload),
       }
     case 'pong':
       return { response_type: 'pong' }

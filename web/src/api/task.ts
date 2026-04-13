@@ -75,10 +75,7 @@ export async function steerTask(taskId: string, instruction: string): Promise<St
   })
 }
 
-export async function getTaskEvents(
-  taskId: string,
-  limit?: number,
-): Promise<TaskEvent[]> {
+export async function getTaskEvents(taskId: string, limit?: number): Promise<TaskEvent[]> {
   const events = await requestTyped<TaskEvent[]>({
     type: 'GetTaskHistory',
     data: { id: taskId },
@@ -132,10 +129,7 @@ export async function createTaskFromSession(
   })
 }
 
-export async function updateTask(
-  id: string,
-  request: UpdateTaskRequest,
-): Promise<Task> {
+export async function updateTask(id: string, request: UpdateTaskRequest): Promise<Task> {
   return requestTyped<Task>({
     type: 'UpdateTask',
     data: {

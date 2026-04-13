@@ -22,9 +22,7 @@ describe('execution-traces api', () => {
   })
 
   it('wraps provider health and execution trace queries', async () => {
-    vi.mocked(requestTyped)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ events: [] })
+    vi.mocked(requestTyped).mockResolvedValueOnce([]).mockResolvedValueOnce({ events: [] })
 
     await queryExecutionTraces({
       task_id: 'task-1',
