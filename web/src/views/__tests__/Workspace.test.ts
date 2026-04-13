@@ -17,7 +17,11 @@ const mockListRuns = vi.fn()
 const mockListChildRuns = vi.fn()
 const mockGetExecutionRunThread = vi.fn()
 const mockConfirm = vi.fn()
-const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
+const mockRoute = reactive<{
+  name: string
+  params: Record<string, string>
+  query: Record<string, string>
+}>({
   name: 'workspace',
   params: {},
   query: {},
@@ -718,7 +722,9 @@ describe('Workspace', () => {
     const wrapper = mountWorkspace()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="mock-workspace-run-session-1-run-child"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mock-workspace-run-session-1-run-child"]').exists()).toBe(
+      true,
+    )
     expect(mockListChildRuns).toHaveBeenCalledWith({
       parent_run_id: 'run-1',
     })

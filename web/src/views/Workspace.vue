@@ -173,7 +173,10 @@ function startSidebarResize(event: MouseEvent) {
   event.preventDefault()
 }
 
-function normalizeSessionStatus(status: string, isSelected: boolean): WorkspaceSessionFolder['status'] {
+function normalizeSessionStatus(
+  status: string,
+  isSelected: boolean,
+): WorkspaceSessionFolder['status'] {
   if (isSelected && isSending.value) {
     return 'running'
   }
@@ -249,9 +252,14 @@ const workspaceFolders = computed<WorkspaceSessionFolder[]>(() =>
       agentId: container.agent_id ?? undefined,
       agentName: agentNameForId(container.agent_id),
       sourceChannel: container.source_channel ?? null,
-      runs: (workspaceRunsByContainerId.value[container.id] ?? []).map((summary) => toRunListItem(summary)),
+      runs: (workspaceRunsByContainerId.value[container.id] ?? []).map((summary) =>
+        toRunListItem(summary),
+      ),
     }))
-    .sort((left, right) => right.updatedAt - left.updatedAt || left.containerId.localeCompare(right.containerId)),
+    .sort(
+      (left, right) =>
+        right.updatedAt - left.updatedAt || left.containerId.localeCompare(right.containerId),
+    ),
 )
 
 const backgroundFolders = computed<BackgroundTaskFolder[]>(() =>
@@ -263,7 +271,9 @@ const backgroundFolders = computed<BackgroundTaskFolder[]>(() =>
     status: container.status ?? 'idle',
     updatedAt: container.updated_at,
     expanded: expandedBackgroundTaskIds.value.has(container.id),
-    runs: (backgroundRunsByTaskId.value[container.id] ?? []).map((summary) => toRunListItem(summary)),
+    runs: (backgroundRunsByTaskId.value[container.id] ?? []).map((summary) =>
+      toRunListItem(summary),
+    ),
   })),
 )
 
@@ -277,7 +287,9 @@ const externalFolders = computed<ExternalChannelFolder[]>(() =>
     updatedAt: container.updated_at,
     expanded: expandedExternalContainerIds.value.has(container.id),
     sourceChannel: container.source_channel ?? null,
-    runs: (externalRunsByContainerId.value[container.id] ?? []).map((summary) => toRunListItem(summary)),
+    runs: (externalRunsByContainerId.value[container.id] ?? []).map((summary) =>
+      toRunListItem(summary),
+    ),
   })),
 )
 
@@ -331,11 +343,19 @@ const containerEmptyStateDescription = computed(() => {
 const containerNotFoundTitle = computed(() => t('workspace.container.notFoundTitle'))
 const containerNotFoundDescription = computed(() => t('workspace.container.notFoundDescription'))
 
-const chatPanelSelectedRunId = computed(() => activeRunId.value ?? (routeContainerRunId.value || null))
-const chatPanelContainerId = computed(
-  () => activeContainerId.value ?? (routeContainerId.value || null) ?? chatSessionStore.currentSessionId ?? null,
+const chatPanelSelectedRunId = computed(
+  () => activeRunId.value ?? (routeContainerRunId.value || null),
 )
-const chatPanelAutoSelectRecent = computed(() => !routeContainerId.value && !routeContainerRunId.value)
+const chatPanelContainerId = computed(
+  () =>
+    activeContainerId.value ??
+    (routeContainerId.value || null) ??
+    chatSessionStore.currentSessionId ??
+    null,
+)
+const chatPanelAutoSelectRecent = computed(
+  () => !routeContainerId.value && !routeContainerRunId.value,
+)
 const showRunOverviewPanel = computed(
   () =>
     sidebarMode.value === 'sessions' &&
@@ -412,7 +432,8 @@ async function onNewSession() {
     toast.error(t('chat.selectAgentToStart'))
     return
   }
-  const fallbackModel = referenceSession?.model ?? agentModelById.value.get(fallbackAgentId) ?? 'gpt-5'
+  const fallbackModel =
+    referenceSession?.model ?? agentModelById.value.get(fallbackAgentId) ?? 'gpt-5'
 
   const session = await chatSessionStore.createSession(fallbackAgentId, fallbackModel)
   if (!session) {
@@ -770,7 +791,8 @@ async function onToggleBackgroundTask(taskId: string) {
   try {
     await ensureBackgroundRunsLoaded(taskId)
   } catch (error) {
-    const message = error instanceof Error ? error.message : t('backgroundAgent.runTraceDescription')
+    const message =
+      error instanceof Error ? error.message : t('backgroundAgent.runTraceDescription')
     toast.error(message)
   }
 }
@@ -793,7 +815,10 @@ async function onToggleExternalChannel(containerId: string) {
   }
 }
 
-async function onSelectContainer(kind: 'workspace' | 'background_task' | 'external_channel', containerId: string) {
+async function onSelectContainer(
+  kind: 'workspace' | 'background_task' | 'external_channel',
+  containerId: string,
+) {
   sidebarMode.value = 'sessions'
   const container = findContainerById(containerId)
   const latestRunId = container?.latest_run_id ?? null
@@ -876,7 +901,11 @@ async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = fal
   activeBackgroundTaskId.value = null
 }
 
-async function resolveRunRoute(runId: string, version: number, expectedContainerId: string | null = null) {
+async function resolveRunRoute(
+  runId: string,
+  version: number,
+  expectedContainerId: string | null = null,
+) {
   const thread = await ensureRunThreadLoaded(runId, true)
 
   if (version !== routeResolutionVersion) return
@@ -1080,7 +1109,9 @@ async function onRebuildSession(id: string, name: string) {
     await chatSessionStore.selectSession(rebuilt.id)
     const rebuiltContainer = findContainerBySessionId(rebuilt.id)
     if (rebuiltContainer?.latest_run_id) {
-      await router.push(canonicalContainerRunRoute(rebuiltContainer.id, rebuiltContainer.latest_run_id))
+      await router.push(
+        canonicalContainerRunRoute(rebuiltContainer.id, rebuiltContainer.latest_run_id),
+      )
     } else if (rebuiltContainer) {
       await router.push(canonicalContainerRoute(rebuiltContainer.id))
     }
@@ -1259,7 +1290,8 @@ watch(convertDialogOpen, (open, previous) => {
 
 function handleGlobalKeydown(e: KeyboardEvent) {
   const target = e.target instanceof HTMLElement ? e.target : null
-  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const activeElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null
   const effectiveTarget = target ?? activeElement
   const isEditableTarget =
     !!effectiveTarget &&
@@ -1312,7 +1344,12 @@ onUnmounted(() => {
 
     <SettingsPanel v-if="showSettings" class="flex-1" @back="showSettings = false" />
 
-    <div v-show="!showSettings" ref="workspaceContentRef" class="flex flex-1 min-w-0" data-testid="workspace-content">
+    <div
+      v-show="!showSettings"
+      ref="workspaceContentRef"
+      class="flex flex-1 min-w-0"
+      data-testid="workspace-content"
+    >
       <div
         class="border-r border-border shrink-0 flex flex-col"
         :style="sidebarStyle"
@@ -1463,10 +1500,7 @@ onUnmounted(() => {
       <ToolPanel
         v-if="
           sidebarMode === 'sessions' &&
-          (
-            (toolPanel.visible.value && toolPanel.activeEntry.value) ||
-            showRunOverviewPanel
-          )
+          ((toolPanel.visible.value && toolPanel.activeEntry.value) || showRunOverviewPanel)
         "
         :mode="toolPanel.visible.value && toolPanel.activeEntry.value ? 'detail' : 'overview'"
         :panel-type="toolPanel.state.value.panelType"
