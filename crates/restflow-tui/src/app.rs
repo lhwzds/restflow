@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::cursor::{Hide, Show};
-use crossterm::execute;
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
