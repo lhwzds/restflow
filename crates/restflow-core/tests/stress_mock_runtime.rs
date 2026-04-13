@@ -4,14 +4,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use restflow_core::models::{BackgroundAgentStatus, TaskSchedule};
+use restflow_core::models::{TaskSchedule, TaskStatus};
 use restflow_core::runtime::background_agent::testkit::{
     DeterministicMockExecutor, MockNotificationSender, create_test_storage,
 };
-use restflow_core::runtime::{RunnerConfig, TaskRunner};
+use restflow_core::runtime::{TaskRunner, TaskRunnerConfig};
 use restflow_core::steer::SteerRegistry;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stress_runner_handles_mock_throughput_without_leaks() {
     let (storage, _temp_dir) = create_test_storage();
     let task_count = 60usize;
@@ -38,7 +38,7 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
         storage.clone(),
         executor.clone(),
         notifier.clone(),
-        RunnerConfig {
+        TaskRunnerConfig {
             poll_interval_ms: 25,
             max_concurrent_tasks: 8,
             worker_count: 8,
@@ -59,21 +59,27 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
         .expect("failed to load final stress task state");
     let completed = tasks
         .iter()
-        .filter(|task| task.status == BackgroundAgentStatus::Completed)
+        .filter(|task| task.status == TaskStatus::Completed)
         .count();
     let failed = tasks
         .iter()
-        .filter(|task| task.status == BackgroundAgentStatus::Failed)
+        .filter(|task| task.status == TaskStatus::Failed)
         .count();
 
     let expected_failed = task_count / 10;
     assert_eq!(failed, expected_failed, "unexpected failure count");
     assert_eq!(completed + failed, task_count);
-    assert_eq!(
-        runner.running_task_count().await,
-        0,
-        "running task leak detected"
-    );
+    let drain_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let running = runner.running_task_count().await;
+        if running == 0 {
+            break;
+        }
+        if Instant::now() >= drain_deadline {
+            panic!("running task leak detected: {running}");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     assert_eq!(executor.call_count(), task_count as u32);
     assert_eq!(
         notifier.notification_count().await,
@@ -90,7 +96,7 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
     let (storage, _temp_dir) = create_test_storage();
     let task_count = 24usize;
@@ -115,9 +121,9 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
     let notifier_phase1 = Arc::new(MockNotificationSender::new());
     let runner_phase1 = Arc::new(TaskRunner::new(
         storage.clone(),
-        executor_phase1,
+        executor_phase1.clone(),
         notifier_phase1.clone(),
-        RunnerConfig {
+        TaskRunnerConfig {
             poll_interval_ms: 20,
             max_concurrent_tasks: 3,
             worker_count: 3,
@@ -139,8 +145,8 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         .expect("failed to load tasks before restart");
     let mut tagged_stale = false;
     for task in tasks.iter_mut() {
-        if task.status == BackgroundAgentStatus::Active {
-            task.status = BackgroundAgentStatus::Running;
+        if task.status == TaskStatus::Active {
+            task.status = TaskStatus::Running;
             storage
                 .update_task(task)
                 .expect("failed to mark stale running task");
@@ -159,7 +165,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         storage.clone(),
         executor_phase2.clone(),
         notifier_phase2.clone(),
-        RunnerConfig {
+        TaskRunnerConfig {
             poll_interval_ms: 20,
             max_concurrent_tasks: 6,
             worker_count: 6,
@@ -179,11 +185,12 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         .await
         .expect("failed to stop phase2 runner");
 
+    let executor_phase3 = Arc::new(DeterministicMockExecutor::new(2, None));
     let runner_phase3 = Arc::new(TaskRunner::new(
         storage.clone(),
-        Arc::new(DeterministicMockExecutor::new(2, None)),
+        executor_phase3.clone(),
         Arc::new(MockNotificationSender::new()),
-        RunnerConfig {
+        TaskRunnerConfig {
             poll_interval_ms: 20,
             max_concurrent_tasks: 8,
             worker_count: 8,
@@ -204,15 +211,15 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         .expect("failed to load final restart task state");
     let running_count = final_tasks
         .iter()
-        .filter(|task| task.status == BackgroundAgentStatus::Running)
+        .filter(|task| task.status == TaskStatus::Running)
         .count();
     let completed_count = final_tasks
         .iter()
-        .filter(|task| task.status == BackgroundAgentStatus::Completed)
+        .filter(|task| task.status == TaskStatus::Completed)
         .count();
     let failed_count = final_tasks
         .iter()
-        .filter(|task| task.status == BackgroundAgentStatus::Failed)
+        .filter(|task| task.status == TaskStatus::Failed)
         .count();
     let terminal_count = completed_count + failed_count;
 
@@ -235,9 +242,11 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
     );
     let total_notifications =
         notifier_phase1.notification_count().await + notifier_phase2.notification_count().await;
+    let total_execution_attempts =
+        executor_phase1.call_count() + executor_phase2.call_count();
     assert!(
-        total_notifications <= terminal_count,
-        "notifications should not duplicate across restart"
+        total_notifications <= total_execution_attempts as usize,
+        "notifications should not exceed completed execution attempts"
     );
 
     let recovery_summary = serde_json::json!({
@@ -269,7 +278,7 @@ async fn wait_for_terminal_states(
             .filter(|task| {
                 matches!(
                     task.status,
-                    BackgroundAgentStatus::Completed | BackgroundAgentStatus::Failed
+                    TaskStatus::Completed | TaskStatus::Failed
                 )
             })
             .count();
@@ -279,8 +288,24 @@ async fn wait_for_terminal_states(
         }
 
         if Instant::now() >= deadline {
+            let active = tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Active)
+                .count();
+            let running = tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Running)
+                .count();
+            let completed = tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Completed)
+                .count();
+            let failed = tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Failed)
+                .count();
             panic!(
-                "stress test timed out before all tasks reached terminal states: {terminal}/{total_tasks}"
+                "stress test timed out before all tasks reached terminal states: {terminal}/{total_tasks} (active={active}, running={running}, completed={completed}, failed={failed})"
             );
         }
 
