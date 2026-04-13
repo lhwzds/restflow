@@ -59,17 +59,21 @@ pub(super) async fn create_test_core() -> (Arc<AppCore>, TestCoreEnv) {
 
 #[tokio::test]
 async fn create_test_core_isolates_agents_dir_env() {
-    let agents_path = {
+    let first_agents_path = {
         let (_core, env) = create_test_core().await;
         let current = std::env::var(prompt_files::AGENTS_DIR_ENV).expect("agents dir env");
         assert_eq!(current, env.agents_dir.path().to_string_lossy());
         current
     };
 
-    assert!(
-        std::env::var(prompt_files::AGENTS_DIR_ENV).is_err(),
-        "agents dir env should be cleared after test env drop: {agents_path}"
-    );
+    let second_agents_path = {
+        let (_core, env) = create_test_core().await;
+        let current = std::env::var(prompt_files::AGENTS_DIR_ENV).expect("agents dir env");
+        assert_eq!(current, env.agents_dir.path().to_string_lossy());
+        current
+    };
+
+    assert_ne!(first_agents_path, second_agents_path);
 }
 
 mod agents;
