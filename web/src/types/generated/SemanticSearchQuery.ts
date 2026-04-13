@@ -3,4 +3,11 @@
 /**
  * Query parameters for semantic vector search.
  */
-export type SemanticSearchQuery = { agent_id: string, query_text: string, top_k: number, min_score: number | null, tags: Array<string>, session_id: string | null, };
+export type SemanticSearchQuery = {
+  agent_id: string
+  query_text: string
+  top_k: number
+  min_score: number | null
+  tags: Array<string>
+  session_id: string | null
+}

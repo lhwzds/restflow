@@ -3,20 +3,21 @@
 /**
  * Resource guardrails for background agent executions.
  */
-export type ResourceLimits = { 
-/**
- * Maximum tool calls allowed in one execution.
- */
-max_tool_calls: number, 
-/**
- * Maximum execution duration in seconds.
- */
-max_duration_secs: bigint, 
-/**
- * Maximum output payload size in bytes for tool results.
- */
-max_output_bytes: number, 
-/**
- * Maximum estimated LLM cost in USD for one execution.
- */
-max_cost_usd: number | null, };
+export type ResourceLimits = {
+  /**
+   * Maximum tool calls allowed in one execution.
+   */
+  max_tool_calls: number
+  /**
+   * Maximum execution duration in seconds.
+   */
+  max_duration_secs: bigint
+  /**
+   * Maximum output payload size in bytes for tool results.
+   */
+  max_output_bytes: number
+  /**
+   * Maximum estimated LLM cost in USD for one execution.
+   */
+  max_cost_usd: number | null
+}

@@ -3,16 +3,17 @@
 /**
  * Warning event for issues detected during execution
  */
-export type HeartbeatWarning = { 
-/**
- * Warning code for categorization
- */
-code: string, 
-/**
- * Human-readable warning message
- */
-message: string, 
-/**
- * Timestamp of the warning
- */
-timestamp: number, };
+export type HeartbeatWarning = {
+  /**
+   * Warning code for categorization
+   */
+  code: string
+  /**
+   * Human-readable warning message
+   */
+  message: string
+  /**
+   * Timestamp of the warning
+   */
+  timestamp: number
+}

@@ -3,24 +3,25 @@
 /**
  * Model routing configuration for automatic tier-based model selection.
  */
-export type ModelRoutingConfig = { 
-/**
- * Enable automatic model routing.
- */
-enabled: boolean, 
-/**
- * Model for routine tasks (cheapest).
- */
-routine_model?: string, 
-/**
- * Model for moderate tasks.
- */
-moderate_model?: string, 
-/**
- * Model for complex tasks (most capable).
- */
-complex_model?: string, 
-/**
- * Escalate to complex tier after a failed iteration.
- */
-escalate_on_failure: boolean, };
+export type ModelRoutingConfig = {
+  /**
+   * Enable automatic model routing.
+   */
+  enabled: boolean
+  /**
+   * Model for routine tasks (cheapest).
+   */
+  routine_model?: string
+  /**
+   * Model for moderate tasks.
+   */
+  moderate_model?: string
+  /**
+   * Model for complex tasks (most capable).
+   */
+  complex_model?: string
+  /**
+   * Escalate to complex tier after a failed iteration.
+   */
+  escalate_on_failure: boolean
+}

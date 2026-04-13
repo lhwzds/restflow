@@ -3,16 +3,17 @@
 /**
  * Notification configuration for task results
  */
-export type NotificationConfig = { 
-/**
- * Only notify on failure
- */
-notify_on_failure_only: boolean, 
-/**
- * Include full output in notification
- */
-include_output: boolean, 
-/**
- * Broadcast per-step tool execution updates to configured channels
- */
-broadcast_steps: boolean, };
+export type NotificationConfig = {
+  /**
+   * Only notify on failure
+   */
+  notify_on_failure_only: boolean
+  /**
+   * Include full output in notification
+   */
+  include_output: boolean
+  /**
+   * Broadcast per-step tool execution updates to configured channels
+   */
+  broadcast_steps: boolean
+}

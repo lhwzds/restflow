@@ -3,4 +3,4 @@
 /**
  * Delivery state of task communication messages.
  */
-export type TaskMessageStatus = "queued" | "delivered" | "consumed" | "failed";
+export type TaskMessageStatus = 'queued' | 'delivered' | 'consumed' | 'failed'
