@@ -1,7 +1,7 @@
+use std::collections::VecDeque;
 use std::io;
 use std::thread;
 use std::time::Duration;
-use std::collections::VecDeque;
 
 use anyhow::Result;
 use crossterm::event::{self, Event};
@@ -48,7 +48,8 @@ pub async fn run_event_loop(
         ShellAction::RefreshTick,
         tx.clone(),
     )
-    .await? {
+    .await?
+    {
         return Ok(());
     }
     if let Some(message) = state.take_pending_initial_message()
@@ -112,15 +113,17 @@ pub async fn run_event_loop(
 }
 
 fn spawn_input_thread(tx: mpsc::UnboundedSender<AppEvent>) -> thread::JoinHandle<()> {
-    thread::spawn(move || loop {
-        if let Ok(true) = event::poll(Duration::from_millis(100)) {
-            match event::read() {
-                Ok(event) => {
-                    if tx.send(AppEvent::Terminal(event)).is_err() {
-                        break;
+    thread::spawn(move || {
+        loop {
+            if let Ok(true) = event::poll(Duration::from_millis(100)) {
+                match event::read() {
+                    Ok(event) => {
+                        if tx.send(AppEvent::Terminal(event)).is_err() {
+                            break;
+                        }
                     }
+                    Err(_) => break,
                 }
-                Err(_) => break,
             }
         }
     })
@@ -167,10 +170,15 @@ fn sync_task_subscription(
     match (slot.as_ref().map(|(id, _)| id.clone()), desired) {
         (Some(current), Some(desired)) if current == desired => {}
         (current, Some(desired)) => {
-            if current.is_some() && let Some((_, handle)) = slot.take() {
+            if current.is_some()
+                && let Some((_, handle)) = slot.take()
+            {
                 handle.abort();
             }
-            *slot = Some((desired.clone(), controller.spawn_task_events(desired, tx.clone())));
+            *slot = Some((
+                desired.clone(),
+                controller.spawn_task_events(desired, tx.clone()),
+            ));
         }
         (Some(_), None) => {
             if let Some((_, handle)) = slot.take() {

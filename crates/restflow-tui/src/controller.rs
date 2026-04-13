@@ -72,10 +72,7 @@ impl ShellController {
                 agent_override,
                 session_override,
             } => match self
-                .start_daemon_actions(
-                    agent_override.as_deref(),
-                    session_override.as_deref(),
-                )
+                .start_daemon_actions(agent_override.as_deref(), session_override.as_deref())
                 .await
             {
                 Ok(actions) => Ok(actions),
@@ -86,14 +83,19 @@ impl ShellController {
                 self.submit_message_effect(state, message, tx).await?;
                 Ok(Vec::new())
             }
-            ShellEffect::ExecuteSlashCommand(command) => self.slash_command_actions(state, command).await,
-            ShellEffect::RejectSelectedApproval => self.reject_selected_approval_actions(state).await,
+            ShellEffect::ExecuteSlashCommand(command) => {
+                self.slash_command_actions(state, command).await
+            }
+            ShellEffect::RejectSelectedApproval => {
+                self.reject_selected_approval_actions(state).await
+            }
             ShellEffect::ClearScreen => Ok(Vec::new()),
         }
     }
 
     async fn refresh_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let sessions: Vec<ChatSessionSummary> = self.client.list_sessions().await.unwrap_or_default();
+        let sessions: Vec<ChatSessionSummary> =
+            self.client.list_sessions().await.unwrap_or_default();
         let runs = if let Some(session_id) = state.current_session_id() {
             self.client
                 .list_runs_for_session(session_id)
@@ -103,10 +105,7 @@ impl ShellController {
             Vec::new()
         };
 
-        let mut actions = vec![ShellAction::StateRefreshed {
-            sessions,
-            runs,
-        }];
+        let mut actions = vec![ShellAction::StateRefreshed { sessions, runs }];
 
         if let Some(team_run_id) = state
             .current_team_state
@@ -161,7 +160,8 @@ impl ShellController {
     ) -> Result<ShellAction> {
         let agent = self.resolve_default_agent(explicit_agent).await?;
         let session = if let Some(agent) = agent.as_ref() {
-            self.resolve_or_create_session(agent, session_override).await?
+            self.resolve_or_create_session(agent, session_override)
+                .await?
         } else {
             None
         };
@@ -198,11 +198,16 @@ impl ShellController {
                 }])
             }
             Some(OverlayState::RunPicker { .. }) => {
-                let Some(RunPickerItem::Run { run_id, .. }) = state.selected_run_picker_item() else {
+                let Some(RunPickerItem::Run { run_id, .. }) = state.selected_run_picker_item()
+                else {
                     return Ok(Vec::new());
                 };
                 let thread = self.client.get_execution_run_thread(&run_id).await?;
-                let child_runs = self.client.list_child_runs(&run_id).await.unwrap_or_default();
+                let child_runs = self
+                    .client
+                    .list_child_runs(&run_id)
+                    .await
+                    .unwrap_or_default();
                 let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
                     self.client.get_session(session_id).await.ok()
                 } else {
@@ -216,7 +221,9 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            Some(OverlayState::ApprovalPicker { .. }) => self.approve_selected_approval_actions(state).await,
+            Some(OverlayState::ApprovalPicker { .. }) => {
+                self.approve_selected_approval_actions(state).await
+            }
             Some(OverlayState::TeamView { .. }) | Some(OverlayState::Help) | None => Ok(Vec::new()),
         }
     }
@@ -251,7 +258,11 @@ impl ShellController {
             }
             SlashCommand::OpenRun { run_id } => {
                 let thread = self.client.get_execution_run_thread(&run_id).await?;
-                let child_runs = self.client.list_child_runs(&run_id).await.unwrap_or_default();
+                let child_runs = self
+                    .client
+                    .list_child_runs(&run_id)
+                    .await
+                    .unwrap_or_default();
                 let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
                     self.client.get_session(session_id).await.ok()
                 } else {
@@ -265,7 +276,9 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            SlashCommand::TeamState { team_run_id } => self.load_team_actions(&team_run_id, true).await,
+            SlashCommand::TeamState { team_run_id } => {
+                self.load_team_actions(&team_run_id, true).await
+            }
             SlashCommand::TeamStart { saved_team } => {
                 let output = self
                     .client
@@ -278,7 +291,11 @@ impl ShellController {
                     )
                     .await?;
                 if !output.success {
-                    bail!(output.error.unwrap_or_else(|| "manage_teams failed".to_string()));
+                    bail!(
+                        output
+                            .error
+                            .unwrap_or_else(|| "manage_teams failed".to_string())
+                    );
                 }
                 let team_state = serde_json::from_value::<TeamState>(output.result["team"].clone())
                     .ok()
@@ -290,11 +307,17 @@ impl ShellController {
                 actions.extend(self.load_team_actions(&team_run_id, true).await?);
                 Ok(actions)
             }
-            SlashCommand::Approve { approval_id } => self.approve_named_approval_actions(state, &approval_id).await,
+            SlashCommand::Approve { approval_id } => {
+                self.approve_named_approval_actions(state, &approval_id)
+                    .await
+            }
             SlashCommand::Reject {
                 approval_id,
                 reason,
-            } => self.reject_named_approval_actions(state, &approval_id, reason).await,
+            } => {
+                self.reject_named_approval_actions(state, &approval_id, reason)
+                    .await
+            }
         }
     }
 
@@ -303,15 +326,20 @@ impl ShellController {
             .selected_approval()
             .map(|approval| approval.approval_id.clone())
             .ok_or_else(|| anyhow::anyhow!("No approval selected"))?;
-        self.reject_named_approval_actions(state, &approval_id, None).await
+        self.reject_named_approval_actions(state, &approval_id, None)
+            .await
     }
 
-    async fn approve_selected_approval_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
+    async fn approve_selected_approval_actions(
+        &self,
+        state: &AppState,
+    ) -> Result<Vec<ShellAction>> {
         let approval_id = state
             .selected_approval()
             .map(|approval| approval.approval_id.clone())
             .ok_or_else(|| anyhow::anyhow!("No approval selected"))?;
-        self.approve_named_approval_actions(state, &approval_id).await
+        self.approve_named_approval_actions(state, &approval_id)
+            .await
     }
 
     async fn approve_named_approval_actions(
@@ -340,14 +368,20 @@ impl ShellController {
             )
             .await?;
         if !output.success {
-            bail!(output.error.unwrap_or_else(|| "approval failed".to_string()));
+            bail!(
+                output
+                    .error
+                    .unwrap_or_else(|| "approval failed".to_string())
+            );
         }
 
         let mut actions = self.load_team_actions(&team_run_id, false).await?;
         actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
             content: format!("Approval {approval_id} approved"),
         }));
-        actions.push(ShellAction::StatusUpdated(format!("Approved {approval_id}")));
+        actions.push(ShellAction::StatusUpdated(format!(
+            "Approved {approval_id}"
+        )));
         Ok(actions)
     }
 
@@ -386,7 +420,9 @@ impl ShellController {
         actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
             content: format!("Approval {approval_id} rejected"),
         }));
-        actions.push(ShellAction::StatusUpdated(format!("Rejected {approval_id}")));
+        actions.push(ShellAction::StatusUpdated(format!(
+            "Rejected {approval_id}"
+        )));
         Ok(actions)
     }
 

@@ -1,16 +1,18 @@
 use anyhow::{Result, bail};
+use restflow_contracts::ToolExecutionResult;
 use restflow_contracts::request::ChildRunListQuery;
 use restflow_core::daemon::ChatSessionEvent;
 use restflow_core::daemon::{
     DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available, start_daemon_with_config,
 };
 use restflow_core::models::{
-    ChatSession, ChatSessionSummary,
-    ExecutionContainerKind, ExecutionContainerRef, ExecutionThread, RunListQuery, RunSummary, Task,
+    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
+    ExecutionThread, RunListQuery, RunSummary, Task,
 };
 use restflow_core::paths;
-use restflow_core::storage::agent::{DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent};
-use restflow_contracts::ToolExecutionResult;
+use restflow_core::storage::agent::{
+    DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
+};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
@@ -79,7 +81,10 @@ impl TuiDaemonClient {
         client.get_agent(id.to_string()).await
     }
 
-    pub async fn resolve_default_agent(&self, explicit: Option<&str>) -> Result<Option<StoredAgent>> {
+    pub async fn resolve_default_agent(
+        &self,
+        explicit: Option<&str>,
+    ) -> Result<Option<StoredAgent>> {
         if let Some(id) = explicit {
             return self.get_agent(id).await.map(Some);
         }
@@ -99,7 +104,11 @@ impl TuiDaemonClient {
 
         if let Some(agent) = agents
             .iter()
-            .find(|agent| agent.name.eq_ignore_ascii_case(LEGACY_DEFAULT_ASSISTANT_NAME))
+            .find(|agent| {
+                agent
+                    .name
+                    .eq_ignore_ascii_case(LEGACY_DEFAULT_ASSISTANT_NAME)
+            })
             .cloned()
         {
             return Ok(Some(agent));
@@ -196,7 +205,10 @@ impl TuiDaemonClient {
         client.execute_tool(name.to_string(), input).await
     }
 
-    pub fn spawn_session_events(&self, tx: mpsc::UnboundedSender<AppEvent>) -> tokio::task::JoinHandle<()> {
+    pub fn spawn_session_events(
+        &self,
+        tx: mpsc::UnboundedSender<AppEvent>,
+    ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
         tokio::spawn(async move {
             let mut ipc = match client.connect().await {
