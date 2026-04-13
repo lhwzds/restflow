@@ -263,7 +263,9 @@ onMounted(loadProfiles)
         <p class="text-muted-foreground">{{ t('settings.auth.description') }}</p>
       </div>
       <div class="flex gap-2">
-        <Button variant="outline" @click="runDiscovery" :disabled="loading"> 🔍 {{ t('settings.auth.discover') }} </Button>
+        <Button variant="outline" @click="runDiscovery" :disabled="loading">
+          🔍 {{ t('settings.auth.discover') }}
+        </Button>
         <Dialog v-model:open="showAddDialog">
           <DialogTrigger as-child>
             <Button>➕ {{ t('settings.auth.addProfile') }}</Button>
@@ -276,7 +278,11 @@ onMounted(loadProfiles)
             <div class="grid gap-4 py-4">
               <div class="grid gap-2">
                 <Label for="name">{{ t('settings.auth.nameLabel') }}</Label>
-                <Input id="name" v-model="newProfile.name" :placeholder="t('settings.auth.namePlaceholder')" />
+                <Input
+                  id="name"
+                  v-model="newProfile.name"
+                  :placeholder="t('settings.auth.namePlaceholder')"
+                />
               </div>
               <div class="grid gap-2">
                 <Label for="provider">{{ t('settings.auth.providerLabel') }}</Label>
@@ -312,8 +318,12 @@ onMounted(loadProfiles)
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" @click="showAddDialog = false"> {{ t('common.cancel') }} </Button>
-              <Button @click="addProfile" :disabled="loading"> {{ t('settings.auth.addProfile') }} </Button>
+              <Button variant="outline" @click="showAddDialog = false">
+                {{ t('common.cancel') }}
+              </Button>
+              <Button @click="addProfile" :disabled="loading">
+                {{ t('settings.auth.addProfile') }}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -402,7 +412,11 @@ onMounted(loadProfiles)
               <div class="flex items-center justify-between">
                 <div class="text-sm text-muted-foreground">
                   <span v-if="profile.last_used_at">
-                    {{ t('settings.auth.lastUsed', { date: new Date(profile.last_used_at).toLocaleDateString() }) }}
+                    {{
+                      t('settings.auth.lastUsed', {
+                        date: new Date(profile.last_used_at).toLocaleDateString(),
+                      })
+                    }}
                   </span>
                   <span v-else>{{ t('settings.auth.neverUsed') }}</span>
                   <span v-if="profile.failure_count > 0" class="ml-2 text-yellow-600">

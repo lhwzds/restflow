@@ -423,7 +423,9 @@ onMounted(() => {
           :placeholder="t('settings.memory.agentIdPlaceholder')"
           @keydown.enter.prevent="refreshOverview"
         />
-        <Button :disabled="loadingOverview" @click="refreshOverview">{{ t('settings.memory.load') }}</Button>
+        <Button :disabled="loadingOverview" @click="refreshOverview">{{
+          t('settings.memory.load')
+        }}</Button>
       </div>
       <div v-if="supportDeleteAgentTag" class="flex items-center gap-2">
         <Input
@@ -442,7 +444,10 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="error" class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+    <div
+      v-if="error"
+      class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    >
       {{ error }}
     </div>
 
@@ -454,10 +459,22 @@ onMounted(() => {
           {{ t('settings.memory.refresh') }}
         </div>
         <div v-else-if="stats" class="space-y-1 text-sm">
-          <p><span class="text-muted-foreground">{{ t('settings.memory.agent') }}:</span> {{ stats.agent_id }}</p>
-          <p><span class="text-muted-foreground">{{ t('settings.memory.sessions') }}:</span> {{ stats.session_count }}</p>
-          <p><span class="text-muted-foreground">{{ t('settings.memory.chunks') }}:</span> {{ stats.chunk_count }}</p>
-          <p><span class="text-muted-foreground">{{ t('settings.memory.tokens') }}:</span> {{ stats.total_tokens }}</p>
+          <p>
+            <span class="text-muted-foreground">{{ t('settings.memory.agent') }}:</span>
+            {{ stats.agent_id }}
+          </p>
+          <p>
+            <span class="text-muted-foreground">{{ t('settings.memory.sessions') }}:</span>
+            {{ stats.session_count }}
+          </p>
+          <p>
+            <span class="text-muted-foreground">{{ t('settings.memory.chunks') }}:</span>
+            {{ stats.chunk_count }}
+          </p>
+          <p>
+            <span class="text-muted-foreground">{{ t('settings.memory.tokens') }}:</span>
+            {{ stats.total_tokens }}
+          </p>
         </div>
         <p v-else class="text-sm text-muted-foreground">{{ t('settings.memory.noStats') }}</p>
       </section>
@@ -470,7 +487,9 @@ onMounted(() => {
             :placeholder="t('settings.memory.searchPlaceholder')"
             @keydown.enter.prevent="runSearch"
           />
-          <Button :disabled="loadingSearch" @click="runSearch">{{ t('settings.memory.search') }}</Button>
+          <Button :disabled="loadingSearch" @click="runSearch">{{
+            t('settings.memory.search')
+          }}</Button>
         </div>
         <div v-if="loadingSearch" class="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 class="h-4 w-4 animate-spin" />
@@ -531,13 +550,11 @@ onMounted(() => {
           {{ t('settings.memory.noChunks') }}
         </div>
         <div v-else class="max-h-72 space-y-2 overflow-auto pr-1">
-          <div
-            v-for="chunk in chunks"
-            :key="chunk.id"
-            class="rounded-md border p-2"
-          >
+          <div v-for="chunk in chunks" :key="chunk.id" class="rounded-md border p-2">
             <div class="flex items-center justify-between gap-2">
-              <p class="text-xs text-muted-foreground">chunk: {{ chunk.id }} · tokens: {{ chunk.token_count ?? 0 }}</p>
+              <p class="text-xs text-muted-foreground">
+                chunk: {{ chunk.id }} · tokens: {{ chunk.token_count ?? 0 }}
+              </p>
               <Button
                 size="sm"
                 variant="outline"
@@ -555,7 +572,9 @@ onMounted(() => {
       <section class="rounded-lg border bg-card p-4 space-y-3">
         <h3 class="text-base font-semibold">{{ t('settings.memory.exportTitle') }}</h3>
         <div class="flex items-center gap-2">
-          <Button :disabled="exporting" @click="exportAllMemory">{{ t('settings.memory.exportMarkdown') }}</Button>
+          <Button :disabled="exporting" @click="exportAllMemory">{{
+            t('settings.memory.exportMarkdown')
+          }}</Button>
           <Button
             v-if="supportExportAdvanced"
             :disabled="exporting || checkingCapabilities"

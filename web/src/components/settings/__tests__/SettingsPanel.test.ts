@@ -6,7 +6,7 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) =>
       (
-        {
+        ({
           'settings.panel.secrets': 'Secrets',
           'settings.panel.authProfiles': 'Auth Profiles',
           'settings.panel.hooks': 'Hooks',
@@ -14,7 +14,7 @@ vi.mock('vue-i18n', () => ({
           'settings.panel.memory': 'Memory',
           'settings.panel.system': 'System',
           'settings.panel.backToWorkspace': 'Back to workspace',
-        } as Record<string, string>
+        }) as Record<string, string>
       )[key] ?? key,
   }),
 }))
@@ -55,7 +55,14 @@ describe('SettingsPanel', () => {
       .filter((button) => button.attributes('aria-label') !== 'Back to workspace')
       .map((button) => button.text())
 
-    expect(navButtons).toEqual(['Secrets', 'Auth Profiles', 'Hooks', 'Marketplace', 'Memory', 'System'])
+    expect(navButtons).toEqual([
+      'Secrets',
+      'Auth Profiles',
+      'Hooks',
+      'Marketplace',
+      'Memory',
+      'System',
+    ])
   })
 
   it('defaults to secrets section', () => {
@@ -67,7 +74,8 @@ describe('SettingsPanel', () => {
 
   it('switches sections from nav clicks', async () => {
     const wrapper = mountSettingsPanel()
-    const getNavButton = (label: string) => wrapper.findAll('nav button').find((button) => button.text() === label)!
+    const getNavButton = (label: string) =>
+      wrapper.findAll('nav button').find((button) => button.text() === label)!
 
     await getNavButton('Auth Profiles').trigger('click')
     expect(wrapper.find('[data-testid="auth-section"]').exists()).toBe(true)

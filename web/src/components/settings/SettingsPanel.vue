@@ -27,7 +27,9 @@ type SettingsSection = 'secrets' | 'auth' | 'hooks' | 'marketplace' | 'memory' |
 
 const activeSection = ref<SettingsSection>('secrets')
 
-const navGroups = computed<{ label: string; items: { id: SettingsSection; label: string; icon: typeof Key }[] }[]>(() => [
+const navGroups = computed<
+  { label: string; items: { id: SettingsSection; label: string; icon: typeof Key }[] }[]
+>(() => [
   {
     label: 'API & Auth',
     items: [
@@ -69,7 +71,9 @@ const navGroups = computed<{ label: string; items: { id: SettingsSection; label:
 
       <div class="flex-1 pt-2 pb-2 space-y-3 overflow-auto">
         <div v-for="group in navGroups" :key="group.label">
-          <div class="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div
+            class="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60"
+          >
             {{ group.label }}
           </div>
           <div class="space-y-0.5">

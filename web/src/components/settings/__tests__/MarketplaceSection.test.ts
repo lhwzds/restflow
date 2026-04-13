@@ -101,9 +101,7 @@ const fixtureSearchItems: MarketplaceSearchItem[] = [
 
 const fixtureInstalled: Skill[] = []
 
-const fixtureCategories: MarketplaceCategory[] = [
-  { name: 'productivity', count: 1 },
-]
+const fixtureCategories: MarketplaceCategory[] = [{ name: 'productivity', count: 1 }]
 
 const fixtureDetail: MarketplaceSkillDetail = {
   manifest: fixtureManifest,

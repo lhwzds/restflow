@@ -168,8 +168,12 @@ onMounted(() => {
           </Button>
         </div>
       </div>
-      <Badge v-if="secretExists === true" variant="default">{{ t('settings.system.secretExists') }}</Badge>
-      <Badge v-else-if="secretExists === false" variant="secondary">{{ t('settings.system.secretMissing') }}</Badge>
+      <Badge v-if="secretExists === true" variant="default">{{
+        t('settings.system.secretExists')
+      }}</Badge>
+      <Badge v-else-if="secretExists === false" variant="secondary">{{
+        t('settings.system.secretMissing')
+      }}</Badge>
     </section>
 
     <section class="rounded-lg border bg-card p-4 space-y-3">

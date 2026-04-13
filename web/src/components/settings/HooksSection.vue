@@ -236,7 +236,10 @@ function validateForm(): string | null {
     return t('settings.hooks.validationMessageRequired')
   }
 
-  if (form.actionType === 'run_task' && (!form.taskAgentId.trim() || !form.taskInputTemplate.trim())) {
+  if (
+    form.actionType === 'run_task' &&
+    (!form.taskAgentId.trim() || !form.taskInputTemplate.trim())
+  ) {
     return t('settings.hooks.validationTaskRequired')
   }
 
@@ -362,8 +365,10 @@ function describeEvent(event: HookEvent): string {
 }
 
 function describeAction(action: HookAction): string {
-  if (action.type === 'webhook') return t('settings.hooks.actionSummaryWebhook', { value: action.url })
-  if (action.type === 'script') return t('settings.hooks.actionSummaryScript', { value: action.path })
+  if (action.type === 'webhook')
+    return t('settings.hooks.actionSummaryWebhook', { value: action.url })
+  if (action.type === 'script')
+    return t('settings.hooks.actionSummaryScript', { value: action.path })
   if (action.type === 'send_message') {
     return t('settings.hooks.actionSummaryMessage', { value: action.channel_type })
   }
@@ -386,206 +391,221 @@ onMounted(() => {
     </div>
 
     <Dialog v-model:open="showHookDialog">
-        <DialogContent class="max-w-[42rem]">
-          <DialogHeader>
-            <DialogTitle>
-              {{ editingHookId ? t('settings.hooks.editHook') : t('settings.hooks.createHook') }}
-            </DialogTitle>
-            <DialogDescription>
-              {{
-                editingHookId
-                  ? t('settings.hooks.editHookDescription')
-                  : t('settings.hooks.createHookDescription')
-              }}
-            </DialogDescription>
-          </DialogHeader>
+      <DialogContent class="max-w-[42rem]">
+        <DialogHeader>
+          <DialogTitle>
+            {{ editingHookId ? t('settings.hooks.editHook') : t('settings.hooks.createHook') }}
+          </DialogTitle>
+          <DialogDescription>
+            {{
+              editingHookId
+                ? t('settings.hooks.editHookDescription')
+                : t('settings.hooks.createHookDescription')
+            }}
+          </DialogDescription>
+        </DialogHeader>
 
-          <div class="grid gap-4 py-2">
+        <div class="grid gap-4 py-2">
+          <div class="grid gap-2">
+            <Label for="hook-name">{{ t('settings.hooks.nameLabel') }}</Label>
+            <Input
+              id="hook-name"
+              v-model="form.name"
+              :placeholder="t('settings.hooks.namePlaceholder')"
+            />
+          </div>
+
+          <div class="grid gap-2">
+            <Label for="hook-description">{{ t('settings.hooks.descriptionLabel') }}</Label>
+            <Input
+              id="hook-description"
+              v-model="form.description"
+              :placeholder="t('settings.hooks.descriptionPlaceholder')"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
             <div class="grid gap-2">
-              <Label for="hook-name">{{ t('settings.hooks.nameLabel') }}</Label>
-              <Input id="hook-name" v-model="form.name" :placeholder="t('settings.hooks.namePlaceholder')" />
+              <Label>{{ t('settings.hooks.eventLabel') }}</Label>
+              <Select v-model="form.event">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="event in hookEvents" :key="event" :value="event">
+                    {{ describeEvent(event) }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div class="grid gap-2">
-              <Label for="hook-description">{{ t('settings.hooks.descriptionLabel') }}</Label>
-              <Input
-                id="hook-description"
-                v-model="form.description"
-                :placeholder="t('settings.hooks.descriptionPlaceholder')"
-              />
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="grid gap-2">
-                <Label>{{ t('settings.hooks.eventLabel') }}</Label>
-                <Select v-model="form.event">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem
-                      v-for="event in hookEvents"
-                      :key="event"
-                      :value="event"
-                    >
-                      {{ describeEvent(event) }}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div class="grid gap-2">
-                <Label>{{ t('settings.hooks.actionTypeLabel') }}</Label>
-                <Select v-model="form.actionType">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="webhook">{{ t('settings.hooks.actionWebhook') }}</SelectItem>
-                    <SelectItem value="script">{{ t('settings.hooks.actionScript') }}</SelectItem>
-                    <SelectItem value="send_message">{{ t('settings.hooks.actionMessage') }}</SelectItem>
-                    <SelectItem value="run_task">{{ t('settings.hooks.actionRunTask') }}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <template v-if="form.actionType === 'webhook'">
-              <div class="grid gap-2">
-                <Label for="webhook-url">{{ t('settings.hooks.webhookUrlLabel') }}</Label>
-                <Input
-                  id="webhook-url"
-                  v-model="form.webhookUrl"
-                  :placeholder="t('settings.hooks.webhookUrlPlaceholder')"
-                />
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="grid gap-2">
-                  <Label for="webhook-method">{{ t('settings.hooks.webhookMethodLabel') }}</Label>
-                  <Input
-                    id="webhook-method"
-                    v-model="form.webhookMethod"
-                    :placeholder="t('settings.hooks.webhookMethodPlaceholder')"
-                  />
-                </div>
-                <div class="grid gap-2">
-                  <Label for="webhook-headers">{{ t('settings.hooks.webhookHeadersLabel') }}</Label>
-                  <Input
-                    id="webhook-headers"
-                    v-model="form.webhookHeaders"
-                    :placeholder="t('settings.hooks.webhookHeadersPlaceholder')"
-                  />
-                </div>
-              </div>
-            </template>
-
-            <template v-else-if="form.actionType === 'script'">
-              <div class="grid gap-2">
-                <Label for="script-path">{{ t('settings.hooks.scriptPathLabel') }}</Label>
-                <Input
-                  id="script-path"
-                  v-model="form.scriptPath"
-                  :placeholder="t('settings.hooks.scriptPathPlaceholder')"
-                />
-              </div>
-              <div class="grid gap-2">
-                <Label for="script-args">{{ t('settings.hooks.scriptArgsLabel') }}</Label>
-                <Input
-                  id="script-args"
-                  v-model="form.scriptArgs"
-                  :placeholder="t('settings.hooks.scriptArgsPlaceholder')"
-                />
-              </div>
-            </template>
-
-            <template v-else-if="form.actionType === 'send_message'">
-              <div class="grid grid-cols-2 gap-3">
-                <div class="grid gap-2">
-                  <Label>{{ t('settings.hooks.channelTypeLabel') }}</Label>
-                  <Select v-model="form.channelType">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="telegram">Telegram</SelectItem>
-                      <SelectItem value="discord">Discord</SelectItem>
-                      <SelectItem value="slack">Slack</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div class="grid gap-2">
-                  <Label for="message-template">{{ t('settings.hooks.messageTemplateLabel') }}</Label>
-                  <Input
-                    id="message-template"
-                    v-model="form.messageTemplate"
-                    :placeholder="t('settings.hooks.messageTemplatePlaceholder')"
-                  />
-                </div>
-              </div>
-            </template>
-
-            <template v-else>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="grid gap-2">
-                  <Label for="task-agent-id">{{ t('settings.hooks.taskAgentIdLabel') }}</Label>
-                  <Input
-                    id="task-agent-id"
-                    v-model="form.taskAgentId"
-                    :placeholder="t('settings.hooks.taskAgentIdPlaceholder')"
-                  />
-                </div>
-                <div class="grid gap-2">
-                  <Label for="task-input-template">{{ t('settings.hooks.taskInputTemplateLabel') }}</Label>
-                  <Input
-                    id="task-input-template"
-                    v-model="form.taskInputTemplate"
-                    :placeholder="t('settings.hooks.taskInputTemplatePlaceholder')"
-                  />
-                </div>
-              </div>
-            </template>
-
-            <div class="rounded-lg border bg-muted/30 p-3 space-y-3">
-              <h4 class="text-sm font-medium">{{ t('settings.hooks.filterTitle') }}</h4>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="grid gap-2">
-                  <Label for="filter-task-pattern">{{ t('settings.hooks.filterTaskPatternLabel') }}</Label>
-                  <Input
-                    id="filter-task-pattern"
-                    v-model="form.filterTaskPattern"
-                    :placeholder="t('settings.hooks.filterTaskPatternPlaceholder')"
-                  />
-                </div>
-                <div class="grid gap-2">
-                  <Label for="filter-agent-id">{{ t('settings.hooks.filterAgentIdLabel') }}</Label>
-                  <Input
-                    id="filter-agent-id"
-                    v-model="form.filterAgentId"
-                    :placeholder="t('settings.hooks.filterAgentIdPlaceholder')"
-                  />
-                </div>
-              </div>
-              <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
-                <Label for="filter-success-only">{{ t('settings.hooks.filterSuccessOnlyLabel') }}</Label>
-                <Switch
-                  id="filter-success-only"
-                  :checked="form.filterSuccessOnly"
-                  @update:checked="(value) => (form.filterSuccessOnly = Boolean(value))"
-                />
-              </div>
+              <Label>{{ t('settings.hooks.actionTypeLabel') }}</Label>
+              <Select v-model="form.actionType">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="webhook">{{ t('settings.hooks.actionWebhook') }}</SelectItem>
+                  <SelectItem value="script">{{ t('settings.hooks.actionScript') }}</SelectItem>
+                  <SelectItem value="send_message">{{
+                    t('settings.hooks.actionMessage')
+                  }}</SelectItem>
+                  <SelectItem value="run_task">{{ t('settings.hooks.actionRunTask') }}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" @click="showHookDialog = false">{{ t('settings.hooks.cancel') }}</Button>
-            <Button :disabled="saving" @click="handleSaveHook">
-              {{ editingHookId ? t('settings.hooks.save') : t('settings.hooks.create') }}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+          <template v-if="form.actionType === 'webhook'">
+            <div class="grid gap-2">
+              <Label for="webhook-url">{{ t('settings.hooks.webhookUrlLabel') }}</Label>
+              <Input
+                id="webhook-url"
+                v-model="form.webhookUrl"
+                :placeholder="t('settings.hooks.webhookUrlPlaceholder')"
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="grid gap-2">
+                <Label for="webhook-method">{{ t('settings.hooks.webhookMethodLabel') }}</Label>
+                <Input
+                  id="webhook-method"
+                  v-model="form.webhookMethod"
+                  :placeholder="t('settings.hooks.webhookMethodPlaceholder')"
+                />
+              </div>
+              <div class="grid gap-2">
+                <Label for="webhook-headers">{{ t('settings.hooks.webhookHeadersLabel') }}</Label>
+                <Input
+                  id="webhook-headers"
+                  v-model="form.webhookHeaders"
+                  :placeholder="t('settings.hooks.webhookHeadersPlaceholder')"
+                />
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="form.actionType === 'script'">
+            <div class="grid gap-2">
+              <Label for="script-path">{{ t('settings.hooks.scriptPathLabel') }}</Label>
+              <Input
+                id="script-path"
+                v-model="form.scriptPath"
+                :placeholder="t('settings.hooks.scriptPathPlaceholder')"
+              />
+            </div>
+            <div class="grid gap-2">
+              <Label for="script-args">{{ t('settings.hooks.scriptArgsLabel') }}</Label>
+              <Input
+                id="script-args"
+                v-model="form.scriptArgs"
+                :placeholder="t('settings.hooks.scriptArgsPlaceholder')"
+              />
+            </div>
+          </template>
+
+          <template v-else-if="form.actionType === 'send_message'">
+            <div class="grid grid-cols-2 gap-3">
+              <div class="grid gap-2">
+                <Label>{{ t('settings.hooks.channelTypeLabel') }}</Label>
+                <Select v-model="form.channelType">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="telegram">Telegram</SelectItem>
+                    <SelectItem value="discord">Discord</SelectItem>
+                    <SelectItem value="slack">Slack</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div class="grid gap-2">
+                <Label for="message-template">{{ t('settings.hooks.messageTemplateLabel') }}</Label>
+                <Input
+                  id="message-template"
+                  v-model="form.messageTemplate"
+                  :placeholder="t('settings.hooks.messageTemplatePlaceholder')"
+                />
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="grid gap-2">
+                <Label for="task-agent-id">{{ t('settings.hooks.taskAgentIdLabel') }}</Label>
+                <Input
+                  id="task-agent-id"
+                  v-model="form.taskAgentId"
+                  :placeholder="t('settings.hooks.taskAgentIdPlaceholder')"
+                />
+              </div>
+              <div class="grid gap-2">
+                <Label for="task-input-template">{{
+                  t('settings.hooks.taskInputTemplateLabel')
+                }}</Label>
+                <Input
+                  id="task-input-template"
+                  v-model="form.taskInputTemplate"
+                  :placeholder="t('settings.hooks.taskInputTemplatePlaceholder')"
+                />
+              </div>
+            </div>
+          </template>
+
+          <div class="rounded-lg border bg-muted/30 p-3 space-y-3">
+            <h4 class="text-sm font-medium">{{ t('settings.hooks.filterTitle') }}</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="grid gap-2">
+                <Label for="filter-task-pattern">{{
+                  t('settings.hooks.filterTaskPatternLabel')
+                }}</Label>
+                <Input
+                  id="filter-task-pattern"
+                  v-model="form.filterTaskPattern"
+                  :placeholder="t('settings.hooks.filterTaskPatternPlaceholder')"
+                />
+              </div>
+              <div class="grid gap-2">
+                <Label for="filter-agent-id">{{ t('settings.hooks.filterAgentIdLabel') }}</Label>
+                <Input
+                  id="filter-agent-id"
+                  v-model="form.filterAgentId"
+                  :placeholder="t('settings.hooks.filterAgentIdPlaceholder')"
+                />
+              </div>
+            </div>
+            <div
+              class="flex items-center justify-between rounded-md border bg-background px-3 py-2"
+            >
+              <Label for="filter-success-only">{{
+                t('settings.hooks.filterSuccessOnlyLabel')
+              }}</Label>
+              <Switch
+                id="filter-success-only"
+                :checked="form.filterSuccessOnly"
+                @update:checked="(value) => (form.filterSuccessOnly = Boolean(value))"
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="showHookDialog = false">{{
+            t('settings.hooks.cancel')
+          }}</Button>
+          <Button :disabled="saving" @click="handleSaveHook">
+            {{ editingHookId ? t('settings.hooks.save') : t('settings.hooks.create') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
 
-    <div v-if="error" class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+    <div
+      v-if="error"
+      class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    >
       {{ error }}
     </div>
 
@@ -594,16 +614,15 @@ onMounted(() => {
       {{ t('settings.hooks.loading') }}
     </div>
 
-    <div v-else-if="hooks.length === 0" class="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+    <div
+      v-else-if="hooks.length === 0"
+      class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
+    >
       {{ t('settings.hooks.empty') }}
     </div>
 
     <div v-else class="space-y-3">
-      <div
-        v-for="hook in hooks"
-        :key="hook.id"
-        class="rounded-lg border bg-card p-4"
-      >
+      <div v-for="hook in hooks" :key="hook.id" class="rounded-lg border bg-card p-4">
         <div class="flex items-start justify-between gap-3">
           <div class="space-y-1">
             <div class="flex items-center gap-2">
@@ -613,7 +632,9 @@ onMounted(() => {
                 {{ hook.enabled ? t('settings.hooks.enabled') : t('settings.hooks.disabled') }}
               </Badge>
             </div>
-            <p v-if="hook.description" class="text-sm text-muted-foreground">{{ hook.description }}</p>
+            <p v-if="hook.description" class="text-sm text-muted-foreground">
+              {{ hook.description }}
+            </p>
             <p class="text-xs text-muted-foreground">{{ describeAction(hook.action) }}</p>
           </div>
 

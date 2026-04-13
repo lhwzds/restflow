@@ -8,7 +8,15 @@ const mockLoadSecrets = vi.fn()
 const mockCreateSecret = vi.fn()
 const mockUpdateSecret = vi.fn()
 const mockDeleteSecret = vi.fn()
-const mockSecrets = vi.fn(() => [] as Array<{ key: string; description: string | null; created_at: number; updated_at: number }>)
+const mockSecrets = vi.fn(
+  () =>
+    [] as Array<{
+      key: string
+      description: string | null
+      created_at: number
+      updated_at: number
+    }>,
+)
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -61,7 +69,14 @@ vi.mock('@/components/ui/separator', () => ({
   Separator: { template: '<hr />' },
 }))
 
-function mountComponent(existingSecrets?: Array<{ key: string; description: string | null; created_at: number; updated_at: number }>) {
+function mountComponent(
+  existingSecrets?: Array<{
+    key: string
+    description: string | null
+    created_at: number
+    updated_at: number
+  }>,
+) {
   if (existingSecrets) {
     mockSecrets.mockReturnValue(existingSecrets)
   }
@@ -105,7 +120,10 @@ describe('SecretsSection', () => {
 
       let resolveCreate: (() => void) | null = null
       mockCreateSecret.mockImplementation(
-        () => new Promise<void>((resolve) => { resolveCreate = resolve }),
+        () =>
+          new Promise<void>((resolve) => {
+            resolveCreate = resolve
+          }),
       )
 
       vm.editState.mode = 'creating'

@@ -172,7 +172,10 @@ async function confirmInstall() {
     const result = await installMarketplaceSkill({
       id: item.manifest.id,
       source: resolveSource(item.source),
-      version: selectedInstallVersion.value === latestVersionValue ? undefined : selectedInstallVersion.value,
+      version:
+        selectedInstallVersion.value === latestVersionValue
+          ? undefined
+          : selectedInstallVersion.value,
       overwrite: false,
     })
 
@@ -277,7 +280,9 @@ onMounted(async () => {
           :placeholder="t('settings.marketplace.searchPlaceholder')"
           @keydown.enter.prevent="runSearch"
         />
-        <Button :disabled="loading" @click="runSearch">{{ t('settings.marketplace.search') }}</Button>
+        <Button :disabled="loading" @click="runSearch">{{
+          t('settings.marketplace.search')
+        }}</Button>
       </div>
 
       <div class="grid gap-3 md:grid-cols-3">
@@ -293,7 +298,11 @@ onMounted(async () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{{ t('settings.marketplace.allCategories') }}</SelectItem>
-              <SelectItem v-for="category in categories" :key="category.name" :value="category.name">
+              <SelectItem
+                v-for="category in categories"
+                :key="category.name"
+                :value="category.name"
+              >
                 {{ category.name }} ({{ category.count }})
               </SelectItem>
             </SelectContent>
@@ -315,7 +324,9 @@ onMounted(async () => {
         </div>
 
         <div class="flex items-end">
-          <div class="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2">
+          <div
+            class="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2"
+          >
             <Label for="include-github">{{ t('settings.marketplace.includeGithub') }}</Label>
             <Switch
               id="include-github"
@@ -327,7 +338,10 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="error" class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+    <div
+      v-if="error"
+      class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    >
       {{ error }}
     </div>
 
@@ -338,7 +352,10 @@ onMounted(async () => {
           <Loader2 class="h-4 w-4 animate-spin" />
           {{ t('settings.marketplace.searching') }}
         </div>
-        <div v-else-if="searchResults.length === 0" class="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+        <div
+          v-else-if="searchResults.length === 0"
+          class="rounded-md border border-dashed p-4 text-sm text-muted-foreground"
+        >
           {{ t('settings.marketplace.noResults') }}
         </div>
         <div v-else class="space-y-3">
@@ -358,9 +375,9 @@ onMounted(async () => {
                     {{ result.manifest.description || t('settings.marketplace.noDescription') }}
                   </p>
                   <p class="text-xs text-muted-foreground">
-                    id: {{ result.manifest.id }} ·
-                    {{ t('settings.marketplace.version') }}: {{ formatVersion(result.manifest.version) }} ·
-                    downloads: {{ result.downloads ?? 0 }} · score: {{ result.score }}
+                    id: {{ result.manifest.id }} · {{ t('settings.marketplace.version') }}:
+                    {{ formatVersion(result.manifest.version) }} · downloads:
+                    {{ result.downloads ?? 0 }} · score: {{ result.score }}
                   </p>
                 </div>
               </div>
@@ -422,8 +439,8 @@ onMounted(async () => {
                   {{ skill.description || t('settings.marketplace.noDescription') }}
                 </p>
                 <p class="text-xs text-muted-foreground">
-                  id: {{ skill.id }} ·
-                  {{ t('settings.marketplace.version') }}: {{ skill.version || '-' }}
+                  id: {{ skill.id }} · {{ t('settings.marketplace.version') }}:
+                  {{ skill.version || '-' }}
                 </p>
               </div>
               <div class="flex items-center justify-end gap-2">
@@ -474,7 +491,9 @@ onMounted(async () => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem :value="latestVersionValue">{{ t('settings.marketplace.latestVersion') }}</SelectItem>
+              <SelectItem :value="latestVersionValue">{{
+                t('settings.marketplace.latestVersion')
+              }}</SelectItem>
               <SelectItem v-for="version in installVersionOptions" :key="version" :value="version">
                 {{ version }}
               </SelectItem>
@@ -536,7 +555,11 @@ onMounted(async () => {
             <div class="flex items-center justify-between">
               <h4 class="text-sm font-medium">{{ t('settings.marketplace.gating') }}</h4>
               <Badge :variant="detail.gating.passed ? 'default' : 'destructive'">
-                {{ detail.gating.passed ? t('settings.marketplace.gatingPassed') : t('settings.marketplace.gatingFailed') }}
+                {{
+                  detail.gating.passed
+                    ? t('settings.marketplace.gatingPassed')
+                    : t('settings.marketplace.gatingFailed')
+                }}
               </Badge>
             </div>
             <p class="text-sm text-muted-foreground">{{ detail.gating.summary }}</p>
@@ -544,13 +567,15 @@ onMounted(async () => {
               v-if="detail.gating.missing_binaries.length > 0"
               class="rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive"
             >
-              {{ t('settings.marketplace.requiredBinaries') }}: {{ detail.gating.missing_binaries.join(', ') }}
+              {{ t('settings.marketplace.requiredBinaries') }}:
+              {{ detail.gating.missing_binaries.join(', ') }}
             </div>
             <div
               v-if="detail.gating.missing_env_vars.length > 0"
               class="rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive"
             >
-              {{ t('settings.marketplace.requiredEnvVars') }}: {{ detail.gating.missing_env_vars.join(', ') }}
+              {{ t('settings.marketplace.requiredEnvVars') }}:
+              {{ detail.gating.missing_env_vars.join(', ') }}
             </div>
           </div>
 
