@@ -211,6 +211,7 @@ function createSession(id: string) {
     id,
     name: 'Session',
     agent_id: 'agent-1',
+    provider: 'openai',
     model: 'gpt-5',
     skill_id: null,
     messages: [],
@@ -220,9 +221,10 @@ function createSession(id: string) {
     prompt_tokens: 0n,
     completion_tokens: 0n,
     cost: 0,
-    metadata: { total_tokens: 0, message_count: 0, last_model: null },
+    metadata: { total_tokens: 0, message_count: 0 },
     source_channel: null,
     source_conversation_id: null,
+    archived_at: null,
   }
 }
 

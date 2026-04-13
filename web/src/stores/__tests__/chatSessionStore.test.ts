@@ -34,6 +34,7 @@ describe('chatSessionStore', () => {
           id: 'a',
           name: 'Session A',
           agent_id: 'agent-1',
+          provider: 'openai',
           model: 'gpt-4',
           skill_id: null,
           message_count: 1,
@@ -41,11 +42,13 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
         {
           id: 'b',
           name: 'Session B',
           agent_id: 'agent-1',
+          provider: 'openai',
           model: 'gpt-4',
           skill_id: null,
           message_count: 1,
@@ -53,11 +56,13 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
         {
           id: 'c',
           name: 'Session C',
           agent_id: 'agent-1',
+          provider: 'openai',
           model: 'gpt-4',
           skill_id: null,
           message_count: 1,
@@ -65,6 +70,7 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
       ]
 
@@ -89,6 +95,7 @@ describe('chatSessionStore', () => {
           id: 'x',
           name: 'X',
           agent_id: 'a',
+          provider: 'openai',
           model: 'm',
           skill_id: null,
           message_count: 0,
@@ -96,11 +103,13 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
         {
           id: 'y',
           name: 'Y',
           agent_id: 'a',
+          provider: 'openai',
           model: 'm',
           skill_id: null,
           message_count: 0,
@@ -108,6 +117,7 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
       ]
 
@@ -126,6 +136,7 @@ describe('chatSessionStore', () => {
         id: 'session-1',
         name: 'Test',
         agent_id: 'agent-1',
+        provider: 'openai',
         model: 'gpt-4',
         skill_id: null,
         messages: [
@@ -143,9 +154,10 @@ describe('chatSessionStore', () => {
         prompt_tokens: 0n,
         completion_tokens: 0n,
         cost: 0,
-        metadata: { total_tokens: 0, message_count: 1, last_model: null },
+        metadata: { total_tokens: 0, message_count: 1 },
         source_channel: null,
         source_conversation_id: null,
+        archived_at: null,
       }
 
       const execResult = {
@@ -187,6 +199,7 @@ describe('chatSessionStore', () => {
           id: 'session-1',
           name: 'Session One',
           agent_id: 'agent-1',
+          provider: 'openai',
           model: 'gpt-4',
           skill_id: null,
           message_count: 0,
@@ -194,11 +207,13 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
         {
           id: 'session-2',
           name: 'Session Two',
           agent_id: 'agent-1',
+          provider: 'openai',
           model: 'gpt-4',
           skill_id: null,
           message_count: 0,
@@ -206,6 +221,7 @@ describe('chatSessionStore', () => {
           last_message_preview: null,
           source_channel: null,
           source_conversation_id: null,
+          archived_at: null,
         },
       ]
 
@@ -217,6 +233,85 @@ describe('chatSessionStore', () => {
       expect(chatSessionApi.archiveChatSession).toHaveBeenCalledWith('session-1')
       expect(store.currentSessionId).toBeNull()
       expect(store.summaries.map((summary) => summary.id)).toEqual(['session-2'])
+    })
+  })
+
+  describe('session summary provider sync', () => {
+    it('adds provider to created session summaries', async () => {
+      const store = useChatSessionStore()
+      const session = {
+        id: 'session-1',
+        name: 'Session One',
+        agent_id: 'agent-1',
+        provider: 'openai',
+        model: 'gpt-5',
+        skill_id: null,
+        messages: [],
+        created_at: 1000n,
+        updated_at: 1001n,
+        summary_message_id: null,
+        prompt_tokens: 0n,
+        completion_tokens: 0n,
+        cost: 0,
+        metadata: { total_tokens: 0, message_count: 0 },
+        source_channel: null,
+        source_conversation_id: null,
+        archived_at: null,
+      }
+
+      vi.mocked(chatSessionApi.createChatSession).mockResolvedValue(session)
+
+      await store.createSession('agent-1', 'gpt-5')
+
+      expect(store.summaries[0]?.provider).toBe('openai')
+      expect(store.summaries[0]?.model).toBe('gpt-5')
+    })
+
+    it('keeps summary provider and model in sync after model updates', async () => {
+      const store = useChatSessionStore()
+      store.summaries = [
+        {
+          id: 'session-1',
+          name: 'Session One',
+          agent_id: 'agent-1',
+          provider: 'openai',
+          model: 'gpt-5',
+          skill_id: null,
+          message_count: 0,
+          updated_at: 1000n,
+          last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
+          archived_at: null,
+        },
+      ]
+
+      const updatedSession = {
+        id: 'session-1',
+        name: 'Session One',
+        agent_id: 'agent-1',
+        provider: 'codex',
+        model: 'gpt-5.3-codex',
+        skill_id: null,
+        messages: [],
+        created_at: 1000n,
+        updated_at: 1002n,
+        summary_message_id: null,
+        prompt_tokens: 0n,
+        completion_tokens: 0n,
+        cost: 0,
+        metadata: { total_tokens: 0, message_count: 0 },
+        source_channel: null,
+        source_conversation_id: null,
+        archived_at: null,
+      }
+
+      vi.mocked(chatSessionApi.updateChatSession).mockResolvedValue(updatedSession)
+
+      await store.updateSessionModel('session-1', 'gpt-5.3-codex')
+
+      expect(store.summaries[0]?.provider).toBe('codex')
+      expect(store.summaries[0]?.model).toBe('gpt-5.3-codex')
     })
   })
 })

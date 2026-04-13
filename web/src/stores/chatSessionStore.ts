@@ -271,6 +271,7 @@ export const useChatSessionStore = defineStore('chatSession', {
           id: session.id,
           name: session.name,
           agent_id: session.agent_id,
+          provider: session.provider,
           model: session.model,
           skill_id: session.skill_id ?? null,
           message_count: 0,
@@ -278,6 +279,7 @@ export const useChatSessionStore = defineStore('chatSession', {
           last_message_preview: null,
           source_channel: session.source_channel ?? null,
           source_conversation_id: session.source_conversation_id ?? null,
+          archived_at: session.archived_at ?? null,
         }
         this.summaries.unshift(summary)
         this.currentSessionId = session.id
@@ -372,6 +374,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.agent_id = session.agent_id
+          summary.provider = session.provider
+          summary.model = session.model
           summary.updated_at = session.updated_at
         }
         this.version++
@@ -394,6 +398,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const summaryIndex = this.summaries.findIndex((s) => s.id === sessionId)
         const summary = this.summaries[summaryIndex]
         if (summary) {
+          summary.provider = session.provider
+          summary.model = session.model
           summary.updated_at = session.updated_at
         }
         this.version++
