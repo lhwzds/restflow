@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
 use restflow_core::runtime::TaskStreamEvent;
-use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamMessageKind, TeamState};
+use restflow_traits::{
+    PendingTeamApproval, TeamAssignment, TeamMessage, TeamMessageKind, TeamState,
+};
 
 use super::composer::ComposerState;
 use super::transcript::{
@@ -14,14 +16,20 @@ use super::transcript::{
 
 #[derive(Debug, Clone)]
 pub enum RunPickerItem {
-    Run { run_id: String, title: String, status: String },
+    Run {
+        run_id: String,
+        title: String,
+        status: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ThreadFocus {
     #[default]
     Session,
-    Run { run_id: String },
+    Run {
+        run_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -358,9 +366,10 @@ impl AppState {
 
     pub fn selected_session_id(&self) -> Option<&str> {
         match self.overlay.as_ref() {
-            Some(OverlayState::SessionPicker { selected }) => {
-                self.sessions.get(*selected).map(|session| session.id.as_str())
-            }
+            Some(OverlayState::SessionPicker { selected }) => self
+                .sessions
+                .get(*selected)
+                .map(|session| session.id.as_str()),
             _ => None,
         }
     }
@@ -430,7 +439,10 @@ impl AppState {
     }
 
     pub fn record_team_message(&mut self, message: &TeamMessage) {
-        if self.seen_team_message_ids.insert(message.message_id.clone()) {
+        if self
+            .seen_team_message_ids
+            .insert(message.message_id.clone())
+        {
             self.push_message(message_from_team_message(message));
         }
     }
@@ -595,7 +607,10 @@ mod tests {
     fn app_state_session_picker_uses_overlay() {
         let mut state = AppState::empty();
         state.open_session_picker();
-        assert!(matches!(state.overlay, Some(OverlayState::SessionPicker { .. })));
+        assert!(matches!(
+            state.overlay,
+            Some(OverlayState::SessionPicker { .. })
+        ));
     }
 
     #[test]
@@ -688,8 +703,11 @@ mod tests {
     #[test]
     fn refresh_current_session_preserves_notice_messages() {
         let mut state = AppState::empty();
-        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
         state.set_current_session(session.clone());
         state.push_info("notice");
 
@@ -707,8 +725,11 @@ mod tests {
     #[test]
     fn clear_current_session_keeps_notices() {
         let mut state = AppState::empty();
-        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
         state.set_current_session(session);
         state.push_info("notice");
 
@@ -722,8 +743,10 @@ mod tests {
     #[test]
     fn switching_session_clears_team_context() {
         let mut state = AppState::empty();
-        let first = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        let second = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let first =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let second =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(first);
         state.current_team_state = Some(restflow_traits::TeamState {
             team_run_id: "team-1".to_string(),
@@ -772,8 +795,11 @@ mod tests {
     fn set_current_session_resets_runtime_cells_for_new_session() {
         let mut state = AppState::empty();
         state.push_info("notice");
-        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
 
         state.set_current_session(session);
 
@@ -785,8 +811,11 @@ mod tests {
     #[test]
     fn refresh_current_session_preserves_runtime_cells_and_active_cell() {
         let mut state = AppState::empty();
-        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
         state.set_current_session(session.clone());
         state.push_info("notice");
         state.active_cell = transcript_cells(

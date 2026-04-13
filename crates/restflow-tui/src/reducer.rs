@@ -3,10 +3,10 @@ use super::keymap::Action;
 use super::slash_command::{SlashCommand, parse_slash_command};
 use super::state::{AppState, OverlayState};
 use super::transcript::ShellMessage;
-use restflow_core::storage::agent::StoredAgent;
-use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
 use restflow_core::runtime::TaskStreamEvent;
+use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
 #[derive(Debug)]
@@ -54,7 +54,9 @@ pub enum ShellAction {
         status: String,
     },
     DaemonStartFailed(String),
-    SubmitText { text: String },
+    SubmitText {
+        text: String,
+    },
     RefreshTick,
     Error(String),
 }
@@ -69,7 +71,9 @@ pub enum ShellEffect {
         session_override: Option<String>,
     },
     ActivateOverlaySelection,
-    SubmitMessage { message: String },
+    SubmitMessage {
+        message: String,
+    },
     ExecuteSlashCommand(SlashCommand),
     RejectSelectedApproval,
 }
@@ -102,10 +106,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.apply_task_event(event);
             output.effects.push(ShellEffect::RefreshState);
         }
-        ShellAction::StateRefreshed {
-            sessions,
-            runs,
-        } => {
+        ShellAction::StateRefreshed { sessions, runs } => {
             state.sessions = sessions;
             if state.current_session_id().is_some() {
                 state.set_session_runs(runs);
@@ -178,7 +179,9 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 && !message.trim().is_empty()
                 && state.current_session_id().is_some()
             {
-                output.actions.push(ShellAction::SubmitText { text: message });
+                output
+                    .actions
+                    .push(ShellAction::SubmitText { text: message });
             }
         }
         ShellAction::DaemonStartFailed(message) => state.set_startup_error(message),
@@ -220,7 +223,9 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::CloseOverlay => {
             if state.overlay.is_some() {
                 state.clear_overlay();
-            } else if matches!(state.composer.mode(), ComposerMode::Command) && !state.composer.is_blank() {
+            } else if matches!(state.composer.mode(), ComposerMode::Command)
+                && !state.composer.is_blank()
+            {
                 state.composer.clear();
                 state.status = "Returned to message mode".to_string();
             } else {
@@ -359,7 +364,9 @@ fn reduce_startup_ui(state: &mut AppState, action: Action, output: &mut ReducerO
 fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOutput) {
     if super::composer::ComposerState::is_command_text(&text) {
         match parse_slash_command(&text) {
-            Ok(command) => output.effects.push(ShellEffect::ExecuteSlashCommand(command)),
+            Ok(command) => output
+                .effects
+                .push(ShellEffect::ExecuteSlashCommand(command)),
             Err(error) => {
                 state.status = error.to_string();
                 state.push_error(error.to_string());
@@ -370,7 +377,9 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
             content: text.clone(),
         });
         state.status = "Sending message...".to_string();
-        output.effects.push(ShellEffect::SubmitMessage { message: text });
+        output
+            .effects
+            .push(ShellEffect::SubmitMessage { message: text });
     }
 }
 

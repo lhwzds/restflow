@@ -6,10 +6,18 @@ use restflow_traits::{TeamMessage, TeamMessageKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
-    UserMessage { content: String },
-    AssistantMessage { content: String },
-    SystemMessage { content: String },
-    AssistantStream { content: String },
+    UserMessage {
+        content: String,
+    },
+    AssistantMessage {
+        content: String,
+    },
+    SystemMessage {
+        content: String,
+    },
+    AssistantStream {
+        content: String,
+    },
     ToolCall {
         call_id: String,
         name: String,
@@ -20,14 +28,22 @@ pub enum ShellMessage {
         success: bool,
         result: String,
     },
-    TaskNotice { content: String },
+    TaskNotice {
+        content: String,
+    },
     ApprovalNotice {
         approval_id: Option<String>,
         content: String,
     },
-    TeamNotice { content: String },
-    InfoNotice { content: String },
-    ErrorNotice { content: String },
+    TeamNotice {
+        content: String,
+    },
+    InfoNotice {
+        content: String,
+    },
+    ErrorNotice {
+        content: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,7 +319,10 @@ pub fn message_from_task_event(event: &TaskStreamEvent) -> ShellMessage {
             details,
         } => match (percent, details) {
             (Some(percent), Some(details)) => {
-                format!("Task {} progress: {phase} ({percent}%) {details}", event.task_id)
+                format!(
+                    "Task {} progress: {phase} ({percent}%) {details}",
+                    event.task_id
+                )
             }
             (Some(percent), None) => {
                 format!("Task {} progress: {phase} ({percent}%)", event.task_id)
@@ -356,10 +375,16 @@ pub fn message_from_team_message(message: &TeamMessage) -> ShellMessage {
     match message.kind {
         TeamMessageKind::ApprovalRequest => ShellMessage::ApprovalNotice {
             approval_id: extract_approval_id(&message.content),
-            content: format!("{} requested approval: {}", message.from_member_id, message.content),
+            content: format!(
+                "{} requested approval: {}",
+                message.from_member_id, message.content
+            ),
         },
         TeamMessageKind::ApprovalResolution => ShellMessage::TeamNotice {
-            content: format!("Approval resolved by {}: {}", message.from_member_id, message.content),
+            content: format!(
+                "Approval resolved by {}: {}",
+                message.from_member_id, message.content
+            ),
         },
         TeamMessageKind::Assignment => ShellMessage::TeamNotice {
             content: format!(
@@ -421,45 +446,50 @@ mod tests {
         let transcript = messages_from_session(&session);
         assert_eq!(transcript.len(), 3);
         assert!(matches!(transcript[0], ShellMessage::UserMessage { .. }));
-        assert!(matches!(transcript[1], ShellMessage::AssistantMessage { .. }));
+        assert!(matches!(
+            transcript[1],
+            ShellMessage::AssistantMessage { .. }
+        ));
         assert!(matches!(transcript[2], ShellMessage::SystemMessage { .. }));
     }
 
     #[test]
     fn task_progress_is_projected_to_task_notice() {
-        let event = TaskStreamEvent::progress(
-            "task-1",
-            "Compiling",
-            Some(50),
-            Some("main.rs".to_string()),
-        );
+        let event =
+            TaskStreamEvent::progress("task-1", "Compiling", Some(50), Some("main.rs".to_string()));
         let message = message_from_task_event(&event);
         assert!(matches!(message, ShellMessage::TaskNotice { .. }));
     }
 
     #[test]
     fn identifies_session_projection_messages() {
-        assert!(cell_from_message(
-            &ShellMessage::UserMessage {
-                content: "hi".to_string()
-            },
-            "Agent"
-        )
-        .is_conversation_cell());
-        assert!(cell_from_message(
-            &ShellMessage::AssistantStream {
-                content: "chunk".to_string()
-            },
-            "Agent"
-        )
-        .is_conversation_cell());
-        assert!(!cell_from_message(
-            &ShellMessage::InfoNotice {
-                content: "note".to_string()
-            },
-            "Agent"
-        )
-        .is_conversation_cell());
+        assert!(
+            cell_from_message(
+                &ShellMessage::UserMessage {
+                    content: "hi".to_string()
+                },
+                "Agent"
+            )
+            .is_conversation_cell()
+        );
+        assert!(
+            cell_from_message(
+                &ShellMessage::AssistantStream {
+                    content: "chunk".to_string()
+                },
+                "Agent"
+            )
+            .is_conversation_cell()
+        );
+        assert!(
+            !cell_from_message(
+                &ShellMessage::InfoNotice {
+                    content: "note".to_string()
+                },
+                "Agent"
+            )
+            .is_conversation_cell()
+        );
     }
 
     #[test]
@@ -498,14 +528,18 @@ mod tests {
 
     #[test]
     fn suppresses_ack_and_data_in_message_projection() {
-        assert!(message_from_stream_frame(&StreamFrame::Ack {
-            content: "working".to_string(),
-        })
-        .is_none());
-        assert!(message_from_stream_frame(&StreamFrame::Data {
-            content: "body".to_string(),
-        })
-        .is_none());
+        assert!(
+            message_from_stream_frame(&StreamFrame::Ack {
+                content: "working".to_string(),
+            })
+            .is_none()
+        );
+        assert!(
+            message_from_stream_frame(&StreamFrame::Data {
+                content: "body".to_string(),
+            })
+            .is_none()
+        );
     }
 
     #[test]
