@@ -23,71 +23,75 @@ import type { ChatSessionSource } from "./ChatSessionSource";
  * session.add_message(ChatMessage::assistant("Hi there! How can I help?"));
  * ```
  */
-export type ChatSession = { 
+export type ChatSession = {
 /**
  * Unique identifier for this session
  */
-id: string, 
+id: string,
 /**
  * Human-readable session name
  */
-name: string, 
+name: string,
 /**
  * ID of the agent this session is with
  */
-agent_id: string, 
+agent_id: string,
 /**
- * Default model for this session
+ * Current provider for this session
  */
-model: string, 
+provider: string,
+/**
+ * Current model for this session
+ */
+model: string,
 /**
  * Ordered list of messages in the conversation
  */
-messages: Array<ChatMessage>, 
+messages: Array<ChatMessage>,
 /**
  * Unix timestamp in milliseconds when the session was created
  */
-created_at: bigint, 
+created_at: bigint,
 /**
  * Unix timestamp in milliseconds when the session was last updated
  */
-updated_at: bigint, 
+updated_at: bigint,
 /**
  * Optional skill ID for context-aware sessions
  */
-skill_id: string | null, 
+skill_id: string | null,
 /**
  * Optional per-session retention policy (e.g., "1h", "1d", "7d", "30d")
  */
-retention?: string | null, 
+retention?: string | null,
 /**
  * Summary message pointer for compacted sessions
  */
-summary_message_id: string | null, 
+summary_message_id: string | null,
 /**
  * Cumulative prompt tokens used in this session
  */
-prompt_tokens: bigint, 
+prompt_tokens: bigint,
 /**
  * Cumulative completion tokens used in this session
  */
-completion_tokens: bigint, 
+completion_tokens: bigint,
 /**
  * Total cost accumulated for this session (including compaction)
  */
-cost: number, 
+cost: number,
 /**
  * Session metadata (tokens, message count, etc.)
  */
-metadata: ChatSessionMetadata, 
+metadata: ChatSessionMetadata,
 /**
  * Optional origin channel of this session.
  */
-source_channel?: ChatSessionSource | null, 
+source_channel?: ChatSessionSource | null,
 /**
  * Optional channel-specific conversation identifier.
  */
-source_conversation_id?: string | null, 
+source_conversation_id?: string | null,
 /**
  * Unix timestamp in milliseconds when the session was archived.
  * None means the session is active.

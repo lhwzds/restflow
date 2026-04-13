@@ -3,7 +3,9 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
-use restflow_traits::{TeamApprovalStatus, TeamAssignmentStatus, TeamMemberStatus, TeamMessageKind, TeamRole};
+use restflow_traits::{
+    TeamApprovalStatus, TeamAssignmentStatus, TeamMemberStatus, TeamMessageKind, TeamRole,
+};
 
 use super::state::{AppState, OverlayState, TeamOverlayTab};
 use super::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
@@ -64,7 +66,9 @@ fn render_startup(frame: &mut Frame<'_>, state: &AppState) {
         lines.push(Line::from("Enter  Start Daemon"));
         lines.push(Line::from("Esc    Exit"));
         lines.push(Line::default());
-        lines.push(Line::from("Use `restflow daemon start` for manual control."));
+        lines.push(Line::from(
+            "Use `restflow daemon start` for manual control.",
+        ));
     }
 
     if let Some(error) = startup.error.as_ref() {
@@ -87,7 +91,11 @@ fn render_startup(frame: &mut Frame<'_>, state: &AppState) {
 fn render_header(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(12), Constraint::Min(20), Constraint::Length(24)])
+        .constraints([
+            Constraint::Length(12),
+            Constraint::Min(20),
+            Constraint::Length(24),
+        ])
         .split(area);
 
     frame.render_widget(
@@ -128,7 +136,11 @@ fn render_transcript(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .iter()
             .flat_map(render_transcript_cell)
             .collect::<Vec<_>>();
-        bottom_anchor_lines(cell_lines, area.height as usize, state.transcript_scroll as usize)
+        bottom_anchor_lines(
+            cell_lines,
+            area.height as usize,
+            state.transcript_scroll as usize,
+        )
     };
 
     frame.render_widget(Clear, area);
@@ -159,14 +171,13 @@ fn render_transcript_cell(cell: &TranscriptCell) -> Vec<Line<'static>> {
     lines.push(Line::from(title_spans));
 
     let indent = match cell.group {
-        MessageGroup::Conversation | MessageGroup::RuntimeNotice | MessageGroup::ToolActivity => "  ",
+        MessageGroup::Conversation | MessageGroup::RuntimeNotice | MessageGroup::ToolActivity => {
+            "  "
+        }
     };
     let body_lines = visible_body_lines(cell.body.as_str());
     for line in &body_lines {
-        lines.push(Line::from(vec![
-            Span::raw(indent),
-            Span::raw(line.clone()),
-        ]));
+        lines.push(Line::from(vec![Span::raw(indent), Span::raw(line.clone())]));
     }
 
     if body_lines.is_empty() {
@@ -189,12 +200,18 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let composer_height = composer_visible_rows + COMPOSER_BORDER_HEIGHT;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(composer_height), Constraint::Length(FOOTER_HEIGHT)])
+        .constraints([
+            Constraint::Length(composer_height),
+            Constraint::Length(FOOTER_HEIGHT),
+        ])
         .split(area);
 
     let composer_lines = state
         .composer
-        .visible_lines(composer_content_width(chunks[0].width), composer_visible_rows)
+        .visible_lines(
+            composer_content_width(chunks[0].width),
+            composer_visible_rows,
+        )
         .into_iter()
         .map(Line::from)
         .collect::<Vec<_>>();
@@ -207,13 +224,14 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     );
 
     frame.render_widget(
-        Paragraph::new(Line::from(state.status.clone())).block(Block::default()),
+        Paragraph::new(Line::from(footer_status_line(state))).block(Block::default()),
         chunks[1],
     );
 
-    let (cursor_column, cursor_row) = state
-        .composer
-        .cursor_position(composer_content_width(chunks[0].width), composer_visible_rows);
+    let (cursor_column, cursor_row) = state.composer.cursor_position(
+        composer_content_width(chunks[0].width),
+        composer_visible_rows,
+    );
     let cursor_x = chunks[0].x + 1 + cursor_column;
     let cursor_y = chunks[0].y + 1 + cursor_row;
     frame.set_cursor_position((
@@ -235,6 +253,20 @@ fn composer_visible_rows(state: &AppState, total_width: u16) -> u16 {
 
 fn composer_pane_height(state: &AppState, total_width: u16) -> u16 {
     composer_visible_rows(state, total_width) + COMPOSER_BORDER_HEIGHT + FOOTER_HEIGHT
+}
+
+fn footer_status_line(state: &AppState) -> String {
+    let Some(session) = state.current_session() else {
+        return state.status.clone();
+    };
+
+    let provider = session.provider.trim();
+    let model = session.model.trim();
+    match (provider, model.is_empty()) {
+        (provider, false) if !provider.is_empty() => format!("{provider} · {model}"),
+        (_, false) => model.to_string(),
+        _ => state.status.clone(),
+    }
 }
 
 fn bottom_anchor_lines(
@@ -305,20 +337,22 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState, overlay: 
                 .current_team_approvals
                 .iter()
                 .enumerate()
-                    .map(|(index, approval)| {
-                        let prefix = if index == *selected { "▸ " } else { "  " };
-                        format!(
-                            "{prefix}{} · {} · #{}",
-                            approval.member_id,
-                            approval.content,
-                            short_id(&approval.approval_id)
-                        )
-                    })
-                    .collect(),
+                .map(|(index, approval)| {
+                    let prefix = if index == *selected { "▸ " } else { "  " };
+                    format!(
+                        "{prefix}{} · {} · #{}",
+                        approval.member_id,
+                        approval.content,
+                        short_id(&approval.approval_id)
+                    )
+                })
+                .collect(),
             "No pending approvals",
             overlay_hint(overlay),
         ),
-        OverlayState::TeamView { tab, scroll } => render_team_overlay(frame, area, state, *tab, *scroll),
+        OverlayState::TeamView { tab, scroll } => {
+            render_team_overlay(frame, area, state, *tab, *scroll)
+        }
         OverlayState::Help => render_help_overlay(frame, area),
     }
 }
@@ -397,10 +431,7 @@ fn render_team_overlay(
                     .current_team_messages
                     .iter()
                     .map(|message| {
-                        let destination = message
-                            .to_member_id
-                            .as_deref()
-                            .unwrap_or("everyone");
+                        let destination = message.to_member_id.as_deref().unwrap_or("everyone");
                         Line::from(format!(
                             "{} · {} → {} · {}",
                             team_message_kind_label(message.kind),
@@ -477,7 +508,11 @@ fn render_help_overlay(frame: &mut Frame<'_>, area: Rect) {
     ];
     frame.render_widget(
         Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title("Keyboard Shortcuts"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Keyboard Shortcuts"),
+            )
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -524,9 +559,7 @@ fn overlay_hint(overlay: &OverlayState) -> &'static str {
         OverlayState::SessionPicker { .. } | OverlayState::RunPicker { .. } => {
             "Enter Select · Esc Close · ↑↓ Move"
         }
-        OverlayState::ApprovalPicker { .. } => {
-            "Enter Approve · R Reject · Esc Close · ↑↓ Move"
-        }
+        OverlayState::ApprovalPicker { .. } => "Enter Approve · R Reject · Esc Close · ↑↓ Move",
         OverlayState::TeamView { .. } => "Esc Close · ↑↓ Scroll · ←→ Tabs",
         OverlayState::Help => "Esc Close",
     }
@@ -636,7 +669,10 @@ fn centered_rect(area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{bottom_anchor_lines, cell_color, composer_pane_height, composer_visible_rows, overlay_title, render_transcript_cell, shell_status_text, short_id};
+    use super::{
+        bottom_anchor_lines, cell_color, composer_pane_height, composer_visible_rows,
+        footer_status_line, overlay_title, render_transcript_cell, shell_status_text, short_id,
+    };
     use crate::state::{AppState, OverlayState, ThreadFocus};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use ratatui::style::Color;
@@ -755,11 +791,37 @@ mod tests {
     fn composer_caps_visible_rows_at_six() {
         let mut state = AppState::empty();
         for line in ["1", "2", "3", "4", "5", "6", "7"] {
-            state.composer.insert_char(line.chars().next().expect("char"));
+            state
+                .composer
+                .insert_char(line.chars().next().expect("char"));
             state.composer.insert_newline();
         }
 
         assert_eq!(composer_visible_rows(&state, 80), 6);
         assert_eq!(composer_pane_height(&state, 80), 9);
+    }
+
+    #[test]
+    fn footer_status_line_prefers_provider_and_model_when_session_exists() {
+        let mut state = AppState::empty();
+        let session = restflow_core::models::ChatSession::new(
+            "agent-1".to_string(),
+            "minimax-coding-plan-m2-5".to_string(),
+        );
+        state.set_current_session(session);
+        state.status = "Connected to daemon".to_string();
+
+        assert_eq!(
+            footer_status_line(&state),
+            "minimax-coding-plan · minimax-coding-plan-m2-5"
+        );
+    }
+
+    #[test]
+    fn footer_status_line_falls_back_to_state_status_without_session() {
+        let mut state = AppState::empty();
+        state.status = "Starting daemon...".to_string();
+
+        assert_eq!(footer_status_line(&state), "Starting daemon...");
     }
 }

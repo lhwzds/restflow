@@ -4,47 +4,51 @@ import type { ChatSessionSource } from "./ChatSessionSource";
 /**
  * Summary view of a chat session (for listing).
  */
-export type ChatSessionSummary = { 
+export type ChatSessionSummary = {
 /**
  * Session ID
  */
-id: string, 
+id: string,
 /**
  * Session name
  */
-name: string, 
+name: string,
 /**
  * Agent ID
  */
-agent_id: string, 
+agent_id: string,
+/**
+ * Provider used
+ */
+provider: string,
 /**
  * Model used
  */
-model: string, 
+model: string,
 /**
  * Optional skill ID for context-aware sessions
  */
-skill_id: string | null, 
+skill_id: string | null,
 /**
  * Number of messages
  */
-message_count: number, 
+message_count: number,
 /**
  * Last update timestamp
  */
-updated_at: bigint, 
+updated_at: bigint,
 /**
  * Preview of last message (truncated)
  */
-last_message_preview: string | null, 
+last_message_preview: string | null,
 /**
  * Optional origin channel of this session.
  */
-source_channel?: ChatSessionSource | null, 
+source_channel?: ChatSessionSource | null,
 /**
  * Optional channel-specific conversation identifier.
  */
-source_conversation_id?: string | null, 
+source_conversation_id?: string | null,
 /**
  * Unix timestamp in milliseconds when the session was archived.
  */

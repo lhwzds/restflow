@@ -5,16 +5,12 @@
  *
  * Tracks aggregate statistics about the session.
  */
-export type ChatSessionMetadata = { 
+export type ChatSessionMetadata = {
 /**
  * Total tokens used across all messages
  */
-total_tokens: number, 
+total_tokens: number,
 /**
  * Number of messages in the session
  */
-message_count: number, 
-/**
- * Last model used (may differ from session default)
- */
-last_model: string | null, };
+message_count: number, };
