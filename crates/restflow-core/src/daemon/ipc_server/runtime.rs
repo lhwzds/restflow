@@ -184,9 +184,7 @@ pub(super) fn latest_assistant_payload(session: &ChatSession) -> Option<(String,
         .messages
         .iter()
         .rev()
-        .find(|message| {
-            message.role == ChatRole::Assistant && !message.content.trim().is_empty()
-        })
+        .find(|message| message.role == ChatRole::Assistant && !message.content.trim().is_empty())
         .map(|message| {
             (
                 message.content.trim().to_string(),
@@ -201,9 +199,7 @@ fn latest_turn_assistant_output(session: &ChatSession, turn_start_index: usize) 
         .iter()
         .skip(turn_start_index)
         .rev()
-        .find(|message| {
-            message.role == ChatRole::Assistant && !message.content.trim().is_empty()
-        })
+        .find(|message| message.role == ChatRole::Assistant && !message.content.trim().is_empty())
         .map(|message| message.content.trim().to_string())
 }
 
@@ -418,9 +414,9 @@ pub(super) async fn execute_chat_session(
             message.execution = Some(execution);
         }
         if let Some(model) = Some(exec_result.final_model) {
-            session.metadata.last_model = Some(model.as_serialized_str().to_string());
-        } else if let Some(normalized) = ModelId::normalize_model_id(&exec_result.active_model) {
-            session.metadata.last_model = Some(normalized);
+            session.set_model_identity(model);
+        } else {
+            session.set_model_identity_from_raw(&exec_result.active_model);
         }
         SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
     } else {
@@ -605,6 +601,9 @@ mod tests {
 
         let payload = latest_assistant_payload(&session);
 
-        assert_eq!(payload.as_ref().map(|(content, _)| content.as_str()), Some("visible"));
+        assert_eq!(
+            payload.as_ref().map(|(content, _)| content.as_str()),
+            Some("visible")
+        );
     }
 }

@@ -49,13 +49,6 @@ impl TelemetryProjector for SessionProjectionProjector {
 
         let mut changed = false;
 
-        if let Some(effective_model) = event.effective_model.as_deref()
-            && session.metadata.last_model.as_deref() != Some(effective_model)
-        {
-            session.metadata.last_model = Some(effective_model.to_string());
-            changed = true;
-        }
-
         if let Some(llm_call) = event.llm_call.as_ref() {
             if let Some(prompt_tokens) = llm_call.input_tokens {
                 session.prompt_tokens += i64::from(prompt_tokens);

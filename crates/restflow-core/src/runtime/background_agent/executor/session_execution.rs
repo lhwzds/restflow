@@ -40,8 +40,7 @@ impl AgentRuntimeExecutor {
             .map(|m| m.as_serialized_str().to_string())
             .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string());
         session.agent_id = fallback.id.clone();
-        session.model = fallback_model.clone();
-        session.metadata.last_model = Some(fallback_model);
+        session.set_model_identity_from_raw(&fallback_model);
 
         Ok(fallback)
     }
@@ -789,13 +788,13 @@ impl AgentRuntimeExecutor {
                         primary_provider,
                         max_history,
                         input_mode,
-                    emitter,
-                    Some(agent_id.as_str()),
-                    steer_rx,
-                    Some(telemetry_context),
-                    stream_display_mode,
-                )
-                .await
+                        emitter,
+                        Some(agent_id.as_str()),
+                        steer_rx,
+                        Some(telemetry_context),
+                        stream_display_mode,
+                    )
+                    .await
                 }
             })
             .await;

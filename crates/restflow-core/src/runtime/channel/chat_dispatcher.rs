@@ -24,11 +24,11 @@ use crate::runtime::channel::{
 use crate::runtime::orchestrator::{
     AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
 };
-use restflow_ai::StreamDisplayMode;
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::services::session::{PersistInteractiveTurnRequest, SessionService};
 use crate::storage::Storage;
 use crate::telemetry::{build_execution_trace_sink, emit_message};
+use restflow_ai::StreamDisplayMode;
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 
@@ -495,8 +495,7 @@ impl ChatSessionManager {
 
         let model = self.get_agent_model(agent_id)?;
         session.agent_id = agent_id.to_string();
-        session.model = model.clone();
-        session.metadata.last_model = Some(model);
+        session.set_model_identity_from_raw(&model);
 
         self.storage.chat_sessions.save(&session)?;
         Ok(session)
@@ -536,8 +535,7 @@ impl ChatSessionManager {
 
         let model = self.get_agent_model(default_agent_id)?;
         session.agent_id = default_agent_id.clone();
-        session.model = model.clone();
-        session.metadata.last_model = Some(model);
+        session.set_model_identity_from_raw(&model);
 
         if let Err(err) = self.storage.chat_sessions.save(session) {
             warn!(
@@ -1316,11 +1314,8 @@ mod tests {
 
         assert_eq!(session.id, stale.id);
         assert_eq!(session.agent_id, default_agent.id);
+        assert_eq!(session.provider, "anthropic");
         assert_eq!(session.model, ModelId::ClaudeSonnet4_5.as_str());
-        assert_eq!(
-            session.metadata.last_model.as_deref(),
-            Some(ModelId::ClaudeSonnet4_5.as_str())
-        );
         unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 
@@ -1472,13 +1467,8 @@ mod tests {
             .get(&session.id)
             .unwrap()
             .expect("session should exist");
-        // session.model should remain unchanged (user's chosen model)
-        assert_eq!(updated.model, "gpt-5");
-        // only last_model metadata tracks what was actually used
-        assert_eq!(
-            updated.metadata.last_model.as_deref(),
-            Some("gpt-5.3-codex")
-        );
+        assert_eq!(updated.provider, "codex");
+        assert_eq!(updated.model, "gpt-5.3-codex");
     }
 
     #[tokio::test]
@@ -1546,11 +1536,8 @@ mod tests {
             .expect("session should rebind");
 
         assert_eq!(rebound.agent_id, fallback.id);
+        assert_eq!(rebound.provider, "codex");
         assert_eq!(rebound.model, ModelId::CodexCli.as_str());
-        assert_eq!(
-            rebound.metadata.last_model.as_deref(),
-            Some(ModelId::CodexCli.as_str())
-        );
     }
 
     #[test]

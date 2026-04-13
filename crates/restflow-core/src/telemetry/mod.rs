@@ -124,10 +124,8 @@ mod tests {
             .get("session-1")
             .expect("load session")
             .expect("session");
-        assert_eq!(
-            persisted.metadata.last_model.as_deref(),
-            Some("minimax-coding-plan-m2-5")
-        );
+        assert_eq!(persisted.provider, "minimax-coding-plan");
+        assert_eq!(persisted.model, "minimax-coding-plan-m2-5-highspeed");
         assert_eq!(persisted.prompt_tokens, 120);
         assert_eq!(persisted.completion_tokens, 30);
         assert_eq!(persisted.cost, 0.42);

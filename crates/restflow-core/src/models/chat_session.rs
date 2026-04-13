@@ -24,6 +24,7 @@
 //! └──────────────────────────────────────────────────────────────┘
 //! ```
 
+use crate::models::ModelId;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
@@ -338,9 +339,6 @@ pub struct ChatSessionMetadata {
     pub total_tokens: u32,
     /// Number of messages in the session
     pub message_count: u32,
-    /// Last model used (may differ from session default)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_model: Option<String>,
 }
 
 impl ChatSessionMetadata {
@@ -350,12 +348,9 @@ impl ChatSessionMetadata {
     }
 
     /// Update metadata after adding a message.
-    pub fn update(&mut self, tokens: u32, model: Option<String>) {
+    pub fn update(&mut self, tokens: u32) {
         self.total_tokens += tokens;
         self.message_count += 1;
-        if let Some(m) = model {
-            self.last_model = Some(m);
-        }
     }
 }
 
@@ -405,7 +400,10 @@ pub struct ChatSession {
     pub name: String,
     /// ID of the agent this session is with
     pub agent_id: String,
-    /// Default model for this session
+    /// Current provider for this session
+    #[serde(default)]
+    pub provider: String,
+    /// Current model for this session
     pub model: String,
     /// Ordered list of messages in the conversation
     pub messages: Vec<ChatMessage>,
@@ -456,13 +454,34 @@ pub struct ChatSessionUpdate {
 }
 
 impl ChatSession {
+    pub fn resolve_model_identity(model: &str) -> (String, String) {
+        if let Some(model_id) = ModelId::from_api_name(model)
+            .or_else(|| ModelId::from_canonical_id(model))
+            .or_else(|| ModelId::from_serialized_str(model))
+        {
+            return (
+                model_id.provider().as_canonical_str().to_string(),
+                model_id.as_serialized_str().to_string(),
+            );
+        }
+
+        let normalized =
+            ModelId::normalize_model_id(model).unwrap_or_else(|| model.trim().to_string());
+        let provider = ModelId::from_serialized_str(&normalized)
+            .map(|model_id| model_id.provider().as_canonical_str().to_string())
+            .unwrap_or_default();
+        (provider, normalized)
+    }
+
     /// Create a new chat session with the given agent and model.
     pub fn new(agent_id: String, model: String) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
+        let (provider, model) = Self::resolve_model_identity(&model);
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name: "New Chat".to_string(),
             agent_id,
+            provider,
             model,
             messages: Vec::new(),
             created_at: now,
@@ -478,6 +497,31 @@ impl ChatSession {
             source_conversation_id: None,
             archived_at: None,
         }
+    }
+
+    pub fn set_model_identity(&mut self, model: ModelId) {
+        self.provider = model.provider().as_canonical_str().to_string();
+        self.model = model.as_serialized_str().to_string();
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    pub fn set_model_identity_from_raw(&mut self, model: &str) {
+        let (provider, normalized_model) = Self::resolve_model_identity(model);
+        self.provider = provider;
+        self.model = normalized_model;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    pub fn hydrate_provider_from_model(&mut self) -> bool {
+        if !self.provider.trim().is_empty() {
+            return false;
+        }
+
+        let (provider, normalized_model) = Self::resolve_model_identity(&self.model);
+        let changed = self.provider != provider || self.model != normalized_model;
+        self.provider = provider;
+        self.model = normalized_model;
+        changed
     }
 
     /// Create a new chat session with a custom name.
@@ -516,7 +560,7 @@ impl ChatSession {
     pub fn add_message(&mut self, message: ChatMessage) {
         // Update metadata
         if let Some(ref exec) = message.execution {
-            self.metadata.update(exec.tokens_used, None);
+            self.metadata.update(exec.tokens_used);
         } else {
             self.metadata.message_count += 1;
         }
@@ -590,6 +634,8 @@ pub struct ChatSessionSummary {
     pub name: String,
     /// Agent ID
     pub agent_id: String,
+    /// Provider used
+    pub provider: String,
     /// Model used
     pub model: String,
     /// Optional skill ID for context-aware sessions
@@ -628,6 +674,7 @@ impl From<&ChatSession> for ChatSessionSummary {
             id: session.id.clone(),
             name: session.name.clone(),
             agent_id: session.agent_id.clone(),
+            provider: session.provider.clone(),
             model: session.model.clone(),
             skill_id: session.skill_id.clone(),
             message_count: session.metadata.message_count,
@@ -748,7 +795,8 @@ mod tests {
         assert!(!session.id.is_empty());
         assert_eq!(session.name, "New Chat");
         assert_eq!(session.agent_id, "agent-1");
-        assert_eq!(session.model, "claude-sonnet-4");
+        assert_eq!(session.provider, "anthropic");
+        assert_eq!(session.model, "claude-sonnet-4-5");
         assert!(session.messages.is_empty());
         assert!(session.skill_id.is_none());
     }
@@ -854,6 +902,8 @@ mod tests {
         assert_eq!(summary.id, session.id);
         assert_eq!(summary.name, "Test Session");
         assert_eq!(summary.agent_id, "agent-1");
+        assert_eq!(summary.provider, session.provider);
+        assert_eq!(summary.model, session.model);
         assert_eq!(summary.message_count, 1);
         assert_eq!(summary.last_message_preview, Some("Hello!".to_string()));
         assert!(summary.archived_at.is_some());
@@ -873,11 +923,26 @@ mod tests {
     #[test]
     fn test_chat_session_metadata_update() {
         let mut metadata = ChatSessionMetadata::new();
-        metadata.update(100, Some("claude-opus-4".to_string()));
+        metadata.update(100);
 
         assert_eq!(metadata.total_tokens, 100);
         assert_eq!(metadata.message_count, 1);
-        assert_eq!(metadata.last_model, Some("claude-opus-4".to_string()));
+    }
+
+    #[test]
+    fn test_chat_session_resolves_provider_from_raw_model() {
+        let (provider, model) = ChatSession::resolve_model_identity("MiniMax-M2.5");
+
+        assert_eq!(provider, "minimax");
+        assert_eq!(model, "minimax-m2-5");
+    }
+
+    #[test]
+    fn test_chat_session_new_sets_model_identity() {
+        let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+        assert_eq!(session.provider, "openai");
+        assert_eq!(session.model, "gpt-5");
     }
 
     // TypeScript binding export tests

@@ -91,6 +91,7 @@ impl SessionService {
         let Some(mut session) = self.sessions.get_session(session_id)? else {
             return Ok(None);
         };
+        session.hydrate_provider_from_model();
         self.apply_effective_source(&mut session)?;
         Ok(Some(session))
     }
@@ -113,6 +114,7 @@ impl SessionService {
         };
 
         for session in &mut sessions {
+            session.hydrate_provider_from_model();
             self.apply_effective_source(session)?;
         }
 
@@ -201,15 +203,14 @@ impl SessionService {
                 .get_session(session_id)?
                 .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
+            session.hydrate_provider_from_model();
             session.add_message(user_message);
             session.add_message(assistant_message);
 
             if let Some(model) = final_model {
-                session.metadata.last_model = Some(model.as_serialized_str().to_string());
-            } else if let Some(model) = active_model
-                && let Some(normalized) = ModelId::normalize_model_id(model)
-            {
-                session.metadata.last_model = Some(normalized);
+                session.set_model_identity(model);
+            } else if let Some(model) = active_model {
+                session.set_model_identity_from_raw(model);
             }
 
             self.sessions.save_session(&session)?;
@@ -256,6 +257,7 @@ impl SessionService {
                 .get_session(session_id)?
                 .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
+            session.hydrate_provider_from_model();
             session.add_message(user_message);
             self.sessions.save_session(&session)?;
             session
@@ -276,8 +278,10 @@ impl SessionService {
     }
 
     pub fn save_existing_session(&self, session: &ChatSession, source: &str) -> Result<()> {
-        self.sessions.update_session(session)?;
-        self.persist_memory(session);
+        let mut session = session.clone();
+        session.hydrate_provider_from_model();
+        self.sessions.update_session(&session)?;
+        self.persist_memory(&session);
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session.id.clone(),
             source: source.to_string(),
@@ -293,6 +297,7 @@ impl SessionService {
         let Some(mut session) = self.sessions.get_session(session_id)? else {
             return Ok(None);
         };
+        session.hydrate_provider_from_model();
         self.policy
             .ensure_workspace_operation_allowed(&session, "updated")?;
 
@@ -311,7 +316,7 @@ impl SessionService {
         if let Some(model) = updates.model {
             let normalized = ModelId::normalize_model_id(&model)
                 .ok_or_else(|| anyhow!("Unknown model: {}", model.trim()))?;
-            session.model = normalized;
+            session.set_model_identity_from_raw(&normalized);
             updated = true;
         }
 
@@ -339,6 +344,7 @@ impl SessionService {
         let Some(mut session) = self.sessions.get_session(session_id)? else {
             return Ok(None);
         };
+        session.hydrate_provider_from_model();
         self.policy
             .ensure_workspace_operation_allowed(&session, "renamed")?;
         session.rename(name);
@@ -491,15 +497,14 @@ impl SessionService {
             request.original_input,
             request.persisted_input,
         );
+        session.hydrate_provider_from_model();
         session.add_message(
             ChatMessage::assistant(request.assistant_output).with_execution(request.execution),
         );
         if let Some(model) = request.final_model {
-            session.metadata.last_model = Some(model.as_serialized_str().to_string());
-        } else if let Some(model) = request.active_model
-            && let Some(normalized) = ModelId::normalize_model_id(model)
-        {
-            session.metadata.last_model = Some(normalized);
+            session.set_model_identity(model);
+        } else if let Some(model) = request.active_model {
+            session.set_model_identity_from_raw(model);
         }
         self.save_existing_session(session, request.source)
     }
@@ -634,7 +639,8 @@ mod tests {
         assert_eq!(persisted.messages.len(), 2);
         assert_eq!(persisted.messages[0].content, "hello");
         assert_eq!(persisted.messages[1].content, "world");
-        assert_eq!(persisted.metadata.last_model.as_deref(), Some("gpt-5"));
+        assert_eq!(persisted.provider, "openai");
+        assert_eq!(persisted.model, "gpt-5");
         let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
         assert_eq!(reloaded.messages.len(), 2);
     }
@@ -654,10 +660,8 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            persisted.metadata.last_model.as_deref(),
-            Some("minimax-coding-plan-m2-5")
-        );
+        assert_eq!(persisted.provider, "minimax-coding-plan");
+        assert_eq!(persisted.model, "minimax-coding-plan-m2-5");
     }
 
     #[test]
@@ -672,6 +676,21 @@ mod tests {
         assert_eq!(reloaded.messages.len(), 2);
         assert_eq!(reloaded.messages[0].content, "hello");
         assert_eq!(reloaded.messages[1].content, "world");
+    }
+
+    #[test]
+    fn get_session_view_hydrates_provider_for_legacy_session() {
+        let (storage, service, mut session) = setup();
+        session.provider.clear();
+        storage.chat_sessions.update(&session).unwrap();
+
+        let hydrated = service
+            .get_session_view(&session.id)
+            .unwrap()
+            .expect("session");
+
+        assert_eq!(hydrated.provider, "openai");
+        assert_eq!(hydrated.model, "gpt-5");
     }
 
     #[test]
@@ -807,7 +826,8 @@ mod tests {
         assert_eq!(reloaded.messages.len(), 2);
         assert_eq!(reloaded.messages[0].content, "voice transcript");
         assert_eq!(reloaded.messages[1].content, "assistant output");
-        assert_eq!(reloaded.metadata.last_model.as_deref(), Some("gpt-5"));
+        assert_eq!(reloaded.provider, "openai");
+        assert_eq!(reloaded.model, "gpt-5");
     }
 
     #[test]
@@ -832,10 +852,8 @@ mod tests {
             .unwrap();
 
         let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
-        assert_eq!(
-            reloaded.metadata.last_model.as_deref(),
-            Some("minimax-coding-plan-m2-5")
-        );
+        assert_eq!(reloaded.provider, "minimax-coding-plan");
+        assert_eq!(reloaded.model, "minimax-coding-plan-m2-5");
     }
 
     #[test]
@@ -858,6 +876,10 @@ mod tests {
             )
             .expect_err("empty assistant output should be rejected");
 
-        assert!(error.to_string().contains("assistant_output must not be empty"));
+        assert!(
+            error
+                .to_string()
+                .contains("assistant_output must not be empty")
+        );
     }
 }
