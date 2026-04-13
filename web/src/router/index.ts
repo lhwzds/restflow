@@ -1,10 +1,6 @@
 import { createRouter, createWebHistory, type RouteLocationRaw } from 'vue-router'
 import { BackendError } from '@/api/http-client'
-import {
-  getExecutionRunThread,
-  listExecutionContainers,
-  listRuns,
-} from '@/api/execution-console'
+import { getExecutionRunThread, listExecutionContainers, listRuns } from '@/api/execution-console'
 
 function canonicalContainerRoute(containerId: string): RouteLocationRaw {
   return {
@@ -28,7 +24,8 @@ export async function resolveSessionAliasRoute(sessionId: string): Promise<Route
   try {
     const containers = await listExecutionContainers()
     const container =
-      containers.find((entry) => entry.id === sessionId || entry.latest_session_id === sessionId) ?? null
+      containers.find((entry) => entry.id === sessionId || entry.latest_session_id === sessionId) ??
+      null
 
     if (!container) {
       return canonicalContainerRoute(sessionId)
@@ -44,7 +41,10 @@ export async function resolveSessionAliasRoute(sessionId: string): Promise<Route
   }
 }
 
-export async function resolveTaskAliasRoute(taskId: string, preferredRunId?: string | null): Promise<RouteLocationRaw> {
+export async function resolveTaskAliasRoute(
+  taskId: string,
+  preferredRunId?: string | null,
+): Promise<RouteLocationRaw> {
   if (preferredRunId) {
     return canonicalContainerRunRoute(taskId, preferredRunId)
   }

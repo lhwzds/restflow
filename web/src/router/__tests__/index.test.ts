@@ -1,16 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BackendError } from '@/api/http-client'
-import {
-  resolveRunAliasRoute,
-  resolveSessionAliasRoute,
-  resolveTaskAliasRoute,
-} from '../index'
-import {
-  getExecutionRunThread,
-  listExecutionContainers,
-  listRuns,
-} from '@/api/execution-console'
+import { resolveRunAliasRoute, resolveSessionAliasRoute, resolveTaskAliasRoute } from '../index'
+import { getExecutionRunThread, listExecutionContainers, listRuns } from '@/api/execution-console'
 
 vi.mock('@/api/execution-console', () => ({
   getExecutionRunThread: vi.fn(),
