@@ -12,11 +12,6 @@ use super::resolver::CredentialResolver;
 use crate::Provider;
 use crate::models::provider_auth_providers;
 
-const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../web/src/types/generated/"
-);
-
 /// Secret key naming convention for auth profiles.
 pub fn secret_key(profile_id: &str, field: &str) -> String {
     format!("auth:{}:{}", profile_id, field)
@@ -27,7 +22,7 @@ pub fn secret_key(profile_id: &str, field: &str) -> String {
 /// Note: Debug is manually implemented to prevent logging sensitive values.
 #[derive(Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Credential {
     /// API key authentication (e.g., ANTHROPIC_API_KEY)
@@ -165,7 +160,7 @@ impl Credential {
 /// Secure credential storing secret references instead of plaintext values.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SecureCredential {
     /// API key stored in SecretStorage.
@@ -299,7 +294,7 @@ impl SecureCredential {
 /// Source of the credential discovery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialSource {
     /// Discovered from Claude Code credentials file
@@ -333,7 +328,7 @@ impl std::fmt::Display for CredentialSource {
 /// - `ClaudeCode`: Claude Code CLI with OAuth tokens (`sk-ant-oat01-...`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthProvider {
     /// Anthropic Claude API - direct API calls with API key (`sk-ant-api03-...`)
@@ -383,7 +378,7 @@ impl AuthProvider {
 /// Health status of an auth profile
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileHealth {
     /// Profile is healthy and available
@@ -400,7 +395,7 @@ pub enum ProfileHealth {
 /// Authentication profile combining credential with metadata
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 pub struct AuthProfile {
     /// Unique profile identifier
     pub id: String,
@@ -541,7 +536,7 @@ impl AuthProfile {
 /// Summary of discovered profiles
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
-#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
+#[ts(export)]
 pub struct DiscoverySummary {
     /// Total profiles discovered
     pub total: usize,

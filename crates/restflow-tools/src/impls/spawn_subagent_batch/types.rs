@@ -4,16 +4,10 @@ use crate::ToolError;
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::SubagentEffectiveLimits;
 
-#[cfg(feature = "ts")]
-const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../web/src/types/generated/"
-);
-
 /// Operation for spawn_subagent_batch tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum SpawnSubagentBatchOperation {
     /// Spawn one batch of sub-agents immediately.
@@ -36,7 +30,7 @@ fn default_member_count() -> u32 {
 /// One batch member specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct BatchSubagentSpec {
     /// Optional agent ID or name.
     ///
@@ -104,7 +98,7 @@ pub struct BatchSubagentSpec {
 /// Parameters for spawn_subagent_batch tool.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct SpawnSubagentBatchParams {
     /// Operation to perform.
     #[serde(default)]

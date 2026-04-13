@@ -11,16 +11,10 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager, SubagentStatus};
 
-#[cfg(feature = "ts")]
-const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../web/src/types/generated/"
-);
-
 /// Parameters for wait_subagents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct WaitSubagentsParams {
     /// Task IDs to wait for.
     pub task_ids: Vec<String>,

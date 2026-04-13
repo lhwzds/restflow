@@ -2,16 +2,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::super::spawn_subagent_batch::{BatchSubagentSpec, SpawnSubagentBatchOperation};
 
-#[cfg(feature = "ts")]
-const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../web/src/types/generated/"
-);
-
 /// Parameters for spawn_subagent tool.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct SpawnSubagentParams {
     /// Operation to perform. Defaults to `spawn`.
     #[serde(default)]

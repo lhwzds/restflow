@@ -10,16 +10,10 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::SubagentManager;
 
-#[cfg(feature = "ts")]
-const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../web/src/types/generated/"
-);
-
 /// Parameters for list_subagents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct ListSubagentsParams {
     /// Include currently running agents in the response.
     #[serde(default = "default_include_running")]
