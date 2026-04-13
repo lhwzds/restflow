@@ -12,7 +12,8 @@
     "format": "prettier --write \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
     "format:check": "prettier --check \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
     "generate:types": "../scripts/generate_web_types.sh",
-    "test": "vitest",
+    "test": "vitest --run",
+    "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage"
   },
