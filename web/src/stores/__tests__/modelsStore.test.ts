@@ -52,7 +52,12 @@ describe('modelsStore getters', () => {
           supports_temperature: true,
           name: 'Claude Sonnet 4.5',
         },
-        { model: 'gpt-5-mini', provider: 'openai', supports_temperature: false, name: 'GPT-5 Mini' },
+        {
+          model: 'gpt-5-mini',
+          provider: 'openai',
+          supports_temperature: false,
+          name: 'GPT-5 Mini',
+        },
       ],
     })
 

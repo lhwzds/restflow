@@ -132,9 +132,7 @@ export const useTaskStore = defineStore('task', {
       }
     },
 
-    async convertSessionToTask(
-      request: api.CreateTaskFromSessionRequest,
-    ): Promise<Task | null> {
+    async convertSessionToTask(request: api.CreateTaskFromSessionRequest): Promise<Task | null> {
       this.error = null
       try {
         const result = await api.createTaskFromSession(request)
@@ -185,6 +183,5 @@ export const useTaskStore = defineStore('task', {
         this.agents.push(task)
       }
     },
-
   },
 })
