@@ -91,7 +91,9 @@ function formatCount(value: bigint | number | null | undefined): string {
       </div>
       <div class="rounded-md border border-border bg-muted/20 p-2">
         <p class="text-muted-foreground">Events</p>
-        <p class="mt-1 font-medium" data-testid="run-overview-events">{{ formatCount(stats.total_events) }}</p>
+        <p class="mt-1 font-medium" data-testid="run-overview-events">
+          {{ formatCount(stats.total_events) }}
+        </p>
       </div>
       <div class="rounded-md border border-border bg-muted/20 p-2">
         <p class="text-muted-foreground">Child runs</p>
@@ -100,7 +102,9 @@ function formatCount(value: bigint | number | null | undefined): string {
     </div>
 
     <!-- Model info -->
-    <div class="flex items-center justify-between rounded-md border border-border bg-muted/10 px-3 py-2 text-xs">
+    <div
+      class="flex items-center justify-between rounded-md border border-border bg-muted/10 px-3 py-2 text-xs"
+    >
       <span class="text-muted-foreground">Model</span>
       <span class="text-right">
         <span class="font-medium">{{ focus.effective_model || 'N/A' }}</span>
@@ -157,10 +161,10 @@ function formatCount(value: bigint | number | null | undefined): string {
           class="flex w-full items-start justify-between gap-3 rounded-md border border-border/60 bg-background/80 px-3 py-2 text-left transition-colors hover:bg-muted/60"
           @click="
             childRun.run_id &&
-              emit('navigateRun', {
-                containerId: childRun.container_id,
-                runId: childRun.run_id,
-              })
+            emit('navigateRun', {
+              containerId: childRun.container_id,
+              runId: childRun.run_id,
+            })
           "
         >
           <div class="min-w-0 flex-1">

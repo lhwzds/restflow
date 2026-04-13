@@ -96,7 +96,9 @@ const panelComponent = computed(() => {
 const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
 const isOverviewMode = computed(() => props.mode === 'overview')
 const panelTitle = computed(() =>
-  isOverviewMode.value ? props.runThread?.focus.title || 'Run Overview' : props.title || props.toolName || 'Tool Panel',
+  isOverviewMode.value
+    ? props.runThread?.focus.title || 'Run Overview'
+    : props.title || props.toolName || 'Tool Panel',
 )
 </script>
 
@@ -157,11 +159,7 @@ const panelTitle = computed(() =>
     >
       <GitBranch :size="13" class="shrink-0 text-muted-foreground" />
       <template v-for="(node, index) in props.runNavigation" :key="`${node.key}-${node.runId}`">
-        <ChevronRight
-          v-if="index > 0"
-          :size="12"
-          class="shrink-0 text-muted-foreground"
-        />
+        <ChevronRight v-if="index > 0" :size="12" class="shrink-0 text-muted-foreground" />
 
         <button
           v-if="node.clickable"
@@ -169,7 +167,9 @@ const panelTitle = computed(() =>
           class="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
           @click="emit('navigateRun', { containerId: node.containerId, runId: node.runId })"
         >
-          <span class="rounded bg-background px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span
+            class="rounded bg-background px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+          >
             {{ node.badge }}
           </span>
           <span class="truncate">{{ node.label }}</span>
@@ -180,7 +180,9 @@ const panelTitle = computed(() =>
           data-testid="tool-panel-run-nav-current"
           class="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-xs text-foreground"
         >
-          <span class="rounded bg-background px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span
+            class="rounded bg-background px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+          >
             {{ node.badge }}
           </span>
           <span class="truncate font-medium">{{ node.label }}</span>

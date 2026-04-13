@@ -7,9 +7,7 @@ const props = defineProps<{
   data: Record<string, unknown>
 }>()
 
-const content = computed(() =>
-  typeof props.data.content === 'string' ? props.data.content : '',
-)
+const content = computed(() => (typeof props.data.content === 'string' ? props.data.content : ''))
 const contentType = computed<'markdown' | 'code' | 'json' | 'html'>(() => {
   const ct = props.data.content_type ?? props.data.contentType
   if (ct === 'markdown' || ct === 'code' || ct === 'json' || ct === 'html') return ct

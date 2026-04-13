@@ -133,8 +133,8 @@ const diffStats = computed(() => {
   return { added, removed }
 })
 
-const showDiff = computed(() =>
-  (action.value === 'write' || action.value === 'edit') && diffLines.value.length > 0,
+const showDiff = computed(
+  () => (action.value === 'write' || action.value === 'edit') && diffLines.value.length > 0,
 )
 
 const diffCopyText = computed(() => {
@@ -178,8 +178,10 @@ async function onCopyContent(): Promise<void> {
             :key="index"
             class="grid grid-cols-[1.5rem_1fr] border-b border-border/40 last:border-b-0"
             :class="{
-              'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200': line.type === 'added',
-              'bg-rose-50 text-rose-900 dark:bg-rose-950/40 dark:text-rose-200': line.type === 'removed',
+              'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200':
+                line.type === 'added',
+              'bg-rose-50 text-rose-900 dark:bg-rose-950/40 dark:text-rose-200':
+                line.type === 'removed',
             }"
           >
             <span
@@ -189,7 +191,8 @@ async function onCopyContent(): Promise<void> {
                 'text-rose-500': line.type === 'removed',
                 'text-muted-foreground/40': line.type === 'unchanged',
               }"
-            >{{ line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' ' }}</span>
+              >{{ line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' ' }}</span
+            >
             <span class="overflow-x-auto whitespace-pre px-2 py-0.5">{{ line.text }}</span>
           </div>
         </div>

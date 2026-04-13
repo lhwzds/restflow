@@ -18,7 +18,7 @@ function stringify(value: unknown, spacing: number): string {
   )
 }
 
-const parsed = computed(() => (props.step ? parseToolResult(props.step) : props.data ?? {}))
+const parsed = computed(() => (props.step ? parseToolResult(props.step) : (props.data ?? {})))
 const formatted = computed(() => stringify(parsed.value, 2))
 const raw = computed(() =>
   props.step ? (props.step.result ?? '').toString() : stringify(props.data ?? {}, 0),
