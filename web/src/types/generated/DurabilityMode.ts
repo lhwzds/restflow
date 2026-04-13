@@ -3,4 +3,4 @@
 /**
  * Durability mode for checkpoint persistence.
  */
-export type DurabilityMode = 'sync' | 'async' | 'exit'
+export type DurabilityMode = "sync" | "async" | "exit";

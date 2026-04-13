@@ -3,17 +3,16 @@
 /**
  * Structured transcript payload for a chat message.
  */
-export type ChatMessageTranscript = {
-  /**
-   * Final transcript text.
-   */
-  text: string
-  /**
-   * Optional model identifier used for transcription.
-   */
-  model?: string
-  /**
-   * Optional update timestamp in Unix milliseconds.
-   */
-  updated_at?: number
-}
+export type ChatMessageTranscript = { 
+/**
+ * Final transcript text.
+ */
+text: string, 
+/**
+ * Optional model identifier used for transcription.
+ */
+model?: string, 
+/**
+ * Optional update timestamp in Unix milliseconds.
+ */
+updated_at?: number, };

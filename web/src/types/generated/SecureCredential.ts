@@ -3,49 +3,40 @@
 /**
  * Secure credential storing secret references instead of plaintext values.
  */
-export type SecureCredential =
-  | {
-      type: 'api_key'
-      /**
-       * Reference to secret in SecretStorage
-       */
-      secret_ref: string
-      /**
-       * Associated email/account (optional)
-       */
-      email: string | null
-    }
-  | {
-      type: 'token'
-      /**
-       * Reference to secret in SecretStorage
-       */
-      secret_ref: string
-      /**
-       * Token expiration time
-       */
-      expires_at: string | null
-      /**
-       * Associated email/account
-       */
-      email: string | null
-    }
-  | {
-      type: 'o_auth'
-      /**
-       * Reference to access token secret
-       */
-      access_token_ref: string
-      /**
-       * Reference to refresh token secret (optional)
-       */
-      refresh_token_ref: string | null
-      /**
-       * Access token expiration time
-       */
-      expires_at: string | null
-      /**
-       * Associated email/account
-       */
-      email: string | null
-    }
+export type SecureCredential = { "type": "api_key", 
+/**
+ * Reference to secret in SecretStorage
+ */
+secret_ref: string, 
+/**
+ * Associated email/account (optional)
+ */
+email: string | null, } | { "type": "token", 
+/**
+ * Reference to secret in SecretStorage
+ */
+secret_ref: string, 
+/**
+ * Token expiration time
+ */
+expires_at: string | null, 
+/**
+ * Associated email/account
+ */
+email: string | null, } | { "type": "o_auth", 
+/**
+ * Reference to access token secret
+ */
+access_token_ref: string, 
+/**
+ * Reference to refresh token secret (optional)
+ */
+refresh_token_ref: string | null, 
+/**
+ * Access token expiration time
+ */
+expires_at: string | null, 
+/**
+ * Associated email/account
+ */
+email: string | null, };

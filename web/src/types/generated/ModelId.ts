@@ -6,4 +6,4 @@
  * This replaces the old large enum with a lightweight value object backed by
  * the provider/model catalog.
  */
-export type ModelId = string
+export type ModelId = string;

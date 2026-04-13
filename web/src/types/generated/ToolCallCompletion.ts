@@ -3,25 +3,24 @@
 /**
  * Tool completion payload used by runtime helpers that consume tool-call outputs.
  */
-export type ToolCallCompletion = {
-  /**
-   * Optional tool output payload (JSON string or raw text).
-   */
-  output: string | null
-  /**
-   * Optional file reference for full output payload.
-   */
-  output_ref: string | null
-  /**
-   * Whether the tool call succeeded.
-   */
-  success: boolean
-  /**
-   * Optional duration in milliseconds.
-   */
-  duration_ms: number | null
-  /**
-   * Optional error text.
-   */
-  error: string | null
-}
+export type ToolCallCompletion = { 
+/**
+ * Optional tool output payload (JSON string or raw text).
+ */
+output: string | null, 
+/**
+ * Optional file reference for full output payload.
+ */
+output_ref: string | null, 
+/**
+ * Whether the tool call succeeded.
+ */
+success: boolean, 
+/**
+ * Optional duration in milliseconds.
+ */
+duration_ms: number | null, 
+/**
+ * Optional error text.
+ */
+error: string | null, };

@@ -3,4 +3,4 @@
 /**
  * Skill lifecycle status used for discovery and planning.
  */
-export type SkillStatus = 'active' | 'completed' | 'archived' | 'draft'
+export type SkillStatus = "active" | "completed" | "archived" | "draft";

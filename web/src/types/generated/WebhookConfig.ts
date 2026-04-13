@@ -3,17 +3,16 @@
 /**
  * Webhook configuration for a task
  */
-export type WebhookConfig = {
-  /**
-   * Whether webhook trigger is enabled
-   */
-  enabled: boolean
-  /**
-   * Unique webhook token for authentication
-   */
-  token: string
-  /**
-   * Optional rate limit (requests per minute)
-   */
-  rate_limit: number | null
-}
+export type WebhookConfig = { 
+/**
+ * Whether webhook trigger is enabled
+ */
+enabled: boolean, 
+/**
+ * Unique webhook token for authentication
+ */
+token: string, 
+/**
+ * Optional rate limit (requests per minute)
+ */
+rate_limit: number | null, };

@@ -3,24 +3,20 @@
 /**
  * Persistent mapping between an external channel route and a chat session.
  */
-export type ChannelSessionBinding = {
-  id: string
-  /**
-   * Normalized channel identifier (e.g. `telegram`, `discord`, `slack`).
-   */
-  channel: string
-  /**
-   * Optional account/bot identifier in this channel.
-   */
-  account_id: string | null
-  /**
-   * External conversation identifier from channel payload.
-   */
-  conversation_id: string
-  /**
-   * Internal chat session ID.
-   */
-  session_id: string
-  created_at: bigint
-  updated_at: bigint
-}
+export type ChannelSessionBinding = { id: string, 
+/**
+ * Normalized channel identifier (e.g. `telegram`, `discord`, `slack`).
+ */
+channel: string, 
+/**
+ * Optional account/bot identifier in this channel.
+ */
+account_id: string | null, 
+/**
+ * External conversation identifier from channel payload.
+ */
+conversation_id: string, 
+/**
+ * Internal chat session ID.
+ */
+session_id: string, created_at: bigint, updated_at: bigint, };

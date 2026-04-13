@@ -3,4 +3,4 @@
 /**
  * Control actions for a scheduled task.
  */
-export type TaskControlAction = 'start' | 'pause' | 'resume' | 'stop' | 'run_now'
+export type TaskControlAction = "start" | "pause" | "resume" | "stop" | "run_now";

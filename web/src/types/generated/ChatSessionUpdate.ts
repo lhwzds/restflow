@@ -3,8 +3,4 @@
 /**
  * Partial update payload for a chat session.
  */
-export type ChatSessionUpdate = {
-  agent_id: string | null
-  model: string | null
-  name: string | null
-}
+export type ChatSessionUpdate = { agent_id: string | null, model: string | null, name: string | null, };
