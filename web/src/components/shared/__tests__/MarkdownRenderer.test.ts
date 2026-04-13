@@ -7,7 +7,8 @@ const { highlightCodeMock } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/utils/codeHighlight', async () => {
-  const actual = await vi.importActual<typeof import('@/utils/codeHighlight')>('@/utils/codeHighlight')
+  const actual =
+    await vi.importActual<typeof import('@/utils/codeHighlight')>('@/utils/codeHighlight')
   return {
     ...actual,
     highlightCode: highlightCodeMock,
