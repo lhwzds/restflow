@@ -9,8 +9,8 @@ use crate::runtime::background_agent::{
 use crate::runtime::orchestrator::kernel::{
     ExecutionKernel, map_anyhow_error, parse_optional_metadata, require_mode_input,
 };
-use restflow_ai::agent::StreamEmitter;
 use restflow_ai::StreamDisplayMode;
+use restflow_ai::agent::StreamEmitter;
 use restflow_traits::{ExecutionOutcome, ExecutionPlan};
 
 #[derive(Debug, Clone)]

@@ -76,7 +76,10 @@ impl IpcClient {
         Self::unsupported()
     }
 
-    pub async fn delete_task(&mut self, _id: String) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    pub async fn delete_task(
+        &mut self,
+        _id: String,
+    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
         Self::unsupported()
     }
 

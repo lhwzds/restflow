@@ -14,8 +14,8 @@ use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
 use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
-use restflow_ai::agent::{NullEmitter, StreamEmitter};
 use restflow_ai::StreamDisplayMode;
+use restflow_ai::agent::{NullEmitter, StreamEmitter};
 use restflow_telemetry::{RestflowTrace, RunDescriptor, RunKind, RunLifecycleService};
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
 
