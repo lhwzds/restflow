@@ -126,9 +126,9 @@ mod tests {
             .expect("session");
         assert_eq!(persisted.provider, "minimax-coding-plan");
         assert_eq!(persisted.model, "minimax-coding-plan-m2-5-highspeed");
-        assert_eq!(persisted.prompt_tokens, 120);
-        assert_eq!(persisted.completion_tokens, 30);
-        assert_eq!(persisted.cost, 0.42);
+        assert_eq!(persisted.prompt_tokens, 0);
+        assert_eq!(persisted.completion_tokens, 0);
+        assert_eq!(persisted.cost, 0.0);
 
         let metrics = get_execution_metrics(
             &storage.telemetry_metric_samples,

@@ -391,7 +391,8 @@ impl ChatSessionManager {
             return Ok(None);
         };
 
-        if let Some(session) = self.storage.chat_sessions.get(&binding.session_id)? {
+        if let Some(mut session) = self.storage.chat_sessions.get(&binding.session_id)? {
+            session.hydrate_provider_from_model();
             return Ok(Some(session));
         }
 
@@ -822,7 +823,10 @@ impl ChatDispatcher {
                 return Ok(());
             }
             match self.storage.chat_sessions.get(&session.id) {
-                Ok(Some(updated)) => session = updated,
+                Ok(Some(mut updated)) => {
+                    updated.hydrate_provider_from_model();
+                    session = updated;
+                }
                 Ok(None) => {
                     self.send_error_response(
                         message,

@@ -54,9 +54,10 @@ fn normalize_session_model_id(model: &str) -> String {
 fn normalize_session_model(session: &mut ChatSession) -> bool {
     let normalized = normalize_session_model_id(&session.model);
     if normalized == session.model {
-        return false;
+        return session.hydrate_provider_from_model();
     }
     session.model = normalized;
+    session.hydrate_provider_from_model();
     true
 }
 
@@ -128,10 +129,7 @@ impl ChatSessionStorage {
         if let Some(bytes) = self.inner.get_raw(id)? {
             let json = std::str::from_utf8(&bytes)?;
             let mut session: ChatSession = serde_json::from_str(json)?;
-            if normalize_session_model(&mut session) {
-                let normalized_json = serde_json::to_string(&session)?;
-                self.inner.put_raw(id, normalized_json.as_bytes())?;
-            }
+            normalize_session_model(&mut session);
             Ok(Some(session))
         } else {
             Ok(None)
@@ -144,18 +142,11 @@ impl ChatSessionStorage {
     pub fn list_all(&self) -> Result<Vec<ChatSession>> {
         let raw_sessions = self.inner.list_raw()?;
         let mut sessions = Vec::new();
-        let mut normalized_updates: Vec<(String, String)> = Vec::new();
-        for (id, bytes) in raw_sessions {
+        for (_id, bytes) in raw_sessions {
             let json = std::str::from_utf8(&bytes)?;
             let mut session: ChatSession = serde_json::from_str(json)?;
-            if normalize_session_model(&mut session) {
-                normalized_updates.push((id, serde_json::to_string(&session)?));
-            }
+            normalize_session_model(&mut session);
             sessions.push(session);
-        }
-
-        for (id, normalized_json) in normalized_updates {
-            self.inner.put_raw(&id, normalized_json.as_bytes())?;
         }
 
         // Sort by updated_at descending (most recent first)
@@ -603,6 +594,21 @@ mod tests {
             summaries[0].last_message_preview,
             Some("Hello!".to_string())
         );
+        assert_eq!(summaries[0].provider, "anthropic");
+    }
+
+    #[test]
+    fn test_get_hydrates_provider_when_it_is_stale() {
+        let (storage, _temp_dir) = setup();
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.provider = "anthropic".to_string();
+        storage.save(&session).unwrap();
+
+        let hydrated = storage.get(&session.id).unwrap().unwrap();
+
+        assert_eq!(hydrated.provider, "openai");
+        assert_eq!(hydrated.model, "gpt-5");
     }
 
     #[test]

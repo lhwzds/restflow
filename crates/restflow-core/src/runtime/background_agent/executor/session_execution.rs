@@ -760,6 +760,7 @@ impl AgentRuntimeExecutor {
                 let telemetry_context = base_telemetry_context
                     .clone()
                     .with_effective_model(model.as_serialized_str())
+                    .with_provider(model.provider().as_canonical_str())
                     .with_attempt(current_attempt);
                 async move {
                     if let Some(previous_model) = previous_model

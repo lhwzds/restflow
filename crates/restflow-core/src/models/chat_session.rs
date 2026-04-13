@@ -513,10 +513,6 @@ impl ChatSession {
     }
 
     pub fn hydrate_provider_from_model(&mut self) -> bool {
-        if !self.provider.trim().is_empty() {
-            return false;
-        }
-
         let (provider, normalized_model) = Self::resolve_model_identity(&self.model);
         let changed = self.provider != provider || self.model != normalized_model;
         self.provider = provider;

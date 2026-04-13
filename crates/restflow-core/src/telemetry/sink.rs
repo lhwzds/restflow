@@ -16,14 +16,13 @@ use crate::storage::{
 use super::derive::derive_projection_events;
 use super::mapping::execution_event_to_trace_event;
 use super::projector::{
-    ExecutionTraceProjector, MetricsProjector, ProviderHealthProjector, SessionProjectionProjector,
-    StructuredLogProjector, TelemetryProjector,
+    ExecutionTraceProjector, MetricsProjector, ProviderHealthProjector, StructuredLogProjector,
+    TelemetryProjector,
 };
 
 #[derive(Clone)]
 pub struct CoreTelemetrySink {
     trace_projector: ExecutionTraceProjector,
-    session_projector: SessionProjectionProjector,
     metrics_projector: MetricsProjector,
     provider_health_projector: ProviderHealthProjector,
     structured_log_projector: StructuredLogProjector,
@@ -32,14 +31,13 @@ pub struct CoreTelemetrySink {
 impl CoreTelemetrySink {
     pub fn new(
         execution_traces: ExecutionTraceStorage,
-        chat_sessions: crate::storage::ChatSessionStorage,
+        _chat_sessions: crate::storage::ChatSessionStorage,
         telemetry_metric_samples: TelemetryMetricSampleStorage,
         provider_health_snapshots: ProviderHealthSnapshotStorage,
         structured_execution_logs: StructuredExecutionLogStorage,
     ) -> Self {
         Self {
             trace_projector: ExecutionTraceProjector::new(execution_traces),
-            session_projector: SessionProjectionProjector::new(chat_sessions),
             metrics_projector: MetricsProjector::new(telemetry_metric_samples),
             provider_health_projector: ProviderHealthProjector::new(provider_health_snapshots),
             structured_log_projector: StructuredLogProjector::new(structured_execution_logs),
@@ -48,7 +46,6 @@ impl CoreTelemetrySink {
 
     fn project_primary_event(&self, event: &crate::models::ExecutionTraceEvent) -> Result<()> {
         self.trace_projector.project(event)?;
-        self.session_projector.project(event)?;
         self.metrics_projector.project(event)?;
         self.provider_health_projector.project(event)?;
         self.structured_log_projector.project(event)?;
