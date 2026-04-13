@@ -5,11 +5,11 @@ use async_trait::async_trait;
 use restflow_ai::agent::SubagentTracker;
 use restflow_traits::store::KvStore;
 use restflow_traits::{
-    AssignTeamTaskRequest, ContractRunSpawnRequest, PendingTeamApproval, ResolveTeamApprovalRequest,
-    SendTeamMessageRequest, StartTeamRequest, SubagentManager, TeamApprovalRequest,
-    TeamApprovalStatus, TeamAssignment, TeamAssignmentStatus, TeamCoordinator, TeamMailbox,
-    TeamMemberSpec, TeamMemberState, TeamMemberStatus, TeamMessage, TeamMessageKind, TeamRole,
-    TeamState, TeamStatus, ToolError,
+    AssignTeamTaskRequest, ContractRunSpawnRequest, PendingTeamApproval,
+    ResolveTeamApprovalRequest, SendTeamMessageRequest, StartTeamRequest, SubagentManager,
+    TeamApprovalRequest, TeamApprovalStatus, TeamAssignment, TeamAssignmentStatus, TeamCoordinator,
+    TeamMailbox, TeamMemberSpec, TeamMemberState, TeamMemberStatus, TeamMessage, TeamMessageKind,
+    TeamRole, TeamState, TeamStatus, ToolError,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -68,8 +68,9 @@ impl TeamRuntimeService {
         type_hint: &'static str,
         tags: Vec<String>,
     ) -> Result<(), ToolError> {
-        let content = serde_json::to_string(value)
-            .map_err(|error| ToolError::Tool(format!("Failed to serialize {type_hint}: {error}")))?;
+        let content = serde_json::to_string(value).map_err(|error| {
+            ToolError::Tool(format!("Failed to serialize {type_hint}: {error}"))
+        })?;
         self.kv_store
             .set_entry(
                 key,
@@ -170,9 +171,7 @@ impl TeamRuntimeService {
         let mut seen = HashMap::new();
         for member in &request.members {
             if member.member_id.trim().is_empty() {
-                return Err(ToolError::Tool(
-                    "member_id must not be empty.".to_string(),
-                ));
+                return Err(ToolError::Tool("member_id must not be empty.".to_string()));
             }
             if member.role != TeamRole::Member {
                 return Err(ToolError::Tool(
@@ -247,7 +246,10 @@ impl TeamRuntimeService {
                 continue;
             }
 
-            if approval_members.iter().any(|value| value == &member.member_id) {
+            if approval_members
+                .iter()
+                .any(|value| value == &member.member_id)
+            {
                 member.status = TeamMemberStatus::WaitingApproval;
                 continue;
             }
@@ -342,7 +344,9 @@ impl TeamRuntimeService {
 
     fn pending_approvals(&self, team_run_id: &str) -> Result<Vec<PendingTeamApproval>, ToolError> {
         Ok(self
-            .list_by_prefix::<PendingTeamApproval>(&format!("{TEAM_APPROVAL_PREFIX}:{team_run_id}"))?
+            .list_by_prefix::<PendingTeamApproval>(&format!(
+                "{TEAM_APPROVAL_PREFIX}:{team_run_id}"
+            ))?
             .into_iter()
             .filter(|approval| approval.status == TeamApprovalStatus::Pending)
             .collect())
@@ -360,7 +364,9 @@ impl TeamRuntimeService {
             .members
             .iter_mut()
             .find(|member| member.member_id == assignee_member_id)
-            .ok_or_else(|| ToolError::Tool(format!("Unknown team member '{assignee_member_id}'.")))?;
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Unknown team member '{assignee_member_id}'."))
+            })?;
 
         if member.role != TeamRole::Member {
             return Err(ToolError::Tool(
@@ -379,25 +385,23 @@ impl TeamRuntimeService {
             None
         };
 
-        let handle = self
-            .subagent_manager
-            .spawn(ContractRunSpawnRequest {
-                agent_id: member.agent_id.clone(),
-                inline,
-                task: content.clone(),
-                timeout_secs: None,
-                max_iterations: member.max_iterations,
-                priority: None,
-                model: member.model.clone(),
-                model_provider: member.provider.clone(),
-                parent_run_id: Some(state.team_run_id.clone()),
-                trace_session_id: Some(state.team_run_id.clone()),
-                trace_scope_id: Some(state.team_run_id.clone()),
-                team_run_id: Some(state.team_run_id.clone()),
-                team_member_id: Some(member.member_id.clone()),
-                leader_member_id: Some(state.leader_member_id.clone()),
-                team_role: Some("member".to_string()),
-            })?;
+        let handle = self.subagent_manager.spawn(ContractRunSpawnRequest {
+            agent_id: member.agent_id.clone(),
+            inline,
+            task: content.clone(),
+            timeout_secs: None,
+            max_iterations: member.max_iterations,
+            priority: None,
+            model: member.model.clone(),
+            model_provider: member.provider.clone(),
+            parent_run_id: Some(state.team_run_id.clone()),
+            trace_session_id: Some(state.team_run_id.clone()),
+            trace_scope_id: Some(state.team_run_id.clone()),
+            team_run_id: Some(state.team_run_id.clone()),
+            team_member_id: Some(member.member_id.clone()),
+            leader_member_id: Some(state.leader_member_id.clone()),
+            team_role: Some("member".to_string()),
+        })?;
 
         let assignment = TeamAssignment {
             team_run_id: state.team_run_id.clone(),
@@ -448,7 +452,9 @@ impl TeamMailbox for TeamRuntimeService {
     ) -> Result<TeamMessage, ToolError> {
         let mut state = self
             .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
-            .ok_or_else(|| ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id)))?;
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
+            })?;
         let message = TeamMessage {
             team_run_id: request.team_run_id.clone(),
             message_id: uuid::Uuid::new_v4().to_string(),
@@ -517,10 +523,10 @@ impl TeamCoordinator for TeamRuntimeService {
             .map(|member| member.member_id.clone())
             .collect::<Vec<_>>();
         for (index, content) in request.assignments.into_iter().enumerate() {
-            let assignee_member_id = workers
-                .get(index % workers.len())
-                .cloned()
-                .ok_or_else(|| ToolError::Tool("No worker members available for assignment.".to_string()))?;
+            let assignee_member_id =
+                workers.get(index % workers.len()).cloned().ok_or_else(|| {
+                    ToolError::Tool("No worker members available for assignment.".to_string())
+                })?;
             let _ = self
                 .create_assignment_for_member(&mut state, assignee_member_id, content)
                 .await?;
@@ -536,9 +542,12 @@ impl TeamCoordinator for TeamRuntimeService {
         self.refresh_state(state).await
     }
 
-    async fn list_team_assignments(&self, team_run_id: &str) -> Result<Vec<TeamAssignment>, ToolError> {
-        let mut assignments =
-            self.list_by_prefix::<TeamAssignment>(&format!("{TEAM_ASSIGNMENT_PREFIX}:{team_run_id}"))?;
+    async fn list_team_assignments(
+        &self,
+        team_run_id: &str,
+    ) -> Result<Vec<TeamAssignment>, ToolError> {
+        let mut assignments = self
+            .list_by_prefix::<TeamAssignment>(&format!("{TEAM_ASSIGNMENT_PREFIX}:{team_run_id}"))?;
         assignments.sort_by(|left, right| left.created_at.cmp(&right.created_at));
         Ok(assignments)
     }
@@ -549,13 +558,11 @@ impl TeamCoordinator for TeamRuntimeService {
     ) -> Result<TeamAssignment, ToolError> {
         let mut state = self
             .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
-            .ok_or_else(|| ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id)))?;
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
+            })?;
         let assignment = self
-            .create_assignment_for_member(
-                &mut state,
-                request.assignee_member_id,
-                request.content,
-            )
+            .create_assignment_for_member(&mut state, request.assignee_member_id, request.content)
             .await?;
         let _ = self.refresh_state(state).await?;
         Ok(assignment)
@@ -567,7 +574,9 @@ impl TeamCoordinator for TeamRuntimeService {
     ) -> Result<PendingTeamApproval, ToolError> {
         let mut state = self
             .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
-            .ok_or_else(|| ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id)))?;
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
+            })?;
         let approval = PendingTeamApproval {
             team_run_id: request.team_run_id.clone(),
             approval_id: request.approval_id.clone(),
@@ -611,10 +620,14 @@ impl TeamCoordinator for TeamRuntimeService {
                 &request.team_run_id,
                 &request.approval_id,
             ))?
-            .ok_or_else(|| ToolError::Tool(format!("Unknown approval '{}'.", request.approval_id)))?;
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Unknown approval '{}'.", request.approval_id))
+            })?;
         let mut state = self
             .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
-            .ok_or_else(|| ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id)))?;
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
+            })?;
 
         approval.status = if request.approved {
             TeamApprovalStatus::Approved
@@ -642,7 +655,9 @@ impl TeamCoordinator for TeamRuntimeService {
                 format!(
                     "approval {} denied {}",
                     request.approval_id,
-                    request.reason.unwrap_or_else(|| "No reason provided.".to_string())
+                    request
+                        .reason
+                        .unwrap_or_else(|| "No reason provided.".to_string())
                 )
             };
             let _ = self
@@ -666,7 +681,11 @@ impl TeamCoordinator for TeamRuntimeService {
                 content: format!(
                     "Approval {} {}",
                     approval.approval_id,
-                    if request.approved { "approved" } else { "rejected" }
+                    if request.approved {
+                        "approved"
+                    } else {
+                        "rejected"
+                    }
                 ),
             })
             .await?;
@@ -680,11 +699,11 @@ impl TeamCoordinator for TeamRuntimeService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_traits::SpawnHandle;
+    use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Mutex;
-    use serde_json::json;
     use tokio::sync::mpsc;
-    use restflow_traits::SpawnHandle;
 
     #[derive(Default)]
     struct MockKvStore {
@@ -754,7 +773,12 @@ mod tests {
             request: ContractRunSpawnRequest,
         ) -> std::result::Result<SpawnHandle, ToolError> {
             Ok(SpawnHandle {
-                id: format!("task-{}", request.team_member_id.unwrap_or_else(|| "member".to_string())),
+                id: format!(
+                    "task-{}",
+                    request
+                        .team_member_id
+                        .unwrap_or_else(|| "member".to_string())
+                ),
                 agent_name: request.agent_id.unwrap_or_else(|| "worker".to_string()),
                 effective_limits: restflow_traits::SubagentEffectiveLimits {
                     timeout_secs: 300,
@@ -886,7 +910,15 @@ mod tests {
             .list_team_messages("team-2")
             .await
             .expect("list team messages");
-        assert!(messages.iter().any(|message| message.kind == TeamMessageKind::ApprovalRequest));
-        assert!(messages.iter().any(|message| message.kind == TeamMessageKind::ApprovalResolution));
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.kind == TeamMessageKind::ApprovalRequest)
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.kind == TeamMessageKind::ApprovalResolution)
+        );
     }
 }

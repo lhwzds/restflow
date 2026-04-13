@@ -271,7 +271,9 @@ pub fn create_tool_registry_with_assessor(
         Arc::new(build_service_subagent_manager(&subagent_runtime_bundle));
     let team_runtime = Arc::new(TeamRuntimeService::new(
         kv_store.clone(),
-        Arc::new(build_direct_service_subagent_manager(&subagent_runtime_bundle)),
+        Arc::new(build_direct_service_subagent_manager(
+            &subagent_runtime_bundle,
+        )),
         subagent_runtime_bundle.tracker.clone(),
     ));
     register_subagent_management_tools(
@@ -280,7 +282,10 @@ pub fn create_tool_registry_with_assessor(
         Some(kv_store.clone()),
         assessor.clone(),
     );
-    registry.register(restflow_tools::ManageTeamsTool::new(team_runtime, kv_store.clone()));
+    registry.register(restflow_tools::ManageTeamsTool::new(
+        team_runtime,
+        kv_store.clone(),
+    ));
 
     // Populate known_tools for AgentStoreAdapter validation
     populate_known_tools_from_registry(
