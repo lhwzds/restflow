@@ -14,10 +14,10 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands};
 use commands::task as task_commands;
-use std::io::IsTerminal;
 use restflow_core::paths;
-use std::io;
 use restflow_tui::{TuiLaunchOptions, run_tui};
+use std::io;
+use std::io::IsTerminal;
 use tracing_appender::non_blocking::WorkerGuard;
 
 fn init_logging(verbose: bool) -> Option<WorkerGuard> {
@@ -273,7 +273,11 @@ mod tests {
     fn default_tui_launch_requires_no_command_and_tty() {
         assert!(should_launch_tui_by_default(&None, true, true));
         assert!(!should_launch_tui_by_default(&None, true, false));
-        assert!(!should_launch_tui_by_default(&Some(Commands::Info), true, true));
+        assert!(!should_launch_tui_by_default(
+            &Some(Commands::Info),
+            true,
+            true
+        ));
     }
 
     #[test]

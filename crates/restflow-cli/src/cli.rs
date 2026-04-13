@@ -715,14 +715,10 @@ pub enum TeamCommands {
     },
 
     /// Inspect team runtime state
-    State {
-        team_run_id: String,
-    },
+    State { team_run_id: String },
 
     /// List durable team mailbox messages
-    Messages {
-        team_run_id: String,
-    },
+    Messages { team_run_id: String },
 
     /// Send one team mailbox message
     Send {
@@ -736,9 +732,7 @@ pub enum TeamCommands {
     },
 
     /// List runtime assignments
-    Assignments {
-        team_run_id: String,
-    },
+    Assignments { team_run_id: String },
 
     /// Assign one task to one team member
     Assign {
