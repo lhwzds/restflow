@@ -51,7 +51,10 @@ function formatOptionalNumber(value: number | null | undefined, suffix = ''): st
   return `${value.toLocaleString()}${suffix}`
 }
 
-function formatOptionalBigInt(value: bigint | number | null | undefined, suffix = ''): string | null {
+function formatOptionalBigInt(
+  value: bigint | number | null | undefined,
+  suffix = '',
+): string | null {
   if (value === null || value === undefined) {
     return null
   }
@@ -100,7 +103,12 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
         .filter(Boolean)
         .join(' · ')
     case 'tool_call':
-      return event.tool_call?.error ?? event.tool_call?.input_summary ?? event.tool_call?.output_ref ?? null
+      return (
+        event.tool_call?.error ??
+        event.tool_call?.input_summary ??
+        event.tool_call?.output_ref ??
+        null
+      )
     case 'model_switch':
       return event.model_switch?.reason ?? null
     case 'message':
@@ -193,7 +201,10 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="text-sm font-medium text-foreground">{{ eventTitle(event) }}</div>
-                  <div v-if="eventSummary(event)" class="mt-1 text-xs text-muted-foreground break-words">
+                  <div
+                    v-if="eventSummary(event)"
+                    class="mt-1 text-xs text-muted-foreground break-words"
+                  >
                     {{ eventSummary(event) }}
                   </div>
                   <div class="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
