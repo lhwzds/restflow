@@ -21,7 +21,9 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground">
+  <div
+    class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground"
+  >
     <!-- Agent + Model info -->
     <span v-if="agentName" class="truncate">{{ agentName }}</span>
     <span v-if="agentName && modelName" class="text-border">/</span>

@@ -25,11 +25,7 @@ import { readMediaFile } from '@/api/voice'
 import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
-import {
-  buildChatThreadItems,
-  type ThreadItem,
-  type ThreadSelection,
-} from './threadItems'
+import { buildChatThreadItems, type ThreadItem, type ThreadSelection } from './threadItems'
 import { extractVoiceFilePath, extractVoiceTranscript } from './voiceMessageContent'
 
 const props = withDefaults(
@@ -69,14 +65,15 @@ const expandedGroups = ref<Set<string>>(new Set())
 const loadedMediaUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
 const loadingMediaPaths = ref<Set<string>>(new Set())
 
-const renderedItems = computed<ThreadItem[]>(() =>
-  props.threadItems ??
-  buildChatThreadItems({
-    messages: props.messages,
-    steps: props.steps,
-    isStreaming: props.isStreaming,
-    streamContent: props.streamContent,
-  }),
+const renderedItems = computed<ThreadItem[]>(
+  () =>
+    props.threadItems ??
+    buildChatThreadItems({
+      messages: props.messages,
+      steps: props.steps,
+      isStreaming: props.isStreaming,
+      streamContent: props.streamContent,
+    }),
 )
 
 function isAutoExpanded(item: ThreadItem): boolean {
@@ -199,11 +196,16 @@ function itemKindLabel(item: ThreadItem): string {
 function itemAccentClass(item: ThreadItem): string {
   if (item.status === 'failed') return 'border-l-red-500'
   switch (item.kind) {
-    case 'tool_call': return 'border-l-blue-500'
-    case 'llm_call': return 'border-l-purple-500'
-    case 'model_switch': return 'border-l-orange-500'
-    case 'lifecycle': return 'border-l-zinc-400'
-    default: return 'border-l-transparent'
+    case 'tool_call':
+      return 'border-l-blue-500'
+    case 'llm_call':
+      return 'border-l-purple-500'
+    case 'model_switch':
+      return 'border-l-orange-500'
+    case 'lifecycle':
+      return 'border-l-zinc-400'
+    default:
+      return 'border-l-transparent'
   }
 }
 
@@ -213,9 +215,7 @@ function persistedStepIds(item: ThreadItem): { row: string; action: string } | n
 
   const messageId = typeof data.message_id === 'string' ? data.message_id : item.id
   const stepIndex =
-    typeof data.step_index === 'number' && Number.isFinite(data.step_index)
-      ? data.step_index
-      : 0
+    typeof data.step_index === 'number' && Number.isFinite(data.step_index) ? data.step_index : 0
 
   return {
     row: `persisted-step-${messageId}-${stepIndex}`,
@@ -325,7 +325,6 @@ onMounted(() => {
   <div ref="scrollContainer" class="flex-1 overflow-auto px-4 py-4">
     <div class="mx-auto max-w-[48rem] space-y-4">
       <div v-for="item in renderedItems" :key="item.id" class="group relative">
-
         <!-- Run group card -->
         <div
           v-if="isRunGroup(item)"
@@ -338,8 +337,16 @@ onMounted(() => {
             :class="{ 'cursor-default': item.status === 'running' || !item.children?.length }"
             @click="item.children?.length ? toggleGroup(item.id, item) : undefined"
           >
-            <Loader2 v-if="item.status === 'running'" :size="12" class="shrink-0 animate-spin text-primary" />
-            <Check v-else-if="item.status === 'completed'" :size="12" class="shrink-0 text-green-500" />
+            <Loader2
+              v-if="item.status === 'running'"
+              :size="12"
+              class="shrink-0 animate-spin text-primary"
+            />
+            <Check
+              v-else-if="item.status === 'completed'"
+              :size="12"
+              class="shrink-0 text-green-500"
+            />
             <X v-else :size="12" class="shrink-0 text-red-500" />
 
             <span class="text-xs font-medium text-foreground/80">
@@ -354,8 +361,16 @@ onMounted(() => {
 
             <div class="flex-1" />
 
-            <ChevronDown v-if="item.children?.length && isGroupExpanded(item) && item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
-            <ChevronRight v-else-if="item.children?.length && item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
+            <ChevronDown
+              v-if="item.children?.length && isGroupExpanded(item) && item.status !== 'running'"
+              :size="12"
+              class="shrink-0 text-muted-foreground"
+            />
+            <ChevronRight
+              v-else-if="item.children?.length && item.status !== 'running'"
+              :size="12"
+              class="shrink-0 text-muted-foreground"
+            />
           </button>
 
           <!-- Children tree -->
@@ -372,17 +387,31 @@ onMounted(() => {
               </span>
 
               <!-- Status icon -->
-              <Loader2 v-if="child.status === 'running'" :size="10" class="shrink-0 animate-spin text-primary" />
-              <Check v-else-if="child.status === 'completed'" :size="10" class="shrink-0 text-green-500" />
+              <Loader2
+                v-if="child.status === 'running'"
+                :size="10"
+                class="shrink-0 animate-spin text-primary"
+              />
+              <Check
+                v-else-if="child.status === 'completed'"
+                :size="10"
+                class="shrink-0 text-green-500"
+              />
               <X v-else-if="child.status === 'failed'" :size="10" class="shrink-0 text-red-500" />
-              <Wrench v-else-if="childKindIcon(child.kind) === 'tool'" :size="10" class="shrink-0 text-muted-foreground" />
+              <Wrench
+                v-else-if="childKindIcon(child.kind) === 'tool'"
+                :size="10"
+                class="shrink-0 text-muted-foreground"
+              />
               <Activity v-else :size="10" class="shrink-0 text-muted-foreground" />
 
               <!-- Title -->
               <span class="flex-1 truncate font-mono text-[12px]">{{ child.title }}</span>
 
               <!-- Kind badge -->
-              <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span
+                class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+              >
                 {{ itemKindLabel(child) }}
               </span>
 
@@ -411,7 +440,10 @@ onMounted(() => {
         <div
           v-else-if="!isMessageItem(item)"
           :data-testid="persistedStepIds(item)?.row ?? `thread-item-${item.id}`"
-          :class="['bg-background mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border border-l-4', itemAccentClass(item)]"
+          :class="[
+            'bg-background mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border border-l-4',
+            itemAccentClass(item),
+          ]"
         >
           <button
             class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
@@ -427,18 +459,20 @@ onMounted(() => {
               :size="12"
               class="shrink-0 text-green-500"
             />
-            <X
-              v-else-if="item.status === 'failed'"
+            <X v-else-if="item.status === 'failed'" :size="12" class="shrink-0 text-red-500" />
+            <Activity
+              v-else-if="item.kind !== 'tool_call'"
               :size="12"
-              class="shrink-0 text-red-500"
+              class="shrink-0 text-muted-foreground"
             />
-            <Activity v-else-if="item.kind !== 'tool_call'" :size="12" class="shrink-0 text-muted-foreground" />
             <Wrench v-else :size="12" class="shrink-0 text-muted-foreground" />
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <span class="truncate font-mono text-sm">{{ item.title }}</span>
-                <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <span
+                  class="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+                >
                   {{ itemKindLabel(item) }}
                 </span>
               </div>
@@ -515,7 +549,9 @@ onMounted(() => {
                 <Loader2 :size="12" class="animate-spin" />
                 Loading voice message...
               </div>
-              <div v-else class="py-1 text-xs text-muted-foreground">Voice message unavailable.</div>
+              <div v-else class="py-1 text-xs text-muted-foreground">
+                Voice message unavailable.
+              </div>
 
               <div
                 v-if="getVoiceTranscript(item.message)"
@@ -554,7 +590,9 @@ onMounted(() => {
               Copy
             </Button>
             <Button
-              v-if="enableRegenerateAction && isLastAssistantMessage(item.message.id) && !isStreaming"
+              v-if="
+                enableRegenerateAction && isLastAssistantMessage(item.message.id) && !isStreaming
+              "
               variant="outline"
               size="sm"
               class="h-6 bg-background px-2 text-[10px]"
@@ -571,7 +609,9 @@ onMounted(() => {
         v-if="streamThinking && !streamContent"
         class="mr-auto max-w-[90%] rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 text-sm"
       >
-        <div class="flex items-center gap-1.5 border-b border-dashed border-muted-foreground/20 px-3 py-1.5">
+        <div
+          class="flex items-center gap-1.5 border-b border-dashed border-muted-foreground/20 px-3 py-1.5"
+        >
           <Loader2 :size="11" class="animate-spin text-muted-foreground" />
           <span class="text-[11px] font-medium text-muted-foreground">Thinking...</span>
         </div>
@@ -584,7 +624,9 @@ onMounted(() => {
         v-if="isStreaming && !streamContent && !streamThinking"
         class="flex items-center gap-2 p-2 text-muted-foreground"
       >
-        <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <div
+          class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+        />
         <span class="text-sm">Processing...</span>
       </div>
 

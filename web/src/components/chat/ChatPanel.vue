@@ -28,11 +28,7 @@ import {
   subscribeSessionEvents,
   type UnlistenFn,
 } from '@/api/chat-session'
-import {
-  getExecutionRunThread,
-  listExecutionContainers,
-  listRuns,
-} from '@/api/execution-console'
+import { getExecutionRunThread, listExecutionContainers, listRuns } from '@/api/execution-console'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { ModelId } from '@/types/generated/ModelId'
@@ -42,11 +38,7 @@ import type { ExecutionContainerKind } from '@/types/generated/ExecutionContaine
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 import type { RunSummary } from '@/types/generated/RunSummary'
 import type { ThreadSelection } from './threadItems'
-import {
-  buildRunThreadItems,
-  buildTranscriptThreadItems,
-  type ThreadItem,
-} from './threadItems'
+import { buildRunThreadItems, buildTranscriptThreadItems, type ThreadItem } from './threadItems'
 import { buildVoiceMessageContent } from './voiceMessageContent'
 
 const props = withDefaults(
@@ -143,7 +135,11 @@ const isCenterRunStreaming = computed(
   () => !!centerRunId.value && centerRunId.value === activeStreamRunId.value,
 )
 const resolvedContainerId = computed(
-  () => props.containerId || executionThread.value?.focus.container_id || chatSessionStore.currentSessionId || null,
+  () =>
+    props.containerId ||
+    executionThread.value?.focus.container_id ||
+    chatSessionStore.currentSessionId ||
+    null,
 )
 
 function isOptimisticMessage(message: ChatMessage): boolean {
@@ -236,9 +232,10 @@ function deriveContainerMessageWindow(
   return null
 }
 
-function deriveThreadHeuristicMessageWindow(
-  thread: ExecutionThread,
-): { lowerBound: number; upperBound: number } {
+function deriveThreadHeuristicMessageWindow(thread: ExecutionThread): {
+  lowerBound: number
+  upperBound: number
+} {
   const boundary = threadToRunMessageBoundary(thread)
   const lowerBound = boundary?.startedAt && boundary.startedAt > 0 ? boundary.startedAt : 0
   const upperCandidate = boundary ? runBoundaryEndTime(boundary) : 0
@@ -628,15 +625,12 @@ watch(
   { immediate: true },
 )
 
-watch(
-  centerRunId,
-  (runId, previousRunId) => {
-    if (previousRunId && previousRunId !== runId && pendingStreamResetRunId.value === previousRunId) {
-      pendingStreamResetRunId.value = null
-      clearPersistedRunRetry()
-    }
-  },
-)
+watch(centerRunId, (runId, previousRunId) => {
+  if (previousRunId && previousRunId !== runId && pendingStreamResetRunId.value === previousRunId) {
+    pendingStreamResetRunId.value = null
+    clearPersistedRunRetry()
+  }
+})
 
 function clearPersistedRunRetry() {
   if (persistedRunRetryTimer != null) {
@@ -734,7 +728,8 @@ async function navigateToLatestContainerRun(sessionId: string) {
   try {
     const containers = await listExecutionContainers()
     const container =
-      containers.find((entry) => entry.id === sessionId || entry.latest_session_id === sessionId) ?? null
+      containers.find((entry) => entry.id === sessionId || entry.latest_session_id === sessionId) ??
+      null
     if (!container) return
 
     if (container.latest_run_id) {
@@ -1186,11 +1181,7 @@ defineExpose({
     >
       <GitBranch :size="11" class="shrink-0 text-muted-foreground/80" />
       <template v-for="(node, index) in breadcrumbNodes" :key="`${node.key}-${node.runId}`">
-        <ChevronRight
-          v-if="index > 0"
-          :size="11"
-          class="shrink-0 text-muted-foreground/70"
-        />
+        <ChevronRight v-if="index > 0" :size="11" class="shrink-0 text-muted-foreground/70" />
         <span
           class="rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em]"
         >

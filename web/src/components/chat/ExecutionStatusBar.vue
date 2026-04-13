@@ -69,7 +69,11 @@ function formatElapsed(seconds: number): string {
     </template>
     <div class="ml-auto flex items-center gap-1.5 shrink-0">
       <span v-if="completedCount > 0">{{ completedCount }} done</span>
-      <span v-if="completedCount > 0 && (currentStep || failedCount > 0)" class="text-muted-foreground/50">·</span>
+      <span
+        v-if="completedCount > 0 && (currentStep || failedCount > 0)"
+        class="text-muted-foreground/50"
+        >·</span
+      >
       <span v-if="currentStep">1 running</span>
       <span v-if="failedCount > 0" class="text-destructive">{{ failedCount }} failed</span>
     </div>

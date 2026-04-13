@@ -651,16 +651,16 @@ describe('ChatPanel', () => {
       model: 'gpt-5',
     })
     mockUpdateAgentApi.mockResolvedValueOnce({
-        id: 'agent-1',
-        name: 'Agent One',
-        agent: {
+      id: 'agent-1',
+      name: 'Agent One',
+      agent: {
+        model: 'gpt-5',
+        model_ref: {
+          provider: 'openai',
           model: 'gpt-5',
-          model_ref: {
-            provider: 'openai',
-            model: 'gpt-5',
-          },
         },
-      })
+      },
+    })
 
     const wrapper = mount(ChatPanel)
     await flushPromises()
@@ -1007,7 +1007,10 @@ describe('ChatPanel', () => {
     })
     await flushPromises()
 
-    const threadItems = (lastMessageListProps?.threadItems ?? []) as Array<{ id: string; message?: { id: string } }>
+    const threadItems = (lastMessageListProps?.threadItems ?? []) as Array<{
+      id: string
+      message?: { id: string }
+    }>
     expect(threadItems.some((item) => item.id === 'msg-old')).toBe(false)
     expect(threadItems.some((item) => item.id === 'msg-run-1')).toBe(true)
   })
@@ -1141,7 +1144,10 @@ describe('ChatPanel', () => {
       },
     })
 
-    const threadItems = (lastMessageListProps?.threadItems ?? []) as Array<{ id: string; message?: { id: string } }>
+    const threadItems = (lastMessageListProps?.threadItems ?? []) as Array<{
+      id: string
+      message?: { id: string }
+    }>
     expect(threadItems.some((item) => item.id === 'msg-prev-run')).toBe(false)
     expect(threadItems.some((item) => item.id === 'msg-run-1')).toBe(true)
     expect(threadItems.some((item) => item.id === 'msg-next-run')).toBe(false)
@@ -1246,7 +1252,9 @@ describe('ChatPanel', () => {
     expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Parent')
     expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Child')
     expect(wrapper.get('[data-testid="run-breadcrumb-node-root"]').text()).toContain('Root run')
-    expect(wrapper.get('[data-testid="run-breadcrumb-node-parent"]').text()).toContain('Planner run')
+    expect(wrapper.get('[data-testid="run-breadcrumb-node-parent"]').text()).toContain(
+      'Planner run',
+    )
     expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Agent One')
     expect(wrapper.get('[data-testid="run-breadcrumb-current"]').text()).toContain('Child run')
 

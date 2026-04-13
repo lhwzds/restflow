@@ -95,7 +95,11 @@ function buildMessageSelectionData(message: ChatMessage): Record<string, unknown
   }
 }
 
-function buildPersistedSelection(messageId: string, step: ExecutionStepInfo, index: number): ThreadSelection {
+function buildPersistedSelection(
+  messageId: string,
+  step: ExecutionStepInfo,
+  index: number,
+): ThreadSelection {
   const metadata = {
     persisted_execution_step: true,
     message_id: messageId,
@@ -117,7 +121,8 @@ function buildPersistedSelection(messageId: string, step: ExecutionStepInfo, ind
   return {
     id: `persisted-${messageId}-${index}`,
     kind: 'step',
-    title: step.step_type === 'tool_call' ? `${step.name} details` : `${step.step_type}: ${step.name}`,
+    title:
+      step.step_type === 'tool_call' ? `${step.name} details` : `${step.step_type}: ${step.name}`,
     toolName: step.name,
     data: result,
     step: {
@@ -132,7 +137,11 @@ function buildPersistedSelection(messageId: string, step: ExecutionStepInfo, ind
   }
 }
 
-function buildPersistedStepItem(message: ChatMessage, step: ExecutionStepInfo, index: number): ThreadItem {
+function buildPersistedStepItem(
+  message: ChatMessage,
+  step: ExecutionStepInfo,
+  index: number,
+): ThreadItem {
   const selection = buildPersistedSelection(message.id, step, index)
   const kind = step.step_type === 'tool_call' ? 'tool_call' : toNonToolKind(step.step_type)
 
@@ -177,7 +186,10 @@ function buildStreamStepItem(step: StreamStep, index: number): ThreadItem {
   const selection: ThreadSelection = {
     id: step.toolId ?? `stream-${index}`,
     kind: 'step',
-    title: step.type === 'tool_call' ? `${step.name || 'Tool'} details` : `${step.type}: ${step.name || 'details'}`,
+    title:
+      step.type === 'tool_call'
+        ? `${step.name || 'Tool'} details`
+        : `${step.type}: ${step.name || 'details'}`,
     toolName: step.name,
     data: {
       step_type: step.type,
@@ -288,7 +300,12 @@ function eventTitle(event: ExecutionTraceEvent): string {
 function eventSummary(event: ExecutionTraceEvent): string | null {
   switch (event.category) {
     case 'tool_call':
-      return event.tool_call?.error ?? event.tool_call?.input_summary ?? event.tool_call?.output_ref ?? null
+      return (
+        event.tool_call?.error ??
+        event.tool_call?.input_summary ??
+        event.tool_call?.output_ref ??
+        null
+      )
     case 'llm_call':
       return [
         event.llm_call?.total_tokens != null ? `${event.llm_call.total_tokens} tokens` : null,
@@ -419,10 +436,7 @@ function buildExecutionEventItem(
     summary,
     body: stringifyData(selection.data),
     status: eventStatus(event),
-    durationLabel:
-      event.llm_call?.duration_ms != null
-        ? `${event.llm_call.duration_ms} ms`
-        : null,
+    durationLabel: event.llm_call?.duration_ms != null ? `${event.llm_call.duration_ms} ms` : null,
     timestampLabel: formatTimestampLabel(event.timestamp),
     selection,
     expandable: true,
@@ -503,14 +517,20 @@ function resolveMessageMatches(
     cursor = matchIndex + 1
   }
 
-  const unmatchedMessages = sortedMessages.filter((_message, index) => !usedMessageIndexes.has(index))
+  const unmatchedMessages = sortedMessages.filter(
+    (_message, index) => !usedMessageIndexes.has(index),
+  )
   return {
     matchedByEventId,
     unmatchedMessages,
   }
 }
 
-function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined, streamContent: string | undefined) {
+function appendLiveOverlays(
+  items: ThreadItem[],
+  steps: StreamStep[] | undefined,
+  streamContent: string | undefined,
+) {
   if (steps?.length) {
     const children = steps.map((step, index) => buildStreamStepItem(step, index))
     items.push({
@@ -539,7 +559,10 @@ interface TurnMeta {
   llmCount: number
 }
 
-function resolveGroupStatus(meta: Pick<TurnMeta, 'status'> | undefined, children: ThreadItem[]): string {
+function resolveGroupStatus(
+  meta: Pick<TurnMeta, 'status'> | undefined,
+  children: ThreadItem[],
+): string {
   if (meta?.status && meta.status !== 'running') {
     return meta.status
   }
@@ -565,8 +588,18 @@ function collectTurnMeta(events: ExecutionTraceEvent[]): Map<string, TurnMeta> {
     const m = meta.get(event.turn_id)!
     if (event.category === 'lifecycle') {
       const s = event.lifecycle?.status ?? ''
-      if (s === 'completed' || s === 'run_completed' || s === 'failed' || s === 'run_failed' || s === 'interrupted') {
-        m.status = s.includes('fail') ? 'failed' : s.includes('interrupt') ? 'interrupted' : 'completed'
+      if (
+        s === 'completed' ||
+        s === 'run_completed' ||
+        s === 'failed' ||
+        s === 'run_failed' ||
+        s === 'interrupted'
+      ) {
+        m.status = s.includes('fail')
+          ? 'failed'
+          : s.includes('interrupt')
+            ? 'interrupted'
+            : 'completed'
         if (event.lifecycle?.ai_duration_ms != null) {
           m.durationMs = Number(event.lifecycle.ai_duration_ms)
         }
@@ -583,7 +616,9 @@ function buildRunGroupSummary(meta: TurnMeta): string {
   if (meta.toolCount > 0) parts.push(`${meta.toolCount} tool${meta.toolCount > 1 ? 's' : ''}`)
   if (meta.llmCount > 0) parts.push(`${meta.llmCount} LLM call${meta.llmCount > 1 ? 's' : ''}`)
   if (meta.durationMs != null) {
-    parts.push(meta.durationMs < 1000 ? `${meta.durationMs}ms` : `${(meta.durationMs / 1000).toFixed(1)}s`)
+    parts.push(
+      meta.durationMs < 1000 ? `${meta.durationMs}ms` : `${(meta.durationMs / 1000).toFixed(1)}s`,
+    )
   }
   return parts.join(' · ')
 }
@@ -605,9 +640,12 @@ function groupItemsByTurn(items: ThreadItem[], turnMeta: Map<string, TurnMeta>):
         title: 'Turn',
         summary: buildRunGroupSummary(meta),
         status: meta.status,
-        durationLabel: meta.durationMs != null
-          ? (meta.durationMs < 1000 ? `${meta.durationMs}ms` : `${(meta.durationMs / 1000).toFixed(1)}s`)
-          : null,
+        durationLabel:
+          meta.durationMs != null
+            ? meta.durationMs < 1000
+              ? `${meta.durationMs}ms`
+              : `${(meta.durationMs / 1000).toFixed(1)}s`
+            : null,
         expandable: false,
         turnId,
         children: [],
@@ -719,7 +757,10 @@ export function buildRunThreadItems(input: {
   }
 
   const canonicalEvents = [...input.thread.timeline.events]
-  const { matchedByEventId, unmatchedMessages } = resolveMessageMatches(canonicalEvents, input.messages)
+  const { matchedByEventId, unmatchedMessages } = resolveMessageMatches(
+    canonicalEvents,
+    input.messages,
+  )
   const envelopes: ThreadEnvelope[] = []
 
   for (const event of canonicalEvents) {
