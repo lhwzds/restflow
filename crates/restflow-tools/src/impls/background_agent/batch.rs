@@ -331,12 +331,13 @@ pub(super) async fn execute_run_batch(
             preview: false,
             approval_id: None,
         };
-        let mut created = TaskStore::create_task(tool.store.as_ref(), create_request.clone()).map_err(|e| {
-            ToolError::Tool(format!(
-                "Failed to create background agent for worker {}: {e}.",
-                worker_index + 1
-            ))
-        })?;
+        let mut created = TaskStore::create_task(tool.store.as_ref(), create_request.clone())
+            .map_err(|e| {
+                ToolError::Tool(format!(
+                    "Failed to create background agent for worker {}: {e}.",
+                    worker_index + 1
+                ))
+            })?;
         if created.get("status").and_then(Value::as_str) == Some("confirmation_required") {
             let approval_id = extract_approval_id(&created).ok_or_else(|| {
                 ToolError::Tool(format!(

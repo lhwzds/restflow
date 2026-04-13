@@ -6,12 +6,12 @@ use std::sync::Arc;
 use crate::impls::spawn_subagent_batch::types::StoredBatchSubagentSpec;
 use crate::impls::team_template::load_scoped_team_document;
 use crate::{Result, Tool, ToolError, ToolOutput};
+use restflow_traits::store::KvStore;
 use restflow_traits::{
     AssignTeamTaskRequest, MANAGE_TEAMS_TOOL_DESCRIPTION, MANAGE_TEAMS_TOOL_NAME,
     ResolveTeamApprovalRequest, SendTeamMessageRequest, StartTeamRequest, TeamCoordinator,
     TeamMemberSpec, TeamMessageKind, TeamRole, TeamTemplateDocument,
 };
-use restflow_traits::store::KvStore;
 
 const SUBAGENT_TEAM_TEMPLATE_SCOPE: crate::impls::team_template::TeamTemplateScope =
     crate::impls::team_template::TeamTemplateScope::new("subagent_team", "subagent_team", 1);
@@ -269,7 +269,9 @@ impl Tool for ManageTeamsTool {
                 let team_run_id = params.team_run_id.ok_or_else(|| {
                     ToolError::Tool("send_team_message requires 'team_run_id'.".to_string())
                 })?;
-                let from_member_id = params.from_member_id.unwrap_or_else(|| "leader".to_string());
+                let from_member_id = params
+                    .from_member_id
+                    .unwrap_or_else(|| "leader".to_string());
                 let content = params.content.ok_or_else(|| {
                     ToolError::Tool("send_team_message requires 'content'.".to_string())
                 })?;
@@ -359,7 +361,10 @@ mod tests {
 
     #[async_trait]
     impl restflow_traits::TeamMailbox for MockCoordinator {
-        async fn list_team_messages(&self, team_run_id: &str) -> Result<Vec<restflow_traits::TeamMessage>> {
+        async fn list_team_messages(
+            &self,
+            team_run_id: &str,
+        ) -> Result<Vec<restflow_traits::TeamMessage>> {
             Ok(vec![restflow_traits::TeamMessage {
                 team_run_id: team_run_id.to_string(),
                 message_id: "msg-1".to_string(),
@@ -389,7 +394,10 @@ mod tests {
 
     #[async_trait]
     impl TeamCoordinator for MockCoordinator {
-        async fn start_team(&self, request: StartTeamRequest) -> Result<restflow_traits::TeamState> {
+        async fn start_team(
+            &self,
+            request: StartTeamRequest,
+        ) -> Result<restflow_traits::TeamState> {
             Ok(restflow_traits::TeamState {
                 team_run_id: request.team_run_id.unwrap_or_else(|| "team-1".to_string()),
                 leader_member_id: request.leader_member_id,
@@ -413,7 +421,10 @@ mod tests {
             })
         }
 
-        async fn list_team_assignments(&self, team_run_id: &str) -> Result<Vec<restflow_traits::TeamAssignment>> {
+        async fn list_team_assignments(
+            &self,
+            team_run_id: &str,
+        ) -> Result<Vec<restflow_traits::TeamAssignment>> {
             Ok(vec![restflow_traits::TeamAssignment {
                 team_run_id: team_run_id.to_string(),
                 assignment_id: "assign-1".to_string(),

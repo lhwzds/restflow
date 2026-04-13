@@ -25,13 +25,13 @@ use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
 use restflow_traits::AgentOperationAssessor;
+use restflow_traits::TeamCoordinator;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, ConfigStore, DeliverableStore, DiagnosticsProvider, KvStore,
     MarketplaceStore, MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider,
     SessionStore, TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
-use restflow_traits::TeamCoordinator;
 
 use super::ToolRegistryBuilder;
 use super::configs::SecretsConfig;
