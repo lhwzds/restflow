@@ -4,7 +4,15 @@
  * Uses browser media APIs and daemon HTTP endpoints.
  */
 
-import { ref, computed, readonly, getCurrentInstance, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import {
+  ref,
+  computed,
+  readonly,
+  getCurrentInstance,
+  onUnmounted,
+  type Ref,
+  type ComputedRef,
+} from 'vue'
 import { saveVoiceMessage, transcribeAudio } from '@/api/voice'
 
 export type VoiceMode = 'voice-to-text' | 'voice-message' | null

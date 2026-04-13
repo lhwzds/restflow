@@ -105,7 +105,9 @@ describe('useVoiceRecorder', () => {
   })
 
   it('handles permission errors', async () => {
-    const mediaDevices = navigator.mediaDevices as unknown as { getUserMedia: ReturnType<typeof vi.fn> }
+    const mediaDevices = navigator.mediaDevices as unknown as {
+      getUserMedia: ReturnType<typeof vi.fn>
+    }
     mediaDevices.getUserMedia = vi.fn().mockRejectedValue(new DOMException('Permission denied'))
 
     const { state, startRecording } = useVoiceRecorder()

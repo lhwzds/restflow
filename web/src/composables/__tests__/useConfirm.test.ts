@@ -10,49 +10,49 @@ describe('useConfirm', () => {
 
   it('should resolve promise with true when handleConfirm is called', async () => {
     const { confirm, handleConfirm } = useConfirm()
-    
+
     const promise = confirm({
       title: 'Test',
       description: 'Test description',
     })
-    
+
     // Simulate user clicking confirm
     handleConfirm()
-    
+
     const result = await promise
     expect(result).toBe(true)
   })
 
   it('should resolve promise with false when handleCancel is called', async () => {
     const { confirm, handleCancel } = useConfirm()
-    
+
     const promise = confirm({
       title: 'Test',
       description: 'Test description',
     })
-    
+
     // Simulate user clicking cancel
     handleCancel()
-    
+
     const result = await promise
     expect(result).toBe(false)
   })
 
   it('should queue multiple confirm calls and resolve in order', async () => {
     const { confirm, handleConfirm, handleCancel, options } = useConfirm()
-    
+
     // Call confirm twice rapidly
     const promise1 = confirm({ title: 'First', description: 'First call' })
     const promise2 = confirm({ title: 'Second', description: 'Second call' })
 
     expect(options.value.title).toBe('First')
-    
+
     // First user confirms
     handleConfirm()
     const result1 = await promise1
     expect(result1).toBe(true)
     expect(options.value.title).toBe('Second')
-    
+
     // Second user cancels
     handleCancel()
     const result2 = await promise2
@@ -61,15 +61,15 @@ describe('useConfirm', () => {
 
   it('should queue multiple cancel calls and resolve in order', async () => {
     const { confirm, handleCancel } = useConfirm()
-    
+
     const promise1 = confirm({ title: 'First', description: 'First call' })
     const promise2 = confirm({ title: 'Second', description: 'Second call' })
-    
+
     // Both users cancel
     handleCancel()
     const result1 = await promise1
     expect(result1).toBe(false)
-    
+
     handleCancel()
     const result2 = await promise2
     expect(result2).toBe(false)
@@ -77,12 +77,12 @@ describe('useConfirm', () => {
 
   it('should handle rapid confirm calls correctly', async () => {
     const { confirm, handleConfirm } = useConfirm()
-    
+
     // Fire 5 rapid confirm calls
-    const promises = Array.from({ length: 5 }, () => 
-      confirm({ title: 'Rapid', description: 'Rapid call' })
+    const promises = Array.from({ length: 5 }, () =>
+      confirm({ title: 'Rapid', description: 'Rapid call' }),
     )
-    
+
     // Resolve all in order
     for (const promise of promises) {
       handleConfirm()

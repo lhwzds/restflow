@@ -172,26 +172,19 @@ function toCanonicalToolEventStep(selection: ThreadSelection): StreamStep | null
       : selection.toolName
   if (!toolName) return null
 
-  const inputPayload =
-    toolCall?.input ??
-    {
-      input_summary:
-        typeof toolCall?.input_summary === 'string' ? toolCall.input_summary : null,
-      tool_call_id:
-        typeof toolCall?.tool_call_id === 'string' ? toolCall.tool_call_id : null,
-    }
-  const outputPayload =
-    toolCall?.output ??
-    {
-      output_ref:
-        typeof toolCall?.output_ref === 'string' ? toolCall.output_ref : null,
-      error: typeof toolCall?.error === 'string' ? toolCall.error : null,
-      success: typeof toolCall?.success === 'boolean' ? toolCall.success : null,
-      duration_ms:
-        typeof toolCall?.duration_ms === 'number' || typeof toolCall?.duration_ms === 'bigint'
-          ? toolCall.duration_ms
-          : null,
-    }
+  const inputPayload = toolCall?.input ?? {
+    input_summary: typeof toolCall?.input_summary === 'string' ? toolCall.input_summary : null,
+    tool_call_id: typeof toolCall?.tool_call_id === 'string' ? toolCall.tool_call_id : null,
+  }
+  const outputPayload = toolCall?.output ?? {
+    output_ref: typeof toolCall?.output_ref === 'string' ? toolCall.output_ref : null,
+    error: typeof toolCall?.error === 'string' ? toolCall.error : null,
+    success: typeof toolCall?.success === 'boolean' ? toolCall.success : null,
+    duration_ms:
+      typeof toolCall?.duration_ms === 'number' || typeof toolCall?.duration_ms === 'bigint'
+        ? toolCall.duration_ms
+        : null,
+  }
 
   return {
     type: 'tool_call',
@@ -199,13 +192,11 @@ function toCanonicalToolEventStep(selection: ThreadSelection): StreamStep | null
     displayName: toolName,
     status: normalizeStepStatus(toolCall?.phase),
     toolId:
-      (typeof toolCall?.tool_call_id === 'string' && toolCall.tool_call_id.length > 0
+      typeof toolCall?.tool_call_id === 'string' && toolCall.tool_call_id.length > 0
         ? toolCall.tool_call_id
-        : selection.id),
-    arguments:
-      typeof inputPayload === 'string' ? inputPayload : stringifyUnknown(inputPayload),
-    result:
-      typeof outputPayload === 'string' ? outputPayload : stringifyUnknown(outputPayload),
+        : selection.id,
+    arguments: typeof inputPayload === 'string' ? inputPayload : stringifyUnknown(inputPayload),
+    result: typeof outputPayload === 'string' ? outputPayload : stringifyUnknown(outputPayload),
   }
 }
 

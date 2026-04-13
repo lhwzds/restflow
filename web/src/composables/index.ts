@@ -16,4 +16,10 @@ export {
 export * from './workspace/useChatSession'
 export { useChatStream, type StreamState } from './workspace/useChatStream'
 export * from './workspace/useToolPanel'
-export { useVoiceRecorder, getVoiceModel, setVoiceModel, type VoiceRecorderState, type VoiceMode } from './workspace/useVoiceRecorder'
+export {
+  useVoiceRecorder,
+  getVoiceModel,
+  setVoiceModel,
+  type VoiceRecorderState,
+  type VoiceMode,
+} from './workspace/useVoiceRecorder'
