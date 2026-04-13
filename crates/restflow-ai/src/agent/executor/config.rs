@@ -20,8 +20,8 @@ use crate::agent::context::AgentContext;
 use crate::agent::model_router::ModelRoutingConfig;
 use crate::agent::resource::{ResourceLimits, ResourceUsage};
 use crate::agent::state::AgentState;
-use crate::agent::stuck::StuckDetectorConfig;
 use crate::agent::streaming_buffer::StreamDisplayMode;
+use crate::agent::stuck::StuckDetectorConfig;
 use crate::error::Result;
 
 pub const MAX_TOOL_RETRIES: usize = 2;

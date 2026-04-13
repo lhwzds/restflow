@@ -50,4 +50,6 @@ pub use sub_agent::{
     SubagentExecutionBridge, SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState,
     SubagentStatus, SubagentTracker, execute_subagent_plan,
 };
-pub use team::{extract_team_execution_context, inject_team_execution_context, record_pending_team_approval};
+pub use team::{
+    extract_team_execution_context, inject_team_execution_context, record_pending_team_approval,
+};

@@ -68,8 +68,7 @@ mod tests {
             team_role: TeamRole::Member,
         };
 
-        let config =
-            inject_team_execution_context(AgentConfig::new("test"), &team_context);
+        let config = inject_team_execution_context(AgentConfig::new("test"), &team_context);
         let extracted =
             extract_team_execution_context(&config.context).expect("team context should exist");
 

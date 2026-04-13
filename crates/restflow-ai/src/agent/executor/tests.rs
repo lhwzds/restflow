@@ -2,8 +2,8 @@ use super::steer::parse_approval_resolution;
 use super::tool_exec::{ToolExecutionOptions, ToolInvocationContext};
 use super::*;
 use crate::agent::ExecutionStep;
-use crate::agent::StreamDisplayMode;
 use crate::agent::PromptFlags;
+use crate::agent::StreamDisplayMode;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::llm::{
     CompletionRequest, CompletionResponse, FinishReason, Role, StreamChunk, StreamResult,
