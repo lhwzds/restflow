@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint
+.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint types
 
 # Development mode with hot reload
 dev:
@@ -59,6 +59,7 @@ help:
 	@echo "    make fmt     - Format Rust and web code"
 	@echo "    make test    - Run backend and frontend tests"
 	@echo "    make lint    - Run backend clippy and frontend lint checks"
+	@echo "    make types   - Regenerate web TypeScript bindings"
 	@echo "    make cli     - Build CLI in release mode"
 	@echo "    make release - Run make lint, make test, and make cli"
 	@echo "    make install - Install CLI (restflow & rf) to ~/.local/bin"
@@ -70,7 +71,10 @@ fmt:
 
 # Run backend and frontend tests
 test:
-	cargo test
+	@set -e; \
+	TYPEGEN_DIR="$$(mktemp -d)"; \
+	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
+	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test
 	cd web && npm run test
 
 # Run backend and frontend lint checks
@@ -82,6 +86,10 @@ lint:
 # Build CLI
 cli:
 	cargo build --release --package restflow-cli
+
+# Regenerate web TypeScript bindings
+types:
+	./scripts/generate_web_types.sh
 
 release-check:
 	$(MAKE) lint
