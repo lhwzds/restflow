@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help run web local install cli release release-check
+.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt
 
 CLI_RELEASE_CRATES := restflow-storage restflow-core restflow-ai restflow-cli
 RELEASE_TARGET_DIR ?= $(CURDIR)/target-release-check
@@ -75,9 +75,15 @@ help:
 	@echo "    make web    - Run frontend locally"
 	@echo "    make local  - Run both backend and frontend locally"
 	@echo "  CLI:"
+	@echo "    make fmt     - Format Rust and web code"
 	@echo "    make cli     - Build CLI in release mode"
 	@echo "    make release - Run local release gates and build CLI release binary"
 	@echo "    make install - Install CLI (restflow & rf) to ~/.local/bin"
+
+# Format Rust and web code
+fmt:
+	cargo fmt --all
+	cd web && npm run format
 
 # Build CLI
 cli:
