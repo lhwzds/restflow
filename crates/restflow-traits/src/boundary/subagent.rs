@@ -4,7 +4,9 @@ use restflow_contracts::request::{
 };
 
 use crate::subagent::InlineChildRunConfig;
-use crate::{SpawnPriority, SpawnRequest, SubagentDefSummary, TeamExecutionContext, TeamRole, ToolError};
+use crate::{
+    SpawnPriority, SpawnRequest, SubagentDefSummary, TeamExecutionContext, TeamRole, ToolError,
+};
 
 fn normalize_identifier(value: &str) -> String {
     let mut normalized = String::with_capacity(value.len());
