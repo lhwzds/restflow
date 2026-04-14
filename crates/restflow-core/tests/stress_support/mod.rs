@@ -713,27 +713,13 @@ pub async fn run_background_workload(
     }
     handle.stop().await.expect("stop background stress runner");
 
-    let drain_deadline = tokio::time::Instant::now()
-        + timeout_for(
-            level,
-            Duration::from_secs(2),
-            Duration::from_secs(6),
-            Duration::from_secs(12),
-        );
-    let orphan_running = loop {
-        let running = runner.running_task_count().await;
-        if running == 0 {
-            break 0;
-        }
-        if tokio::time::Instant::now() >= drain_deadline {
-            break running;
-        }
-        sleep(Duration::from_millis(50)).await;
-    };
-
     let tasks = storage
         .list_tasks()
         .expect("load background stress results");
+    let orphan_running = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::Running)
+        .count();
     StressSummary {
         total_runs: task_count,
         non_empty_outputs: tasks
