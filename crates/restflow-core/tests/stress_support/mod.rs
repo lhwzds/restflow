@@ -1,12 +1,14 @@
 #![allow(dead_code)]
 
 use std::collections::VecDeque;
+use std::env;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use futures::stream;
 use restflow_ai::llm::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamChunk, StreamResult,
     TokenUsage, ToolCall,
@@ -22,13 +24,29 @@ use restflow_core::steer::SteerRegistry;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
-use futures::stream;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionSurface {
     InteractiveChat,
     BackgroundTask,
     Mixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StressLevel {
+    Smoke,
+    Stress,
+    Soak,
+}
+
+impl StressLevel {
+    pub fn current() -> Self {
+        match env::var("RESTFLOW_STRESS_LEVEL").ok().as_deref() {
+            Some("soak") => Self::Soak,
+            Some("stress") => Self::Stress,
+            _ => Self::Smoke,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,7 +175,10 @@ impl LlmClient for ScriptedLlmClient {
         self.model
     }
 
-    async fn complete(&self, request: CompletionRequest) -> restflow_ai::Result<CompletionResponse> {
+    async fn complete(
+        &self,
+        request: CompletionRequest,
+    ) -> restflow_ai::Result<CompletionResponse> {
         if let Some(response) = self.responses.lock().await.pop_front() {
             return Ok(response);
         }
@@ -221,7 +242,10 @@ struct ProfiledTool {
 
 impl ProfiledTool {
     fn new(profile: ToolProfile, call_count: Arc<AtomicU32>) -> Self {
-        Self { profile, call_count }
+        Self {
+            profile,
+            call_count,
+        }
     }
 
     fn should_fail(&self, call_index: u32) -> bool {
@@ -412,7 +436,38 @@ pub fn background_smoke_profiles() -> Vec<ModelProfile> {
     ]
 }
 
-pub fn build_tool_registry(tool_profiles: &[ToolProfile]) -> (Arc<ToolRegistry>, Vec<Arc<AtomicU32>>) {
+pub fn rounds_for(level: StressLevel, smoke: usize, stress: usize, soak: usize) -> usize {
+    match level {
+        StressLevel::Smoke => smoke,
+        StressLevel::Stress => stress,
+        StressLevel::Soak => soak,
+    }
+}
+
+pub fn task_count_for(level: StressLevel, smoke: usize, stress: usize, soak: usize) -> usize {
+    match level {
+        StressLevel::Smoke => smoke,
+        StressLevel::Stress => stress,
+        StressLevel::Soak => soak,
+    }
+}
+
+pub fn timeout_for(
+    level: StressLevel,
+    smoke: Duration,
+    stress: Duration,
+    soak: Duration,
+) -> Duration {
+    match level {
+        StressLevel::Smoke => smoke,
+        StressLevel::Stress => stress,
+        StressLevel::Soak => soak,
+    }
+}
+
+pub fn build_tool_registry(
+    tool_profiles: &[ToolProfile],
+) -> (Arc<ToolRegistry>, Vec<Arc<AtomicU32>>) {
     let mut registry = ToolRegistry::new();
     let mut counters = Vec::new();
     for profile in tool_profiles.iter().cloned() {
@@ -467,7 +522,9 @@ pub async fn run_chat_workload(profile: &ModelProfile, rounds: usize) -> StressS
         ));
         let executor = restflow_ai::AgentExecutor::new(llm, tools.clone());
         let result = executor
-            .run(restflow_ai::AgentConfig::new(format!("stress chat round {round}")))
+            .run(restflow_ai::AgentConfig::new(format!(
+                "stress chat round {round}"
+            )))
             .await
             .expect("chat workload should execute");
         summary.total_runs += 1;
@@ -476,7 +533,11 @@ pub async fn run_chat_workload(profile: &ModelProfile, rounds: usize) -> StressS
         } else {
             summary.failed += 1;
         }
-        if result.answer.as_deref().is_some_and(|text| !text.trim().is_empty()) {
+        if result
+            .answer
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty())
+        {
             summary.non_empty_outputs += 1;
         }
     }
@@ -500,7 +561,9 @@ pub async fn run_background_workload(
             .create_task(
                 format!("{}-task-{index}", profile.provider.as_str()),
                 "agent-mock".to_string(),
-                TaskSchedule::Once { run_at: now + 1_000 },
+                TaskSchedule::Once {
+                    run_at: now + 1_000,
+                },
             )
             .expect("create background stress task");
         task.input = Some(format!("background-input-{index}"));
@@ -510,7 +573,11 @@ pub async fn run_background_workload(
             .expect("update background stress task");
     }
 
-    let executor = Arc::new(ProviderAwareMockExecutor::new(profile.clone(), 5, failure_mode));
+    let executor = Arc::new(ProviderAwareMockExecutor::new(
+        profile.clone(),
+        5,
+        failure_mode,
+    ));
     let notifier = Arc::new(MockNotificationSender::new());
     let runner = Arc::new(TaskRunner::new(
         storage.clone(),
@@ -544,7 +611,9 @@ pub async fn run_background_workload(
     }
     handle.stop().await.expect("stop background stress runner");
 
-    let tasks = storage.list_tasks().expect("load background stress results");
+    let tasks = storage
+        .list_tasks()
+        .expect("load background stress results");
     StressSummary {
         total_runs: task_count,
         non_empty_outputs: tasks
@@ -575,8 +644,7 @@ pub fn assert_terminal_coverage(summary: &StressSummary) {
 
 pub fn assert_non_empty_outputs(summary: &StressSummary) {
     assert_eq!(
-        summary.non_empty_outputs,
-        summary.completed,
+        summary.non_empty_outputs, summary.completed,
         "all completed runs should have non-empty outputs"
     );
 }

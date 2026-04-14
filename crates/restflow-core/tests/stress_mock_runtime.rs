@@ -11,10 +11,45 @@ use restflow_core::runtime::background_agent::testkit::{
 use restflow_core::runtime::{TaskRunner, TaskRunnerConfig};
 use restflow_core::steer::SteerRegistry;
 
+fn stress_level() -> &'static str {
+    match std::env::var("RESTFLOW_STRESS_LEVEL") {
+        Ok(value) if value == "soak" => "soak",
+        Ok(value) if value == "stress" => "stress",
+        _ => "smoke",
+    }
+}
+
+fn scaled_usize(smoke: usize, stress: usize, soak: usize) -> usize {
+    match stress_level() {
+        "smoke" => smoke,
+        "stress" => stress,
+        "soak" => soak,
+        _ => smoke,
+    }
+}
+
+fn scaled_u64(smoke: u64, stress: u64, soak: u64) -> u64 {
+    match stress_level() {
+        "smoke" => smoke,
+        "stress" => stress,
+        "soak" => soak,
+        _ => smoke,
+    }
+}
+
+fn scaled_duration(smoke: Duration, stress: Duration, soak: Duration) -> Duration {
+    match stress_level() {
+        "smoke" => smoke,
+        "stress" => stress,
+        "soak" => soak,
+        _ => smoke,
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stress_runner_handles_mock_throughput_without_leaks() {
     let (storage, _temp_dir) = create_test_storage();
-    let task_count = 60usize;
+    let task_count = scaled_usize(60, 180, 420);
 
     let past_time = chrono::Utc::now().timestamp_millis() - 1_000;
     for index in 0..task_count {
@@ -32,16 +67,19 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
             .expect("failed to update stress task");
     }
 
-    let executor = Arc::new(DeterministicMockExecutor::new(20, Some(10)));
+    let executor = Arc::new(DeterministicMockExecutor::new(
+        scaled_u64(20, 35, 45),
+        Some(10),
+    ));
     let notifier = Arc::new(MockNotificationSender::new());
     let runner = Arc::new(TaskRunner::new(
         storage.clone(),
         executor.clone(),
         notifier.clone(),
         TaskRunnerConfig {
-            poll_interval_ms: 25,
-            max_concurrent_tasks: 8,
-            worker_count: 8,
+            poll_interval_ms: scaled_u64(25, 15, 10),
+            max_concurrent_tasks: scaled_usize(8, 16, 24),
+            worker_count: scaled_usize(8, 16, 24),
             task_timeout_secs: Some(30),
             stall_timeout_secs: None,
         },
@@ -50,7 +88,16 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
 
     let handle = runner.clone().start();
 
-    wait_for_terminal_states(&storage, task_count, Duration::from_secs(20)).await;
+    wait_for_terminal_states(
+        &storage,
+        task_count,
+        scaled_duration(
+            Duration::from_secs(20),
+            Duration::from_secs(60),
+            Duration::from_secs(180),
+        ),
+    )
+    .await;
 
     handle.stop().await.expect("failed to stop runner");
 
@@ -69,7 +116,12 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
     let expected_failed = task_count / 10;
     assert_eq!(failed, expected_failed, "unexpected failure count");
     assert_eq!(completed + failed, task_count);
-    let drain_deadline = Instant::now() + Duration::from_secs(2);
+    let drain_deadline = Instant::now()
+        + scaled_duration(
+            Duration::from_secs(2),
+            Duration::from_secs(6),
+            Duration::from_secs(12),
+        );
     loop {
         let running = runner.running_task_count().await;
         if running == 0 {
@@ -99,7 +151,7 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
     let (storage, _temp_dir) = create_test_storage();
-    let task_count = 24usize;
+    let task_count = scaled_usize(24, 72, 180);
     let past_time = chrono::Utc::now().timestamp_millis() - 1_000;
 
     for index in 0..task_count {
@@ -117,16 +169,19 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
             .expect("failed to update restart task");
     }
 
-    let executor_phase1 = Arc::new(DeterministicMockExecutor::new(200, None));
+    let executor_phase1 = Arc::new(DeterministicMockExecutor::new(
+        scaled_u64(200, 300, 450),
+        None,
+    ));
     let notifier_phase1 = Arc::new(MockNotificationSender::new());
     let runner_phase1 = Arc::new(TaskRunner::new(
         storage.clone(),
         executor_phase1.clone(),
         notifier_phase1.clone(),
         TaskRunnerConfig {
-            poll_interval_ms: 20,
-            max_concurrent_tasks: 3,
-            worker_count: 3,
+            poll_interval_ms: scaled_u64(20, 15, 10),
+            max_concurrent_tasks: scaled_usize(3, 6, 10),
+            worker_count: scaled_usize(3, 6, 10),
             task_timeout_secs: Some(60),
             stall_timeout_secs: None,
         },
@@ -134,7 +189,12 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
     ));
 
     let handle_phase1 = runner_phase1.clone().start();
-    tokio::time::sleep(Duration::from_millis(350)).await;
+    tokio::time::sleep(scaled_duration(
+        Duration::from_millis(350),
+        Duration::from_millis(900),
+        Duration::from_millis(2_000),
+    ))
+    .await;
     handle_phase1
         .stop()
         .await
@@ -159,16 +219,19 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         "expected at least one active task to be marked as stale running"
     );
 
-    let executor_phase2 = Arc::new(DeterministicMockExecutor::new(8, None));
+    let executor_phase2 = Arc::new(DeterministicMockExecutor::new(
+        scaled_u64(8, 12, 18),
+        None,
+    ));
     let notifier_phase2 = Arc::new(MockNotificationSender::new());
     let runner_phase2 = Arc::new(TaskRunner::new(
         storage.clone(),
         executor_phase2.clone(),
         notifier_phase2.clone(),
         TaskRunnerConfig {
-            poll_interval_ms: 20,
-            max_concurrent_tasks: 6,
-            worker_count: 6,
+            poll_interval_ms: scaled_u64(20, 15, 10),
+            max_concurrent_tasks: scaled_usize(6, 12, 18),
+            worker_count: scaled_usize(6, 12, 18),
             task_timeout_secs: Some(60),
             stall_timeout_secs: None,
         },
@@ -177,7 +240,12 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
 
     let recovery_started_at = Instant::now();
     let handle_phase2 = runner_phase2.clone().start();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(scaled_duration(
+        Duration::from_secs(2),
+        Duration::from_secs(5),
+        Duration::from_secs(12),
+    ))
+    .await;
     let recovery_elapsed_ms = recovery_started_at.elapsed().as_millis() as u64;
 
     handle_phase2
@@ -185,22 +253,30 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         .await
         .expect("failed to stop phase2 runner");
 
-    let executor_phase3 = Arc::new(DeterministicMockExecutor::new(2, None));
+    let executor_phase3 = Arc::new(DeterministicMockExecutor::new(
+        scaled_u64(2, 4, 6),
+        None,
+    ));
     let runner_phase3 = Arc::new(TaskRunner::new(
         storage.clone(),
         executor_phase3.clone(),
         Arc::new(MockNotificationSender::new()),
         TaskRunnerConfig {
-            poll_interval_ms: 20,
-            max_concurrent_tasks: 8,
-            worker_count: 8,
+            poll_interval_ms: scaled_u64(20, 15, 10),
+            max_concurrent_tasks: scaled_usize(8, 16, 24),
+            worker_count: scaled_usize(8, 16, 24),
             task_timeout_secs: Some(60),
             stall_timeout_secs: None,
         },
         Arc::new(SteerRegistry::new()),
     ));
     let handle_phase3 = runner_phase3.start();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(scaled_duration(
+        Duration::from_secs(2),
+        Duration::from_secs(5),
+        Duration::from_secs(12),
+    ))
+    .await;
     handle_phase3
         .stop()
         .await
@@ -233,7 +309,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         "expected at least one terminal task after restart"
     );
     assert!(
-        recovery_elapsed_ms <= 12_000,
+        recovery_elapsed_ms <= scaled_u64(12_000, 25_000, 60_000),
         "recovery exceeded upper bound: {recovery_elapsed_ms}ms"
     );
     assert!(
@@ -242,8 +318,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
     );
     let total_notifications =
         notifier_phase1.notification_count().await + notifier_phase2.notification_count().await;
-    let total_execution_attempts =
-        executor_phase1.call_count() + executor_phase2.call_count();
+    let total_execution_attempts = executor_phase1.call_count() + executor_phase2.call_count();
     assert!(
         total_notifications <= total_execution_attempts as usize,
         "notifications should not exceed completed execution attempts"
@@ -275,12 +350,7 @@ async fn wait_for_terminal_states(
         let tasks = storage.list_tasks().expect("failed to list tasks");
         let terminal = tasks
             .iter()
-            .filter(|task| {
-                matches!(
-                    task.status,
-                    TaskStatus::Completed | TaskStatus::Failed
-                )
-            })
+            .filter(|task| matches!(task.status, TaskStatus::Completed | TaskStatus::Failed))
             .count();
 
         if terminal == total_tasks {
