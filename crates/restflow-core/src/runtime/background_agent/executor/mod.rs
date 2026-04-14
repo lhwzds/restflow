@@ -61,6 +61,8 @@ use restflow_ai::agent::{
     SubagentConfig, SubagentExecutionBridge, SubagentTracker, execute_subagent_plan,
 };
 use restflow_ai::llm::LlmSwitcherImpl;
+#[cfg(any(test, feature = "test-utils"))]
+use std::sync::{Mutex, OnceLock};
 
 fn share_stream_emitter(emitter: Option<Box<dyn StreamEmitter>>) -> Option<SharedStreamEmitter> {
     emitter.map(SharedStreamEmitter::new)
@@ -70,6 +72,46 @@ fn clone_shared_emitter(emitter: &Option<SharedStreamEmitter>) -> Option<Box<dyn
     emitter
         .as_ref()
         .map(|shared| Box::new(shared.clone()) as Box<dyn StreamEmitter>)
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+type TestLlmFactorySlot = Mutex<Option<Arc<dyn LlmClientFactory>>>;
+
+#[cfg(any(test, feature = "test-utils"))]
+fn test_llm_factory_slot() -> &'static TestLlmFactorySlot {
+    static SLOT: OnceLock<TestLlmFactorySlot> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub struct TestLlmFactoryGuard {
+    previous: Option<Arc<dyn LlmClientFactory>>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Drop for TestLlmFactoryGuard {
+    fn drop(&mut self) {
+        *test_llm_factory_slot()
+            .lock()
+            .expect("test llm factory slot lock") = self.previous.take();
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub fn install_test_llm_factory(factory: Arc<dyn LlmClientFactory>) -> TestLlmFactoryGuard {
+    let mut guard = test_llm_factory_slot()
+        .lock()
+        .expect("test llm factory slot lock");
+    let previous = guard.replace(factory);
+    TestLlmFactoryGuard { previous }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+fn current_test_llm_factory() -> Option<Arc<dyn LlmClientFactory>> {
+    test_llm_factory_slot()
+        .lock()
+        .expect("test llm factory slot lock")
+        .clone()
 }
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.

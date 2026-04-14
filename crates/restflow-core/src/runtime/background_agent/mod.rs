@@ -166,6 +166,8 @@ pub use events::{
     TaskEventEmitter, TaskStreamEvent,
 };
 pub use executor::{AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions};
+#[cfg(any(test, feature = "test-utils"))]
+pub use executor::{TestLlmFactoryGuard, install_test_llm_factory};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 pub use heartbeat::{
     ChannelHeartbeatEmitter, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse,

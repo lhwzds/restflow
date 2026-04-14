@@ -159,7 +159,8 @@ impl AgentRuntimeExecutor {
             agent_node.effective_skill_preflight_policy_mode(),
         );
 
-        if !primary_model.is_codex_cli()
+        if !Self::should_skip_api_key_resolution()
+            && !primary_model.is_codex_cli()
             && !primary_model.is_gemini_cli()
             && let Err(error) = self
                 .resolve_api_key_for_model(

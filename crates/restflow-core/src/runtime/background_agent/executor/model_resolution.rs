@@ -1,6 +1,28 @@
 use super::*;
 
 impl AgentRuntimeExecutor {
+    pub(super) fn build_llm_factory(
+        api_keys: HashMap<LlmProvider, String>,
+        model_specs: Vec<restflow_models::ModelSpec>,
+    ) -> Arc<dyn LlmClientFactory> {
+        #[cfg(any(test, feature = "test-utils"))]
+        if let Some(factory) = current_test_llm_factory() {
+            return factory;
+        }
+
+        Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs))
+    }
+
+    pub(super) fn should_skip_api_key_resolution() -> bool {
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            return current_test_llm_factory().is_some();
+        }
+
+        #[allow(unreachable_code)]
+        false
+    }
+
     pub(super) async fn resolve_api_key(
         &self,
         provider: Provider,

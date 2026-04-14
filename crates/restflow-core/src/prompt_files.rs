@@ -685,7 +685,7 @@ fn parse_prompt_file_content(content: &str) -> ParsedPromptFileContent {
 /// Shared lock for tests that mutate the RESTFLOW_AGENTS_DIR env var.
 /// All tests that set/remove this env var MUST acquire this lock first
 /// to avoid cross-module race conditions.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub fn agents_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
     use std::sync::{Mutex, OnceLock};
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
