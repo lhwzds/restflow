@@ -199,4 +199,4 @@ jobs:
       - name: Run tests
         run: |
           cd web
-          npm test -- --run
+          npm test
