@@ -87,14 +87,17 @@ stress:
 	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1
 
 # Run backend and frontend lint checks
 lint:
