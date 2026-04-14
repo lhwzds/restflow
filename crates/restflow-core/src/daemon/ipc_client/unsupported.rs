@@ -137,6 +137,7 @@ impl IpcClient {
         fn add_message(&mut self, _session_id: String, _role: ChatRole, _content: String) -> ChatSession;
         fn append_message(&mut self, _session_id: String, _message: ChatMessage) -> ChatSession;
         fn execute_chat_session(&mut self, _session_id: String, _user_input: Option<String>) -> ChatSession;
+        fn rebuild_external_session(&mut self, _id: String) -> ChatSession;
         fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
         fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
@@ -146,6 +147,7 @@ impl IpcClient {
         fn get_execution_trace_stats(&mut self, _run_id: Option<String>) -> ExecutionTraceStats;
         fn get_execution_run_timeline(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionTimeline;
         fn get_execution_run_metrics(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionMetricsResponse;
+        fn get_provider_health(&mut self, _query: crate::models::ProviderHealthQuery) -> crate::models::ProviderHealthResponse;
         fn query_execution_run_logs(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionLogResponse;
         fn get_execution_trace_by_id(&mut self, _id: String) -> Option<ExecutionTraceEvent>;
         fn list_terminal_sessions(&mut self) -> Vec<TerminalSession>;
