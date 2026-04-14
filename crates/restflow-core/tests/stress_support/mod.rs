@@ -129,6 +129,10 @@ pub struct StressSummary {
     pub completed: usize,
     pub failed: usize,
     pub notifications_sent: usize,
+    pub provider_switches: usize,
+    pub failover_count: usize,
+    pub orphan_running: usize,
+    pub recovery_elapsed_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -238,13 +242,19 @@ impl LlmClient for ScriptedLlmClient {
 struct ProfiledTool {
     profile: ToolProfile,
     call_count: Arc<AtomicU32>,
+    failure_count: Arc<AtomicU32>,
 }
 
 impl ProfiledTool {
-    fn new(profile: ToolProfile, call_count: Arc<AtomicU32>) -> Self {
+    fn new(
+        profile: ToolProfile,
+        call_count: Arc<AtomicU32>,
+        failure_count: Arc<AtomicU32>,
+    ) -> Self {
         Self {
             profile,
             call_count,
+            failure_count,
         }
     }
 
@@ -283,6 +293,7 @@ impl Tool for ProfiledTool {
             sleep(Duration::from_millis(self.profile.latency_ms)).await;
         }
         if self.should_fail(call_index) {
+            self.failure_count.fetch_add(1, Ordering::SeqCst);
             let message = match self.profile.failure_mode {
                 FailureMode::RetryableEvery(_) => "retryable stress tool failure",
                 FailureMode::FatalEvery(_) => "fatal stress tool failure",
@@ -393,6 +404,46 @@ pub fn default_tool_profiles() -> Vec<ToolProfile> {
             failure_mode: FailureMode::Never,
             output_size: 1,
         },
+        ToolProfile {
+            family: ToolFamily::Io,
+            name: "echo_io",
+            latency_ms: 12,
+            failure_mode: FailureMode::RetryableEvery(7),
+            output_size: 8,
+        },
+        ToolProfile {
+            family: ToolFamily::TaskMgmt,
+            name: "echo_task",
+            latency_ms: 6,
+            failure_mode: FailureMode::FatalEvery(11),
+            output_size: 2,
+        },
+    ]
+}
+
+pub fn coordination_tool_profiles() -> Vec<ToolProfile> {
+    vec![
+        ToolProfile {
+            family: ToolFamily::Coordination,
+            name: "spawn_subagent",
+            latency_ms: 4,
+            failure_mode: FailureMode::Never,
+            output_size: 1,
+        },
+        ToolProfile {
+            family: ToolFamily::Coordination,
+            name: "wait_subagents",
+            latency_ms: 4,
+            failure_mode: FailureMode::Never,
+            output_size: 1,
+        },
+        ToolProfile {
+            family: ToolFamily::Coordination,
+            name: "switch_model",
+            latency_ms: 2,
+            failure_mode: FailureMode::Never,
+            output_size: 1,
+        },
     ]
 }
 
@@ -415,6 +466,12 @@ pub fn chat_smoke_profiles() -> Vec<ModelProfile> {
             model_id: "minimax-coding-plan-m2-5",
             stream_mode: StreamMode::CoarseStreaming,
             tool_density: 1,
+        },
+        ModelProfile {
+            provider: ProviderFamily::Gemini,
+            model_id: "gemini-2.5-pro",
+            stream_mode: StreamMode::Streaming,
+            tool_density: 2,
         },
     ]
 }
@@ -465,22 +522,46 @@ pub fn timeout_for(
     }
 }
 
+#[derive(Clone)]
+pub struct ToolCounters {
+    pub name: &'static str,
+    pub calls: Arc<AtomicU32>,
+    pub failures: Arc<AtomicU32>,
+}
+
 pub fn build_tool_registry(
     tool_profiles: &[ToolProfile],
-) -> (Arc<ToolRegistry>, Vec<Arc<AtomicU32>>) {
+) -> (Arc<ToolRegistry>, Vec<ToolCounters>) {
     let mut registry = ToolRegistry::new();
     let mut counters = Vec::new();
     for profile in tool_profiles.iter().cloned() {
-        let counter = Arc::new(AtomicU32::new(0));
-        registry.register(ProfiledTool::new(profile, counter.clone()));
-        counters.push(counter);
+        let calls = Arc::new(AtomicU32::new(0));
+        let failures = Arc::new(AtomicU32::new(0));
+        registry.register(ProfiledTool::new(
+            profile.clone(),
+            calls.clone(),
+            failures.clone(),
+        ));
+        counters.push(ToolCounters {
+            name: profile.name,
+            calls,
+            failures,
+        });
     }
     (Arc::new(registry), counters)
 }
 
 pub async fn run_chat_workload(profile: &ModelProfile, rounds: usize) -> StressSummary {
+    run_chat_workload_with_tools(profile, rounds, default_tool_profiles()).await
+}
+
+pub async fn run_chat_workload_with_tools(
+    profile: &ModelProfile,
+    rounds: usize,
+    tool_profiles: Vec<ToolProfile>,
+) -> StressSummary {
     let mut summary = StressSummary::default();
-    let tool_profiles = default_tool_profiles()
+    let tool_profiles = tool_profiles
         .into_iter()
         .take(profile.tool_density.max(1))
         .collect::<Vec<_>>();
@@ -544,8 +625,17 @@ pub async fn run_chat_workload(profile: &ModelProfile, rounds: usize) -> StressS
 
     summary.tool_calls = counters
         .iter()
-        .map(|counter| counter.load(Ordering::SeqCst) as usize)
+        .map(|counter| counter.calls.load(Ordering::SeqCst) as usize)
         .sum();
+    summary.tool_failures = counters
+        .iter()
+        .map(|counter| counter.failures.load(Ordering::SeqCst) as usize)
+        .sum();
+    summary.provider_switches = counters
+        .iter()
+        .find(|counter| counter.name == "switch_model")
+        .map(|counter| counter.calls.load(Ordering::SeqCst) as usize)
+        .unwrap_or(0);
     summary
 }
 
@@ -554,6 +644,7 @@ pub async fn run_background_workload(
     task_count: usize,
     failure_mode: FailureMode,
 ) -> StressSummary {
+    let level = StressLevel::current();
     let (storage, _temp_dir) = create_test_storage();
     let now = chrono::Utc::now().timestamp_millis();
     for index in 0..task_count {
@@ -579,14 +670,19 @@ pub async fn run_background_workload(
         failure_mode,
     ));
     let notifier = Arc::new(MockNotificationSender::new());
+    let max_concurrent = match level {
+        StressLevel::Smoke => task_count.min(8),
+        StressLevel::Stress => task_count.min(12),
+        StressLevel::Soak => task_count.min(16),
+    };
     let runner = Arc::new(TaskRunner::new(
         storage.clone(),
         executor.clone(),
         notifier.clone(),
         TaskRunnerConfig {
             poll_interval_ms: 20,
-            max_concurrent_tasks: task_count.min(8),
-            worker_count: task_count.min(8),
+            max_concurrent_tasks: max_concurrent,
+            worker_count: max_concurrent,
             task_timeout_secs: Some(30),
             stall_timeout_secs: None,
         },
@@ -594,7 +690,13 @@ pub async fn run_background_workload(
     ));
 
     let handle = runner.clone().start();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now()
+        + timeout_for(
+            level,
+            Duration::from_secs(15),
+            Duration::from_secs(45),
+            Duration::from_secs(180),
+        );
     loop {
         let tasks = storage.list_tasks().expect("list background stress tasks");
         let terminal = tasks
@@ -610,6 +712,24 @@ pub async fn run_background_workload(
         sleep(Duration::from_millis(50)).await;
     }
     handle.stop().await.expect("stop background stress runner");
+
+    let drain_deadline = tokio::time::Instant::now()
+        + timeout_for(
+            level,
+            Duration::from_secs(2),
+            Duration::from_secs(6),
+            Duration::from_secs(12),
+        );
+    let orphan_running = loop {
+        let running = runner.running_task_count().await;
+        if running == 0 {
+            break 0;
+        }
+        if tokio::time::Instant::now() >= drain_deadline {
+            break running;
+        }
+        sleep(Duration::from_millis(50)).await;
+    };
 
     let tasks = storage
         .list_tasks()
@@ -631,6 +751,10 @@ pub async fn run_background_workload(
             .filter(|task| task.status == TaskStatus::Failed)
             .count(),
         notifications_sent: notifier.notification_count().await,
+        orphan_running,
+        failover_count: 0,
+        provider_switches: 0,
+        recovery_elapsed_ms: None,
     }
 }
 
@@ -653,5 +777,26 @@ pub fn assert_notifications_within_attempt_budget(summary: &StressSummary) {
     assert!(
         summary.notifications_sent <= summary.total_runs,
         "notifications should not exceed total execution attempts"
+    );
+}
+
+pub fn assert_no_orphan_running(summary: &StressSummary) {
+    assert_eq!(summary.orphan_running, 0, "stress run leaked running tasks");
+}
+
+pub fn assert_tool_call_result_pairing(summary: &StressSummary) {
+    assert!(
+        summary.tool_calls >= summary.tool_failures,
+        "tool failures cannot exceed tool invocations"
+    );
+}
+
+pub fn assert_recovery_within_budget(summary: &StressSummary, max_recovery_ms: u64) {
+    let elapsed = summary
+        .recovery_elapsed_ms
+        .expect("recovery elapsed should be recorded");
+    assert!(
+        elapsed <= max_recovery_ms,
+        "recovery exceeded budget: {elapsed}ms > {max_recovery_ms}ms"
     );
 }

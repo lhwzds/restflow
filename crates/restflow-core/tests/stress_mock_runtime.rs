@@ -219,10 +219,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         "expected at least one active task to be marked as stale running"
     );
 
-    let executor_phase2 = Arc::new(DeterministicMockExecutor::new(
-        scaled_u64(8, 12, 18),
-        None,
-    ));
+    let executor_phase2 = Arc::new(DeterministicMockExecutor::new(scaled_u64(8, 12, 18), None));
     let notifier_phase2 = Arc::new(MockNotificationSender::new());
     let runner_phase2 = Arc::new(TaskRunner::new(
         storage.clone(),
@@ -253,10 +250,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         .await
         .expect("failed to stop phase2 runner");
 
-    let executor_phase3 = Arc::new(DeterministicMockExecutor::new(
-        scaled_u64(2, 4, 6),
-        None,
-    ));
+    let executor_phase3 = Arc::new(DeterministicMockExecutor::new(scaled_u64(2, 4, 6), None));
     let runner_phase3 = Arc::new(TaskRunner::new(
         storage.clone(),
         executor_phase3.clone(),
