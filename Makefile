@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint types
+.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint types stress
 
 # Development mode with hot reload
 dev:
@@ -58,6 +58,7 @@ help:
 	@echo "  CLI:"
 	@echo "    make fmt     - Format Rust and web code"
 	@echo "    make test    - Run backend and frontend tests"
+	@echo "    make stress  - Run restflow-core stress mock runtime tests"
 	@echo "    make lint    - Run backend clippy and frontend lint checks"
 	@echo "    make types   - Regenerate web TypeScript bindings"
 	@echo "    make cli     - Build CLI in release mode"
@@ -76,6 +77,16 @@ test:
 	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
 	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test
 	cd web && npm run test
+
+# Run stress tests for the mock background runtime
+stress:
+	@set -e; \
+	TYPEGEN_DIR="$$(mktemp -d)"; \
+	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
+	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
+	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
+	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
+	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1
 
 # Run backend and frontend lint checks
 lint:
