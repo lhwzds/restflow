@@ -3,7 +3,7 @@
 
 # RestFlow
 
-**Daemon-centric AI runtime for background tasks and agent execution**
+**Make your agent binary. Make your workflow binary. Make your skill binary.**
 
 [![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
 [![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
@@ -13,6 +13,28 @@
 </div>
 
 ---
+
+## What RestFlow Is
+
+RestFlow is a daemon-centric AI runtime that is evolving toward a simple product idea:
+
+This product model is under active development and is being implemented incrementally on top of the existing daemon runtime.
+
+- **Skill Binary**: package one reusable AI capability as a portable executable unit
+- **Agent Binary**: compile one agent with its model, tools, policy, and behavior into a runnable unit
+- **Workflow Binary**: compose multiple skills and agents into a fixed executable flow
+
+The daemon remains the runtime center.
+It is already the execution and persistence binary for RestFlow today, and the higher-level
+skill / agent / workflow binary model is built on top of that runtime rather than replacing it.
+
+In practice, this means RestFlow is not just "an AI chat app" or "a workflow editor".
+It is building toward a portable execution system for AI work:
+
+- agents
+- skills
+- workflows
+- parallel execution
 
 ## Quick Start
 
@@ -67,7 +89,37 @@ restflow mcp claude sync
 restflow auth add --provider claude-code --key <your-token>
 ```
 
-## Architecture at a Glance
+## Product Model
+
+RestFlow organizes AI work into three product layers:
+
+### Skill Binary
+
+The smallest reusable unit.
+
+- encapsulates one AI capability
+- can carry instructions, dependencies, and executable behavior
+- is designed to be shareable, installable, and runnable
+
+### Agent Binary
+
+A packaged AI worker.
+
+- binds model, tools, runtime policy, and attached skills
+- is intended to run as a stable executable unit
+- is the main building block for real task execution
+
+### Workflow Binary
+
+A compiled execution flow.
+
+- composes multiple skills and agents
+- encodes a fixed execution order
+- is intended for reproducible AI workflows and multi-step automation
+
+## Runtime Architecture
+
+Today, RestFlow's implementation center is still the daemon runtime.
 
 RestFlow is not a split frontend/backend app with duplicated execution logic.
 It is a daemon-centric runtime:
@@ -88,6 +140,24 @@ See the local architecture references for the current design:
 
 - [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 - [docs/TASK_RUN_DOMAIN_MODEL.md](./docs/TASK_RUN_DOMAIN_MODEL.md)
+
+## Current State
+
+RestFlow already has the daemon-first runtime foundation:
+
+- daemon-owned execution
+- browser and CLI as clients
+- persistent chat sessions
+- background task runtime
+- tool execution and tracing
+- MCP/HTTP/IPC surfaces
+
+The product direction from here is to raise these runtime capabilities into first-class,
+portable artifacts:
+
+- skill binaries
+- agent binaries
+- workflow binaries
 
 ## Links
 
