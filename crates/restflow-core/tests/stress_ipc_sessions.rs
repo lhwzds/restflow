@@ -7,13 +7,9 @@ use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::Client;
-use restflow_ai::llm::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmClient, LlmClientFactory, StreamChunk,
-    StreamResult, TokenUsage,
-};
+use restflow_ai::llm::{AnthropicClient, LlmClient, LlmClientFactory, OpenAIClient};
 use restflow_core::daemon::{IpcRequest, IpcResponse, StreamFrame, run_mcp_http_server};
 use restflow_core::prompt_files;
 use restflow_core::runtime::background_agent::install_test_llm_factory;
@@ -23,117 +19,22 @@ use restflow_core::{
 use restflow_models::ClientKind;
 use restflow_traits::llm::LlmProvider;
 use serde::de::DeserializeOwned;
-use stress_support::{ProviderFamily, StreamMode, StressLevel, chat_smoke_profiles, rounds_for};
+use stress_support::{
+    MockLlmHttpServer, MockToolHttpServer, ProviderFamily, StreamMode, StressLevel,
+    chat_smoke_profiles, install_real_io_tool_overrides, rounds_for,
+};
 use tempfile::tempdir;
 use tokio::sync::broadcast;
 use tokio::time::{sleep, timeout};
 
-#[derive(Clone, Debug)]
-struct IpcStressLlmClient {
-    provider: &'static str,
-    model: String,
-    stream_mode: StreamMode,
-}
-
-impl IpcStressLlmClient {
-    fn new(provider: &'static str, model: String, stream_mode: StreamMode) -> Self {
-        Self {
-            provider,
-            model,
-            stream_mode,
-        }
-    }
-
-    fn usage_for(content: &str) -> TokenUsage {
-        let completion_tokens = content.len() as u32;
-        TokenUsage {
-            prompt_tokens: 8,
-            completion_tokens,
-            total_tokens: completion_tokens + 8,
-            cost_usd: Some(0.0),
-        }
-    }
-
-    fn build_content(&self, request: &CompletionRequest) -> String {
-        let is_ack = request
-            .messages
-            .iter()
-            .any(|message| message.content.contains("Temporary Acknowledgement Phase"));
-        let last_user = request
-            .messages
-            .iter()
-            .rev()
-            .find(|message| matches!(message.role, restflow_ai::Role::User))
-            .map(|message| message.content.trim().to_string())
-            .unwrap_or_else(|| "empty-input".to_string());
-
-        if is_ack {
-            format!("Starting {}", last_user)
-        } else {
-            format!("{}:{} completed {}", self.provider, self.model, last_user)
-        }
-    }
-}
-
-#[async_trait]
-impl LlmClient for IpcStressLlmClient {
-    fn provider(&self) -> &str {
-        self.provider
-    }
-
-    fn model(&self) -> &str {
-        &self.model
-    }
-
-    async fn complete(
-        &self,
-        request: CompletionRequest,
-    ) -> restflow_ai::Result<CompletionResponse> {
-        let content = self.build_content(&request);
-        Ok(CompletionResponse {
-            content: Some(content.clone()),
-            tool_calls: Vec::new(),
-            finish_reason: FinishReason::Stop,
-            usage: Some(Self::usage_for(&content)),
-        })
-    }
-
-    fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
-        let content = self.build_content(&request);
-        let usage = Some(Self::usage_for(&content));
-        let chunks = match self.stream_mode {
-            StreamMode::NonStreaming => vec![
-                Ok(StreamChunk::text(content)),
-                Ok(StreamChunk::final_chunk(FinishReason::Stop, usage)),
-            ],
-            StreamMode::CoarseStreaming => vec![
-                Ok(StreamChunk::text(content)),
-                Ok(StreamChunk::final_chunk(FinishReason::Stop, usage)),
-            ],
-            StreamMode::Streaming => {
-                let mut items = content
-                    .split_whitespace()
-                    .map(|part| Ok(StreamChunk::text(format!("{part} "))))
-                    .collect::<Vec<_>>();
-                items.push(Ok(StreamChunk::final_chunk(FinishReason::Stop, usage)));
-                items
-            }
-        };
-        Box::pin(futures::stream::iter(chunks))
-    }
-
-    fn supports_streaming(&self) -> bool {
-        self.stream_mode != StreamMode::NonStreaming
-    }
-}
-
 #[derive(Clone)]
 struct IpcStressLlmFactory {
+    base_url: String,
     models: HashMap<String, (ProviderFamily, StreamMode)>,
 }
 
 impl IpcStressLlmFactory {
-    fn new() -> Self {
+    fn new(base_url: String) -> Self {
         let models = chat_smoke_profiles()
             .into_iter()
             .map(|profile| {
@@ -143,7 +44,7 @@ impl IpcStressLlmFactory {
                 )
             })
             .collect();
-        Self { models }
+        Self { base_url, models }
     }
 
     fn resolve_profile(&self, model: &str) -> Option<(ProviderFamily, StreamMode)> {
@@ -151,7 +52,7 @@ impl IpcStressLlmFactory {
         if let Some(profile) = self
             .models
             .iter()
-            .find(|(name, _)| name.to_lowercase() == normalized)
+            .find(|(name, _profile)| name.to_lowercase() == normalized)
             .map(|(_, profile)| *profile)
         {
             return Some(profile);
@@ -184,14 +85,24 @@ impl LlmClientFactory for IpcStressLlmFactory {
         model: &str,
         _api_key: Option<&str>,
     ) -> restflow_ai::Result<Arc<dyn LlmClient>> {
-        let (provider, stream_mode) = self
+        let (provider, _stream_mode) = self
             .resolve_profile(model)
             .ok_or_else(|| restflow_ai::AiError::Llm(format!("Unknown test model '{model}'")))?;
-        Ok(Arc::new(IpcStressLlmClient::new(
-            provider.as_str(),
-            model.to_string(),
-            stream_mode,
-        )))
+        let client: Arc<dyn LlmClient> = match provider {
+            ProviderFamily::Anthropic | ProviderFamily::MiniMaxShim => Arc::new(
+                AnthropicClient::new("stress-anthropic-key")
+                    .map_err(restflow_ai::AiError::Http)?
+                    .with_model(model)
+                    .with_base_url(self.base_url.clone()),
+            ),
+            _ => Arc::new(
+                OpenAIClient::new("stress-openai-key")
+                    .map_err(restflow_ai::AiError::Http)?
+                    .with_model(model)
+                    .with_base_url(format!("{}/v1", self.base_url)),
+            ),
+        };
+        Ok(client)
     }
 
     fn available_models(&self) -> Vec<String> {
@@ -377,6 +288,7 @@ async fn run_ipc_session_workload(
     profile: &stress_support::ModelProfile,
     session_index: usize,
     turns_per_session: usize,
+    tool_server: &MockToolHttpServer,
 ) -> IpcSessionOutcome {
     let mut session: ChatSession = request_typed(
         client,
@@ -396,8 +308,15 @@ async fn run_ipc_session_workload(
     for turn in 0..turns_per_session {
         let stream_id = format!("ipc-stress-{session_index}-{turn}");
         let user_input = format!(
-            "session {session_index} turn {turn} for {}",
-            profile.model_id
+            "session {session_index} turn {turn} for {} tool_url={} tool_file_path={}/session-{}-{}.txt tool_workdir={} tool_steps={} payload_words={}",
+            profile.model_id,
+            tool_server.stable_url_for_round(session_index * turns_per_session + turn),
+            std::env::temp_dir().display(),
+            session_index,
+            turn,
+            std::env::temp_dir().display(),
+            rounds_for(StressLevel::current(), 2, 4, 6),
+            rounds_for(StressLevel::current(), 128, 256, 512)
         );
         let frames = collect_stream_frames(
             client,
@@ -487,24 +406,42 @@ async fn run_ipc_session_workload(
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn smoke_ipc_session_streams_finalize_consistently() {
     let level = StressLevel::current();
     let (core, _env) = create_test_core().await;
-    let factory_guard = install_test_llm_factory(Arc::new(IpcStressLlmFactory::new()));
+    let llm_server = MockLlmHttpServer::start(level).await;
+    let tool_server = MockToolHttpServer::start().await;
+    let factory_guard = install_test_llm_factory(Arc::new(IpcStressLlmFactory::new(
+        llm_server.base_url().to_string(),
+    )));
+    let (tool_guard, tool_calls, tool_failures) = install_real_io_tool_overrides();
     let server = HttpDaemonHarness::start(core).await;
     let client = Client::new();
 
-    let session_count = rounds_for(level, 3, 8, 16);
-    let turns_per_session = rounds_for(level, 2, 4, 6);
+    // Keep the current stress tier bounded enough to finish locally.
+    // Follow-up work should add a heavier, more production-like resource stress
+    // profile with larger payloads, longer transcripts, and higher sustained
+    // concurrency once the current real-I/O path is fully stabilized.
+    let session_count = rounds_for(level, 4, 64, 256);
+    let turns_per_session = rounds_for(level, 2, 2, 2);
     let profiles = chat_smoke_profiles();
 
     let outcomes = futures::future::join_all((0..session_count).map(|index| {
         let client = client.clone();
         let base_url = server.base_url.clone();
         let profile = profiles[index % profiles.len()].clone();
+        let tool_server = tool_server.clone();
         async move {
-            run_ipc_session_workload(&client, &base_url, &profile, index, turns_per_session).await
+            run_ipc_session_workload(
+                &client,
+                &base_url,
+                &profile,
+                index,
+                turns_per_session,
+                &tool_server,
+            )
+            .await
         }
     }))
     .await;
@@ -520,7 +457,7 @@ async fn smoke_ipc_session_streams_finalize_consistently() {
     let total_trace_events: u64 = outcomes.iter().map(|outcome| outcome.trace_events).sum();
 
     assert!(
-        total_data_frames >= session_count * turns_per_session,
+        total_data_frames >= session_count * turns_per_session * rounds_for(level, 4, 8, 16),
         "expected streamed data across all IPC sessions"
     );
     assert!(
@@ -531,7 +468,43 @@ async fn smoke_ipc_session_streams_finalize_consistently() {
         total_trace_events >= (session_count * turns_per_session) as u64,
         "expected execution trace coverage across all IPC sessions"
     );
+    let llm_metrics = llm_server.metrics();
+    assert!(
+        llm_metrics.request_count >= session_count * turns_per_session,
+        "expected session turns to hit mock LLM backend"
+    );
+    assert!(
+        llm_metrics.stream_requests >= session_count * turns_per_session,
+        "expected streaming requests to hit mock LLM backend"
+    );
+    assert!(
+        llm_metrics.stream_chunks
+            >= session_count * turns_per_session * rounds_for(level, 4, 8, 16),
+        "expected mock LLM stream chunks across all IPC sessions"
+    );
+    assert!(
+        tool_calls.load(std::sync::atomic::Ordering::SeqCst)
+            >= session_count * turns_per_session * rounds_for(level, 2, 3, 4),
+        "expected multi-step real tool calls across IPC sessions, tool_calls={}, session_count={}, turns_per_session={}, level={level:?}",
+        tool_calls.load(std::sync::atomic::Ordering::SeqCst),
+        session_count,
+        turns_per_session
+    );
+    let tool_metrics = tool_server.metrics();
+    assert_eq!(
+        tool_metrics.request_count,
+        session_count * turns_per_session,
+        "expected one http_request backend call per session turn"
+    );
+    assert!(
+        tool_failures.load(std::sync::atomic::Ordering::SeqCst)
+            < tool_calls.load(std::sync::atomic::Ordering::SeqCst),
+        "expected most tool calls to succeed across IPC sessions"
+    );
 
+    drop(tool_guard);
     drop(factory_guard);
+    tool_server.shutdown().await;
+    llm_server.shutdown().await;
     server.shutdown().await;
 }

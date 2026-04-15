@@ -23,6 +23,8 @@ pub use tools::{
     ToolResult, UseSkillTool, WaitSubagentsTool, default_registry, effective_main_agent_tool_names,
     main_agent_default_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
+#[cfg(any(test, feature = "test-utils"))]
+pub use tools::{TestToolOverrideGuard, install_test_tool_overrides};
 
 /// Build the agent system prompt from agent configuration.
 ///

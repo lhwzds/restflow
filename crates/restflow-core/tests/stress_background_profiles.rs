@@ -3,8 +3,10 @@
 mod stress_support;
 
 use stress_support::{
-    FailureMode, StressLevel, assert_no_orphan_running, assert_notifications_within_attempt_budget,
-    assert_terminal_coverage, background_smoke_profiles, run_background_workload, task_count_for,
+    FailureMode, MockLlmHttpServer, MockToolHttpServer, StressLevel, assert_no_orphan_running,
+    assert_notifications_within_attempt_budget, assert_terminal_coverage,
+    background_smoke_profiles, rounds_for, run_background_workload,
+    run_background_workload_with_real_runtime, task_count_for,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -35,4 +37,50 @@ async fn smoke_background_profiles_reach_terminal_states() {
         flaky.failed > 0,
         "expected retryable workload to surface failures"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn smoke_background_real_runtime_handles_tool_io() {
+    let level = StressLevel::current();
+    let profile = background_smoke_profiles()
+        .into_iter()
+        .last()
+        .expect("background profile");
+    let llm_server = MockLlmHttpServer::start(level).await;
+    let tool_server = MockToolHttpServer::start().await;
+
+    let summary = run_background_workload_with_real_runtime(
+        &profile,
+        level,
+        task_count_for(level, 4, 32, 96),
+        &llm_server,
+        &tool_server,
+    )
+    .await;
+
+    assert_terminal_coverage(&summary);
+    assert_notifications_within_attempt_budget(&summary);
+    assert_no_orphan_running(&summary);
+    assert!(
+        summary.tool_calls > 0,
+        "expected real runtime tool calls, summary={summary:?}"
+    );
+
+    let llm_metrics = llm_server.metrics();
+    assert!(
+        llm_metrics.request_count >= summary.total_runs,
+        "expected mock llm backend requests for background runtime"
+    );
+    let tool_metrics = tool_server.metrics();
+    assert!(
+        summary.tool_calls >= summary.total_runs * rounds_for(level, 3, 4, 6),
+        "expected multi-step real tool calls for background runtime, summary={summary:?}"
+    );
+    assert!(
+        tool_metrics.request_count >= summary.total_runs,
+        "expected at least one http_request backend call per background task, summary={summary:?}"
+    );
+
+    tool_server.shutdown().await;
+    llm_server.shutdown().await;
 }

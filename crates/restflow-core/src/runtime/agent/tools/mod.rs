@@ -9,6 +9,8 @@ pub(crate) mod assembly;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(any(test, feature = "test-utils"))]
+use std::sync::{Mutex, OnceLock};
 use tracing::{debug, warn};
 
 use self::assembly::{
@@ -44,6 +46,46 @@ pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub type ToolResult = ToolOutput;
 const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
 const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
+
+#[cfg(any(test, feature = "test-utils"))]
+type TestToolOverrideMap = HashMap<String, Arc<dyn Tool>>;
+
+#[cfg(any(test, feature = "test-utils"))]
+fn test_tool_override_slot() -> &'static Mutex<Option<TestToolOverrideMap>> {
+    static SLOT: OnceLock<Mutex<Option<TestToolOverrideMap>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub struct TestToolOverrideGuard {
+    previous: Option<TestToolOverrideMap>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Drop for TestToolOverrideGuard {
+    fn drop(&mut self) {
+        *test_tool_override_slot()
+            .lock()
+            .expect("test tool override slot lock") = self.previous.take();
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub fn install_test_tool_overrides(overrides: TestToolOverrideMap) -> TestToolOverrideGuard {
+    let mut guard = test_tool_override_slot()
+        .lock()
+        .expect("test tool override slot lock");
+    let previous = guard.replace(overrides);
+    TestToolOverrideGuard { previous }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+fn current_test_tool_overrides() -> Option<TestToolOverrideMap> {
+    test_tool_override_slot()
+        .lock()
+        .expect("test tool override slot lock")
+        .clone()
+}
 
 pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
     let secrets = storage.secrets.clone();
@@ -697,6 +739,13 @@ pub fn registry_from_allowlist_with_security_gate(
             }
         }
         registry.register(restflow_tools::BatchTool::new(registry_arc));
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    if let Some(overrides) = current_test_tool_overrides() {
+        for (_name, tool) in overrides {
+            registry.register_arc(tool);
+        }
     }
 
     // Populate known_tools for AgentStoreAdapter validation

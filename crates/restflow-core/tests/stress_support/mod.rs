@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use std::collections::VecDeque;
+mod mock_backends;
+
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -9,21 +11,36 @@ use std::time::Duration;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures::stream;
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::llm::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamChunk, StreamResult,
     TokenUsage, ToolCall,
 };
 use restflow_ai::tools::{Tool, ToolOutput, ToolRegistry, ToolResult};
-use restflow_core::models::{TaskSchedule, TaskStatus};
+use restflow_core::auth::AuthProfileManager;
+use restflow_core::models::{AgentNode, TaskSchedule, TaskStatus};
+use restflow_core::process::ProcessRegistry;
+use restflow_core::prompt_files;
+use restflow_core::runtime::agent::install_test_tool_overrides;
+use restflow_core::runtime::background_agent::install_test_llm_factory;
 use restflow_core::runtime::background_agent::runner::{AgentExecutor, ExecutionResult};
 use restflow_core::runtime::background_agent::testkit::{
     MockNotificationSender, create_test_storage,
 };
-use restflow_core::runtime::{TaskRunner, TaskRunnerConfig};
+use restflow_core::runtime::subagent::AgentDefinitionRegistry;
+use restflow_core::runtime::{AgentRuntimeExecutor, TaskRunner, TaskRunnerConfig};
 use restflow_core::steer::SteerRegistry;
+use restflow_core::storage::Storage;
 use serde_json::{Value, json};
+use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
+
+#[allow(unused_imports)]
+pub use mock_backends::{
+    MockLlmHttpServer, MockToolHttpServer, StressBashTool, StressFileTool, StressHttpTool,
+    StressPythonTool, StubHttpLlmFactory,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionSurface {
@@ -133,6 +150,7 @@ pub struct StressSummary {
     pub failover_count: usize,
     pub orphan_running: usize,
     pub recovery_elapsed_ms: Option<u64>,
+    pub sample_errors: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -529,6 +547,64 @@ pub struct ToolCounters {
     pub failures: Arc<AtomicU32>,
 }
 
+pub fn install_real_io_tool_overrides() -> (
+    restflow_core::runtime::agent::TestToolOverrideGuard,
+    Arc<std::sync::atomic::AtomicUsize>,
+    Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let tool_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let tool_failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let guard = install_test_tool_overrides(HashMap::from([
+        (
+            "http_request".to_string(),
+            Arc::new(StressHttpTool::new(
+                tool_calls.clone(),
+                tool_failures.clone(),
+            )) as Arc<dyn restflow_ai::tools::Tool>,
+        ),
+        (
+            "bash".to_string(),
+            Arc::new(StressBashTool::new(
+                tool_calls.clone(),
+                tool_failures.clone(),
+            )) as Arc<dyn restflow_ai::tools::Tool>,
+        ),
+        (
+            "file".to_string(),
+            Arc::new(StressFileTool::new(
+                tool_calls.clone(),
+                tool_failures.clone(),
+            )) as Arc<dyn restflow_ai::tools::Tool>,
+        ),
+        (
+            "run_python".to_string(),
+            Arc::new(StressPythonTool::new(
+                tool_calls.clone(),
+                tool_failures.clone(),
+            )) as Arc<dyn restflow_ai::tools::Tool>,
+        ),
+    ]));
+    (guard, tool_calls, tool_failures)
+}
+
+pub struct AgentsDirEnvGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl AgentsDirEnvGuard {
+    pub fn new() -> Self {
+        Self {
+            _lock: prompt_files::agents_dir_env_lock(),
+        }
+    }
+}
+
+impl Drop for AgentsDirEnvGuard {
+    fn drop(&mut self) {
+        unsafe { std::env::remove_var(prompt_files::AGENTS_DIR_ENV) };
+    }
+}
+
 pub fn build_tool_registry(
     tool_profiles: &[ToolProfile],
 ) -> (Arc<ToolRegistry>, Vec<ToolCounters>) {
@@ -639,6 +715,74 @@ pub async fn run_chat_workload_with_tools(
     summary
 }
 
+pub async fn run_chat_workload_with_real_http_io(
+    profile: &ModelProfile,
+    rounds: usize,
+    tool_server: &MockToolHttpServer,
+) -> StressSummary {
+    let mut summary = StressSummary::default();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut registry = ToolRegistry::new();
+    registry.register(StressHttpTool::new(calls.clone(), failures.clone()));
+    let tools = Arc::new(registry);
+
+    for round in 0..rounds {
+        let url = tool_server.url_for_round(round);
+        let llm = Arc::new(ScriptedLlmClient::new(
+            profile.provider.as_str(),
+            profile.model_id,
+            profile.stream_mode,
+            vec![
+                CompletionResponse {
+                    content: Some("calling http_request".to_string()),
+                    tool_calls: vec![ToolCall {
+                        id: format!("http-call-{round}"),
+                        name: "http_request".to_string(),
+                        arguments: json!({
+                            "method": if round % 2 == 0 { "GET" } else { "POST" },
+                            "url": url,
+                            "body": { "round": round, "model": profile.model_id }
+                        }),
+                    }],
+                    finish_reason: FinishReason::ToolCalls,
+                    usage: None,
+                },
+                CompletionResponse {
+                    content: Some(format!("done round {round}")),
+                    tool_calls: Vec::new(),
+                    finish_reason: FinishReason::Stop,
+                    usage: None,
+                },
+            ],
+        ));
+        let executor = restflow_ai::AgentExecutor::new(llm, tools.clone());
+        let result = executor
+            .run(restflow_ai::AgentConfig::new(format!(
+                "real http io stress round {round}"
+            )))
+            .await
+            .expect("real http io workload should execute");
+        summary.total_runs += 1;
+        if result.success {
+            summary.completed += 1;
+        } else {
+            summary.failed += 1;
+        }
+        if result
+            .answer
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty())
+        {
+            summary.non_empty_outputs += 1;
+        }
+    }
+
+    summary.tool_calls = calls.load(Ordering::SeqCst);
+    summary.tool_failures = failures.load(Ordering::SeqCst);
+    summary
+}
+
 pub async fn run_background_workload(
     profile: &ModelProfile,
     task_count: usize,
@@ -741,6 +885,195 @@ pub async fn run_background_workload(
         failover_count: 0,
         provider_switches: 0,
         recovery_elapsed_ms: None,
+        sample_errors: tasks
+            .iter()
+            .filter_map(|task| task.last_error.clone())
+            .take(3)
+            .collect(),
+    }
+}
+
+fn create_full_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
+    let temp_dir = tempdir().expect("tempdir");
+    let db_path = temp_dir.path().join("stress-real-runtime.db");
+    let storage = Storage::new(db_path.to_str().expect("db path")).expect("create storage");
+    (Arc::new(storage), temp_dir)
+}
+
+fn create_real_background_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
+    let auth_manager = Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
+    let (completion_tx, completion_rx) = mpsc::channel(32);
+    let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+    let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+    AgentRuntimeExecutor::new(
+        storage,
+        Arc::new(ProcessRegistry::new()),
+        auth_manager,
+        subagent_tracker,
+        subagent_definitions,
+        SubagentConfig::default(),
+    )
+}
+
+pub async fn run_background_workload_with_real_runtime(
+    profile: &ModelProfile,
+    level: StressLevel,
+    task_count: usize,
+    llm_server: &MockLlmHttpServer,
+    tool_server: &MockToolHttpServer,
+) -> StressSummary {
+    let env_guard = AgentsDirEnvGuard::new();
+    let agents_dir = tempdir().expect("agents tempdir");
+    unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, agents_dir.path()) };
+
+    let (storage, _temp_dir) = create_full_test_storage();
+    let model = restflow_core::ModelId::from_api_name(profile.model_id)
+        .or_else(|| restflow_core::ModelId::from_serialized_str(profile.model_id))
+        .expect("known model");
+    let agent = storage
+        .agents
+        .create_agent(
+            format!("stress-agent-{}", profile.model_id),
+            AgentNode {
+                model: Some(model),
+                tools: Some(vec![
+                    "http_request".to_string(),
+                    "bash".to_string(),
+                    "file".to_string(),
+                    "run_python".to_string(),
+                ]),
+                ..AgentNode::new()
+            },
+        )
+        .expect("create stress background agent");
+
+    let (_tool_guard, tool_calls, tool_failures) = install_real_io_tool_overrides();
+    let _llm_guard = install_test_llm_factory(Arc::new(StubHttpLlmFactory::new(
+        llm_server.base_url().to_string(),
+        chat_smoke_profiles().into_iter().map(|profile| {
+            (
+                profile.model_id.to_string(),
+                (profile.provider, profile.stream_mode),
+            )
+        }),
+    )));
+
+    let now = chrono::Utc::now().timestamp_millis();
+    for index in 0..task_count {
+        let mut task = storage
+            .background_agents
+            .create_task(
+                format!("real-{}-task-{index}", profile.provider.as_str()),
+                agent.id.clone(),
+                TaskSchedule::Once {
+                    run_at: now + 1_000,
+                },
+            )
+            .expect("create real runtime background task");
+        task.input = Some(format!(
+            "background real task {index} for {} tool_url={} tool_file_path={}/background-{}.txt tool_workdir={} tool_steps={} payload_words={}",
+            profile.model_id,
+            tool_server.stable_url_for_round(index),
+            std::env::temp_dir().display(),
+            index,
+            std::env::temp_dir().display(),
+            rounds_for(level, 3, 4, 6),
+            rounds_for(level, 128, 256, 512)
+        ));
+        task.next_run_at = Some(now - 1_000);
+        storage
+            .background_agents
+            .update_task(&task)
+            .expect("update real background task");
+    }
+
+    let executor = Arc::new(create_real_background_executor(storage.clone()));
+    let notifier = Arc::new(MockNotificationSender::new());
+    let max_concurrent = match level {
+        StressLevel::Smoke => task_count.min(4),
+        StressLevel::Stress => task_count.min(32),
+        StressLevel::Soak => task_count.min(64),
+    };
+    let runner = Arc::new(TaskRunner::new(
+        Arc::new(storage.background_agents.clone()),
+        executor,
+        notifier.clone(),
+        TaskRunnerConfig {
+            poll_interval_ms: 20,
+            max_concurrent_tasks: max_concurrent,
+            worker_count: max_concurrent,
+            task_timeout_secs: Some(60),
+            stall_timeout_secs: None,
+        },
+        Arc::new(SteerRegistry::new()),
+    ));
+
+    let handle = runner.clone().start();
+    let deadline = tokio::time::Instant::now()
+        + timeout_for(
+            level,
+            Duration::from_secs(20),
+            Duration::from_secs(90),
+            Duration::from_secs(240),
+        );
+    loop {
+        let tasks = storage
+            .background_agents
+            .list_tasks()
+            .expect("list real runtime tasks");
+        let terminal = tasks
+            .iter()
+            .filter(|task| matches!(task.status, TaskStatus::Completed | TaskStatus::Failed))
+            .count();
+        if terminal == task_count {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("real runtime background workload timed out before terminal state");
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    handle
+        .stop()
+        .await
+        .expect("stop real runtime background runner");
+
+    let tasks = storage
+        .background_agents
+        .list_tasks()
+        .expect("load real runtime results");
+    let orphan_running = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::Running)
+        .count();
+    drop(env_guard);
+
+    StressSummary {
+        total_runs: task_count,
+        non_empty_outputs: tasks
+            .iter()
+            .filter(|task| task.last_error.is_none())
+            .count(),
+        tool_calls: tool_calls.load(Ordering::SeqCst),
+        tool_failures: tool_failures.load(Ordering::SeqCst),
+        completed: tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Completed)
+            .count(),
+        failed: tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Failed)
+            .count(),
+        notifications_sent: notifier.notification_count().await,
+        orphan_running,
+        failover_count: 0,
+        provider_switches: 0,
+        recovery_elapsed_ms: None,
+        sample_errors: tasks
+            .iter()
+            .filter_map(|task| task.last_error.clone())
+            .take(3)
+            .collect(),
     }
 }
 

@@ -341,9 +341,9 @@ impl AgentRuntimeExecutor {
         let api_keys = self
             .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
             .await;
-        let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+        let factory = Self::build_llm_factory(api_keys, model_specs);
 
-        let api_key = if model.is_codex_cli() {
+        let api_key = if Self::should_skip_api_key_resolution() || model.is_codex_cli() {
             None
         } else if model.is_gemini_cli() {
             self.resolve_api_key_for_model(
@@ -485,11 +485,15 @@ impl AgentRuntimeExecutor {
             let api_keys = self
                 .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
                 .await;
-            let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+            let factory = Self::build_llm_factory(api_keys, model_specs);
             let llm_client = Self::create_llm_client(
                 factory.as_ref(),
                 model,
-                Some(api_key.as_str()),
+                if Self::should_skip_api_key_resolution() {
+                    None
+                } else {
+                    Some(api_key.as_str())
+                },
                 agent_node,
             )?;
 
