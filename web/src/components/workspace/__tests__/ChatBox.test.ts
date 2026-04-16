@@ -56,7 +56,6 @@ describe('ChatBox', () => {
             provider: 'minimax-coding-plan',
           },
           { id: 'glm-5-turbo', name: 'GLM-5 Turbo Coding Plan', provider: 'zai-coding-plan' },
-          { id: 'claude-code-sonnet', name: 'Claude Code Sonnet', provider: 'claude-code' },
           { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'codex' },
         ],
       },
@@ -82,7 +81,6 @@ describe('ChatBox', () => {
     expect(text).toContain('OpenAI API')
     expect(text).toContain('MiniMax Coding Plan')
     expect(text).toContain('ZAI Coding Plan')
-    expect(text).toContain('Claude Code')
     expect(text).toContain('Codex')
     expect(text).toContain('MiniMax M2.5 Highspeed Coding Plan')
   })

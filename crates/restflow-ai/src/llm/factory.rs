@@ -6,8 +6,7 @@ use std::sync::Arc;
 use crate::error::{AiError, Result};
 use crate::llm::retry::RetryingLlmClient;
 use crate::llm::{
-    AnthropicClient, ClaudeCodeClient, CodexClient, GeminiCliClient, LlmClient, OpenAIClient,
-    OpenCodeClient,
+    AnthropicClient, CodexClient, GeminiCliClient, LlmClient, OpenAIClient, OpenCodeClient,
 };
 use restflow_models::{ClientKind, LlmProvider, ModelSpec};
 
@@ -67,9 +66,9 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 Arc::new(c)
             }
             ClientKind::ClaudeCodeCli => {
-                let key = api_key
-                    .ok_or_else(|| AiError::Llm("claude-code API key is required".to_string()))?;
-                Arc::new(ClaudeCodeClient::new(key).with_model(spec.client_model))
+                return Err(AiError::Llm(
+                    "Claude Code CLI support has been removed".to_string(),
+                ));
             }
             ClientKind::Http => {
                 let key = api_key.ok_or_else(|| {
@@ -77,13 +76,9 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 })?;
 
                 match spec.provider {
-                    LlmProvider::Anthropic => {
-                        if key.starts_with("sk-ant-oat") {
-                            Arc::new(ClaudeCodeClient::new(key).with_model(spec.client_model))
-                        } else {
-                            Arc::new(AnthropicClient::new(key)?.with_model(spec.client_model))
-                        }
-                    }
+                    LlmProvider::Anthropic => Arc::new(
+                        AnthropicClient::new(key)?.with_model(spec.client_model),
+                    ),
                     LlmProvider::MiniMax | LlmProvider::MiniMaxCodingPlan => Arc::new(
                         AnthropicClient::new(key)?
                             .with_model(spec.client_model)
@@ -184,5 +179,22 @@ mod tests {
             Some(ClientKind::ClaudeCodeCli)
         );
         assert_eq!(factory.client_kind_for_model("missing"), None);
+    }
+
+    #[test]
+    fn create_client_rejects_claude_code_cli_models() {
+        let factory = DefaultLlmClientFactory::new(
+            HashMap::new(),
+            vec![ModelSpec::claude_code("claude-code-opus", "opus")],
+        );
+
+        let err = match factory.create_client("claude-code-opus", Some("sk-ant-oat01-test")) {
+            Ok(_) => panic!("claude-code client should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(err
+            .to_string()
+            .contains("Claude Code CLI support has been removed"));
     }
 }

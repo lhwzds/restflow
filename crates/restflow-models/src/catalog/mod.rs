@@ -1,5 +1,4 @@
 mod anthropic;
-mod claude_code;
 mod codex;
 mod deepseek;
 mod doubao;
@@ -139,7 +138,6 @@ impl ProviderCatalog {
 pub const PROVIDER_CATALOGS: &[ProviderCatalog] = &[
     openai::CATALOG,
     anthropic::CATALOG,
-    claude_code::CATALOG,
     codex::CATALOG,
     deepseek::CATALOG,
     google::CATALOG,

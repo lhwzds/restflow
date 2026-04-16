@@ -77,16 +77,6 @@ restflow secret set ANTHROPIC_API_KEY sk-ant-xxx
 ```bash
 # Sync RestFlow MCP to Codex
 restflow mcp codex sync
-
-# Sync RestFlow MCP to Claude Code
-restflow mcp claude sync
-```
-
-### Optional: add CLI-backed execution backends
-
-```bash
-# Claude Code OAuth token
-restflow auth add --provider claude-code --key <your-token>
 ```
 
 ## Product Model

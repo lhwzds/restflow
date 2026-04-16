@@ -927,7 +927,7 @@ pub enum SecretCommands {
 pub enum KeyCommands {
     /// Add a new API key
     Add {
-        /// Provider (anthropic, claude-code, openai, deepseek)
+        /// Provider (anthropic, openai, deepseek)
         provider: String,
 
         /// The API key value
@@ -1083,7 +1083,7 @@ pub enum McpCommands {
     /// Stop MCP server
     Stop { name: String },
 
-    /// Sync MCP client configuration for Claude/Codex
+    /// Sync MCP client configuration for Codex
     Sync {
         /// RestFlow MCP HTTP port (default: 8787)
         #[arg(long, default_value_t = 8787)]
@@ -1108,11 +1108,11 @@ pub enum SessionCommands {
     /// Create a new session
     Create {
         /// Agent ID to associate with
-        #[arg(long, default_value = "claude-cli")]
+        #[arg(long, default_value = "default")]
         agent: String,
 
         /// Model name
-        #[arg(long, default_value = "claude-code")]
+        #[arg(long, default_value = "gpt-5.4")]
         model: String,
     },
 
