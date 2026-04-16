@@ -4,6 +4,8 @@ use crate::toolchain::ensure_toolchain;
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
+const BUILD_ONLINE_ENV: &str = "RESTFLOW_BUILD_ONLINE";
+
 #[derive(Debug, Clone)]
 pub struct BuildBinaryOptions {
     pub skill_id: String,
@@ -38,6 +40,9 @@ pub fn build_skill_binary(options: &BuildBinaryOptions) -> Result<BuildBinaryRes
         .arg("build")
         .arg("--manifest-path")
         .arg(skill_dir.join("Cargo.toml"));
+    if !should_build_online() {
+        command.arg("--offline");
+    }
     if let Some(flag) = options.profile.as_cargo_flag() {
         command.arg(flag);
     }
@@ -91,6 +96,13 @@ pub fn build_skill_binary(options: &BuildBinaryOptions) -> Result<BuildBinaryRes
         stderr,
         exit_code,
     })
+}
+
+fn should_build_online() -> bool {
+    matches!(
+        std::env::var(BUILD_ONLINE_ENV).ok().as_deref(),
+        Some("1" | "true" | "yes")
+    )
 }
 
 fn resolve_binary_name(skill_dir: &Path, fallback: &str) -> Result<String> {
