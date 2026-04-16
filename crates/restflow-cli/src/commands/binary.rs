@@ -24,6 +24,9 @@ async fn run_skill(command: BinarySkillCommands, format: OutputFormat) -> Result
                 id,
                 name,
                 toolchain,
+                cargo_toml: None,
+                main_rs: None,
+                skill_markdown: None,
             })?;
             if format.is_json() {
                 return print_json(&serde_json::json!({

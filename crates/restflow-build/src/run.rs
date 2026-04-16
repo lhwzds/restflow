@@ -78,6 +78,9 @@ mod tests {
             id: "runner-skill".to_string(),
             name: None,
             toolchain: None,
+            cargo_toml: None,
+            main_rs: None,
+            skill_markdown: None,
         })
         .expect("scaffold skill");
         let build = build_skill_binary(&BuildBinaryOptions {

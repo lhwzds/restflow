@@ -13,6 +13,9 @@ pub struct CreateSkillProjectOptions {
     pub id: String,
     pub name: Option<String>,
     pub toolchain: Option<String>,
+    pub cargo_toml: Option<String>,
+    pub main_rs: Option<String>,
+    pub skill_markdown: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +25,26 @@ pub struct CreateSkillProjectResult {
     pub manifest_path: PathBuf,
     pub source_path: PathBuf,
     pub skill_markdown_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReadSkillProjectResult {
+    pub skill_dir: PathBuf,
+    pub artifact_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub source_path: PathBuf,
+    pub skill_markdown_path: PathBuf,
+    pub cargo_toml: String,
+    pub main_rs: String,
+    pub skill_markdown: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UpdateSkillProjectOptions {
+    pub id: String,
+    pub cargo_toml: Option<String>,
+    pub main_rs: Option<String>,
+    pub skill_markdown: Option<String>,
 }
 
 pub fn skill_root_dir() -> Result<PathBuf> {
@@ -67,9 +90,18 @@ pub fn create_skill_project(
             .join(BuildProfile::Debug.as_dir_name()),
     )?;
 
-    let cargo_toml = render_cargo_toml(skill_id, &name)?;
-    let source = render_main_rs(skill_id);
-    let markdown = render_skill_markdown(skill_id, &name);
+    let cargo_toml = options
+        .cargo_toml
+        .clone()
+        .unwrap_or(render_cargo_toml(skill_id, &name)?);
+    let source = options
+        .main_rs
+        .clone()
+        .unwrap_or_else(|| render_main_rs(skill_id));
+    let markdown = options
+        .skill_markdown
+        .clone()
+        .unwrap_or_else(|| render_skill_markdown(skill_id, &name));
     let metadata = SkillArtifactMetadata {
         kind: ArtifactKind::Skill,
         id: skill_id.to_string(),
@@ -97,6 +129,53 @@ pub fn create_skill_project(
         skill_markdown_path,
         skill_dir,
     })
+}
+
+pub fn read_skill_project(id: &str) -> Result<ReadSkillProjectResult> {
+    let skill_dir = skill_dir_for(id)?;
+    if !skill_dir.exists() {
+        bail!("skill directory does not exist: {}", skill_dir.display());
+    }
+
+    let artifact_path = skill_dir.join(crate::artifact::ARTIFACT_FILE_NAME);
+    let manifest_path = skill_dir.join("Cargo.toml");
+    let source_path = skill_dir.join("src").join("main.rs");
+    let skill_markdown_path = skill_dir.join(SKILL_FILE_NAME);
+
+    Ok(ReadSkillProjectResult {
+        cargo_toml: std::fs::read_to_string(&manifest_path)?,
+        main_rs: std::fs::read_to_string(&source_path)?,
+        skill_markdown: std::fs::read_to_string(&skill_markdown_path)?,
+        skill_dir,
+        artifact_path,
+        manifest_path,
+        source_path,
+        skill_markdown_path,
+    })
+}
+
+pub fn update_skill_project(options: &UpdateSkillProjectOptions) -> Result<ReadSkillProjectResult> {
+    let skill_id = options.id.trim();
+    if skill_id.is_empty() {
+        bail!("skill id cannot be empty");
+    }
+
+    let skill_dir = skill_dir_for(skill_id)?;
+    if !skill_dir.exists() {
+        bail!("skill directory does not exist: {}", skill_dir.display());
+    }
+
+    if let Some(cargo_toml) = &options.cargo_toml {
+        std::fs::write(skill_dir.join("Cargo.toml"), cargo_toml)?;
+    }
+    if let Some(main_rs) = &options.main_rs {
+        std::fs::write(skill_dir.join("src").join("main.rs"), main_rs)?;
+    }
+    if let Some(skill_markdown) = &options.skill_markdown {
+        std::fs::write(skill_dir.join(SKILL_FILE_NAME), skill_markdown)?;
+    }
+
+    read_skill_project(skill_id)
 }
 
 fn render_cargo_toml(skill_id: &str, name: &str) -> Result<String> {
@@ -193,6 +272,9 @@ mod tests {
             id: "pdf-reader".to_string(),
             name: Some("PDF Reader".to_string()),
             toolchain: None,
+            cargo_toml: None,
+            main_rs: None,
+            skill_markdown: None,
         })
         .expect("create skill project");
 
@@ -206,6 +288,79 @@ mod tests {
         assert_eq!(metadata.id, "pdf-reader");
         assert_eq!(metadata.kind, ArtifactKind::Skill);
         assert_eq!(metadata.toolchain, DEFAULT_TOOLCHAIN_ID);
+
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
+    }
+
+    #[test]
+    fn create_skill_project_accepts_custom_files() {
+        let _lock = crate::test_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let result = create_skill_project(&CreateSkillProjectOptions {
+            id: "pdf-reader".to_string(),
+            name: Some("PDF Reader".to_string()),
+            toolchain: None,
+            cargo_toml: Some(
+                r#"[package]
+name = "pdf-reader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lopdf = "0.35"
+serde_json = "1"
+"#
+                .to_string(),
+            ),
+            main_rs: Some("fn main() { println!(\"{\\\"ok\\\":true}\"); }\n".to_string()),
+            skill_markdown: Some("# PDF Reader\n".to_string()),
+        })
+        .expect("create customized skill project");
+
+        let cargo = std::fs::read_to_string(&result.manifest_path).expect("read Cargo.toml");
+        let main = std::fs::read_to_string(&result.source_path).expect("read main.rs");
+        let skill_md =
+            std::fs::read_to_string(&result.skill_markdown_path).expect("read skill markdown");
+
+        assert!(cargo.contains("lopdf"));
+        assert!(main.contains("println!"));
+        assert_eq!(skill_md, "# PDF Reader\n");
+
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
+    }
+
+    #[test]
+    fn read_and_update_skill_project_round_trip() {
+        let _lock = crate::test_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        create_skill_project(&CreateSkillProjectOptions {
+            id: "fixable-skill".to_string(),
+            name: None,
+            toolchain: None,
+            cargo_toml: None,
+            main_rs: None,
+            skill_markdown: None,
+        })
+        .expect("create skill project");
+
+        let before = read_skill_project("fixable-skill").expect("read project");
+        assert!(before.cargo_toml.contains("serde_json"));
+
+        let after = update_skill_project(&UpdateSkillProjectOptions {
+            id: "fixable-skill".to_string(),
+            cargo_toml: Some("[package]\nname = \"fixable-skill\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n".to_string()),
+            main_rs: Some("fn main() { println!(\"{\\\"ok\\\":true}\"); }\n".to_string()),
+            skill_markdown: Some("# Fixed Skill\n".to_string()),
+        })
+        .expect("update project");
+
+        assert!(after.cargo_toml.contains("serde ="));
+        assert!(after.main_rs.contains("println!"));
+        assert_eq!(after.skill_markdown, "# Fixed Skill\n");
 
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }

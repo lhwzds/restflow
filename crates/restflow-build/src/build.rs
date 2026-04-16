@@ -154,6 +154,9 @@ mod tests {
             id: "echo-skill".to_string(),
             name: None,
             toolchain: None,
+            cargo_toml: None,
+            main_rs: None,
+            skill_markdown: None,
         })
         .expect("scaffold skill");
         let result = build_skill_binary(&BuildBinaryOptions {
