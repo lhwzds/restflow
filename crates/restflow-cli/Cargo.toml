@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 # Core
 restflow-contracts = { workspace = true }
+restflow-build = { workspace = true }
 restflow-core = { workspace = true }
 restflow-tui = { workspace = true }
 restflow-ai = { workspace = true }
