@@ -11,7 +11,7 @@ mod retry;
 mod swappable;
 mod switcher;
 
-pub use cli::{ClaudeCodeClient, CodexClient, GeminiCliClient, OpenCodeClient};
+pub use cli::{CodexClient, GeminiCliClient, OpenCodeClient};
 pub use client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Message, Role, StreamChunk,
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,

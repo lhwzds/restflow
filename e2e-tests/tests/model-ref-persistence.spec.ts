@@ -42,7 +42,6 @@ test.describe('ModelRef Persistence', () => {
 
     const allModels = await requestIpc<ModelMetadata[]>(page, { type: 'GetAvailableModels' })
     const preferredModelIds = [
-      'claude-code-sonnet',
       'minimax-coding-plan-m2-5',
       'zai-coding-plan-glm-5-turbo',
       'gpt-5.4',

@@ -22,12 +22,6 @@ describe('modelsStore getters', () => {
           name: 'GPT-5.4',
         },
         {
-          model: 'claude-code-sonnet',
-          provider: 'claude-code',
-          supports_temperature: true,
-          name: 'Claude Code Sonnet',
-        },
-        {
           model: 'minimax-coding-plan-m2-5',
           provider: 'minimax-coding-plan',
           supports_temperature: false,
@@ -65,7 +59,6 @@ describe('modelsStore getters', () => {
       'openai',
       'minimax-coding-plan',
       'zai-coding-plan',
-      'claude-code',
       'codex',
       'anthropic',
     ])

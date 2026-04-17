@@ -4,7 +4,6 @@ const PRIMARY_PROVIDER_ORDER: Provider[] = [
   'openai',
   'minimax-coding-plan',
   'zai-coding-plan',
-  'claude-code',
   'codex',
 ]
 

@@ -5,7 +5,6 @@ use serde_json::json;
 use std::process::Command;
 
 use crate::cli::McpCommands;
-use crate::commands::claude_mcp::try_sync_claude_http_mcp;
 use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::daemon::{IpcClient, ensure_daemon_running};
@@ -35,19 +34,6 @@ struct McpClientSyncResult {
 
 async fn sync_clients(port: u16, format: OutputFormat) -> Result<()> {
     let mut results = Vec::new();
-
-    match try_sync_claude_http_mcp(port).await {
-        Ok(()) => results.push(McpClientSyncResult {
-            client: "claude",
-            ok: true,
-            error: None,
-        }),
-        Err(err) => results.push(McpClientSyncResult {
-            client: "claude",
-            ok: false,
-            error: Some(err.to_string()),
-        }),
-    }
 
     match try_sync_codex_http_mcp(port).await {
         Ok(()) => results.push(McpClientSyncResult {

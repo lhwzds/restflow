@@ -11,7 +11,6 @@ const EXPECTED_PROVIDER_LABELS = [
   'OpenAI API',
   'MiniMax Coding Plan',
   'ZAI Coding Plan',
-  'Claude Code',
   'Codex',
   'MiniMax',
 ]
@@ -20,7 +19,6 @@ const EXPECTED_PROVIDER_IDS = [
   'openai',
   'minimax-coding-plan',
   'zai-coding-plan',
-  'claude-code',
   'codex',
 ]
 
@@ -28,7 +26,6 @@ const PROVIDER_DISPLAY_ORDER = [
   'openai',
   'minimax-coding-plan',
   'zai-coding-plan',
-  'claude-code',
   'codex',
   'minimax',
 ]
@@ -42,7 +39,6 @@ const MOCK_MODELS: ModelMetadata[] = [
     name: 'MiniMax M2.5 Highspeed (Coding Plan)',
   },
   { model: 'zai-coding-plan-glm-5-turbo', provider: 'zai-coding-plan', name: 'GLM-5 Turbo (Coding Plan)' },
-  { model: 'claude-code-sonnet', provider: 'claude-code', name: 'Claude Code Sonnet' },
   { model: 'gpt-5.4', provider: 'codex', name: 'GPT-5.4' },
   { model: 'minimax-m2-7', provider: 'minimax', name: 'MiniMax M2.7' },
 ]

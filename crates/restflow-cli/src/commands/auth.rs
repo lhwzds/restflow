@@ -210,13 +210,12 @@ async fn remove_profile_ipc(client: &mut IpcClient, id: &str, format: OutputForm
 fn parse_provider(value: &str) -> Result<AuthProvider> {
     match value.to_lowercase().as_str() {
         "anthropic" => Ok(AuthProvider::Anthropic),
-        "claude-code" | "claudecode" => Ok(AuthProvider::ClaudeCode),
         "openai" => Ok(AuthProvider::OpenAI),
         "openai-codex" | "openai_codex" | "codex" => Ok(AuthProvider::OpenAICodex),
         "google" | "gemini" => Ok(AuthProvider::Google),
         "other" => Ok(AuthProvider::Other),
         _ => bail!(
-            "Unsupported provider: {value}. Valid options: anthropic, claude-code, openai, openai-codex, google, other"
+            "Unsupported provider: {value}. Valid options: anthropic, openai, openai-codex, google, other"
         ),
     }
 }

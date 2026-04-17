@@ -292,12 +292,11 @@ async fn discover_keys_ipc(client: &mut IpcClient, format: OutputFormat) -> Resu
 fn parse_provider(value: &str) -> Result<AuthProvider> {
     match value.to_lowercase().as_str() {
         "anthropic" | "claude" => Ok(AuthProvider::Anthropic),
-        "claude-code" | "claudecode" | "cc" => Ok(AuthProvider::ClaudeCode),
         "openai" | "gpt" => Ok(AuthProvider::OpenAI),
         "openai-codex" | "openai_codex" | "codex" => Ok(AuthProvider::OpenAICodex),
         "deepseek" => Ok(AuthProvider::Other),
         _ => bail!(
-            "Unknown provider: {value}. Use: anthropic, claude-code, openai, openai-codex, deepseek"
+            "Unknown provider: {value}. Use: anthropic, openai, openai-codex, deepseek"
         ),
     }
 }
