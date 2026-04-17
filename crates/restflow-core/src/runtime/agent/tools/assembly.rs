@@ -10,8 +10,9 @@ use crate::storage::{
     SkillStorage,
 };
 use restflow_tools::{
-    BashConfig, EmailTool, FileConfig, HttpTool, ListSubagentsTool, PythonTool, RunPythonTool,
-    SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
+    BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
+    BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, PythonTool,
+    RunPythonTool, SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
 };
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
@@ -125,6 +126,38 @@ pub(crate) fn register_python_execution_tools(
             .register(PythonTool::new().with_security(gate, agent_id, task_id));
     } else {
         builder = builder.with_python();
+    }
+    builder
+}
+
+pub(crate) fn register_binary_skill_tools(
+    mut builder: ToolRegistryBuilder,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: &str,
+    task_id: &str,
+) -> ToolRegistryBuilder {
+    if let Some(gate) = security_gate {
+        builder
+            .registry
+            .register(BinarySkillNewTool::new().with_security(gate.clone(), agent_id, task_id));
+        builder
+            .registry
+            .register(BinarySkillBuildTool::new().with_security(gate.clone(), agent_id, task_id));
+        builder
+            .registry
+            .register(BinarySkillReadTool::new().with_security(gate.clone(), agent_id, task_id));
+        builder
+            .registry
+            .register(BinarySkillRunTool::new().with_security(gate.clone(), agent_id, task_id));
+        builder
+            .registry
+            .register(BinarySkillUpdateTool::new().with_security(gate, agent_id, task_id));
+    } else {
+        builder.registry.register(BinarySkillNewTool::new());
+        builder.registry.register(BinarySkillBuildTool::new());
+        builder.registry.register(BinarySkillReadTool::new());
+        builder.registry.register(BinarySkillRunTool::new());
+        builder.registry.register(BinarySkillUpdateTool::new());
     }
     builder
 }

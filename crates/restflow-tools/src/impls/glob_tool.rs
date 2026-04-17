@@ -139,7 +139,7 @@ impl Tool for GlobTool {
         walk_and_match(&walk_root, &walk_root, &glob_pattern, &mut matches).await;
 
         // Sort by mtime descending (newest first)
-        matches.sort_by(|a, b| b.1.cmp(&a.1));
+        matches.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
         let total = matches.len();
         let truncated = total > MAX_RESULTS;

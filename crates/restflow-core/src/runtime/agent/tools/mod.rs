@@ -16,9 +16,9 @@ use tracing::{debug, warn};
 use self::assembly::{
     KNOWN_TOOL_ALIASES, build_agent_crud_components, build_kv_store, build_runtime_assessor,
     build_task_store_runtime_components, populate_known_tools_from_registry,
-    register_bash_execution_tool, register_file_execution_tool, register_http_execution_tool,
-    register_management_tools, register_python_execution_tools, register_send_email_execution_tool,
-    register_subagent_management_tools,
+    register_bash_execution_tool, register_binary_skill_tools, register_file_execution_tool,
+    register_http_execution_tool, register_management_tools, register_python_execution_tools,
+    register_send_email_execution_tool, register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
@@ -333,6 +333,18 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "python" | "run_python" => {
                 builder = register_python_execution_tools(
+                    builder,
+                    security_gate.clone(),
+                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                );
+            }
+            "binary_skill_new"
+            | "binary_skill_build"
+            | "binary_skill_read"
+            | "binary_skill_update"
+            | "binary_skill_run" => {
+                builder = register_binary_skill_tools(
                     builder,
                     security_gate.clone(),
                     agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
@@ -1232,5 +1244,31 @@ mod tests {
 
         assert!(output.success);
         assert_eq!(output.result["status"], "preview");
+    }
+
+    #[test]
+    fn test_binary_skill_tools_are_only_available_when_allowlisted() {
+        let registry = registry_from_allowlist(None, None, None, None, None, None, None)
+            .expect("empty registry should build");
+        assert!(!registry.has("binary_skill_new"));
+        assert!(!registry.has("binary_skill_build"));
+        assert!(!registry.has("binary_skill_read"));
+        assert!(!registry.has("binary_skill_run"));
+        assert!(!registry.has("binary_skill_update"));
+
+        let names = vec![
+            "binary_skill_new".to_string(),
+            "binary_skill_build".to_string(),
+            "binary_skill_read".to_string(),
+            "binary_skill_run".to_string(),
+            "binary_skill_update".to_string(),
+        ];
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None, None)
+            .expect("binary skill registry should build");
+        assert!(registry.has("binary_skill_new"));
+        assert!(registry.has("binary_skill_build"));
+        assert!(registry.has("binary_skill_read"));
+        assert!(registry.has("binary_skill_run"));
+        assert!(registry.has("binary_skill_update"));
     }
 }

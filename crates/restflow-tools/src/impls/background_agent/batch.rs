@@ -293,7 +293,7 @@ pub(super) async fn execute_run_batch(
     for (worker_index, ((spec_index, worker_input, worker_spec), resolved_agent_id)) in
         expanded_workers
             .into_iter()
-            .zip(resolved_agent_ids.into_iter())
+            .zip(resolved_agent_ids)
             .enumerate()
     {
         let worker_name = worker_spec

@@ -89,6 +89,12 @@ pub enum Commands {
         command: SkillCommands,
     },
 
+    /// Build and run portable binaries
+    Binary {
+        #[command(subcommand)]
+        command: BinaryCommands,
+    },
+
     /// Memory operations
     Memory {
         #[command(subcommand)]
@@ -548,6 +554,29 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn parses_binary_skill_build_command() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "binary",
+            "skill",
+            "build",
+            "pdf-reader",
+            "--release",
+            "--toolchain",
+            "1.85.0",
+        ])
+        .expect("parse binary skill build");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Binary {
+                command: super::BinaryCommands::Skill {
+                    command: super::BinarySkillCommands::Build { .. }
+                }
+            })
+        ));
+    }
 }
 
 #[derive(Subcommand)]
@@ -858,6 +887,51 @@ pub enum SkillCommands {
         /// Install scope (must be `user`)
         #[arg(long, default_value = "user")]
         scope: String,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum BinaryCommands {
+    /// Skill binary operations
+    Skill {
+        #[command(subcommand)]
+        command: BinarySkillCommands,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum BinarySkillCommands {
+    /// Create a new skill binary project
+    New {
+        id: String,
+
+        #[arg(long)]
+        name: Option<String>,
+
+        #[arg(long)]
+        toolchain: Option<String>,
+    },
+
+    /// Build a skill binary project
+    Build {
+        id: String,
+
+        #[arg(long)]
+        release: bool,
+
+        #[arg(long)]
+        toolchain: Option<String>,
+    },
+
+    /// Run a built skill binary
+    Run {
+        id: String,
+
+        #[arg(long)]
+        input: Option<String>,
+
+        #[arg(long)]
+        input_file: Option<String>,
     },
 }
 

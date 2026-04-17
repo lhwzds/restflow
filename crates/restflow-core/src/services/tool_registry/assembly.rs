@@ -188,6 +188,12 @@ pub fn create_tool_registry_with_assessor(
         security_agent_id,
         DEFAULT_SECURITY_TASK_ID,
     );
+    builder = register_binary_skill_tools(
+        builder,
+        security_gate.clone(),
+        security_agent_id,
+        DEFAULT_SECURITY_TASK_ID,
+    );
 
     builder = if let Some(gate) = security_gate.clone() {
         builder.with_skill_tool_with_security(

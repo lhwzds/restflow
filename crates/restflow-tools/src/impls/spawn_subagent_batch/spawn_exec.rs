@@ -163,8 +163,7 @@ pub(super) async fn spawn_batch(
         resolve_batch_tasks(&specs, params.task.as_deref(), params.tasks.as_deref())?;
 
     let mut prepared = Vec::with_capacity(total_requested);
-    for (spec_index, (spec, instance_tasks)) in
-        specs.iter().zip(resolved_tasks.into_iter()).enumerate()
+    for (spec_index, (spec, instance_tasks)) in specs.iter().zip(resolved_tasks).enumerate()
     {
         for (instance_index, task) in instance_tasks.into_iter().enumerate() {
             if instance_index > u32::MAX as usize {

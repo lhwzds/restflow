@@ -9,6 +9,7 @@ pub(crate) mod team_template;
 
 // Original 7 tools
 mod bash;
+mod binary_skill;
 pub mod browser;
 mod discord;
 mod email;
@@ -108,6 +109,10 @@ pub use multiedit::MultiEditTool;
 
 // Re-export original 7
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use binary_skill::{
+    BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
+    BinarySkillUpdateTool,
+};
 pub use browser::BrowserTool;
 pub use discord::DiscordTool;
 pub use email::EmailTool;
