@@ -158,10 +158,7 @@ mod tests {
 
     #[test]
     fn parse_model_uses_shared_catalog_aliases() {
-        assert_eq!(
-            parse_model("claude-code-opus").unwrap(),
-            ModelId::ClaudeCodeOpus
-        );
+        assert_eq!(parse_model("gemini-cli").unwrap(), ModelId::GeminiCli);
         assert_eq!(parse_model("gemini-pro").unwrap(), ModelId::Gemini25Pro);
         assert_eq!(parse_model("openrouter").unwrap(), ModelId::OpenRouterAuto);
     }

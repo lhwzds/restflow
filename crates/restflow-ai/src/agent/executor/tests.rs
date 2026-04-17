@@ -1041,16 +1041,12 @@ async fn test_run_stream_with_tools() {
 
     while let Some(step) = stream.next().await {
         match step {
-            ExecutionStep::ToolCallStart { name, .. } => {
-                if name == "echo" {
-                    saw_tool_start = true;
-                }
+            ExecutionStep::ToolCallStart { name, .. } if name == "echo" => {
+                saw_tool_start = true;
             }
-            ExecutionStep::ToolCallResult { name, success, .. } => {
-                if name == "echo" {
-                    saw_tool_result = true;
-                    assert!(success);
-                }
+            ExecutionStep::ToolCallResult { name, success, .. } if name == "echo" => {
+                saw_tool_result = true;
+                assert!(success);
             }
             ExecutionStep::Completed { result } => {
                 saw_completed = true;

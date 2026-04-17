@@ -603,18 +603,17 @@ mod tests {
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
     use restflow_ai::{AgentConfig, AgentExecutor};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
+    use tokio::sync::Mutex;
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     #[tokio::test]
     async fn binary_skill_new_tool_accepts_custom_files() {
-        let _lock = env_lock();
+        let _lock = env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
 
@@ -640,7 +639,7 @@ mod tests {
 
     #[tokio::test]
     async fn binary_skill_build_and_run_tools_round_trip() {
-        let _lock = env_lock();
+        let _lock = env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
         unsafe {
@@ -685,7 +684,7 @@ mod tests {
 
     #[tokio::test]
     async fn binary_skill_build_tool_surfaces_compile_failure_as_tool_error() {
-        let _lock = env_lock();
+        let _lock = env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
         unsafe {
@@ -726,7 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn binary_skill_read_and_update_round_trip() {
-        let _lock = env_lock();
+        let _lock = env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
 
@@ -777,7 +776,7 @@ mod tests {
 
     #[tokio::test]
     async fn real_agent_loop_can_create_binary_skill() {
-        let _lock = env_lock();
+        let _lock = env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
 
@@ -817,7 +816,7 @@ mod tests {
 
     #[tokio::test]
     async fn real_agent_loop_can_repair_build_failure_until_success() {
-        let _lock = env_lock();
+        let _lock = env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
         unsafe {
