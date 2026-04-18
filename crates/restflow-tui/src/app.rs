@@ -2,12 +2,8 @@ use anyhow::Result;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use std::io::{self, Stdout};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use std::io;
 
 use crate::controller::ShellController;
 use crate::daemon_client::TuiDaemonClient;
@@ -17,30 +13,22 @@ use crate::state::AppState;
 use super::TuiLaunchOptions;
 
 struct TerminalGuard {
-    terminal: Terminal<CrosstermBackend<Stdout>>,
+    stdout: io::Stdout,
 }
 
 impl TerminalGuard {
     fn new() -> Result<Self> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste, Hide)?;
-        let backend = CrosstermBackend::new(stdout);
-        let terminal = Terminal::new(backend)?;
-        Ok(Self { terminal })
+        execute!(stdout, EnableBracketedPaste, Hide)?;
+        Ok(Self { stdout })
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(
-            self.terminal.backend_mut(),
-            DisableBracketedPaste,
-            LeaveAlternateScreen,
-            Show
-        );
-        let _ = self.terminal.show_cursor();
+        let _ = execute!(self.stdout, DisableBracketedPaste, Show);
     }
 }
 
@@ -72,8 +60,9 @@ pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
         }
     } else {
         state.enter_startup(options.agent, options.session);
+        state.push_info("Daemon offline. Use /start to launch it.");
     }
 
-    let mut terminal = TerminalGuard::new()?;
-    run_event_loop(&mut terminal.terminal, controller, state).await
+    let _terminal = TerminalGuard::new()?;
+    run_event_loop(controller, state).await
 }

@@ -753,7 +753,7 @@ mod tests {
         let mut state = AppState::empty();
         state.enter_startup(None, None);
         assert_eq!(shell_status_text(&state), "Daemon Offline");
-        state.mark_starting_daemon();
+        state.status = "Starting daemon...".to_string();
         assert_eq!(shell_status_text(&state), "Starting Daemon");
     }
 

@@ -1,18 +1,15 @@
 use std::collections::VecDeque;
-use std::io;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
 
 use super::controller::ShellController;
 use super::keymap::map_event;
 use super::reducer::{ShellAction, ShellEffect, reduce};
-use super::render;
+use super::shell::ShellRenderer;
 use super::state::AppState;
 
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
@@ -28,10 +25,11 @@ pub enum AppEvent {
 }
 
 pub async fn run_event_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     controller: ShellController,
     mut state: AppState,
 ) -> Result<()> {
+    let mut renderer = ShellRenderer::new();
+    renderer.clear_screen()?;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let _input_handle = spawn_input_thread(tx.clone());
     let mut session_stream_handle = if state.is_startup_mode() {
@@ -43,7 +41,7 @@ pub async fn run_event_loop(
 
     if process_action(
         &controller,
-        terminal,
+        &mut renderer,
         &mut state,
         ShellAction::RefreshTick,
         tx.clone(),
@@ -55,7 +53,7 @@ pub async fn run_event_loop(
     if let Some(message) = state.take_pending_initial_message()
         && process_action(
             &controller,
-            terminal,
+            &mut renderer,
             &mut state,
             ShellAction::SubmitText { text: message },
             tx.clone(),
@@ -68,13 +66,13 @@ pub async fn run_event_loop(
     let mut tick = tokio::time::interval(Duration::from_secs(3));
 
     loop {
-        terminal.draw(|frame| render::render(frame, &state))?;
+        renderer.sync(&state)?;
 
         tokio::select! {
             _ = tick.tick() => {
                 if process_action(
                     &controller,
-                    terminal,
+                    &mut renderer,
                     &mut state,
                     ShellAction::RefreshTick,
                     tx.clone(),
@@ -92,7 +90,7 @@ pub async fn run_event_loop(
                     AppEvent::TaskEvent(event) => ShellAction::TaskEvent(event),
                     AppEvent::Error(message) => ShellAction::Error(message),
                 };
-                if process_action(&controller, terminal, &mut state, action, tx.clone()).await? {
+                if process_action(&controller, &mut renderer, &mut state, action, tx.clone()).await? {
                     break;
                 }
             }
@@ -131,7 +129,7 @@ fn spawn_input_thread(tx: mpsc::UnboundedSender<AppEvent>) -> thread::JoinHandle
 
 async fn process_action(
     controller: &ShellController,
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    renderer: &mut ShellRenderer,
     state: &mut AppState,
     action: ShellAction,
     tx: mpsc::UnboundedSender<AppEvent>,
@@ -148,7 +146,7 @@ async fn process_action(
 
         for effect in result.effects {
             if matches!(effect, ShellEffect::ClearScreen) {
-                terminal.clear()?;
+                renderer.clear_screen()?;
                 continue;
             }
 

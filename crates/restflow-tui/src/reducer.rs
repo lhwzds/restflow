@@ -1,7 +1,7 @@
 use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SlashCommand, parse_slash_command};
-use super::state::{AppState, OverlayState};
+use super::state::AppState;
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
@@ -53,7 +53,6 @@ pub enum ShellAction {
         session: Option<Box<ChatSession>>,
         status: String,
     },
-    DaemonStartFailed(String),
     SubmitText {
         text: String,
     },
@@ -66,16 +65,15 @@ pub enum ShellEffect {
     ClearScreen,
     RefreshState,
     ReloadCurrentSession,
-    StartDaemon {
-        agent_override: Option<String>,
-        session_override: Option<String>,
-    },
     ActivateOverlaySelection,
     SubmitMessage {
         message: String,
     },
     ExecuteSlashCommand(SlashCommand),
-    RejectSelectedApproval,
+    ListSessionsInline,
+    ListRunsInline,
+    ListApprovalsInline,
+    ShowTeamInline,
 }
 
 #[derive(Debug, Default)]
@@ -184,7 +182,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                     .push(ShellAction::SubmitText { text: message });
             }
         }
-        ShellAction::DaemonStartFailed(message) => state.set_startup_error(message),
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
         ShellAction::RefreshTick => {
             if !state.is_startup_mode() {
@@ -213,17 +210,10 @@ fn session_id_of(event: &ChatSessionEvent) -> &str {
 }
 
 fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
-    if state.is_startup_mode() {
-        reduce_startup_ui(state, action, output);
-        return;
-    }
-
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
-            if state.overlay.is_some() {
-                state.clear_overlay();
-            } else if matches!(state.composer.mode(), ComposerMode::Command)
+            if matches!(state.composer.mode(), ComposerMode::Command)
                 && !state.composer.is_blank()
             {
                 state.composer.clear();
@@ -232,11 +222,14 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 output.should_quit = true;
             }
         }
-        Action::OpenSessions => state.open_session_picker(),
-        Action::OpenRuns => state.open_run_picker(),
-        Action::OpenApprovals => state.open_approval_picker(),
-        Action::OpenTeam => state.open_team_overlay(),
-        Action::OpenHelp => state.open_help_overlay(),
+        Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
+        Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
+        Action::OpenApprovals => output.effects.push(ShellEffect::ListApprovalsInline),
+        Action::OpenTeam => output.effects.push(ShellEffect::ShowTeamInline),
+        Action::OpenHelp => output
+            .effects
+            .push(ShellEffect::ExecuteSlashCommand(SlashCommand::Help)),
+        Action::Resize => output.effects.push(ShellEffect::ClearScreen),
         Action::Redraw => {
             state.status = "Screen redrawn".to_string();
             output.effects.push(ShellEffect::ClearScreen);
@@ -260,21 +253,12 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
             }
         }
         Action::MoveLeft => {
-            if matches!(state.overlay, Some(OverlayState::TeamView { .. })) {
-                state.cycle_team_tab(false);
-            } else {
-                state.composer.move_left();
-            }
+            state.composer.move_left();
         }
         Action::MoveRight => {
-            if matches!(state.overlay, Some(OverlayState::TeamView { .. })) {
-                state.cycle_team_tab(true);
-            } else {
-                state.composer.move_right();
-            }
+            state.composer.move_right();
         }
-        Action::ScrollUp => state.scroll_transcript(-10),
-        Action::ScrollDown => state.scroll_transcript(10),
+        Action::ScrollUp | Action::ScrollDown => {}
         Action::InputChar(ch) => {
             if state.overlay.is_none() {
                 state.composer.insert_char(ch);
@@ -298,17 +282,9 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
             }
         }
         Action::RejectSelected => {
-            if matches!(state.overlay, Some(OverlayState::ApprovalPicker { .. })) {
-                output.effects.push(ShellEffect::RejectSelectedApproval);
-            } else if state.overlay.is_none() {
-                state.composer.insert_char('r');
-            }
+            state.composer.insert_char('r');
         }
-        Action::OverlaySelect => {
-            if state.overlay.is_some() {
-                output.effects.push(ShellEffect::ActivateOverlaySelection);
-            }
-        }
+        Action::OverlaySelect => {}
         Action::Submit => {
             if state.overlay.is_some() {
                 output.effects.push(ShellEffect::ActivateOverlaySelection);
@@ -324,43 +300,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     }
 }
 
-fn reduce_startup_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
-    match action {
-        Action::Quit | Action::CloseOverlay => output.should_quit = true,
-        Action::Submit | Action::OverlaySelect => {
-            let Some(startup) = state.startup_state() else {
-                return;
-            };
-            if startup.starting_daemon {
-                return;
-            }
-            output.effects.push(ShellEffect::StartDaemon {
-                agent_override: startup.agent_override.clone(),
-                session_override: startup.session_override.clone(),
-            });
-            state.mark_starting_daemon();
-        }
-        Action::Redraw => output.effects.push(ShellEffect::ClearScreen),
-        Action::Noop
-        | Action::OpenSessions
-        | Action::OpenRuns
-        | Action::OpenApprovals
-        | Action::OpenTeam
-        | Action::OpenHelp
-        | Action::NavUp
-        | Action::NavDown
-        | Action::MoveLeft
-        | Action::MoveRight
-        | Action::ScrollUp
-        | Action::ScrollDown
-        | Action::InputChar(_)
-        | Action::Paste(_)
-        | Action::InputBackspace
-        | Action::Newline
-        | Action::RejectSelected => {}
-    }
-}
-
 fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOutput) {
     if super::composer::ComposerState::is_command_text(&text) {
         match parse_slash_command(&text) {
@@ -372,10 +311,16 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
                 state.push_error(error.to_string());
             }
         }
+    } else if state.current_session_id().is_none() {
+        let message = if state.is_startup_mode() {
+            "Daemon is offline. Use /start to launch it.".to_string()
+        } else {
+            "No active session. Use /sessions or configure a default agent.".to_string()
+        };
+        state.status = message.clone();
+        state.push_error(message);
     } else {
-        state.push_message(ShellMessage::UserMessage {
-            content: text.clone(),
-        });
+        state.push_local_user_message(text.clone());
         state.status = "Sending message...".to_string();
         output
             .effects
@@ -463,6 +408,8 @@ mod tests {
     #[test]
     fn submit_text_creates_send_effect_for_plain_message() {
         let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
         let output = reduce(
             &mut state,
             ShellAction::SubmitText {
@@ -470,7 +417,9 @@ mod tests {
             },
         );
 
-        assert_eq!(state.conversation_cells.len(), 1);
+        assert!(state.conversation_cells.is_empty());
+        assert_eq!(state.pending_user_cells.len(), 1);
+        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
         assert!(state.runtime_cells.is_empty());
         assert!(state.active_cell.is_none());
         assert!(matches!(
@@ -516,36 +465,47 @@ mod tests {
         let mut state = AppState::empty();
         state.enter_startup(Some("agent-1".to_string()), Some("session-1".to_string()));
 
+        for ch in "/start".chars() {
+            state.composer.insert_char(ch);
+        }
+
         let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
 
         assert!(matches!(
-            output.effects.as_slice(),
-            [ShellEffect::StartDaemon {
-                agent_override: Some(agent_id),
-                session_override: Some(session_id),
-            }] if agent_id == "agent-1" && session_id == "session-1"
+            output.actions.as_slice(),
+            [ShellAction::SubmitText { text }] if text == "/start"
         ));
-        assert!(
-            state
-                .startup_state()
-                .expect("startup state")
-                .starting_daemon
-        );
     }
 
     #[test]
-    fn startup_failure_stays_in_startup_mode() {
+    fn resize_clears_screen_without_changing_status() {
+        let mut state = AppState::empty();
+        state.status = "Connected to daemon".to_string();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Resize));
+
+        assert_eq!(state.status, "Connected to daemon");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ClearScreen]
+        ));
+    }
+
+    #[test]
+    fn plain_text_when_daemon_offline_pushes_start_hint() {
         let mut state = AppState::empty();
         state.enter_startup(None, None);
 
         let output = reduce(
             &mut state,
-            ShellAction::DaemonStartFailed("failed".to_string()),
+            ShellAction::SubmitText {
+                text: "hello".to_string(),
+            },
         );
 
-        assert!(!output.should_quit);
-        assert!(state.is_startup_mode());
-        assert_eq!(state.status, "failed");
+        assert!(output.effects.is_empty());
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert!(state.runtime_cells[0].body.contains("/start"));
     }
 
     #[test]

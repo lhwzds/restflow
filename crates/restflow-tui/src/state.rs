@@ -9,7 +9,7 @@ use restflow_traits::{
 
 use super::composer::ComposerState;
 use super::transcript::{
-    ShellMessage, TranscriptCell, cell_from_message, message_from_session_event,
+    ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message, message_from_session_event,
     message_from_stream_frame, message_from_task_event, message_from_team_message,
     messages_from_session, transcript_cells,
 };
@@ -21,6 +21,12 @@ pub enum RunPickerItem {
         title: String,
         status: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingUserCell {
+    pub base_cell_index: usize,
+    pub cell: TranscriptCell,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -83,14 +89,9 @@ impl SessionThreadState {
             .and_then(|thread| thread.focus.task_id.as_deref())
     }
 
-    pub fn focus_label(&self) -> String {
-        match &self.focus {
-            ThreadFocus::Session => "session".to_string(),
-            ThreadFocus::Run { run_id } => format!("run:{run_id}"),
-        }
-    }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TeamOverlayTab {
     Members,
@@ -99,6 +100,7 @@ pub enum TeamOverlayTab {
     Approvals,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum OverlayState {
     SessionPicker { selected: usize },
@@ -132,6 +134,7 @@ pub struct AppState {
     pub runtime_cells: Vec<TranscriptCell>,
     // Active cell is the single in-flight assistant response while streaming.
     pub active_cell: Option<TranscriptCell>,
+    pub pending_user_cells: Vec<PendingUserCell>,
     pub overlay: Option<OverlayState>,
     pub transcript_scroll: u16,
     pub composer: ComposerState,
@@ -156,6 +159,7 @@ impl AppState {
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
             active_cell: None,
+            pending_user_cells: Vec::new(),
             overlay: None,
             transcript_scroll: 0,
             composer: ComposerState::default(),
@@ -177,10 +181,6 @@ impl AppState {
 
     pub fn focused_task_stream_id(&self) -> Option<&str> {
         self.thread.task_stream_id()
-    }
-
-    pub fn focus_label(&self) -> String {
-        self.thread.focus_label()
     }
 
     pub fn is_startup_mode(&self) -> bool {
@@ -218,14 +218,6 @@ impl AppState {
         self.status = "RestFlow daemon is not running".to_string();
     }
 
-    pub fn mark_starting_daemon(&mut self) {
-        if let Some(startup) = self.startup.as_mut() {
-            startup.starting_daemon = true;
-            startup.error = None;
-            self.status = "Starting daemon...".to_string();
-        }
-    }
-
     pub fn set_startup_error(&mut self, message: String) {
         if let Some(startup) = self.startup.as_mut() {
             startup.starting_daemon = false;
@@ -247,6 +239,7 @@ impl AppState {
         self.seen_team_message_ids.clear();
         self.runtime_cells.clear();
         self.active_cell = None;
+        self.pending_user_cells.clear();
         self.conversation_cells =
             transcript_cells(&messages_from_session(&session), self.assistant_name());
         self.transcript_scroll_to_bottom();
@@ -255,6 +248,7 @@ impl AppState {
     pub fn refresh_current_session(&mut self, session: ChatSession) {
         self.thread.session = Some(session.clone());
         self.replace_session_projection(messages_from_session(&session));
+        self.reconcile_pending_user_cells();
     }
 
     pub fn clear_current_session(&mut self, notice: impl Into<String>) {
@@ -263,6 +257,7 @@ impl AppState {
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
         self.active_cell = None;
+        self.pending_user_cells.clear();
         self.push_info(notice);
     }
 
@@ -297,18 +292,22 @@ impl AppState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn open_session_picker(&mut self) {
         self.overlay = Some(OverlayState::SessionPicker { selected: 0 });
     }
 
+    #[allow(dead_code)]
     pub fn open_run_picker(&mut self) {
         self.overlay = Some(OverlayState::RunPicker { selected: 0 });
     }
 
+    #[allow(dead_code)]
     pub fn open_approval_picker(&mut self) {
         self.overlay = Some(OverlayState::ApprovalPicker { selected: 0 });
     }
 
+    #[allow(dead_code)]
     pub fn open_team_overlay(&mut self) {
         self.overlay = Some(OverlayState::TeamView {
             tab: TeamOverlayTab::Members,
@@ -316,6 +315,7 @@ impl AppState {
         });
     }
 
+    #[allow(dead_code)]
     pub fn open_help_overlay(&mut self) {
         self.overlay = Some(OverlayState::Help);
     }
@@ -340,6 +340,7 @@ impl AppState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn cycle_team_tab(&mut self, forward: bool) {
         if let Some(OverlayState::TeamView { tab, .. }) = self.overlay.as_mut() {
             *tab = match (*tab, forward) {
@@ -383,15 +384,6 @@ impl AppState {
         }
     }
 
-    pub fn selected_approval(&self) -> Option<&PendingTeamApproval> {
-        match self.overlay.as_ref() {
-            Some(OverlayState::ApprovalPicker { selected }) => {
-                self.current_team_approvals.get(*selected)
-            }
-            _ => None,
-        }
-    }
-
     pub fn run_picker_items(&self) -> Vec<RunPickerItem> {
         let mut items = Vec::new();
         items.extend(self.thread.runs.iter().filter_map(|run| {
@@ -418,6 +410,20 @@ impl AppState {
         } else {
             self.runtime_cells.push(cell);
         }
+        self.transcript_scroll_to_bottom();
+    }
+
+    pub fn push_local_user_message(&mut self, content: String) {
+        let base_cell_index = self.conversation_cells.len();
+        let cell = cell_from_message(
+            &ShellMessage::UserMessage { content },
+            self.assistant_name(),
+        );
+        self.pending_user_cells
+            .push(PendingUserCell {
+                base_cell_index,
+                cell,
+            });
         self.transcript_scroll_to_bottom();
     }
 
@@ -583,12 +589,45 @@ impl AppState {
     }
 
     pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
-        let mut cells = self.conversation_cells.clone();
+        let mut cells = Vec::with_capacity(
+            self.conversation_cells.len()
+                + self.pending_user_cells.len()
+                + self.runtime_cells.len()
+                + usize::from(self.active_cell.is_some()),
+        );
+
+        let mut pending = self.pending_user_cells.iter().peekable();
+        for (index, cell) in self.conversation_cells.iter().enumerate() {
+            while let Some(entry) = pending.peek() {
+                if entry.base_cell_index <= index {
+                    cells.push(entry.cell.clone());
+                    pending.next();
+                } else {
+                    break;
+                }
+            }
+            cells.push(cell.clone());
+        }
+
+        for entry in pending {
+            cells.push(entry.cell.clone());
+        }
+
         cells.extend(self.runtime_cells.clone());
         if let Some(active_cell) = self.active_cell.clone() {
             cells.push(active_cell);
         }
         cells
+    }
+
+    fn reconcile_pending_user_cells(&mut self) {
+        self.pending_user_cells.retain(|entry| {
+            !self
+                .conversation_cells
+                .iter()
+                .skip(entry.base_cell_index)
+                .any(|cell| cell.kind == TranscriptCellKind::User && cell.body == entry.cell.body)
+        });
     }
 
     fn assistant_name(&self) -> &str {
@@ -723,6 +762,47 @@ mod tests {
     }
 
     #[test]
+    fn refresh_current_session_keeps_pending_user_message_until_persisted() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.push_local_user_message("hello".to_string());
+
+        state.refresh_current_session(session.clone());
+        assert_eq!(state.pending_user_cells.len(), 1);
+
+        let mut updated = session;
+        updated
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
+        state.refresh_current_session(updated);
+        assert!(state.pending_user_cells.is_empty());
+        assert_eq!(state.conversation_cells.len(), 1);
+        assert_eq!(state.conversation_cells[0].body, "hello");
+    }
+
+    #[test]
+    fn pending_user_message_stays_before_local_assistant_finalize() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("123".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "hello".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 2);
+        assert_eq!(rendered[0].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[0].body, "123");
+        assert_eq!(rendered[1].kind, TranscriptCellKind::Assistant);
+        assert_eq!(rendered[1].body, "hello");
+    }
+
+    #[test]
     fn clear_current_session_keeps_notices() {
         let mut state = AppState::empty();
         let mut session =
@@ -850,14 +930,6 @@ mod tests {
                 .startup_state()
                 .and_then(|startup| startup.agent_override.as_deref()),
             Some("agent-1")
-        );
-
-        state.mark_starting_daemon();
-        assert!(
-            state
-                .startup_state()
-                .expect("startup state")
-                .starting_daemon
         );
 
         state.set_startup_error("boom".to_string());

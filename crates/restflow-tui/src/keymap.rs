@@ -10,6 +10,7 @@ pub enum Action {
     OpenTeam,
     OpenHelp,
     Redraw,
+    Resize,
     NavUp,
     NavDown,
     MoveLeft,
@@ -29,6 +30,7 @@ pub enum Action {
 pub fn map_event(event: Event) -> Action {
     match event {
         Event::Paste(text) => Action::Paste(text),
+        Event::Resize(_, _) => Action::Resize,
         Event::Key(KeyEvent {
             code: KeyCode::Char('c'),
             modifiers,
@@ -151,5 +153,10 @@ mod tests {
             map_event(Event::Paste("hello\nworld".to_string())),
             Action::Paste("hello\nworld".to_string())
         );
+    }
+
+    #[test]
+    fn maps_resize_event_to_resize_action() {
+        assert_eq!(map_event(Event::Resize(120, 40)), Action::Resize);
     }
 }

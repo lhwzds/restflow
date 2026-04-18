@@ -19,7 +19,15 @@ impl TaskControlAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
+    Start,
     Help,
+    ListSessions,
+    OpenSession {
+        session_id: String,
+    },
+    ListRuns,
+    ListApprovals,
+    ShowTeam,
     TaskControl {
         action: TaskControlAction,
         task_id: String,
@@ -46,7 +54,21 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
     let mut parts = raw.split_whitespace();
     let command = parts.next().unwrap_or_default();
     match command {
+        "/start" => Ok(SlashCommand::Start),
         "/help" => Ok(SlashCommand::Help),
+        "/sessions" => Ok(SlashCommand::ListSessions),
+        "/session" => {
+            let action = parts.next().unwrap_or_default();
+            let session_id = parts.next().unwrap_or_default();
+            if action != "open" || session_id.is_empty() {
+                bail!("Usage: /session open <session_id>");
+            }
+            Ok(SlashCommand::OpenSession {
+                session_id: session_id.to_string(),
+            })
+        }
+        "/runs" => Ok(SlashCommand::ListRuns),
+        "/approvals" => Ok(SlashCommand::ListApprovals),
         "/task" => {
             let action = match parts.next().unwrap_or_default() {
                 "pause" => TaskControlAction::Pause,
@@ -75,6 +97,9 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
         }
         "/team" => {
             let action = parts.next().unwrap_or_default();
+            if action.is_empty() {
+                return Ok(SlashCommand::ShowTeam);
+            }
             match action {
                 "state" => {
                     let team_run_id = parts.next().unwrap_or_default();
@@ -153,5 +178,29 @@ mod tests {
     fn rejects_invalid_run_command() {
         let error = parse_slash_command("/run close run-1").expect_err("invalid");
         assert!(error.to_string().contains("Usage: /run open <run_id>"));
+    }
+
+    #[test]
+    fn parses_session_listing_commands() {
+        assert_eq!(
+            parse_slash_command("/sessions").expect("parse"),
+            SlashCommand::ListSessions
+        );
+        assert_eq!(
+            parse_slash_command("/session open session-1").expect("parse"),
+            SlashCommand::OpenSession {
+                session_id: "session-1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn bare_team_command_shows_current_team() {
+        assert_eq!(parse_slash_command("/team").expect("parse"), SlashCommand::ShowTeam);
+    }
+
+    #[test]
+    fn parses_start_command() {
+        assert_eq!(parse_slash_command("/start").expect("parse"), SlashCommand::Start);
     }
 }

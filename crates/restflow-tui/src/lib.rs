@@ -5,7 +5,7 @@ mod daemon_client;
 mod event_loop;
 mod keymap;
 mod reducer;
-mod render;
+mod shell;
 mod slash_command;
 mod state;
 mod transcript;

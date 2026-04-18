@@ -68,16 +68,6 @@ impl ShellController {
         match effect {
             ShellEffect::RefreshState => self.refresh_actions(state).await,
             ShellEffect::ReloadCurrentSession => self.reload_current_session_actions(state).await,
-            ShellEffect::StartDaemon {
-                agent_override,
-                session_override,
-            } => match self
-                .start_daemon_actions(agent_override.as_deref(), session_override.as_deref())
-                .await
-            {
-                Ok(actions) => Ok(actions),
-                Err(error) => Ok(vec![ShellAction::DaemonStartFailed(error.to_string())]),
-            },
             ShellEffect::ActivateOverlaySelection => self.overlay_selection_actions(state).await,
             ShellEffect::SubmitMessage { message } => {
                 self.submit_message_effect(state, message, tx).await?;
@@ -86,9 +76,10 @@ impl ShellController {
             ShellEffect::ExecuteSlashCommand(command) => {
                 self.slash_command_actions(state, command).await
             }
-            ShellEffect::RejectSelectedApproval => {
-                self.reject_selected_approval_actions(state).await
-            }
+            ShellEffect::ListSessionsInline => self.list_sessions_inline_actions().await,
+            ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
+            ShellEffect::ListApprovalsInline => Ok(self.list_approvals_inline_actions(state)),
+            ShellEffect::ShowTeamInline => Ok(self.show_team_inline_actions(state)),
             ShellEffect::ClearScreen => Ok(Vec::new()),
         }
     }
@@ -221,9 +212,7 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            Some(OverlayState::ApprovalPicker { .. }) => {
-                self.approve_selected_approval_actions(state).await
-            }
+            Some(OverlayState::ApprovalPicker { .. }) => Ok(Vec::new()),
             Some(OverlayState::TeamView { .. }) | Some(OverlayState::Help) | None => Ok(Vec::new()),
         }
     }
@@ -248,7 +237,33 @@ impl ShellController {
         command: SlashCommand,
     ) -> Result<Vec<ShellAction>> {
         match command {
-            SlashCommand::Help => Ok(vec![ShellAction::Ui(super::keymap::Action::OpenHelp)]),
+            SlashCommand::Start => self.start_daemon_actions(
+                state.startup_state().and_then(|startup| startup.agent_override.as_deref()),
+                state
+                    .startup_state()
+                    .and_then(|startup| startup.session_override.as_deref()),
+            )
+            .await,
+            SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+                content: help_text().to_string(),
+            })]),
+            SlashCommand::ListSessions => self.list_sessions_inline_actions().await,
+            SlashCommand::OpenSession { session_id } => {
+                let session = self.client.get_session(&session_id).await?;
+                let runs = self
+                    .client
+                    .list_runs_for_session(&session_id)
+                    .await
+                    .unwrap_or_default();
+                Ok(vec![ShellAction::SessionOpened {
+                    session: Box::new(session),
+                    runs,
+                    status: format!("Opened session {session_id}"),
+                }])
+            }
+            SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
+            SlashCommand::ListApprovals => Ok(self.list_approvals_inline_actions(state)),
+            SlashCommand::ShowTeam => Ok(self.show_team_inline_actions(state)),
             SlashCommand::TaskControl { action, task_id } => {
                 let task = self.client.control_task(&task_id, action.as_str()).await?;
                 Ok(vec![ShellAction::TaskControlCompleted {
@@ -277,7 +292,7 @@ impl ShellController {
                 }])
             }
             SlashCommand::TeamState { team_run_id } => {
-                self.load_team_actions(&team_run_id, true).await
+                self.load_team_actions(&team_run_id, false).await
             }
             SlashCommand::TeamStart { saved_team } => {
                 let output = self
@@ -304,7 +319,7 @@ impl ShellController {
                 let mut actions = vec![ShellAction::MessageAppended(ShellMessage::TeamNotice {
                     content: format!("Started team {team_run_id}"),
                 })];
-                actions.extend(self.load_team_actions(&team_run_id, true).await?);
+                actions.extend(self.load_team_actions(&team_run_id, false).await?);
                 Ok(actions)
             }
             SlashCommand::Approve { approval_id } => {
@@ -321,25 +336,106 @@ impl ShellController {
         }
     }
 
-    async fn reject_selected_approval_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let approval_id = state
-            .selected_approval()
-            .map(|approval| approval.approval_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No approval selected"))?;
-        self.reject_named_approval_actions(state, &approval_id, None)
-            .await
+    async fn list_sessions_inline_actions(&self) -> Result<Vec<ShellAction>> {
+        let sessions = self.client.list_sessions().await?;
+        if sessions.is_empty() {
+            return Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+                content: "No sessions yet.".to_string(),
+            })]);
+        }
+
+        let mut lines = vec!["Sessions".to_string()];
+        for session in sessions {
+            lines.push(format!("- {} ({})", session.name, session.id));
+        }
+        lines.push("Open one with /session open <session_id>".to_string());
+        Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+            content: lines.join("\n"),
+        })])
     }
 
-    async fn approve_selected_approval_actions(
-        &self,
-        state: &AppState,
-    ) -> Result<Vec<ShellAction>> {
-        let approval_id = state
-            .selected_approval()
-            .map(|approval| approval.approval_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No approval selected"))?;
-        self.approve_named_approval_actions(state, &approval_id)
-            .await
+    async fn list_runs_inline_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
+        let items = state.run_picker_items();
+        if items.is_empty() {
+            return Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+                content: "No runs for the current session.".to_string(),
+            })]);
+        }
+
+        let mut lines = vec!["Runs".to_string()];
+        for item in items {
+            let RunPickerItem::Run {
+                run_id,
+                title,
+                status,
+            } = item;
+            lines.push(format!("- {title} · {status} · {run_id}"));
+        }
+        lines.push("Open one with /run open <run_id>".to_string());
+        Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+            content: lines.join("\n"),
+        })])
+    }
+
+    fn list_approvals_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {
+        if state.current_team_approvals.is_empty() {
+            return vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+                content: "No pending approvals.".to_string(),
+            })];
+        }
+
+        let mut lines = vec!["Approvals".to_string()];
+        for approval in &state.current_team_approvals {
+            lines.push(format!(
+                "- {} · {} · #{}",
+                approval.member_id, approval.content, approval.approval_id
+            ));
+        }
+        lines.push("Use /approve <approval_id> or /reject <approval_id> [reason]".to_string());
+        vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+            content: lines.join("\n"),
+        })]
+    }
+
+    fn show_team_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {
+        let Some(team) = state.current_team_state.as_ref() else {
+            return vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+                content: "No team context for the current session.".to_string(),
+            })];
+        };
+
+        let mut lines = vec![
+            format!("Team {}", team.team_run_id),
+            format!(
+                "Leader: {} · Status: {:?}",
+                team.leader_member_id, team.status
+            ),
+            format!(
+                "Members: {} · Pending messages: {} · Pending assignments: {}",
+                team.members.len(),
+                team.pending_message_count,
+                team.pending_assignment_count
+            ),
+        ];
+        if !state.current_team_assignments.is_empty() {
+            lines.push("Assignments".to_string());
+            for assignment in &state.current_team_assignments {
+                lines.push(format!(
+                    "- {} -> {} · {:?}",
+                    assignment.assignment_id, assignment.assignee_member_id, assignment.status
+                ));
+            }
+        }
+        if !state.current_team_approvals.is_empty() {
+            lines.push(format!(
+                "Pending approvals: {}",
+                state.current_team_approvals.len()
+            ));
+        }
+
+        vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
+            content: lines.join("\n"),
+        })]
     }
 
     async fn approve_named_approval_actions(
@@ -492,4 +588,32 @@ impl ShellController {
             open_overlay,
         }])
     }
+}
+
+fn help_text() -> &'static str {
+    "RestFlow terminal shell\n\n\
+Use /start when the daemon is offline.\n\
+\
+Enter sends the current draft.\n\
+Ctrl-J inserts a newline.\n\
+Ctrl-P lists sessions.\n\
+Ctrl-R lists runs for the current session.\n\
+Ctrl-A lists pending approvals.\n\
+Ctrl-G shows current team state.\n\
+Ctrl-L clears and redraws the screen.\n\
+Ctrl-C exits.\n\n\
+Slash commands:\n\
+/start\n\
+/help\n\
+/sessions\n\
+/session open <session_id>\n\
+/runs\n\
+/run open <run_id>\n\
+/approvals\n\
+/approve <approval_id>\n\
+/reject <approval_id> [reason]\n\
+/team\n\
+/team state <team_run_id>\n\
+/team start <saved_team>\n\
+/task pause|resume|stop <task_id>"
 }
