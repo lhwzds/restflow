@@ -442,7 +442,7 @@ impl TeamMailbox for TeamRuntimeService {
     async fn list_team_messages(&self, team_run_id: &str) -> Result<Vec<TeamMessage>, ToolError> {
         let mut messages =
             self.list_by_prefix::<TeamMessage>(&format!("{TEAM_MESSAGE_PREFIX}:{team_run_id}"))?;
-        messages.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        messages.sort_by_key(|message| message.created_at);
         Ok(messages)
     }
 
@@ -548,7 +548,7 @@ impl TeamCoordinator for TeamRuntimeService {
     ) -> Result<Vec<TeamAssignment>, ToolError> {
         let mut assignments = self
             .list_by_prefix::<TeamAssignment>(&format!("{TEAM_ASSIGNMENT_PREFIX}:{team_run_id}"))?;
-        assignments.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        assignments.sort_by_key(|assignment| assignment.created_at);
         Ok(assignments)
     }
 

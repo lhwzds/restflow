@@ -49,7 +49,7 @@ impl HookStorage {
             hooks.push(serde_json::from_slice::<Hook>(&bytes)?);
         }
 
-        hooks.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        hooks.sort_by_key(|hook| std::cmp::Reverse(hook.updated_at));
         Ok(hooks)
     }
 

@@ -171,7 +171,7 @@ impl MemoryStorage {
             result.push(chunk);
         }
         // Sort by created_at descending (most recent first)
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        result.sort_by_key(|chunk| std::cmp::Reverse(chunk.created_at));
         Ok(result)
     }
 
@@ -184,7 +184,7 @@ impl MemoryStorage {
             result.push(chunk);
         }
         // Sort by created_at ascending (chronological order within session)
-        result.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        result.sort_by_key(|chunk| chunk.created_at);
         Ok(result)
     }
 
@@ -201,7 +201,7 @@ impl MemoryStorage {
             let chunk: MemoryChunk = serde_json::from_slice(&bytes)?;
             result.push(chunk);
         }
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        result.sort_by_key(|chunk| std::cmp::Reverse(chunk.created_at));
         Ok(result)
     }
 
@@ -310,7 +310,7 @@ impl MemoryStorage {
             result.push(session);
         }
         // Sort by updated_at descending (most recently updated first)
-        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
         Ok(result)
     }
 

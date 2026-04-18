@@ -58,13 +58,13 @@ impl Metrics {
     fn avg_read_time(&self) -> u64 {
         let count = self.db_read_count.load(Ordering::Relaxed);
         let time = self.db_read_time_us.load(Ordering::Relaxed);
-        if count > 0 { time / count } else { 0 }
+        time.checked_div(count).unwrap_or(0)
     }
 
     fn avg_write_time(&self) -> u64 {
         let count = self.db_write_count.load(Ordering::Relaxed);
         let time = self.db_write_time_us.load(Ordering::Relaxed);
-        if count > 0 { time / count } else { 0 }
+        time.checked_div(count).unwrap_or(0)
     }
 
     fn cache_hit_rate(&self) -> f64 {

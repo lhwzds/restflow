@@ -317,7 +317,7 @@ impl SecurityAmendmentStore {
             let rule: SecurityAmendment = serde_json::from_slice(&bytes)?;
             rules.push(rule);
         }
-        rules.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+        rules.sort_by_key(|rule| std::cmp::Reverse(rule.created_at_ms));
         Ok(rules)
     }
 

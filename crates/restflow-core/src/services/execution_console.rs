@@ -211,7 +211,7 @@ impl ExecutionConsoleService {
         let mut sessions = groups
             .into_iter()
             .map(|(run_id, mut events)| -> Result<RunSummary> {
-                events.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
+                events.sort_by_key(|event| event.timestamp);
                 let root = self.resolve_root_run_context(
                     &run_id,
                     events
@@ -388,7 +388,7 @@ impl ExecutionConsoleService {
         let mut runs = groups
             .into_iter()
             .map(|(run_id, mut run_events)| {
-                run_events.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
+                run_events.sort_by_key(|event| event.timestamp);
                 self.build_run_summary(
                     &run_id,
                     &task.id,
@@ -483,7 +483,7 @@ impl ExecutionConsoleService {
         let mut runs = groups
             .into_iter()
             .map(|(run_id, mut run_events)| {
-                run_events.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
+                run_events.sort_by_key(|event| event.timestamp);
                 self.build_run_summary(
                     &run_id,
                     container_id,

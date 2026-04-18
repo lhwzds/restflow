@@ -117,7 +117,7 @@ impl SkillRegistry {
         }
 
         // Sort by score
-        all_results.sort_by(|a, b| b.score.cmp(&a.score));
+        all_results.sort_by_key(|result| std::cmp::Reverse(result.score));
 
         // Apply global limit
         if let Some(limit) = query.limit {

@@ -195,7 +195,7 @@ async fn search_sessions(
         }
     }
 
-    results.sort_by(|a, b| b.match_count.cmp(&a.match_count));
+    results.sort_by_key(|result| std::cmp::Reverse(result.match_count));
 
     if format.is_json() {
         return print_json(&results);

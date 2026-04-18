@@ -52,7 +52,7 @@ impl TerminalSessionStorage {
         }
 
         // Sort by created_at ascending (oldest first)
-        sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        sessions.sort_by_key(|session| session.created_at);
 
         Ok(sessions)
     }

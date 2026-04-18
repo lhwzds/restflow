@@ -31,7 +31,7 @@ impl BackgroundAgentStorage {
         }
 
         // Sort by timestamp descending (most recent first)
-        result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        result.sort_by_key(|event| std::cmp::Reverse(event.timestamp));
         Ok(result)
     }
 

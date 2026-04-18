@@ -43,7 +43,7 @@ pub fn match_triggers(message: &str, skills: &[Skill]) -> Vec<TriggerMatch> {
         }
     }
 
-    matches.sort_by(|left, right| right.confidence.cmp(&left.confidence));
+    matches.sort_by_key(|match_result| std::cmp::Reverse(match_result.confidence));
     matches
 }
 

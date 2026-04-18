@@ -438,7 +438,7 @@ async fn api_marketplace_search(
             .await
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?;
         results.extend(github_results.into_iter().map(to_marketplace_search_item));
-        results.sort_by(|left, right| right.score.cmp(&left.score));
+        results.sort_by_key(|result| std::cmp::Reverse(result.score));
         if let Some(limit) = request.limit {
             results.truncate(limit);
         }

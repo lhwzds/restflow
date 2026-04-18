@@ -43,7 +43,7 @@ impl DeliverableStorage {
             .into_iter()
             .map(|(_, bytes)| serde_json::from_slice::<Deliverable>(&bytes))
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        items.sort_by_key(|item| item.created_at);
         Ok(items)
     }
 
@@ -54,7 +54,7 @@ impl DeliverableStorage {
             .into_iter()
             .map(|(_, bytes)| serde_json::from_slice::<Deliverable>(&bytes))
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        items.sort_by_key(|item| item.created_at);
         Ok(items)
     }
 

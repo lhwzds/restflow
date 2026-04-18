@@ -58,7 +58,7 @@ impl ChannelSessionBindingStorage {
             let binding: ChannelSessionBinding = serde_json::from_slice(&bytes)?;
             out.push(binding);
         }
-        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        out.sort_by_key(|binding| std::cmp::Reverse(binding.updated_at));
         Ok(out)
     }
 
@@ -69,7 +69,7 @@ impl ChannelSessionBindingStorage {
             .into_iter()
             .filter(|binding| binding.session_id == target)
             .collect::<Vec<_>>();
-        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        out.sort_by_key(|binding| std::cmp::Reverse(binding.updated_at));
         Ok(out)
     }
 }

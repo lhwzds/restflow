@@ -147,7 +147,7 @@ impl WorkItemStorage {
             });
         }
 
-        notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        notes.sort_by_key(|note| std::cmp::Reverse(note.updated_at));
         notes.dedup_by(|a, b| a.id == b.id);
         Ok(notes)
     }

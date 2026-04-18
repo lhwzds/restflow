@@ -67,7 +67,7 @@ impl KvStoreStorage {
                 entries.push(entry);
             }
         }
-        entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
         Ok(entries)
     }
 

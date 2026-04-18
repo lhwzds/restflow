@@ -249,7 +249,7 @@ impl TaskQueue {
     }
 
     fn calculate_avg(total_ms: u64, count: u64) -> u64 {
-        if count > 0 { total_ms / count } else { 0 }
+        total_ms.checked_div(count).unwrap_or(0)
     }
 
     fn pop_by_priority(&self, priority: TaskPriority) -> Option<QueuedTask> {

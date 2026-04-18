@@ -1,4 +1,6 @@
-.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint types stress
+.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint audit types stress toolchain
+
+RUST_TOOLCHAIN ?= stable
 
 # Development mode with hot reload
 dev:
@@ -60,10 +62,15 @@ help:
 	@echo "    make test    - Run backend and frontend tests"
 	@echo "    make stress  - Run smoke, stress, and soak stress tests sequentially"
 	@echo "    make lint    - Run backend clippy and frontend lint checks"
+	@echo "    make audit   - Run cargo security audit"
 	@echo "    make types   - Regenerate web TypeScript bindings"
 	@echo "    make cli     - Build CLI in release mode"
-	@echo "    make release - Run make lint, make test, and make cli"
+	@echo "    make release - Run make lint, make audit, make test, and make cli"
 	@echo "    make install - Install CLI (restflow & rf) to ~/.local/bin"
+
+# Match CI's latest stable Rust toolchain for release checks
+toolchain:
+	rustup toolchain install $(RUST_TOOLCHAIN) --component clippy --component rustfmt
 
 # Format Rust and web code
 fmt:
@@ -100,10 +107,15 @@ stress:
 	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1
 
 # Run backend and frontend lint checks
-lint:
-	cargo fmt --all --check
-	cargo clippy --all-targets -- -D warnings
+lint: toolchain
+	cargo +$(RUST_TOOLCHAIN) fmt --all --check
+	cargo +$(RUST_TOOLCHAIN) clippy --all-targets -- -D warnings
 	cd web && npm run format:check
+
+# Run Rust security audit
+audit: toolchain
+	@command -v cargo-audit >/dev/null 2>&1 || cargo +$(RUST_TOOLCHAIN) install cargo-audit --locked
+	cargo +$(RUST_TOOLCHAIN) audit
 
 # Build CLI
 cli:
@@ -115,10 +127,12 @@ types:
 
 release-check:
 	$(MAKE) lint
+	$(MAKE) audit
 	$(MAKE) test
 
 release:
 	$(MAKE) lint
+	$(MAKE) audit
 	$(MAKE) test
 	$(MAKE) cli
 

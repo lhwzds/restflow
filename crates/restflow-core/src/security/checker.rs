@@ -326,7 +326,7 @@ impl SecurityChecker {
             })
             .collect();
 
-        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        rules.sort_by_key(|rule| std::cmp::Reverse(rule.priority));
 
         for rule in rules {
             if crate::models::security::glob_match(&rule.target_pattern, &action.target) {

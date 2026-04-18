@@ -59,7 +59,7 @@ impl SkillStorage {
         }
 
         // Sort by updated_at descending (most recent first)
-        skills.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        skills.sort_by_key(|skill| std::cmp::Reverse(skill.updated_at));
 
         Ok(skills)
     }

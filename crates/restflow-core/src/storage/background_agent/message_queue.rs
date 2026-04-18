@@ -67,7 +67,7 @@ impl BackgroundAgentStorage {
             let message: BackgroundMessage = serde_json::from_slice(&bytes)?;
             result.push(message);
         }
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        result.sort_by_key(|message| std::cmp::Reverse(message.created_at));
         Ok(result.into_iter().take(limit).collect())
     }
 
@@ -86,7 +86,7 @@ impl BackgroundAgentStorage {
             let message: BackgroundMessage = serde_json::from_slice(&bytes)?;
             result.push(message);
         }
-        result.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        result.sort_by_key(|message| message.created_at);
         Ok(result.into_iter().take(limit).collect())
     }
 
