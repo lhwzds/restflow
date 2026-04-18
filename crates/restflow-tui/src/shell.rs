@@ -317,15 +317,12 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
                 } else {
                     format!("{title} {summary}")
                 };
-                lines.push(truncate_to_width(&line, width));
+                lines.extend(wrap_display_line(&line, width));
             }
             _ => {
-                lines.push(truncate_to_width(&format_title(cell), width));
+                lines.extend(wrap_display_line(&format_title(cell), width));
                 for line in normalize_body_lines(cell.body.as_str()) {
-                    lines.push(truncate_to_width(
-                        &format!("{CONTINUATION_PREFIX}{line}"),
-                        width,
-                    ));
+                    lines.extend(wrap_prefixed_line(CONTINUATION_PREFIX, &line, width));
                 }
             }
         }
@@ -466,6 +463,39 @@ fn tail_lines(lines: Vec<String>, max_rows: usize) -> Vec<String> {
     }
     let start = lines.len().saturating_sub(max_rows);
     lines[start..].to_vec()
+}
+
+fn wrap_display_line(value: &str, width: u16) -> Vec<String> {
+    wrap_raw_line(value, width.max(1) as usize)
+}
+
+fn wrap_prefixed_line(prefix: &str, value: &str, width: u16) -> Vec<String> {
+    let prefix_width = display_width(prefix) as usize;
+    let content_width = (width as usize).saturating_sub(prefix_width).max(1);
+    wrap_raw_line(value, content_width)
+        .into_iter()
+        .map(|line| format!("{prefix}{line}"))
+        .collect()
+}
+
+fn wrap_raw_line(value: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+
+    for ch in value.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current_width > 0 && ch_width > 0 && current_width + ch_width > width {
+            lines.push(std::mem::take(&mut current));
+            current_width = 0;
+        }
+        current.push(ch);
+        current_width += ch_width;
+    }
+
+    lines.push(current);
+    lines
 }
 
 fn bottom_anchor_lines(
@@ -728,6 +758,23 @@ mod tests {
         assert_eq!(lines[0], "You");
         assert_eq!(lines[1], "  hello");
         assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn transcript_wraps_long_body_lines() {
+        let lines = super::build_cell_lines(
+            &[TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Agent".to_string(),
+                subtitle: None,
+                body: "abcdefghijklmno".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            }],
+            8,
+        );
+
+        assert_eq!(lines, vec!["Agent", "  abcdef", "  ghijkl", "  mno"]);
     }
 
     #[test]
