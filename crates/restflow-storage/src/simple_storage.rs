@@ -79,6 +79,26 @@ pub trait SimpleStorage: Send + Sync {
         Ok(existed)
     }
 
+    /// Delete multiple IDs in one transaction.
+    fn delete_many(&self, ids: &[String]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let write_txn = self.db().begin_write()?;
+        let mut deleted = 0usize;
+        {
+            let mut table = write_txn.open_table(Self::TABLE)?;
+            for id in ids {
+                if table.remove(id.as_str())?.is_some() {
+                    deleted += 1;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(deleted)
+    }
+
     /// Check if ID exists.
     fn exists(&self, id: &str) -> Result<bool> {
         let read_txn = self.db().begin_read()?;

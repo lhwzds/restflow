@@ -1735,6 +1735,10 @@ mod tests {
             parent_run_id: Some("run-1".to_string()),
             trace_session_id: Some("session-1".to_string()),
             trace_scope_id: Some("scope-1".to_string()),
+            team_run_id: None,
+            team_member_id: None,
+            leader_member_id: None,
+            team_role: None,
         };
 
         assert_roundtrip(&request);

@@ -118,6 +118,8 @@ pub struct CleanupReportResponse {
     pub background_tasks: usize,
     pub checkpoints: usize,
     pub memory_chunks: usize,
+    pub audit_events: usize,
+    pub telemetry_metric_samples: usize,
     pub memory_sessions: usize,
     pub vector_orphans: usize,
     pub daemon_log_files: usize,
@@ -293,9 +295,11 @@ mod tests {
             background_tasks: 2,
             checkpoints: 3,
             memory_chunks: 4,
-            memory_sessions: 5,
-            vector_orphans: 6,
-            daemon_log_files: 7,
+            audit_events: 5,
+            telemetry_metric_samples: 6,
+            memory_sessions: 7,
+            vector_orphans: 8,
+            daemon_log_files: 9,
         };
         assert_roundtrip(&response);
     }

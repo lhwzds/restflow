@@ -274,6 +274,28 @@ impl ExecutionTraceStorage {
 
         Ok(deleted)
     }
+
+    /// Delete all execution trace events older than the given timestamp.
+    pub fn cleanup_older_than(&self, cutoff_ms: i64) -> Result<usize> {
+        let entries = self
+            .inner
+            .list_raw()
+            .context("Failed to list execution trace events for cleanup")?;
+
+        let matching_keys = entries
+            .into_iter()
+            .filter_map(|(key, bytes)| {
+                serde_json::from_slice::<ExecutionTraceEvent>(&bytes)
+                    .ok()
+                    .filter(|event| event.timestamp < cutoff_ms)
+                    .map(|_| key)
+            })
+            .collect::<Vec<_>>();
+
+        self.inner
+            .delete_many(&matching_keys)
+            .context("Failed to delete old execution trace events")
+    }
 }
 
 #[cfg(test)]
@@ -419,5 +441,33 @@ mod tests {
         assert_eq!(stats.log_record_count, 1);
         assert_eq!(stats.llm_call_count, 1);
         assert_eq!(stats.total_events, 4);
+    }
+
+    #[test]
+    fn cleanup_older_than_deletes_only_old_events() {
+        let storage = ExecutionTraceStorage::in_memory().unwrap();
+        let mut old = execution_trace_builders::log_record(
+            "task-1",
+            "agent-1",
+            crate::models::LogRecordTrace {
+                level: "info".to_string(),
+                message: "old".to_string(),
+                fields: Vec::new(),
+            },
+        );
+        old.timestamp = 100;
+        let mut recent = old.clone();
+        recent.id = "recent-event".to_string();
+        recent.timestamp = 300;
+
+        storage.store(&old).unwrap();
+        storage.store(&recent).unwrap();
+
+        let deleted = storage.cleanup_older_than(200).unwrap();
+
+        assert_eq!(deleted, 1);
+        let remaining = storage.list_all().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, recent.id);
     }
 }

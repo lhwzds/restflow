@@ -187,7 +187,7 @@ impl CheckpointStorage {
         let table = read_txn.open_table(CHECKPOINT_TABLE)?;
 
         // Collect IDs of expired checkpoints
-        let mut expired: Vec<(String, String, Option<String>)> = Vec::new();
+        let mut expired: Vec<(String, String, Option<String>, Option<u64>)> = Vec::new();
         for entry in table.iter()? {
             let entry = entry?;
             let data = entry.1.value();
@@ -206,14 +206,18 @@ impl CheckpointStorage {
                     .get("task_id")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                expired.push((id, exec_id, task_id));
+                let savepoint_id = val.get("savepoint_id").and_then(|v| v.as_u64());
+                expired.push((id, exec_id, task_id, savepoint_id));
             }
         }
         drop(table);
         drop(read_txn);
 
         let count = expired.len();
-        for (id, exec_id, task_id) in expired {
+        for (id, exec_id, task_id, savepoint_id) in expired {
+            if let Some(savepoint_id) = savepoint_id {
+                let _ = self.delete_savepoint(savepoint_id)?;
+            }
             self.delete(&id, &exec_id, task_id.as_deref())?;
         }
         Ok(count)
@@ -354,6 +358,40 @@ mod tests {
         assert_eq!(cleaned, 1);
         assert!(storage.load("cp-expired").unwrap().is_none());
         assert!(storage.load("cp-valid").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_cleanup_expired_deletes_savepoint() {
+        let db = setup_db();
+        let storage = CheckpointStorage::new(db).unwrap();
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let savepoint_id = storage
+            .save_with_savepoint("cp-expired", "exec-1", None, b"data")
+            .unwrap();
+        let expired_data = serde_json::json!({
+            "id": "cp-expired",
+            "execution_id": "exec-1",
+            "expired_at": now - 1000,
+            "savepoint_id": savepoint_id
+        });
+        storage
+            .save(
+                "cp-expired",
+                "exec-1",
+                None,
+                serde_json::to_vec(&expired_data).unwrap().as_slice(),
+            )
+            .unwrap();
+
+        let cleaned = storage.cleanup_expired(now).unwrap();
+
+        assert_eq!(cleaned, 1);
+        assert!(storage.load("cp-expired").unwrap().is_none());
+        assert!(
+            !storage.delete_savepoint(savepoint_id).unwrap(),
+            "expired cleanup should delete the persistent savepoint"
+        );
     }
 
     #[test]
