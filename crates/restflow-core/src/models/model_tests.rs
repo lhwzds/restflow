@@ -7,7 +7,6 @@ use restflow_traits::ModelProvider;
 fn test_provider() {
     assert_eq!(ModelId::Gpt5.provider(), Provider::OpenAI);
     assert_eq!(ModelId::ClaudeSonnet4_5.provider(), Provider::Anthropic);
-    assert_eq!(ModelId::ClaudeCodeSonnet.provider(), Provider::ClaudeCode);
     assert_eq!(ModelId::DeepseekChat.provider(), Provider::DeepSeek);
     assert_eq!(ModelId::Gemini25Pro.provider(), Provider::Google);
     assert_eq!(ModelId::GroqLlama4Scout.provider(), Provider::Groq);
@@ -154,10 +153,6 @@ fn test_from_api_name() {
         Some(ModelId::ClaudeHaiku4_5)
     );
     assert_eq!(
-        ModelId::from_api_name("claude-code-opus"),
-        Some(ModelId::ClaudeCodeOpus)
-    );
-    assert_eq!(
         ModelId::from_api_name("gemini-pro"),
         Some(ModelId::Gemini25Pro)
     );
@@ -289,7 +284,7 @@ fn test_display_name() {
 #[test]
 fn test_all_models() {
     let models = ModelId::all();
-    assert_eq!(models.len(), 66);
+    assert_eq!(models.len(), 63);
     assert!(models.contains(&ModelId::Gpt5));
     assert!(models.contains(&ModelId::Gpt5_1));
     assert!(models.contains(&ModelId::ClaudeOpus4_6));
@@ -370,9 +365,6 @@ fn test_build_model_specs_contains_codex_cli() {
         && spec.client_kind == restflow_models::ClientKind::CodexCli));
     assert!(specs.iter().any(|spec| spec.name == "gpt-5.3-codex"
         && spec.client_kind == restflow_models::ClientKind::CodexCli));
-    assert!(specs.iter().any(|spec| spec.name == "opus"
-        && spec.client_model == "opus"
-        && spec.client_kind == restflow_models::ClientKind::ClaudeCodeCli));
 }
 
 #[test]
@@ -570,10 +562,6 @@ fn test_canonical_id() {
         "codex:gpt-5.4-mini"
     );
     assert_eq!(ModelId::CodexCli.canonical_id(), "codex:gpt-5.3-codex");
-    assert_eq!(
-        ModelId::ClaudeCodeSonnet.canonical_id(),
-        "claude-code:claude-code-sonnet"
-    );
 }
 
 #[test]
@@ -590,10 +578,6 @@ fn test_from_canonical_id() {
     assert_eq!(
         ModelId::from_canonical_id("deepseek:deepseek-chat"),
         Some(ModelId::DeepseekChat)
-    );
-    assert_eq!(
-        ModelId::from_canonical_id("claude-code:claude-code-sonnet"),
-        Some(ModelId::ClaudeCodeSonnet)
     );
     assert_eq!(
         ModelId::from_canonical_id("codex:gpt-5.3-codex"),
@@ -614,10 +598,6 @@ fn test_from_canonical_id() {
     assert_eq!(
         ModelId::from_canonical_id("codex:gpt-5.4-mini-codex"),
         Some(ModelId::Gpt5_4MiniCodex)
-    );
-    assert_eq!(
-        ModelId::from_canonical_id("anthropic:claude-code-sonnet"),
-        Some(ModelId::ClaudeCodeSonnet)
     );
     assert_eq!(
         ModelId::from_canonical_id("openai:gpt-5.3-codex"),
@@ -680,19 +660,6 @@ fn test_model_ref_validate_rejects_provider_mismatch() {
 
 #[test]
 fn test_model_ref_validate_accepts_legacy_cli_provider_pairs() {
-    let claude_code_ref = ModelRef {
-        provider: Provider::Anthropic,
-        model: ModelId::ClaudeCodeSonnet,
-    };
-    assert!(claude_code_ref.validate().is_ok());
-    assert_eq!(
-        claude_code_ref.normalized(),
-        ModelRef {
-            provider: Provider::ClaudeCode,
-            model: ModelId::ClaudeCodeSonnet,
-        }
-    );
-
     let codex_ref = ModelRef {
         provider: Provider::OpenAI,
         model: ModelId::Gpt5_4Codex,
@@ -705,35 +672,6 @@ fn test_model_ref_validate_accepts_legacy_cli_provider_pairs() {
             model: ModelId::Gpt5_4Codex,
         }
     );
-}
-
-#[test]
-fn test_model_ref_try_from_wire_normalizes_legacy_provider_pairs() {
-    let wire = WireModelRef {
-        provider: "anthropic".to_string(),
-        model: "claude-code-sonnet".to_string(),
-    };
-
-    let model_ref = ModelRef::try_from(wire).expect("wire model ref should parse");
-    assert_eq!(
-        model_ref,
-        ModelRef {
-            provider: Provider::ClaudeCode,
-            model: ModelId::ClaudeCodeSonnet,
-        }
-    );
-}
-
-#[test]
-fn test_model_ref_into_wire_uses_canonical_values() {
-    let wire: WireModelRef = ModelRef {
-        provider: Provider::Anthropic,
-        model: ModelId::ClaudeCodeSonnet,
-    }
-    .into();
-
-    assert_eq!(wire.provider, "claude-code");
-    assert_eq!(wire.model, "claude-code-sonnet");
 }
 
 #[test]
@@ -925,10 +863,6 @@ fn test_flagship_model() {
         Provider::MiniMaxCodingPlan.flagship_model(),
         ModelId::MiniMaxM27CodingPlan
     );
-    assert_eq!(
-        Provider::ClaudeCode.flagship_model(),
-        ModelId::ClaudeCodeOpus
-    );
     assert_eq!(Provider::Codex.flagship_model(), ModelId::Gpt5_4Codex);
     assert_eq!(
         Provider::OpenRouter.flagship_model(),
@@ -938,11 +872,15 @@ fn test_flagship_model() {
 
 #[test]
 fn test_provider_catalog_completeness() {
-    assert_eq!(Provider::all().len(), catalog::PROVIDER_CATALOGS.len());
+    let catalog_providers = catalog::PROVIDER_CATALOGS
+        .iter()
+        .map(|catalog| catalog.provider)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(!catalog_providers.contains(&Provider::ClaudeCode));
 
-    for provider in Provider::all().iter().copied() {
-        let provider_catalog = catalog::provider_catalog(provider)
-            .unwrap_or_else(|| panic!("missing provider catalog for {provider:?}"));
+    for provider_catalog in catalog::PROVIDER_CATALOGS {
+        let provider = provider_catalog.provider;
+        assert!(Provider::all().contains(&provider));
         assert_eq!(provider_catalog.provider, provider);
         assert_eq!(provider_catalog.flagship.provider(), provider);
         assert!(!provider_catalog.models.is_empty());

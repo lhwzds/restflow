@@ -687,6 +687,16 @@ fn parse_prompt_file_content(content: &str) -> ParsedPromptFileContent {
 /// to avoid cross-module race conditions.
 #[cfg(any(test, feature = "test-utils"))]
 pub fn agents_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    agents_dir_env_lock_impl()
+}
+
+#[cfg(test)]
+fn agents_dir_env_lock_impl() -> std::sync::MutexGuard<'static, ()> {
+    restflow_test_support::agents_env_lock()
+}
+
+#[cfg(all(not(test), feature = "test-utils"))]
+fn agents_dir_env_lock_impl() -> std::sync::MutexGuard<'static, ()> {
     use std::sync::{Mutex, OnceLock};
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))

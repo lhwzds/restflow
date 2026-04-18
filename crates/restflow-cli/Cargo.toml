@@ -64,3 +64,4 @@ assert_cmd = "2.0"
 predicates = "3.1"
 tempfile = "3.25"
 redb = "3.1"
+restflow-test-support = { workspace = true }

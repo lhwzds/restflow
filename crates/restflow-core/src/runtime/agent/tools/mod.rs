@@ -816,6 +816,7 @@ mod tests {
     use crate::models::{AgentNode, Skill};
     use crate::prompt_files;
     use crate::storage::Storage;
+    use restflow_test_support::RestflowTestEnv;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -1041,8 +1042,8 @@ mod tests {
 
     #[test]
     fn test_registry_from_allowlist_uses_configured_api_defaults() {
-        let dir = tempdir().expect("temp dir should be created");
-        let db_path = dir.path().join("registry-api-defaults.db");
+        let env = RestflowTestEnv::new();
+        let db_path = env.db_path("registry-api-defaults.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
         let mut config = storage
@@ -1065,7 +1066,7 @@ mod tests {
             Some(&storage),
             None,
             None,
-            Some(dir.path()),
+            Some(env.root()),
         )
         .unwrap();
 

@@ -174,20 +174,6 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
     let manager = build_auth_manager(&core).await.expect("auth manager");
     manager
         .add_profile_from_credential(
-            "Claude Code",
-            Credential::OAuth {
-                access_token: "claude-token".to_string(),
-                refresh_token: None,
-                expires_at: None,
-                email: None,
-            },
-            CredentialSource::Manual,
-            AuthProvider::ClaudeCode,
-        )
-        .await
-        .expect("add claude-code profile");
-    manager
-        .add_profile_from_credential(
             "Codex",
             Credential::OAuth {
                 access_token: "codex-token".to_string(),
@@ -216,17 +202,7 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
             assert!(
                 models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::ClaudeCode)
-            );
-            assert!(
-                models
-                    .iter()
                     .any(|model| model.provider == crate::models::Provider::Codex)
-            );
-            assert!(
-                models
-                    .iter()
-                    .any(|model| model.model == crate::models::ModelId::ClaudeCodeSonnet)
             );
             assert!(
                 models
@@ -255,20 +231,6 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
         .expect("store zai key");
 
     let manager = build_auth_manager(&core).await.expect("auth manager");
-    manager
-        .add_profile_from_credential(
-            "Claude Code",
-            Credential::OAuth {
-                access_token: "claude-token".to_string(),
-                refresh_token: None,
-                expires_at: None,
-                email: None,
-            },
-            CredentialSource::Manual,
-            AuthProvider::ClaudeCode,
-        )
-        .await
-        .expect("add claude-code profile");
     manager
         .add_profile_from_credential(
             "Codex",
@@ -304,7 +266,6 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
                     crate::models::Provider::OpenAI,
                     crate::models::Provider::MiniMaxCodingPlan,
                     crate::models::Provider::ZaiCodingPlan,
-                    crate::models::Provider::ClaudeCode,
                     crate::models::Provider::Codex,
                 ])
             );

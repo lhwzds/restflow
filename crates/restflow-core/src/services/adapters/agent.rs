@@ -187,32 +187,14 @@ impl AgentStore for AgentStoreAdapter {
 mod tests {
     use super::*;
     use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
+    use restflow_test_support::RestflowTestEnv;
     use restflow_traits::store::AgentStore;
     use std::sync::Arc;
-    use tempfile::tempdir;
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::paths::restflow_dir_env_lock()
-    }
-
-    fn setup() -> (
-        AgentStoreAdapter,
-        tempfile::TempDir,
-        std::sync::MutexGuard<'static, ()>,
-    ) {
-        let guard = env_lock();
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+    fn setup() -> (AgentStoreAdapter, RestflowTestEnv) {
+        let env = RestflowTestEnv::new();
+        let db_path = env.db_path("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-        let prev_dir = std::env::var_os("RESTFLOW_DIR");
-        let prev_key = std::env::var_os("RESTFLOW_MASTER_KEY");
-        unsafe {
-            std::env::set_var("RESTFLOW_DIR", &state_dir);
-            std::env::remove_var("RESTFLOW_MASTER_KEY");
-        }
 
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let skill_storage = SkillStorage::new(db.clone()).unwrap();
@@ -229,18 +211,6 @@ mod tests {
             "http".to_string(),
         ])));
 
-        // Restore env vars immediately
-        unsafe {
-            match prev_dir {
-                Some(v) => std::env::set_var("RESTFLOW_DIR", v),
-                None => std::env::remove_var("RESTFLOW_DIR"),
-            }
-            match prev_key {
-                Some(v) => std::env::set_var("RESTFLOW_MASTER_KEY", v),
-                None => std::env::remove_var("RESTFLOW_MASTER_KEY"),
-            }
-        }
-
         (
             AgentStoreAdapter::new(
                 agent_storage,
@@ -249,14 +219,13 @@ mod tests {
                 bg_storage,
                 known_tools,
             ),
-            temp_dir,
-            guard,
+            env,
         )
     }
 
     #[test]
     fn test_create_and_list_agents() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let request = AgentCreateRequest {
             name: "Test Agent".to_string(),
             agent: ContractAgentNode::default(),
@@ -270,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_get_agent() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "Getter".to_string(),
@@ -285,14 +254,14 @@ mod tests {
 
     #[test]
     fn test_get_nonexistent_agent_fails() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let result = adapter.get_agent("nonexistent");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_delete_agent() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "To Delete".to_string(),
@@ -307,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_update_agent_name() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "Original".to_string(),
@@ -328,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_validate_unknown_tool_rejected() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let result = adapter.create_agent(AgentCreateRequest {
             name: "Bad Tools".to_string(),
             agent: ContractAgentNode {
@@ -343,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_create_agent_rejects_invalid_model_ref() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let result = adapter.create_agent(AgentCreateRequest {
             name: "Bad Model Ref".to_string(),
             agent: ContractAgentNode {
@@ -363,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_update_agent_rejects_conflicting_model_fields() {
-        let (adapter, _dir, _guard) = setup();
+        let (adapter, _env) = setup();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "Conflict".to_string(),

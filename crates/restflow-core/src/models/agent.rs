@@ -842,8 +842,8 @@ mod tests {
     #[test]
     fn contract_agent_node_round_trips_through_explicit_conversion() {
         let agent = AgentNode::with_model_ref(ModelRef {
-            provider: Provider::Anthropic,
-            model: ModelId::ClaudeCodeSonnet,
+            provider: Provider::Codex,
+            model: ModelId::Gpt5_4Codex,
         })
         .with_prompt("Base prompt")
         .with_codex_cli_execution_mode(CodexCliExecutionMode::Safe);
@@ -851,12 +851,12 @@ mod tests {
         let contract: ContractAgentNode = agent.clone().into();
         let decoded = AgentNode::try_from(contract).expect("agent should decode");
 
-        assert_eq!(decoded.model, Some(ModelId::ClaudeCodeSonnet));
+        assert_eq!(decoded.model, Some(ModelId::Gpt5_4Codex));
         assert_eq!(
             decoded.model_ref,
             Some(ModelRef {
-                provider: Provider::ClaudeCode,
-                model: ModelId::ClaudeCodeSonnet,
+                provider: Provider::Codex,
+                model: ModelId::Gpt5_4Codex,
             })
         );
         assert_eq!(decoded.prompt.as_deref(), Some("Base prompt"));

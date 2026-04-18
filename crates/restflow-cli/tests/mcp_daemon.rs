@@ -1,21 +1,13 @@
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
+use restflow_test_support::RestflowTestEnv;
 use serde_json::{Value, json};
 use std::fs::File;
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
-use tempfile::tempdir;
 use tokio::time::{Instant, sleep};
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 struct DaemonChild {
     child: Child,
@@ -43,14 +35,16 @@ impl Drop for DaemonChild {
     }
 }
 
-fn spawn_daemon(db_path: &str, state_dir: &str, port: u16) -> Result<DaemonChild> {
+fn spawn_daemon(db_path: &str, env: &RestflowTestEnv, port: u16) -> Result<DaemonChild> {
     let web_dist_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist");
-    let log_path = Path::new(state_dir).join("mcp-daemon-test.log");
+    let log_path = env.root().join("mcp-daemon-test.log");
     let log_file = File::create(&log_path).context("create daemon test log")?;
     let stderr_file = log_file
         .try_clone()
         .context("clone daemon test log handle")?;
-    let child = Command::new(assert_cmd::cargo::cargo_bin!("restflow"))
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin!("restflow"));
+    env.apply_to_command(&mut command);
+    let child = command
         .args([
             "--db-path",
             db_path,
@@ -60,7 +54,6 @@ fn spawn_daemon(db_path: &str, state_dir: &str, port: u16) -> Result<DaemonChild
             "--mcp-port",
             &port.to_string(),
         ])
-        .env("RESTFLOW_DIR", state_dir)
         .env("RESTFLOW_WEB_DIST_DIR", web_dist_dir)
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(stderr_file))
@@ -189,13 +182,13 @@ async fn wait_for_mcp_ready(url: &str, daemon: &mut DaemonChild) -> Result<()> {
     )
 }
 
-async fn spawn_ready_daemon(db_path: &str, state_dir: &str) -> Result<(DaemonChild, String)> {
+async fn spawn_ready_daemon(db_path: &str, env: &RestflowTestEnv) -> Result<(DaemonChild, String)> {
     let mut failures = Vec::new();
 
     for attempt in 0..6 {
         let port = reserve_port();
         let url = format!("http://127.0.0.1:{port}/mcp");
-        let mut daemon = spawn_daemon(db_path, state_dir, port)
+        let mut daemon = spawn_daemon(db_path, env, port)
             .with_context(|| format!("spawn daemon for attempt {}", attempt + 1))?;
 
         match wait_for_mcp_ready(&url, &mut daemon).await {
@@ -314,21 +307,14 @@ fn parse_json_rpc_response_accepts_sse_with_comment_and_event_lines() {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
-    let _lock = env_lock();
-    let temp = tempdir().context("tempdir")?;
-    let state_dir = temp.path().join("state");
-    std::fs::create_dir_all(&state_dir).context("create state dir")?;
-    let db_path = temp.path().join("restflow.db");
+    let env = RestflowTestEnv::new();
+    let db_path = env.db_path("restflow.db");
 
     let client = Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
         .context("build reqwest client")?;
-    let (_daemon, url) = spawn_ready_daemon(
-        db_path.to_str().expect("db path utf8"),
-        state_dir.to_str().expect("state dir utf8"),
-    )
-    .await?;
+    let (_daemon, url) = spawn_ready_daemon(db_path.to_str().expect("db path utf8"), &env).await?;
 
     let tools = post_json_rpc(
         &client,

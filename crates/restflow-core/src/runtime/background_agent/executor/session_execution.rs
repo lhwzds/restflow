@@ -840,7 +840,6 @@ mod tests {
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
-        assert!(should_force_non_stream(ModelId::ClaudeCodeSonnet));
         assert!(should_force_non_stream(ModelId::CodexCli));
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
@@ -875,7 +874,7 @@ mod tests {
         let mut tracker = RunAttemptTracker::default();
 
         let (attempt_one, previous_one) = tracker.register_attempt(ModelId::Gpt5);
-        let (attempt_two, previous_two) = tracker.register_attempt(ModelId::ClaudeCodeSonnet);
+        let (attempt_two, previous_two) = tracker.register_attempt(ModelId::CodexCli);
         let (attempt_three, previous_three) = tracker.register_attempt(ModelId::Gpt5Mini);
 
         assert_eq!(attempt_one, 1);
@@ -883,6 +882,6 @@ mod tests {
         assert_eq!(attempt_two, 2);
         assert_eq!(previous_two, Some(ModelId::Gpt5));
         assert_eq!(attempt_three, 3);
-        assert_eq!(previous_three, Some(ModelId::ClaudeCodeSonnet));
+        assert_eq!(previous_three, Some(ModelId::CodexCli));
     }
 }

@@ -3615,6 +3615,7 @@ dependencies = [
  "restflow-contracts",
  "restflow-core",
  "restflow-storage",
+ "restflow-test-support",
  "restflow-traits",
  "restflow-tui",
  "rpassword",
@@ -3685,6 +3686,7 @@ dependencies = [
  "restflow-models",
  "restflow-storage",
  "restflow-telemetry",
+ "restflow-test-support",
  "restflow-tools",
  "restflow-traits",
  "rmcp",
@@ -3777,6 +3779,13 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "restflow-test-support"
+version = "0.4.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

@@ -885,7 +885,6 @@ mod tests {
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
-        assert!(should_force_non_stream(ModelId::ClaudeCodeSonnet));
         assert!(should_force_non_stream(ModelId::CodexCli));
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
