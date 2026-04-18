@@ -20,6 +20,7 @@ pub struct ShellRenderer {
     stdout: Stdout,
     committed_cells: Vec<TranscriptCell>,
     history_lines: Vec<String>,
+    pending_history_lines: Vec<String>,
     last_viewport: Option<ViewportSnapshot>,
     last_terminal_size: Option<(u16, u16)>,
 }
@@ -45,6 +46,7 @@ impl ShellRenderer {
             stdout: std::io::stdout(),
             committed_cells: Vec::new(),
             history_lines: Vec::new(),
+            pending_history_lines: Vec::new(),
             last_viewport: None,
             last_terminal_size: None,
         }
@@ -66,15 +68,21 @@ impl ShellRenderer {
         if !is_cell_prefix(&self.committed_cells, &stable_cells) {
             self.committed_cells.clear();
             self.history_lines.clear();
+            self.pending_history_lines.clear();
             self.last_viewport = None;
             force_full_redraw = true;
         }
 
-        let new_history_lines = render_history_append_lines(
+        let mut new_history_lines = render_history_append_lines(
             &stable_cells[self.committed_cells.len()..],
             size.0,
-            !self.history_lines.is_empty(),
+            !self.history_lines.is_empty() || !self.pending_history_lines.is_empty(),
         );
+        if !self.pending_history_lines.is_empty() {
+            let mut pending = std::mem::take(&mut self.pending_history_lines);
+            pending.append(&mut new_history_lines);
+            new_history_lines = pending;
+        }
 
         let viewport_shape_changed = self.last_terminal_size != Some(size)
             || self.last_viewport.as_ref().is_none_or(|previous| {
@@ -85,14 +93,20 @@ impl ShellRenderer {
             queue_clear_visible(&mut self.stdout)?;
             if !new_history_lines.is_empty() && viewport.top > 0 {
                 self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
+                self.history_lines.extend(new_history_lines);
+            } else if !new_history_lines.is_empty() {
+                self.pending_history_lines.extend(new_history_lines);
             }
-            self.history_lines.extend(new_history_lines);
             self.redraw_visible_history(viewport.top, size.0)?;
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
             if !new_history_lines.is_empty() {
-                self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
-                self.history_lines.extend(new_history_lines);
+                if viewport.top > 0 {
+                    self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
+                    self.history_lines.extend(new_history_lines);
+                } else {
+                    self.pending_history_lines.extend(new_history_lines);
+                }
             }
 
             match self.last_viewport.clone() {
@@ -241,8 +255,9 @@ fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSna
 }
 
 fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
-    let mut cells =
-        Vec::with_capacity(state.conversation_cells.len() + state.pending_user_cells.len());
+    let mut cells = Vec::with_capacity(
+        state.conversation_cells.len() + state.pending_user_cells.len() + state.runtime_cells.len(),
+    );
 
     let mut pending = state.pending_user_cells.iter().peekable();
     for (index, cell) in state.conversation_cells.iter().enumerate() {
@@ -259,6 +274,7 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     for entry in pending {
         cells.push(entry.cell.clone());
     }
+    cells.extend(state.runtime_cells.clone());
     cells
 }
 
@@ -267,10 +283,7 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Str
         return Vec::new();
     }
 
-    let mut cells = state.runtime_cells.clone();
-    if let Some(active) = state.active_cell.clone() {
-        cells.push(active);
-    }
+    let cells = state.active_cell.clone().into_iter().collect::<Vec<_>>();
 
     let lines = build_cell_lines(&cells, width);
     tail_lines(lines, max_rows as usize)
@@ -554,9 +567,10 @@ impl Command for ResetScrollRegion {
 #[cfg(test)]
 mod tests {
     use super::{
-        bottom_anchor_lines, build_stable_history_cells, build_viewport_snapshot,
-        changed_row_indices, format_prompt_box, format_title, is_cell_prefix, normalize_body_lines,
-        queue_clear_visible, render_history_append_lines, summarize_tool_body,
+        bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
+        build_viewport_snapshot, changed_row_indices, format_prompt_box, format_title,
+        is_cell_prefix, normalize_body_lines, queue_clear_visible, render_history_append_lines,
+        summarize_tool_body,
     };
     use crate::state::{AppState, PendingUserCell};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
@@ -633,6 +647,59 @@ mod tests {
         let cells = build_stable_history_cells(&state);
         assert_eq!(cells[0].kind, TranscriptCellKind::User);
         assert_eq!(cells[1].kind, TranscriptCellKind::Assistant);
+    }
+
+    #[test]
+    fn stable_history_includes_runtime_tool_and_notice_cells() {
+        let mut state = AppState::empty();
+        state.runtime_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Tool,
+            title: "Tool · switch_model".to_string(),
+            subtitle: None,
+            body: "{\"ok\":true}".to_string(),
+            group: MessageGroup::ToolActivity,
+            is_active: false,
+        });
+        state.runtime_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Notice,
+            title: "Info".to_string(),
+            subtitle: None,
+            body: "Listed sessions".to_string(),
+            group: MessageGroup::RuntimeNotice,
+            is_active: false,
+        });
+
+        let cells = build_stable_history_cells(&state);
+
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[0].kind, TranscriptCellKind::Tool);
+        assert_eq!(cells[1].kind, TranscriptCellKind::Notice);
+    }
+
+    #[test]
+    fn transient_view_only_contains_active_assistant() {
+        let mut state = AppState::empty();
+        state.runtime_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Notice,
+            title: "Info".to_string(),
+            subtitle: None,
+            body: "This should be committed history".to_string(),
+            group: MessageGroup::RuntimeNotice,
+            is_active: false,
+        });
+        state.active_cell = Some(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "streaming".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        });
+
+        let lines = build_transient_lines(&state, 80, 8);
+
+        assert!(lines.iter().any(|line| line.contains("typing")));
+        assert!(!lines.iter().any(|line| line.contains("committed history")));
     }
 
     #[test]

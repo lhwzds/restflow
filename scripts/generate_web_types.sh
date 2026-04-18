@@ -8,9 +8,9 @@ cd "${REPO_ROOT}"
 
 # TS_RS_EXPORT_DIR is configured in .cargo/config.toml to point at web/src/types/generated.
 # Run every crate that owns exported bindings so generated files stay in sync.
-# Default the target dir to an internal-disk path to avoid macOS AMFI issues when the
-# repository lives on an external volume.
-TYPEGEN_TARGET_DIR="${HOME}/.cargo-targets/restflow-typegen"
+# Default the target dir inside the repository so external-volume checkouts keep
+# generated build artifacts off the system disk.
+TYPEGEN_TARGET_DIR="${REPO_ROOT}/target/restflow-typegen"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TYPEGEN_TARGET_DIR}}"
 
 cargo test -p restflow-traits --features ts --lib export_bindings -- --test-threads=1

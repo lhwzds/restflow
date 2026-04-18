@@ -146,7 +146,7 @@ async function main() {
   const stateDir = path.join(tempRoot, 'state')
   const logsDir = path.join(tempRoot, 'logs')
   const dbPath = path.join(tempRoot, 'restflow-e2e.db')
-  const cargoTargetDir = process.env.CARGO_TARGET_DIR || path.join(os.homedir(), '.cargo-targets', 'restflow-e2e')
+  const cargoTargetDir = process.env.CARGO_TARGET_DIR || path.join(repoRoot, 'target', 'restflow-e2e')
   const daemonPort = await findFreePort()
   const webPort = await findFreePort()
   const baseUrl = `http://127.0.0.1:${webPort}`

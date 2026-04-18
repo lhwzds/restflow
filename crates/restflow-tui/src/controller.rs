@@ -238,15 +238,20 @@ impl ShellController {
     ) -> Result<Vec<ShellAction>> {
         match command {
             SlashCommand::Start => {
-                self.start_daemon_actions(
-                    state
-                        .startup_state()
-                        .and_then(|startup| startup.agent_override.as_deref()),
-                    state
-                        .startup_state()
-                        .and_then(|startup| startup.session_override.as_deref()),
-                )
-                .await
+                match self
+                    .start_daemon_actions(
+                        state
+                            .startup_state()
+                            .and_then(|startup| startup.agent_override.as_deref()),
+                        state
+                            .startup_state()
+                            .and_then(|startup| startup.session_override.as_deref()),
+                    )
+                    .await
+                {
+                    Ok(actions) => Ok(actions),
+                    Err(err) => Ok(start_daemon_error_actions(err)),
+                }
             }
             SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(
                 ShellMessage::InfoNotice {
@@ -604,6 +609,10 @@ impl ShellController {
     }
 }
 
+fn start_daemon_error_actions(err: anyhow::Error) -> Vec<ShellAction> {
+    vec![ShellAction::Error(format!("Failed to start daemon: {err}"))]
+}
+
 fn help_text() -> &'static str {
     "RestFlow terminal shell\n\n\
 Use /start when the daemon is offline.\n\
@@ -630,4 +639,21 @@ Slash commands:\n\
 /team state <team_run_id>\n\
 /team start <saved_team>\n\
 /task pause|resume|stop <task_id>"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::start_daemon_error_actions;
+    use crate::reducer::ShellAction;
+
+    #[test]
+    fn start_daemon_error_stays_inside_shell() {
+        let actions = start_daemon_error_actions(anyhow::anyhow!("socket denied"));
+
+        assert!(matches!(
+            actions.as_slice(),
+            [ShellAction::Error(message)]
+                if message.contains("Failed to start daemon") && message.contains("socket denied")
+        ));
+    }
 }
