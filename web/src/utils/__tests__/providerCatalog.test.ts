@@ -4,20 +4,8 @@ import { getProviderDisplayName, sortProviders } from '../providerCatalog'
 describe('providerCatalog', () => {
   it('sorts primary providers in product order before other providers', () => {
     expect(
-      sortProviders([
-        'anthropic',
-        'codex',
-        'openai',
-        'zai-coding-plan',
-        'minimax-coding-plan',
-      ]),
-    ).toEqual([
-      'openai',
-      'minimax-coding-plan',
-      'zai-coding-plan',
-      'codex',
-      'anthropic',
-    ])
+      sortProviders(['anthropic', 'codex', 'openai', 'zai-coding-plan', 'minimax-coding-plan']),
+    ).toEqual(['openai', 'minimax-coding-plan', 'zai-coding-plan', 'codex', 'anthropic'])
   })
 
   it('returns stable display labels for provider groups', () => {
