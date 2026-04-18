@@ -76,9 +76,9 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 })?;
 
                 match spec.provider {
-                    LlmProvider::Anthropic => Arc::new(
-                        AnthropicClient::new(key)?.with_model(spec.client_model),
-                    ),
+                    LlmProvider::Anthropic => {
+                        Arc::new(AnthropicClient::new(key)?.with_model(spec.client_model))
+                    }
                     LlmProvider::MiniMax | LlmProvider::MiniMaxCodingPlan => Arc::new(
                         AnthropicClient::new(key)?
                             .with_model(spec.client_model)
@@ -193,8 +193,9 @@ mod tests {
             Err(err) => err,
         };
 
-        assert!(err
-            .to_string()
-            .contains("Claude Code CLI support has been removed"));
+        assert!(
+            err.to_string()
+                .contains("Claude Code CLI support has been removed")
+        );
     }
 }

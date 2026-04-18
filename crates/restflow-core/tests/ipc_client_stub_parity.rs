@@ -27,10 +27,8 @@ fn non_unix_stub_covers_session_client_methods() {
         &load_source(&ipc_client_dir.join("sessions.rs")),
         "pub async fn ",
     );
-    let unsupported_methods = parse_method_names(
-        &load_source(&ipc_client_dir.join("unsupported.rs")),
-        "fn ",
-    );
+    let unsupported_methods =
+        parse_method_names(&load_source(&ipc_client_dir.join("unsupported.rs")), "fn ");
 
     let missing: Vec<_> = unix_methods
         .difference(&unsupported_methods)

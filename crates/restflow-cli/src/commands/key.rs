@@ -295,9 +295,7 @@ fn parse_provider(value: &str) -> Result<AuthProvider> {
         "openai" | "gpt" => Ok(AuthProvider::OpenAI),
         "openai-codex" | "openai_codex" | "codex" => Ok(AuthProvider::OpenAICodex),
         "deepseek" => Ok(AuthProvider::Other),
-        _ => bail!(
-            "Unknown provider: {value}. Use: anthropic, openai, openai-codex, deepseek"
-        ),
+        _ => bail!("Unknown provider: {value}. Use: anthropic, openai, openai-codex, deepseek"),
     }
 }
 
