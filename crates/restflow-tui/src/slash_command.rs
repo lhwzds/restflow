@@ -196,11 +196,17 @@ mod tests {
 
     #[test]
     fn bare_team_command_shows_current_team() {
-        assert_eq!(parse_slash_command("/team").expect("parse"), SlashCommand::ShowTeam);
+        assert_eq!(
+            parse_slash_command("/team").expect("parse"),
+            SlashCommand::ShowTeam
+        );
     }
 
     #[test]
     fn parses_start_command() {
-        assert_eq!(parse_slash_command("/start").expect("parse"), SlashCommand::Start);
+        assert_eq!(
+            parse_slash_command("/start").expect("parse"),
+            SlashCommand::Start
+        );
     }
 }

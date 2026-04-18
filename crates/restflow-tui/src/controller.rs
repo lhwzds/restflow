@@ -237,16 +237,22 @@ impl ShellController {
         command: SlashCommand,
     ) -> Result<Vec<ShellAction>> {
         match command {
-            SlashCommand::Start => self.start_daemon_actions(
-                state.startup_state().and_then(|startup| startup.agent_override.as_deref()),
-                state
-                    .startup_state()
-                    .and_then(|startup| startup.session_override.as_deref()),
-            )
-            .await,
-            SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: help_text().to_string(),
-            })]),
+            SlashCommand::Start => {
+                self.start_daemon_actions(
+                    state
+                        .startup_state()
+                        .and_then(|startup| startup.agent_override.as_deref()),
+                    state
+                        .startup_state()
+                        .and_then(|startup| startup.session_override.as_deref()),
+                )
+                .await
+            }
+            SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(
+                ShellMessage::InfoNotice {
+                    content: help_text().to_string(),
+                },
+            )]),
             SlashCommand::ListSessions => self.list_sessions_inline_actions().await,
             SlashCommand::OpenSession { session_id } => {
                 let session = self.client.get_session(&session_id).await?;
@@ -339,9 +345,11 @@ impl ShellController {
     async fn list_sessions_inline_actions(&self) -> Result<Vec<ShellAction>> {
         let sessions = self.client.list_sessions().await?;
         if sessions.is_empty() {
-            return Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: "No sessions yet.".to_string(),
-            })]);
+            return Ok(vec![ShellAction::MessageAppended(
+                ShellMessage::InfoNotice {
+                    content: "No sessions yet.".to_string(),
+                },
+            )]);
         }
 
         let mut lines = vec!["Sessions".to_string()];
@@ -349,17 +357,21 @@ impl ShellController {
             lines.push(format!("- {} ({})", session.name, session.id));
         }
         lines.push("Open one with /session open <session_id>".to_string());
-        Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-            content: lines.join("\n"),
-        })])
+        Ok(vec![ShellAction::MessageAppended(
+            ShellMessage::InfoNotice {
+                content: lines.join("\n"),
+            },
+        )])
     }
 
     async fn list_runs_inline_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
         let items = state.run_picker_items();
         if items.is_empty() {
-            return Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: "No runs for the current session.".to_string(),
-            })]);
+            return Ok(vec![ShellAction::MessageAppended(
+                ShellMessage::InfoNotice {
+                    content: "No runs for the current session.".to_string(),
+                },
+            )]);
         }
 
         let mut lines = vec!["Runs".to_string()];
@@ -372,9 +384,11 @@ impl ShellController {
             lines.push(format!("- {title} · {status} · {run_id}"));
         }
         lines.push("Open one with /run open <run_id>".to_string());
-        Ok(vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-            content: lines.join("\n"),
-        })])
+        Ok(vec![ShellAction::MessageAppended(
+            ShellMessage::InfoNotice {
+                content: lines.join("\n"),
+            },
+        )])
     }
 
     fn list_approvals_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {

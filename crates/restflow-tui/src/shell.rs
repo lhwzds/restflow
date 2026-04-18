@@ -1,6 +1,8 @@
+use std::fmt;
 use std::io::{Result as IoResult, Stdout, Write};
 
-use crossterm::cursor::MoveTo;
+use crossterm::Command;
+use crossterm::cursor::{MoveTo, MoveToColumn};
 use crossterm::queue;
 use crossterm::style::Print;
 use crossterm::terminal::{self, Clear, ClearType};
@@ -12,19 +14,20 @@ const CONTINUATION_PREFIX: &str = "  ";
 const TOOL_SUMMARY_LIMIT: usize = 120;
 const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
 const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
-const PROMPT_BORDER_ROWS: u16 = 2;
+const MAX_TRANSIENT_ROWS: u16 = 8;
 
 pub struct ShellRenderer {
     stdout: Stdout,
-    last_snapshot: Option<FrameSnapshot>,
+    committed_cells: Vec<TranscriptCell>,
+    history_lines: Vec<String>,
+    last_viewport: Option<ViewportSnapshot>,
+    last_terminal_size: Option<(u16, u16)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FrameSnapshot {
-    width: u16,
-    height: u16,
-    prompt_top_row: u16,
-    screen_lines: Vec<String>,
+struct ViewportSnapshot {
+    top: u16,
+    lines: Vec<String>,
     cursor_x: u16,
     cursor_y: u16,
 }
@@ -40,47 +43,135 @@ impl ShellRenderer {
     pub fn new() -> Self {
         Self {
             stdout: std::io::stdout(),
-            last_snapshot: None,
+            committed_cells: Vec::new(),
+            history_lines: Vec::new(),
+            last_viewport: None,
+            last_terminal_size: None,
         }
     }
 
     pub fn clear_screen(&mut self) -> IoResult<()> {
-        queue_full_clear(&mut self.stdout)?;
-        self.last_snapshot = None;
+        queue_clear_visible(&mut self.stdout)?;
+        self.last_viewport = None;
+        self.last_terminal_size = None;
         self.stdout.flush()
     }
 
     pub fn sync(&mut self, state: &AppState) -> IoResult<()> {
-        let snapshot = build_frame_snapshot(state, terminal::size().unwrap_or((80, 24)));
-        if self.last_snapshot.as_ref() == Some(&snapshot) {
+        let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
+        let viewport = build_viewport_snapshot(state, size);
+        let stable_cells = build_stable_history_cells(state);
+
+        let mut force_full_redraw = false;
+        if !is_cell_prefix(&self.committed_cells, &stable_cells) {
+            self.committed_cells.clear();
+            self.history_lines.clear();
+            self.last_viewport = None;
+            force_full_redraw = true;
+        }
+
+        let new_history_lines = render_history_append_lines(
+            &stable_cells[self.committed_cells.len()..],
+            size.0,
+            !self.history_lines.is_empty(),
+        );
+
+        let viewport_shape_changed = self.last_terminal_size != Some(size)
+            || self.last_viewport.as_ref().is_none_or(|previous| {
+                previous.top != viewport.top || previous.lines.len() != viewport.lines.len()
+            });
+
+        if force_full_redraw || viewport_shape_changed {
+            queue_clear_visible(&mut self.stdout)?;
+            if !new_history_lines.is_empty() && viewport.top > 0 {
+                self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
+            }
+            self.history_lines.extend(new_history_lines);
+            self.redraw_visible_history(viewport.top, size.0)?;
+            self.redraw_viewport_full(&viewport, size.0)?;
+        } else {
+            if !new_history_lines.is_empty() {
+                self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
+                self.history_lines.extend(new_history_lines);
+            }
+
+            match self.last_viewport.clone() {
+                Some(previous) if previous == viewport => {
+                    self.restore_cursor(&viewport)?;
+                }
+                Some(previous) => {
+                    self.redraw_viewport_diff(&previous, &viewport, size.0)?;
+                }
+                None => {
+                    self.redraw_viewport_full(&viewport, size.0)?;
+                }
+            }
+        }
+
+        self.committed_cells = stable_cells;
+        self.last_viewport = Some(viewport);
+        self.last_terminal_size = Some(size);
+        self.stdout.flush()
+    }
+
+    fn append_history_lines(
+        &mut self,
+        viewport_top: u16,
+        width: u16,
+        lines: &[String],
+    ) -> IoResult<()> {
+        if lines.is_empty() || viewport_top == 0 {
             return Ok(());
         }
 
-        match self.last_snapshot.clone() {
-            Some(previous) if previous.width == snapshot.width && previous.height == snapshot.height => {
-                self.redraw_diff(&previous, &snapshot)?;
-            }
-            _ => self.redraw_full(&snapshot)?,
+        queue!(
+            self.stdout,
+            SetScrollRegion(1..viewport_top),
+            MoveTo(0, viewport_top.saturating_sub(1))
+        )?;
+        for line in lines {
+            queue!(
+                self.stdout,
+                Print("\r\n"),
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                Print(truncate_to_width(line, width))
+            )?;
         }
-        self.last_snapshot = Some(snapshot);
+        queue!(self.stdout, ResetScrollRegion)?;
         Ok(())
     }
 
-    fn redraw_full(&mut self, snapshot: &FrameSnapshot) -> IoResult<()> {
-        queue_full_clear(&mut self.stdout)?;
-        for (row, line) in snapshot.screen_lines.iter().enumerate() {
-            self.write_row(row as u16, line, snapshot.width)?;
+    fn redraw_visible_history(&mut self, viewport_top: u16, width: u16) -> IoResult<()> {
+        let visible = bottom_anchor_lines(self.history_lines.clone(), viewport_top as usize, 0);
+        for row in 0..viewport_top {
+            let line = visible.get(row as usize).map(String::as_str).unwrap_or("");
+            self.write_row(row, line, width)?;
         }
-        queue!(self.stdout, MoveTo(snapshot.cursor_x, snapshot.cursor_y))?;
-        self.stdout.flush()
+        Ok(())
     }
 
-    fn redraw_diff(&mut self, previous: &FrameSnapshot, snapshot: &FrameSnapshot) -> IoResult<()> {
-        for row in changed_row_indices(&previous.screen_lines, &snapshot.screen_lines) {
-            self.write_row(row as u16, &snapshot.screen_lines[row], snapshot.width)?;
+    fn redraw_viewport_full(&mut self, viewport: &ViewportSnapshot, width: u16) -> IoResult<()> {
+        for (offset, line) in viewport.lines.iter().enumerate() {
+            self.write_row(viewport.top + offset as u16, line, width)?;
         }
-        queue!(self.stdout, MoveTo(snapshot.cursor_x, snapshot.cursor_y))?;
-        self.stdout.flush()
+        self.restore_cursor(viewport)
+    }
+
+    fn redraw_viewport_diff(
+        &mut self,
+        previous: &ViewportSnapshot,
+        viewport: &ViewportSnapshot,
+        width: u16,
+    ) -> IoResult<()> {
+        for row in changed_row_indices(&previous.lines, &viewport.lines) {
+            self.write_row(viewport.top + row as u16, &viewport.lines[row], width)?;
+        }
+        self.restore_cursor(viewport)
+    }
+
+    fn restore_cursor(&mut self, viewport: &ViewportSnapshot) -> IoResult<()> {
+        queue!(self.stdout, MoveTo(viewport.cursor_x, viewport.cursor_y))
     }
 
     fn write_row(&mut self, row: u16, line: &str, width: u16) -> IoResult<()> {
@@ -93,45 +184,32 @@ impl ShellRenderer {
     }
 }
 
-fn build_frame_snapshot(state: &AppState, size: (u16, u16)) -> FrameSnapshot {
-    let (width, height) = normalize_terminal_size(size);
+fn build_viewport_snapshot(state: &AppState, size: (u16, u16)) -> ViewportSnapshot {
+    let (width, height) = size;
     let prompt = build_prompt_snapshot(state, width, height);
     let prompt_lines = format_prompt_box(width, &prompt.lines, &footer_status_line(state));
-    let prompt_height = prompt_lines.len() as u16;
-    let prompt_top_row = height.saturating_sub(prompt_height);
-    let transcript_height = prompt_top_row;
-    let transcript_lines = bottom_anchor_lines(
-        build_transcript_lines(&state.transcript_cells_for_render(), width),
-        transcript_height as usize,
-        state.transcript_scroll as usize,
-    );
-    let mut screen_lines = vec![String::new(); height as usize];
-    for (row, line) in transcript_lines.into_iter().enumerate() {
-        if row < screen_lines.len() {
-            screen_lines[row] = line;
-        }
-    }
-    for (offset, line) in prompt_lines.iter().enumerate() {
-        let row = prompt_top_row as usize + offset;
-        if row < screen_lines.len() {
-            screen_lines[row] = line.clone();
-        }
-    }
+    let transient_capacity = height
+        .saturating_sub(prompt_lines.len() as u16)
+        .min(MAX_TRANSIENT_ROWS);
+    let transient_lines = build_transient_lines(state, width, transient_capacity);
+    let top = height.saturating_sub(transient_lines.len() as u16 + prompt_lines.len() as u16);
 
-    FrameSnapshot {
-        width,
-        height,
-        prompt_top_row,
-        screen_lines,
+    let mut lines = transient_lines;
+    let prompt_offset = lines.len() as u16;
+    lines.extend(prompt_lines);
+
+    ViewportSnapshot {
+        top,
+        lines,
         cursor_x: (1 + prompt.cursor_column).min(width.saturating_sub(2)),
-        cursor_y: (prompt_top_row + 1 + prompt.cursor_row).min(height.saturating_sub(1)),
+        cursor_y: (top + prompt_offset + 1 + prompt.cursor_row).min(height.saturating_sub(1)),
     }
 }
 
 fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSnapshot {
     let content_width = prompt_content_width(width);
     let max_visible_rows = height
-        .saturating_sub(PROMPT_BORDER_ROWS)
+        .saturating_sub(2)
         .clamp(PROMPT_MIN_VISIBLE_ROWS, PROMPT_MAX_VISIBLE_ROWS);
     let show_placeholder = state.composer.is_blank();
     let visible_rows = if show_placeholder {
@@ -162,7 +240,55 @@ fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSna
     }
 }
 
-fn build_transcript_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
+fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
+    let mut cells =
+        Vec::with_capacity(state.conversation_cells.len() + state.pending_user_cells.len());
+
+    let mut pending = state.pending_user_cells.iter().peekable();
+    for (index, cell) in state.conversation_cells.iter().enumerate() {
+        while let Some(entry) = pending.peek() {
+            if entry.base_cell_index <= index {
+                cells.push(entry.cell.clone());
+                pending.next();
+            } else {
+                break;
+            }
+        }
+        cells.push(cell.clone());
+    }
+    for entry in pending {
+        cells.push(entry.cell.clone());
+    }
+    cells
+}
+
+fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<String> {
+    if max_rows == 0 {
+        return Vec::new();
+    }
+
+    let mut cells = state.runtime_cells.clone();
+    if let Some(active) = state.active_cell.clone() {
+        cells.push(active);
+    }
+
+    let lines = build_cell_lines(&cells, width);
+    tail_lines(lines, max_rows as usize)
+}
+
+fn render_history_append_lines(
+    cells: &[TranscriptCell],
+    width: u16,
+    prepend_separator: bool,
+) -> Vec<String> {
+    let mut lines = build_cell_lines(cells, width);
+    if prepend_separator && !lines.is_empty() {
+        lines.insert(0, String::new());
+    }
+    lines
+}
+
+fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
     let mut lines = Vec::new();
     for cell in cells {
         if !should_render_cell(cell) {
@@ -183,8 +309,10 @@ fn build_transcript_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
             _ => {
                 lines.push(truncate_to_width(&format_title(cell), width));
                 for line in normalize_body_lines(cell.body.as_str()) {
-                    let content = format!("{CONTINUATION_PREFIX}{line}");
-                    lines.push(truncate_to_width(&content, width));
+                    lines.push(truncate_to_width(
+                        &format!("{CONTINUATION_PREFIX}{line}"),
+                        width,
+                    ));
                 }
             }
         }
@@ -195,21 +323,28 @@ fn build_transcript_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
     if lines.last().is_some_and(String::is_empty) {
         lines.pop();
     }
-
     lines
+}
+
+fn is_cell_prefix(previous: &[TranscriptCell], current: &[TranscriptCell]) -> bool {
+    previous.len() <= current.len()
+        && previous
+            .iter()
+            .zip(current.iter())
+            .all(|(left, right)| left == right)
 }
 
 fn should_render_cell(cell: &TranscriptCell) -> bool {
     match cell.kind {
         TranscriptCellKind::Tool => !summarize_tool_body(cell.body.as_str()).is_empty(),
         TranscriptCellKind::Assistant => cell.is_active || !cell.body.trim().is_empty(),
-        TranscriptCellKind::User
-        | TranscriptCellKind::System
-        | TranscriptCellKind::Notice => !cell.body.trim().is_empty(),
+        TranscriptCellKind::User | TranscriptCellKind::System | TranscriptCellKind::Notice => {
+            !cell.body.trim().is_empty()
+        }
     }
 }
 
-fn queue_full_clear(writer: &mut impl Write) -> IoResult<()> {
+fn queue_clear_visible(writer: &mut impl Write) -> IoResult<()> {
     queue!(writer, Clear(ClearType::All), MoveTo(0, 0))
 }
 
@@ -254,7 +389,6 @@ fn normalize_body_lines(body: &str) -> Vec<String> {
             previous_blank = false;
         }
     }
-
     lines
 }
 
@@ -313,7 +447,19 @@ fn placeholder_line(inner_width: u16) -> String {
     truncate_to_width("Type your message or use /help", inner_width)
 }
 
-fn bottom_anchor_lines(lines: Vec<String>, height: usize, scroll_from_bottom: usize) -> Vec<String> {
+fn tail_lines(lines: Vec<String>, max_rows: usize) -> Vec<String> {
+    if max_rows == 0 || lines.is_empty() {
+        return Vec::new();
+    }
+    let start = lines.len().saturating_sub(max_rows);
+    lines[start..].to_vec()
+}
+
+fn bottom_anchor_lines(
+    lines: Vec<String>,
+    height: usize,
+    scroll_from_bottom: usize,
+) -> Vec<String> {
     if height == 0 {
         return Vec::new();
     }
@@ -367,13 +513,52 @@ fn display_width(value: &str) -> u16 {
     unicode_width::UnicodeWidthStr::width(value) as u16
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetScrollRegion(std::ops::Range<u16>);
+
+impl Command for SetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        panic!("SetScrollRegion requires ANSI");
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResetScrollRegion;
+
+impl Command for ResetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[r")
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        panic!("ResetScrollRegion requires ANSI");
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_frame_snapshot, bottom_anchor_lines, changed_row_indices, format_prompt_box,
-        format_title, normalize_body_lines, queue_full_clear, summarize_tool_body,
+        bottom_anchor_lines, build_stable_history_cells, build_viewport_snapshot,
+        changed_row_indices, format_prompt_box, format_title, is_cell_prefix, normalize_body_lines,
+        queue_clear_visible, render_history_append_lines, summarize_tool_body,
     };
-    use crate::state::AppState;
+    use crate::state::{AppState, PendingUserCell};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
     #[test]
@@ -405,27 +590,54 @@ mod tests {
     }
 
     #[test]
-    fn full_clear_homes_cursor_before_redraw() {
+    fn clear_visible_homes_cursor_before_redraw() {
         let mut output = Vec::new();
-        queue_full_clear(&mut output).expect("clear sequence should render");
+        queue_clear_visible(&mut output).expect("clear sequence should render");
         let ansi = String::from_utf8(output).expect("clear sequence should be utf8");
         assert!(ansi.contains("\u{1b}[2J"));
         assert!(ansi.contains("\u{1b}[1;1H") || ansi.contains("\u{1b}[H"));
     }
 
     #[test]
-    fn prompt_snapshot_stays_anchored_to_bottom() {
+    fn viewport_stays_anchored_to_bottom() {
         let state = AppState::empty();
-        let snapshot = build_frame_snapshot(&state, (40, 10));
-        assert_eq!(snapshot.prompt_top_row, 7);
-        assert_eq!(snapshot.cursor_y, 8);
-        assert_eq!(snapshot.screen_lines.len(), 10);
-        assert!(snapshot.screen_lines[7].starts_with('┌'));
+        let viewport = build_viewport_snapshot(&state, (40, 10));
+        assert_eq!(viewport.top, 7);
+        assert_eq!(viewport.cursor_y, 8);
+        assert_eq!(viewport.lines.len(), 3);
+    }
+
+    #[test]
+    fn stable_history_inserts_pending_user_in_order() {
+        let mut state = AppState::empty();
+        state.conversation_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: None,
+            body: "hi".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        });
+        state.pending_user_cells.push(PendingUserCell {
+            base_cell_index: 0,
+            cell: TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "hello".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        });
+
+        let cells = build_stable_history_cells(&state);
+        assert_eq!(cells[0].kind, TranscriptCellKind::User);
+        assert_eq!(cells[1].kind, TranscriptCellKind::Assistant);
     }
 
     #[test]
     fn transcript_view_filters_empty_user_cells() {
-        let lines = super::build_transcript_lines(
+        let lines = super::build_cell_lines(
             &[
                 TranscriptCell {
                     kind: TranscriptCellKind::User,
@@ -452,19 +664,52 @@ mod tests {
     }
 
     #[test]
-    fn bottom_anchor_lines_pads_from_top() {
-        let visible = bottom_anchor_lines(
-            vec!["one".to_string(), "two".to_string()],
-            4,
-            0,
-        );
-        assert_eq!(visible, vec!["", "", "one", "two"]);
-    }
-
-    #[test]
     fn normalize_body_lines_trims_edges_and_compacts_blank_runs() {
         let lines = normalize_body_lines("\n\nhello\n\n\nworld\n\n");
         assert_eq!(lines, vec!["hello", "", "world"]);
+    }
+
+    #[test]
+    fn append_lines_prepend_separator_when_history_exists() {
+        let cells = vec![TranscriptCell {
+            kind: TranscriptCellKind::User,
+            title: "You".to_string(),
+            subtitle: None,
+            body: "hello".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        }];
+        let lines = render_history_append_lines(&cells, 40, true);
+        assert_eq!(lines[0], "");
+        assert_eq!(lines[1], "You");
+    }
+
+    #[test]
+    fn prefix_check_requires_identical_leading_cells() {
+        let user = TranscriptCell {
+            kind: TranscriptCellKind::User,
+            title: "You".to_string(),
+            subtitle: None,
+            body: "hello".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        };
+        let assistant = TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: None,
+            body: "hi".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        };
+        assert!(is_cell_prefix(
+            std::slice::from_ref(&user),
+            &[user.clone(), assistant.clone()]
+        ));
+        assert!(!is_cell_prefix(
+            std::slice::from_ref(&assistant),
+            &[user, assistant.clone()]
+        ));
     }
 
     #[test]
@@ -472,5 +717,11 @@ mod tests {
         let previous = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let current = vec!["a".to_string(), "x".to_string(), "c".to_string()];
         assert_eq!(changed_row_indices(&previous, &current), vec![1]);
+    }
+
+    #[test]
+    fn bottom_anchor_lines_pads_from_top() {
+        let visible = bottom_anchor_lines(vec!["one".to_string(), "two".to_string()], 4, 0);
+        assert_eq!(visible, vec!["", "", "one", "two"]);
     }
 }

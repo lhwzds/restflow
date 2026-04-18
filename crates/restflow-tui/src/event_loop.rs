@@ -24,10 +24,7 @@ pub enum AppEvent {
     Error(String),
 }
 
-pub async fn run_event_loop(
-    controller: ShellController,
-    mut state: AppState,
-) -> Result<()> {
+pub async fn run_event_loop(controller: ShellController, mut state: AppState) -> Result<()> {
     let mut renderer = ShellRenderer::new();
     renderer.clear_screen()?;
     let (tx, mut rx) = mpsc::unbounded_channel();

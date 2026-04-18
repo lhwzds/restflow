@@ -9,9 +9,9 @@ use restflow_traits::{
 
 use super::composer::ComposerState;
 use super::transcript::{
-    ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message, message_from_session_event,
-    message_from_stream_frame, message_from_task_event, message_from_team_message,
-    messages_from_session, transcript_cells,
+    ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
+    message_from_session_event, message_from_stream_frame, message_from_task_event,
+    message_from_team_message, messages_from_session, transcript_cells,
 };
 
 #[derive(Debug, Clone)]
@@ -88,7 +88,6 @@ impl SessionThreadState {
             .as_ref()
             .and_then(|thread| thread.focus.task_id.as_deref())
     }
-
 }
 
 #[allow(dead_code)]
@@ -419,11 +418,10 @@ impl AppState {
             &ShellMessage::UserMessage { content },
             self.assistant_name(),
         );
-        self.pending_user_cells
-            .push(PendingUserCell {
-                base_cell_index,
-                cell,
-            });
+        self.pending_user_cells.push(PendingUserCell {
+            base_cell_index,
+            cell,
+        });
         self.transcript_scroll_to_bottom();
     }
 
@@ -588,6 +586,7 @@ impl AppState {
             .collect();
     }
 
+    #[allow(dead_code)]
     pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
         let mut cells = Vec::with_capacity(
             self.conversation_cells.len()

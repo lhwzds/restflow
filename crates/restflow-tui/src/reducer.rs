@@ -66,9 +66,7 @@ pub enum ShellEffect {
     RefreshState,
     ReloadCurrentSession,
     ActivateOverlaySelection,
-    SubmitMessage {
-        message: String,
-    },
+    SubmitMessage { message: String },
     ExecuteSlashCommand(SlashCommand),
     ListSessionsInline,
     ListRunsInline,
@@ -213,8 +211,7 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
-            if matches!(state.composer.mode(), ComposerMode::Command)
-                && !state.composer.is_blank()
+            if matches!(state.composer.mode(), ComposerMode::Command) && !state.composer.is_blank()
             {
                 state.composer.clear();
                 state.status = "Returned to message mode".to_string();
