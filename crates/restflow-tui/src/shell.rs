@@ -517,11 +517,8 @@ fn cell_title_style(cell: &TranscriptCell) -> Style {
         TranscriptCellKind::User => Style::default()
             .fg(Color::LightBlue)
             .add_modifier(Modifier::BOLD),
-        TranscriptCellKind::Assistant if cell.is_active => Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
         TranscriptCellKind::Assistant => Style::default()
-            .fg(Color::LightGreen)
+            .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
         TranscriptCellKind::System | TranscriptCellKind::Notice if cell.title == "Error" => {
             error_style()
@@ -1052,7 +1049,7 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
-        assert_eq!(lines[3].spans[0].style.fg, Some(Color::LightGreen));
+        assert_eq!(lines[3].spans[0].style.fg, Some(Color::Yellow));
         assert!(
             lines[3].spans[0]
                 .style
