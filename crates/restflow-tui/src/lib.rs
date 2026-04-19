@@ -5,6 +5,8 @@ mod daemon_client;
 mod event_loop;
 mod keymap;
 mod reducer;
+#[allow(dead_code)]
+mod render;
 mod shell;
 mod slash_command;
 mod state;

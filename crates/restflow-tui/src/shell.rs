@@ -7,6 +7,7 @@ use crossterm::queue;
 use crossterm::style::Print;
 use crossterm::terminal::{self, Clear, ClearType};
 
+use crate::render::render_shell_bottom_viewport;
 use crate::state::AppState;
 use crate::transcript::{TranscriptCell, TranscriptCellKind};
 
@@ -40,6 +41,12 @@ struct PromptSnapshot {
     cursor_row: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalViewport {
+    size: (u16, u16),
+    snapshot: ViewportSnapshot,
+}
+
 impl ShellRenderer {
     pub fn new() -> Self {
         Self {
@@ -61,7 +68,8 @@ impl ShellRenderer {
 
     pub fn sync(&mut self, state: &AppState) -> IoResult<()> {
         let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
-        let viewport = build_viewport_snapshot(state, size);
+        let terminal_viewport = TerminalViewport::build(state, size);
+        let viewport = terminal_viewport.snapshot;
         let stable_cells = build_stable_history_cells(state);
 
         let mut force_full_redraw = false;
@@ -92,7 +100,12 @@ impl ShellRenderer {
         if force_full_redraw || viewport_shape_changed {
             queue_clear_visible(&mut self.stdout)?;
             if !new_history_lines.is_empty() && viewport.top > 0 {
-                self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
+                HistoryInserter::append(
+                    &mut self.stdout,
+                    viewport.top,
+                    size.0,
+                    &new_history_lines,
+                )?;
                 self.history_lines.extend(new_history_lines);
             } else if !new_history_lines.is_empty() {
                 self.pending_history_lines.extend(new_history_lines);
@@ -102,7 +115,12 @@ impl ShellRenderer {
         } else {
             if !new_history_lines.is_empty() {
                 if viewport.top > 0 {
-                    self.append_history_lines(viewport.top, size.0, &new_history_lines)?;
+                    HistoryInserter::append(
+                        &mut self.stdout,
+                        viewport.top,
+                        size.0,
+                        &new_history_lines,
+                    )?;
                     self.history_lines.extend(new_history_lines);
                 } else {
                     self.pending_history_lines.extend(new_history_lines);
@@ -124,36 +142,38 @@ impl ShellRenderer {
 
         self.committed_cells = stable_cells;
         self.last_viewport = Some(viewport);
-        self.last_terminal_size = Some(size);
+        self.last_terminal_size = Some(terminal_viewport.size);
         self.stdout.flush()
     }
 
-    fn append_history_lines(
-        &mut self,
-        viewport_top: u16,
-        width: u16,
-        lines: &[String],
-    ) -> IoResult<()> {
-        if lines.is_empty() || viewport_top == 0 {
-            return Ok(());
+    pub fn sync_viewport_only(&mut self, state: &AppState) -> IoResult<()> {
+        let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
+        let terminal_viewport = TerminalViewport::build(state, size);
+        let viewport = terminal_viewport.snapshot;
+
+        let can_update_viewport_only = self.last_terminal_size == Some(size)
+            && self.last_viewport.as_ref().is_some_and(|previous| {
+                previous.top == viewport.top && previous.lines.len() == viewport.lines.len()
+            });
+        if !can_update_viewport_only {
+            return self.sync(state);
         }
 
-        queue!(
-            self.stdout,
-            SetScrollRegion(1..viewport_top),
-            MoveTo(0, viewport_top.saturating_sub(1))
-        )?;
-        for line in lines {
-            queue!(
-                self.stdout,
-                Print("\r\n"),
-                MoveToColumn(0),
-                Clear(ClearType::CurrentLine),
-                Print(truncate_to_width(line, width))
-            )?;
+        match self.last_viewport.clone() {
+            Some(previous) if previous == viewport => {
+                self.restore_cursor(&viewport)?;
+            }
+            Some(previous) => {
+                self.redraw_viewport_diff(&previous, &viewport, size.0)?;
+            }
+            None => {
+                self.redraw_viewport_full(&viewport, size.0)?;
+            }
         }
-        queue!(self.stdout, ResetScrollRegion)?;
-        Ok(())
+
+        self.last_viewport = Some(viewport);
+        self.last_terminal_size = Some(terminal_viewport.size);
+        self.stdout.flush()
     }
 
     fn redraw_visible_history(&mut self, viewport_top: u16, width: u16) -> IoResult<()> {
@@ -198,25 +218,69 @@ impl ShellRenderer {
     }
 }
 
+impl TerminalViewport {
+    fn build(state: &AppState, size: (u16, u16)) -> Self {
+        let (width, height) = size;
+        let prompt = build_prompt_snapshot(state, width, height);
+        let prompt_height = prompt.lines.len() as u16 + 2;
+        let transient_capacity = height.saturating_sub(prompt_height).min(MAX_TRANSIENT_ROWS);
+        let transient_lines = build_transient_lines(state, width, transient_capacity);
+        let rendered = render_shell_bottom_viewport(
+            width,
+            transient_lines,
+            &prompt.lines,
+            prompt.cursor_column,
+            prompt.cursor_row,
+            &footer_status_line(state),
+        );
+        let top = height.saturating_sub(rendered.lines.len() as u16);
+
+        Self {
+            size,
+            snapshot: ViewportSnapshot {
+                top,
+                lines: rendered.lines,
+                cursor_x: rendered.cursor_x.min(width.saturating_sub(1)),
+                cursor_y: (top + rendered.cursor_y).min(height.saturating_sub(1)),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
 fn build_viewport_snapshot(state: &AppState, size: (u16, u16)) -> ViewportSnapshot {
-    let (width, height) = size;
-    let prompt = build_prompt_snapshot(state, width, height);
-    let prompt_lines = format_prompt_box(width, &prompt.lines, &footer_status_line(state));
-    let transient_capacity = height
-        .saturating_sub(prompt_lines.len() as u16)
-        .min(MAX_TRANSIENT_ROWS);
-    let transient_lines = build_transient_lines(state, width, transient_capacity);
-    let top = height.saturating_sub(transient_lines.len() as u16 + prompt_lines.len() as u16);
+    TerminalViewport::build(state, size).snapshot
+}
 
-    let mut lines = transient_lines;
-    let prompt_offset = lines.len() as u16;
-    lines.extend(prompt_lines);
+struct HistoryInserter;
 
-    ViewportSnapshot {
-        top,
-        lines,
-        cursor_x: (1 + prompt.cursor_column).min(width.saturating_sub(2)),
-        cursor_y: (top + prompt_offset + 1 + prompt.cursor_row).min(height.saturating_sub(1)),
+impl HistoryInserter {
+    fn append(
+        writer: &mut impl Write,
+        viewport_top: u16,
+        width: u16,
+        lines: &[String],
+    ) -> IoResult<()> {
+        if lines.is_empty() || viewport_top == 0 {
+            return Ok(());
+        }
+
+        queue!(
+            writer,
+            SetScrollRegion(1..viewport_top),
+            MoveTo(0, viewport_top.saturating_sub(1))
+        )?;
+        for line in lines {
+            queue!(
+                writer,
+                Print("\r\n"),
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                Print(truncate_to_width(line, width))
+            )?;
+        }
+        queue!(writer, ResetScrollRegion)?;
+        Ok(())
     }
 }
 
@@ -434,25 +498,6 @@ fn footer_status_line(state: &AppState) -> String {
     }
 }
 
-fn format_prompt_box(total_width: u16, draft_lines: &[String], footer: &str) -> Vec<String> {
-    let inner_width = prompt_content_width(total_width);
-    let mut lines = Vec::with_capacity(draft_lines.len() + 2);
-    lines.push(format!("┌{}┐", "─".repeat(inner_width as usize)));
-    for line in draft_lines {
-        lines.push(format!("│{}│", pad_to_width(line, inner_width)));
-    }
-    let footer_text = truncate_to_width(footer, inner_width.saturating_sub(2));
-    let mut bottom = String::from("└ ");
-    bottom.push_str(&footer_text);
-    let fill = inner_width
-        .saturating_sub(2)
-        .saturating_sub(display_width(&footer_text));
-    bottom.push_str(&"─".repeat(fill as usize));
-    bottom.push('┘');
-    lines.push(bottom);
-    lines
-}
-
 fn placeholder_line(inner_width: u16) -> String {
     truncate_to_width("Type your message or use /help", inner_width)
 }
@@ -529,14 +574,6 @@ fn changed_row_indices(previous: &[String], current: &[String]) -> Vec<usize> {
     rows
 }
 
-fn pad_to_width(value: &str, width: u16) -> String {
-    let truncated = truncate_to_width(value, width);
-    let padding = width.saturating_sub(display_width(&truncated));
-    let mut out = truncated;
-    out.push_str(&" ".repeat(padding as usize));
-    out
-}
-
 fn truncate_to_width(value: &str, width: u16) -> String {
     let width = width as usize;
     let mut out = String::new();
@@ -598,10 +635,11 @@ impl Command for ResetScrollRegion {
 mod tests {
     use super::{
         bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
-        build_viewport_snapshot, changed_row_indices, format_prompt_box, format_title,
-        is_cell_prefix, normalize_body_lines, queue_clear_visible, render_history_append_lines,
+        build_viewport_snapshot, changed_row_indices, format_title, is_cell_prefix,
+        normalize_body_lines, queue_clear_visible, render_history_append_lines,
         summarize_tool_body,
     };
+    use crate::render::render_shell_bottom_viewport;
     use crate::state::{AppState, PendingUserCell};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
@@ -625,12 +663,16 @@ mod tests {
     }
 
     #[test]
-    fn prompt_box_keeps_footer_and_borders() {
-        let lines = format_prompt_box(20, &[String::from("hello")], "openai · gpt-5");
-        assert_eq!(lines.len(), 3);
-        assert!(lines[0].starts_with('┌'));
-        assert!(lines[1].starts_with('│'));
-        assert!(lines[2].starts_with("└ "));
+    fn bottom_viewport_renderer_keeps_footer_and_borders() {
+        let prompt_lines = vec![String::from("hello")];
+        let rendered =
+            render_shell_bottom_viewport(20, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
+
+        assert_eq!(rendered.lines.len(), 3);
+        assert!(rendered.lines[0].starts_with('┌'));
+        assert!(rendered.lines[1].starts_with('│'));
+        assert!(rendered.lines[2].starts_with('└'));
+        assert!(rendered.lines[2].contains("openai"));
     }
 
     #[test]
