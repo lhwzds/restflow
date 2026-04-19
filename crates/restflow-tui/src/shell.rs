@@ -4,8 +4,13 @@ use std::io::{Result as IoResult, Stdout, Write};
 use crossterm::Command;
 use crossterm::cursor::{MoveTo, MoveToColumn};
 use crossterm::queue;
-use crossterm::style::Print;
+use crossterm::style::{
+    Attribute, Color as CrosstermColor, Colors, Print, SetAttribute, SetBackgroundColor, SetColors,
+    SetForegroundColor,
+};
 use crossterm::terminal::{self, Clear, ClearType};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 
 use crate::render::render_shell_bottom_viewport;
 use crate::state::AppState;
@@ -20,8 +25,8 @@ const MAX_TRANSIENT_ROWS: u16 = 8;
 pub struct ShellRenderer {
     stdout: Stdout,
     committed_cells: Vec<TranscriptCell>,
-    history_lines: Vec<String>,
-    pending_history_lines: Vec<String>,
+    history_lines: Vec<Line<'static>>,
+    pending_history_lines: Vec<Line<'static>>,
     last_viewport: Option<ViewportSnapshot>,
     last_terminal_size: Option<(u16, u16)>,
 }
@@ -29,14 +34,14 @@ pub struct ShellRenderer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ViewportSnapshot {
     top: u16,
-    lines: Vec<String>,
+    lines: Vec<Line<'static>>,
     cursor_x: u16,
     cursor_y: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PromptSnapshot {
-    lines: Vec<String>,
+    lines: Vec<Line<'static>>,
     cursor_column: u16,
     cursor_row: u16,
 }
@@ -174,7 +179,8 @@ impl ShellRenderer {
     fn redraw_visible_history(&mut self, viewport_top: u16, width: u16) -> IoResult<()> {
         let visible = bottom_anchor_lines(self.history_lines.clone(), viewport_top as usize, 0);
         for row in 0..viewport_top {
-            let line = visible.get(row as usize).map(String::as_str).unwrap_or("");
+            let empty = Line::from("");
+            let line = visible.get(row as usize).unwrap_or(&empty);
             self.write_row(row, line, width)?;
         }
         Ok(())
@@ -207,7 +213,7 @@ impl ShellRenderer {
         &mut self,
         viewport_top: u16,
         width: u16,
-        lines: Vec<String>,
+        lines: Vec<Line<'static>>,
     ) -> IoResult<bool> {
         if lines.is_empty() {
             return Ok(false);
@@ -235,13 +241,16 @@ impl ShellRenderer {
         Ok(true)
     }
 
-    fn write_row(&mut self, row: u16, line: &str, width: u16) -> IoResult<()> {
+    fn write_row(&mut self, row: u16, line: &Line<'static>, width: u16) -> IoResult<()> {
         queue!(
             self.stdout,
             MoveTo(0, row),
+            SetForegroundColor(CrosstermColor::Reset),
+            SetBackgroundColor(CrosstermColor::Reset),
+            SetAttribute(Attribute::Reset),
             Clear(ClearType::CurrentLine),
-            Print(truncate_to_width(line, width))
-        )
+        )?;
+        write_styled_line(&mut self.stdout, &truncate_line_to_width(line, width))
     }
 }
 
@@ -286,7 +295,7 @@ impl HistoryInserter {
         writer: &mut impl Write,
         viewport_top: u16,
         width: u16,
-        lines: &[String],
+        lines: &[Line<'static>],
     ) -> IoResult<()> {
         if lines.is_empty() || viewport_top == 0 {
             return Ok(());
@@ -302,9 +311,12 @@ impl HistoryInserter {
                 writer,
                 Print("\r\n"),
                 MoveToColumn(0),
+                SetForegroundColor(CrosstermColor::Reset),
+                SetBackgroundColor(CrosstermColor::Reset),
+                SetAttribute(Attribute::Reset),
                 Clear(ClearType::CurrentLine),
-                Print(truncate_to_width(line, width))
             )?;
+            write_styled_line(writer, &truncate_line_to_width(line, width))?;
         }
         queue!(writer, ResetScrollRegion)?;
         Ok(())
@@ -329,7 +341,12 @@ fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSna
     let lines = if show_placeholder {
         vec![placeholder_line(content_width)]
     } else {
-        state.composer.visible_lines(content_width, visible_rows)
+        state
+            .composer
+            .visible_lines(content_width, visible_rows)
+            .into_iter()
+            .map(Line::from)
+            .collect()
     };
 
     let (cursor_column, cursor_row) = if show_placeholder {
@@ -400,7 +417,7 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     cells
 }
 
-fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<String> {
+fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
     if max_rows == 0 {
         return Vec::new();
     }
@@ -421,15 +438,15 @@ fn render_history_append_lines(
     cells: &[TranscriptCell],
     width: u16,
     prepend_separator: bool,
-) -> Vec<String> {
+) -> Vec<Line<'static>> {
     let mut lines = build_cell_lines(cells, width);
     if prepend_separator && !lines.is_empty() {
-        lines.insert(0, String::new());
+        lines.insert(0, Line::from(""));
     }
     lines
 }
 
-fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
+fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for cell in cells {
         if !should_render_cell(cell) {
@@ -441,24 +458,37 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<String> {
                 let title = format_title(cell);
                 let summary = summarize_tool_body(cell.body.as_str());
                 let line = if summary.is_empty() {
-                    title
+                    styled_line(title, tool_title_style())
                 } else {
-                    format!("{title} {summary}")
+                    Line::from(vec![
+                        Span::styled(title, tool_title_style()),
+                        Span::raw(" "),
+                        Span::styled(summary, tool_body_style()),
+                    ])
                 };
-                lines.extend(wrap_display_line(&line, width));
+                lines.extend(wrap_styled_line(line, width));
             }
             _ => {
-                lines.extend(wrap_display_line(&format_title(cell), width));
+                lines.extend(wrap_display_line(
+                    &format_title(cell),
+                    width,
+                    cell_title_style(cell),
+                ));
                 for line in normalize_body_lines(cell.body.as_str()) {
-                    lines.extend(wrap_prefixed_line(CONTINUATION_PREFIX, &line, width));
+                    lines.extend(wrap_prefixed_line(
+                        CONTINUATION_PREFIX,
+                        &line,
+                        width,
+                        cell_body_style(cell),
+                    ));
                 }
             }
         }
 
-        lines.push(String::new());
+        lines.push(Line::from(""));
     }
 
-    if lines.last().is_some_and(String::is_empty) {
+    if lines.last().is_some_and(line_is_empty) {
         lines.pop();
     }
     lines
@@ -480,6 +510,55 @@ fn should_render_cell(cell: &TranscriptCell) -> bool {
             !cell.body.trim().is_empty()
         }
     }
+}
+
+fn cell_title_style(cell: &TranscriptCell) -> Style {
+    match cell.kind {
+        TranscriptCellKind::User => Style::default()
+            .fg(Color::LightBlue)
+            .add_modifier(Modifier::BOLD),
+        TranscriptCellKind::Assistant if cell.is_active => Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+        TranscriptCellKind::Assistant => Style::default()
+            .fg(Color::LightGreen)
+            .add_modifier(Modifier::BOLD),
+        TranscriptCellKind::System | TranscriptCellKind::Notice if cell.title == "Error" => {
+            error_style()
+        }
+        TranscriptCellKind::System | TranscriptCellKind::Notice => muted_style(),
+        TranscriptCellKind::Tool => tool_title_style(),
+    }
+}
+
+fn cell_body_style(cell: &TranscriptCell) -> Style {
+    match cell.kind {
+        TranscriptCellKind::User => Style::default(),
+        TranscriptCellKind::System | TranscriptCellKind::Notice if cell.title == "Error" => {
+            error_style()
+        }
+        TranscriptCellKind::System | TranscriptCellKind::Notice => muted_style(),
+        TranscriptCellKind::Tool => tool_body_style(),
+        TranscriptCellKind::Assistant => Style::default(),
+    }
+}
+
+fn tool_title_style() -> Style {
+    Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn tool_body_style() -> Style {
+    Style::default().fg(Color::DarkGray)
+}
+
+fn muted_style() -> Style {
+    Style::default().fg(Color::DarkGray)
+}
+
+fn error_style() -> Style {
+    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
 }
 
 fn stable_history_has_rendered_lines(state: &AppState) -> bool {
@@ -577,11 +656,14 @@ fn footer_status_line(state: &AppState) -> String {
     }
 }
 
-fn placeholder_line(inner_width: u16) -> String {
-    truncate_to_width("Type your message or use /help", inner_width)
+fn placeholder_line(inner_width: u16) -> Line<'static> {
+    styled_line(
+        truncate_to_width("Type your message or use /help", inner_width),
+        muted_style(),
+    )
 }
 
-fn preserve_first_line_tail(lines: Vec<String>, max_rows: usize) -> Vec<String> {
+fn preserve_first_line_tail(lines: Vec<Line<'static>>, max_rows: usize) -> Vec<Line<'static>> {
     if max_rows == 0 || lines.len() <= max_rows {
         return lines;
     }
@@ -596,57 +678,67 @@ fn preserve_first_line_tail(lines: Vec<String>, max_rows: usize) -> Vec<String> 
 }
 
 fn preserve_active_cell_separator(
-    lines: Vec<String>,
+    lines: Vec<Line<'static>>,
     max_rows: usize,
     prepend_separator: bool,
-) -> Vec<String> {
+) -> Vec<Line<'static>> {
     if !prepend_separator || max_rows <= 1 || lines.is_empty() {
         return preserve_first_line_tail(lines, max_rows);
     }
 
-    let mut visible = vec![String::new()];
+    let mut visible = vec![Line::from("")];
     visible.extend(preserve_first_line_tail(lines, max_rows - 1));
     visible
 }
 
-fn wrap_display_line(value: &str, width: u16) -> Vec<String> {
-    wrap_raw_line(value, width.max(1) as usize)
+fn wrap_display_line(value: &str, width: u16, style: Style) -> Vec<Line<'static>> {
+    wrap_styled_line(styled_line(value.to_string(), style), width)
 }
 
-fn wrap_prefixed_line(prefix: &str, value: &str, width: u16) -> Vec<String> {
+fn wrap_prefixed_line(prefix: &str, value: &str, width: u16, style: Style) -> Vec<Line<'static>> {
     let prefix_width = display_width(prefix) as usize;
     let content_width = (width as usize).saturating_sub(prefix_width).max(1);
-    wrap_raw_line(value, content_width)
+    wrap_styled_line(styled_line(value.to_string(), style), content_width as u16)
         .into_iter()
-        .map(|line| format!("{prefix}{line}"))
+        .enumerate()
+        .map(|(index, line)| prefix_styled_line(if index == 0 { prefix } else { "  " }, line))
         .collect()
 }
 
-fn wrap_raw_line(value: &str, width: usize) -> Vec<String> {
-    let width = width.max(1);
+fn wrap_styled_line(line: Line<'static>, width: u16) -> Vec<Line<'static>> {
+    let width = width.max(1) as usize;
+    let line_style = line.style;
+    let line_alignment = line.alignment;
     let mut lines = Vec::new();
-    let mut current = String::new();
+    let mut current = Vec::new();
     let mut current_width = 0usize;
 
-    for ch in value.chars() {
-        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if current_width > 0 && ch_width > 0 && current_width + ch_width > width {
-            lines.push(std::mem::take(&mut current));
-            current_width = 0;
+    for span in line.spans {
+        let span_style = span.style;
+        for ch in span.content.chars() {
+            let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if current_width > 0 && ch_width > 0 && current_width + ch_width > width {
+                lines.push(line_from_spans(
+                    std::mem::take(&mut current),
+                    line_style,
+                    line_alignment,
+                ));
+                current_width = 0;
+            }
+            push_char_span(&mut current, ch, span_style);
+            current_width += ch_width;
         }
-        current.push(ch);
-        current_width += ch_width;
     }
 
-    lines.push(current);
+    lines.push(line_from_spans(current, line_style, line_alignment));
     lines
 }
 
 fn bottom_anchor_lines(
-    lines: Vec<String>,
+    lines: Vec<Line<'static>>,
     height: usize,
     scroll_from_bottom: usize,
-) -> Vec<String> {
+) -> Vec<Line<'static>> {
     if height == 0 {
         return Vec::new();
     }
@@ -655,14 +747,14 @@ fn bottom_anchor_lines(
     let start = end.saturating_sub(height);
     let mut visible = lines[start..end].to_vec();
     if visible.len() < height {
-        let mut padding = vec![String::new(); height - visible.len()];
+        let mut padding = vec![Line::from(""); height - visible.len()];
         padding.append(&mut visible);
         return padding;
     }
     visible
 }
 
-fn changed_row_indices(previous: &[String], current: &[String]) -> Vec<usize> {
+fn changed_row_indices(previous: &[Line<'static>], current: &[Line<'static>]) -> Vec<usize> {
     let max_len = previous.len().max(current.len());
     let mut rows = Vec::new();
     for index in 0..max_len {
@@ -687,6 +779,131 @@ fn visible_history_fill_count(
     (viewport_top as usize)
         .saturating_sub(history_line_count)
         .min(incoming_line_count)
+}
+
+fn styled_line(value: impl Into<String>, style: Style) -> Line<'static> {
+    Line::from(Span::styled(value.into(), style))
+}
+
+fn line_from_spans(
+    spans: Vec<Span<'static>>,
+    style: Style,
+    alignment: Option<ratatui::layout::Alignment>,
+) -> Line<'static> {
+    let mut line = Line::from(spans);
+    line.style = style;
+    line.alignment = alignment;
+    line
+}
+
+fn push_char_span(spans: &mut Vec<Span<'static>>, ch: char, style: Style) {
+    if let Some(last) = spans.last_mut()
+        && last.style == style
+    {
+        last.content.to_mut().push(ch);
+        return;
+    }
+    spans.push(Span::styled(ch.to_string(), style));
+}
+
+fn prefix_styled_line(prefix: &str, line: Line<'static>) -> Line<'static> {
+    let mut spans = Vec::with_capacity(line.spans.len() + 1);
+    spans.push(Span::raw(prefix.to_string()));
+    spans.extend(line.spans);
+    line_from_spans(spans, line.style, line.alignment)
+}
+
+fn line_is_empty(line: &Line<'_>) -> bool {
+    line.spans
+        .iter()
+        .all(|span| span.content.as_ref().is_empty())
+}
+
+#[cfg(test)]
+fn line_text(line: &Line<'_>) -> String {
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>()
+}
+
+fn truncate_line_to_width(line: &Line<'static>, width: u16) -> Line<'static> {
+    let width = width as usize;
+    let mut spans = Vec::new();
+    let mut current_width = 0usize;
+
+    for span in &line.spans {
+        for ch in span.content.chars() {
+            let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if current_width + ch_width > width {
+                return line_from_spans(spans, line.style, line.alignment);
+            }
+            push_char_span(&mut spans, ch, span.style);
+            current_width += ch_width;
+        }
+    }
+
+    line_from_spans(spans, line.style, line.alignment)
+}
+
+fn write_styled_line(writer: &mut impl Write, line: &Line<'static>) -> IoResult<()> {
+    for span in &line.spans {
+        let style = if line.style == Style::default() {
+            span.style
+        } else {
+            span.style.patch(line.style)
+        };
+        queue!(
+            writer,
+            SetAttribute(Attribute::Reset),
+            SetColors(Colors::new(
+                style
+                    .fg
+                    .map(std::convert::Into::into)
+                    .unwrap_or(CrosstermColor::Reset),
+                style
+                    .bg
+                    .map(std::convert::Into::into)
+                    .unwrap_or(CrosstermColor::Reset),
+            ))
+        )?;
+        queue_modifiers(writer, style.add_modifier - style.sub_modifier)?;
+        queue!(writer, Print(span.content.clone()))?;
+    }
+    queue!(
+        writer,
+        SetForegroundColor(CrosstermColor::Reset),
+        SetBackgroundColor(CrosstermColor::Reset),
+        SetAttribute(Attribute::Reset),
+    )
+}
+
+fn queue_modifiers(writer: &mut impl Write, modifiers: Modifier) -> IoResult<()> {
+    if modifiers.contains(Modifier::BOLD) {
+        queue!(writer, SetAttribute(Attribute::Bold))?;
+    }
+    if modifiers.contains(Modifier::DIM) {
+        queue!(writer, SetAttribute(Attribute::Dim))?;
+    }
+    if modifiers.contains(Modifier::ITALIC) {
+        queue!(writer, SetAttribute(Attribute::Italic))?;
+    }
+    if modifiers.contains(Modifier::UNDERLINED) {
+        queue!(writer, SetAttribute(Attribute::Underlined))?;
+    }
+    if modifiers.contains(Modifier::REVERSED) {
+        queue!(writer, SetAttribute(Attribute::Reverse))?;
+    }
+    if modifiers.contains(Modifier::CROSSED_OUT) {
+        queue!(writer, SetAttribute(Attribute::CrossedOut))?;
+    }
+    if modifiers.contains(Modifier::SLOW_BLINK) {
+        queue!(writer, SetAttribute(Attribute::SlowBlink))?;
+    }
+    if modifiers.contains(Modifier::RAPID_BLINK) {
+        queue!(writer, SetAttribute(Attribute::RapidBlink))?;
+    }
+    Ok(())
 }
 
 fn truncate_to_width(value: &str, width: u16) -> String {
@@ -750,14 +967,25 @@ impl Command for ResetScrollRegion {
 mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
-        build_viewport_snapshot, changed_row_indices, format_title, is_cell_prefix,
-        normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
-        protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
-        render_history_append_lines, summarize_tool_body, visible_history_fill_count,
+        build_viewport_snapshot, cell_title_style, changed_row_indices, format_title,
+        is_cell_prefix, line_text, normalize_body_lines, preserve_active_cell_separator,
+        preserve_first_line_tail, protected_append_top, queue_clear_visible,
+        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
+        visible_history_fill_count, write_styled_line,
     };
+    use crossterm::queue;
+    use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::text::Line;
+    use ratatui::text::Span;
+
     use crate::render::render_shell_bottom_viewport;
     use crate::state::{AnchoredRuntimeCell, AppState, PendingUserCell};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
+
+    fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
+        lines.iter().map(line_text).collect()
+    }
 
     #[test]
     fn tool_summary_compacts_and_truncates_multiline_content() {
@@ -779,26 +1007,146 @@ mod tests {
     }
 
     #[test]
+    fn transcript_lines_style_user_assistant_and_tool_titles() {
+        let lines = super::build_cell_lines(
+            &[
+                TranscriptCell {
+                    kind: TranscriptCellKind::User,
+                    title: "You".to_string(),
+                    subtitle: None,
+                    body: "hello".to_string(),
+                    group: MessageGroup::Conversation,
+                    is_active: false,
+                },
+                TranscriptCell {
+                    kind: TranscriptCellKind::Assistant,
+                    title: "Agent".to_string(),
+                    subtitle: None,
+                    body: "hi".to_string(),
+                    group: MessageGroup::Conversation,
+                    is_active: false,
+                },
+                TranscriptCell {
+                    kind: TranscriptCellKind::Tool,
+                    title: "Tool · bash".to_string(),
+                    subtitle: None,
+                    body: "ok".to_string(),
+                    group: MessageGroup::ToolActivity,
+                    is_active: false,
+                },
+            ],
+            80,
+        );
+
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::LightBlue));
+        assert!(
+            lines[0].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(lines[1].spans[1].style.fg, None);
+        assert!(
+            !lines[1].spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(lines[3].spans[0].style.fg, Some(Color::LightGreen));
+        assert!(
+            lines[3].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(lines[4].spans[1].style.fg, None);
+        assert!(
+            !lines[4].spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(lines[6].spans[0].style.fg, Some(Color::Cyan));
+        assert!(
+            lines[6].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn active_assistant_title_uses_active_style() {
+        let cell = TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "hello".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        };
+
+        let style = cell_title_style(&cell);
+
+        assert_eq!(style.fg, Some(Color::Yellow));
+        assert!(style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn write_styled_line_emits_ansi_style_sequences() {
+        let line = Line::from(Span::styled(
+            "Styled",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+        let mut output = Vec::new();
+
+        write_styled_line(&mut output, &line).expect("styled line should render");
+
+        let mut expected_color = Vec::new();
+        queue!(
+            expected_color,
+            SetColors(Colors::new(CrosstermColor::Cyan, CrosstermColor::Reset))
+        )
+        .expect("expected color sequence should render");
+        let mut expected_bold = Vec::new();
+        queue!(expected_bold, SetAttribute(Attribute::Bold))
+            .expect("expected bold sequence should render");
+        assert!(
+            output
+                .windows(expected_color.len())
+                .any(|window| window == expected_color)
+        );
+        assert!(
+            output
+                .windows(expected_bold.len())
+                .any(|window| window == expected_bold)
+        );
+        assert!(String::from_utf8_lossy(&output).contains("Styled"));
+    }
+
+    #[test]
     fn bottom_viewport_renderer_keeps_footer_and_borders() {
-        let prompt_lines = vec![String::from("hello")];
+        let prompt_lines = vec![Line::from("hello")];
         let rendered =
             render_shell_bottom_viewport(20, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
 
         assert_eq!(rendered.lines.len(), 3);
-        assert!(rendered.lines[0].starts_with('┌'));
-        assert!(rendered.lines[1].starts_with('│'));
-        assert!(rendered.lines[2].starts_with('└'));
-        assert!(rendered.lines[2].contains("openai"));
+        assert!(line_text(&rendered.lines[0]).starts_with('┌'));
+        assert!(line_text(&rendered.lines[1]).starts_with('│'));
+        assert!(line_text(&rendered.lines[2]).starts_with('└'));
+        assert!(line_text(&rendered.lines[2]).contains("openai"));
     }
 
     #[test]
     fn bottom_viewport_renderer_preserves_cjk_without_spacer_cells() {
-        let prompt_lines = vec![String::from("帮我打开浏览器")];
+        let prompt_lines = vec![Line::from("帮我打开浏览器")];
         let rendered =
             render_shell_bottom_viewport(32, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
 
-        assert!(rendered.lines[1].contains("帮我打开浏览器"));
-        assert!(!rendered.lines[1].contains("帮 我"));
+        assert!(line_text(&rendered.lines[1]).contains("帮我打开浏览器"));
+        assert!(!line_text(&rendered.lines[1]).contains("帮 我"));
     }
 
     #[test]
@@ -833,7 +1181,7 @@ mod tests {
     fn protected_append_top_uses_current_top_without_previous_viewport() {
         let current = ViewportSnapshot {
             top: 12,
-            lines: vec![String::new(); 3],
+            lines: vec![Line::from(""); 3],
             cursor_x: 0,
             cursor_y: 13,
         };
@@ -845,13 +1193,13 @@ mod tests {
     fn protected_append_top_preserves_previous_streaming_viewport() {
         let previous = ViewportSnapshot {
             top: 8,
-            lines: vec![String::new(); 8],
+            lines: vec![Line::from(""); 8],
             cursor_x: 0,
             cursor_y: 15,
         };
         let current = ViewportSnapshot {
             top: 13,
-            lines: vec![String::new(); 3],
+            lines: vec![Line::from(""); 3],
             cursor_x: 0,
             cursor_y: 14,
         };
@@ -863,13 +1211,13 @@ mod tests {
     fn protected_append_top_preserves_current_expanded_viewport() {
         let previous = ViewportSnapshot {
             top: 13,
-            lines: vec![String::new(); 3],
+            lines: vec![Line::from(""); 3],
             cursor_x: 0,
             cursor_y: 14,
         };
         let current = ViewportSnapshot {
             top: 8,
-            lines: vec![String::new(); 8],
+            lines: vec![Line::from(""); 8],
             cursor_x: 0,
             cursor_y: 15,
         };
@@ -1060,8 +1408,13 @@ mod tests {
 
         let lines = build_transient_lines(&state, 80, 8);
 
-        assert!(lines.iter().any(|line| line.contains("typing")));
-        assert!(!lines.iter().any(|line| line.contains("committed history")));
+        let rendered = line_texts(&lines);
+        assert!(rendered.iter().any(|line| line.contains("typing")));
+        assert!(
+            !rendered
+                .iter()
+                .any(|line| line.contains("committed history"))
+        );
     }
 
     #[test]
@@ -1088,10 +1441,11 @@ mod tests {
         });
 
         let lines = build_transient_lines(&state, 80, 8);
+        let rendered = line_texts(&lines);
 
-        assert_eq!(lines[0], "");
-        assert!(lines[1].contains("Agent"));
-        assert!(lines[1].contains("typing"));
+        assert_eq!(rendered[0], "");
+        assert!(rendered[1].contains("Agent"));
+        assert!(rendered[1].contains("typing"));
     }
 
     #[test]
@@ -1118,10 +1472,11 @@ mod tests {
         });
 
         let lines = build_transient_lines(&state, 80, 1);
+        let rendered = line_texts(&lines);
 
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].contains("Agent"));
-        assert!(lines[0].contains("typing"));
+        assert!(rendered[0].contains("Agent"));
+        assert!(rendered[0].contains("typing"));
     }
 
     #[test]
@@ -1137,43 +1492,44 @@ mod tests {
         });
 
         let lines = build_transient_lines(&state, 80, 3);
+        let rendered = line_texts(&lines);
 
         assert_eq!(lines.len(), 3);
-        assert!(lines[0].contains("Agent"));
-        assert!(lines[0].contains("typing"));
-        assert!(!lines.iter().any(|line| line.contains("line one")));
-        assert!(lines.iter().any(|line| line.contains("line four")));
+        assert!(rendered[0].contains("Agent"));
+        assert!(rendered[0].contains("typing"));
+        assert!(!rendered.iter().any(|line| line.contains("line one")));
+        assert!(rendered.iter().any(|line| line.contains("line four")));
     }
 
     #[test]
     fn preserve_first_line_tail_keeps_header_and_latest_body() {
         let lines = preserve_first_line_tail(
             vec![
-                "Header".to_string(),
-                "old".to_string(),
-                "middle".to_string(),
-                "new".to_string(),
+                Line::from("Header"),
+                Line::from("old"),
+                Line::from("middle"),
+                Line::from("new"),
             ],
             3,
         );
 
-        assert_eq!(lines, vec!["Header", "middle", "new"]);
+        assert_eq!(line_texts(&lines), vec!["Header", "middle", "new"]);
     }
 
     #[test]
     fn preserve_active_cell_separator_keeps_header_after_separator() {
         let lines = preserve_active_cell_separator(
             vec![
-                "Header".to_string(),
-                "old".to_string(),
-                "middle".to_string(),
-                "new".to_string(),
+                Line::from("Header"),
+                Line::from("old"),
+                Line::from("middle"),
+                Line::from("new"),
             ],
             3,
             true,
         );
 
-        assert_eq!(lines, vec!["", "Header", "new"]);
+        assert_eq!(line_texts(&lines), vec!["", "Header", "new"]);
     }
 
     #[test]
@@ -1199,8 +1555,9 @@ mod tests {
             ],
             40,
         );
-        assert_eq!(lines[0], "You");
-        assert_eq!(lines[1], "  hello");
+        let rendered = line_texts(&lines);
+        assert_eq!(rendered[0], "You");
+        assert_eq!(rendered[1], "  hello");
         assert_eq!(lines.len(), 2);
     }
 
@@ -1218,7 +1575,10 @@ mod tests {
             8,
         );
 
-        assert_eq!(lines, vec!["Agent", "  abcdef", "  ghijkl", "  mno"]);
+        assert_eq!(
+            line_texts(&lines),
+            vec!["Agent", "  abcdef", "  ghijkl", "  mno"]
+        );
     }
 
     #[test]
@@ -1238,8 +1598,9 @@ mod tests {
             is_active: false,
         }];
         let lines = render_history_append_lines(&cells, 40, true);
-        assert_eq!(lines[0], "");
-        assert_eq!(lines[1], "You");
+        let rendered = line_texts(&lines);
+        assert_eq!(rendered[0], "");
+        assert_eq!(rendered[1], "You");
     }
 
     #[test]
@@ -1272,14 +1633,14 @@ mod tests {
 
     #[test]
     fn changed_row_indices_only_returns_modified_rows() {
-        let previous = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let current = vec!["a".to_string(), "x".to_string(), "c".to_string()];
+        let previous = vec![Line::from("a"), Line::from("b"), Line::from("c")];
+        let current = vec![Line::from("a"), Line::from("x"), Line::from("c")];
         assert_eq!(changed_row_indices(&previous, &current), vec![1]);
     }
 
     #[test]
     fn bottom_anchor_lines_pads_from_top() {
-        let visible = bottom_anchor_lines(vec!["one".to_string(), "two".to_string()], 4, 0);
-        assert_eq!(visible, vec!["", "", "one", "two"]);
+        let visible = bottom_anchor_lines(vec![Line::from("one"), Line::from("two")], 4, 0);
+        assert_eq!(line_texts(&visible), vec!["", "", "one", "two"]);
     }
 }

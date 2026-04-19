@@ -35,7 +35,11 @@ pub fn map_event(event: Event) -> Action {
             code: KeyCode::Char('c'),
             modifiers,
             ..
-        }) if modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+        }) if modifiers.contains(KeyModifiers::CONTROL)
+            || modifiers.contains(KeyModifiers::SUPER) =>
+        {
+            Action::Quit
+        }
         Event::Key(KeyEvent {
             code: KeyCode::Esc, ..
         }) => Action::CloseOverlay,
@@ -133,6 +137,18 @@ mod tests {
     fn maps_ctrl_c_to_quit() {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert_eq!(map_event(event), Action::Quit);
+    }
+
+    #[test]
+    fn maps_command_c_to_quit() {
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::SUPER));
+        assert_eq!(map_event(event), Action::Quit);
+    }
+
+    #[test]
+    fn maps_esc_to_close_overlay_without_quit() {
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(map_event(event), Action::CloseOverlay);
     }
 
     #[test]

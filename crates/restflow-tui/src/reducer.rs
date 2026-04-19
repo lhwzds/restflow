@@ -211,12 +211,19 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
-            if matches!(state.composer.mode(), ComposerMode::Command) && !state.composer.is_blank()
-            {
+            if state.overlay.is_some() {
+                state.clear_overlay();
+                state.status = "Closed overlay".to_string();
+            } else if !state.composer.is_blank() {
+                let was_command_mode = matches!(state.composer.mode(), ComposerMode::Command);
                 state.composer.clear();
-                state.status = "Returned to message mode".to_string();
+                state.status = if was_command_mode {
+                    "Returned to message mode".to_string()
+                } else {
+                    "Cleared input".to_string()
+                };
             } else {
-                output.should_quit = true;
+                state.status = "Input already empty. Press Ctrl-C to quit.".to_string();
             }
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
@@ -433,6 +440,30 @@ mod tests {
         assert!(!output.should_quit);
         assert!(state.composer.draft().is_empty());
         assert_eq!(state.status, "Returned to message mode");
+    }
+
+    #[test]
+    fn esc_in_compose_mode_clears_draft_instead_of_quitting() {
+        let mut state = AppState::empty();
+        for ch in "hello".chars() {
+            state.composer.insert_char(ch);
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(state.composer.draft().is_empty());
+        assert_eq!(state.status, "Cleared input");
+    }
+
+    #[test]
+    fn esc_with_empty_composer_does_not_quit() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert_eq!(state.status, "Input already empty. Press Ctrl-C to quit.");
     }
 
     #[test]

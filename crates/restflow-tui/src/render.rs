@@ -1,21 +1,23 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget, Wrap};
 
 const COMPOSER_BORDER_HEIGHT: u16 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ShellBottomViewport {
-    pub lines: Vec<String>,
+    pub lines: Vec<Line<'static>>,
     pub cursor_x: u16,
     pub cursor_y: u16,
 }
 
 pub(crate) fn render_shell_bottom_viewport(
     width: u16,
-    transient_lines: Vec<String>,
-    prompt_lines: &[String],
+    transient_lines: Vec<Line<'static>>,
+    prompt_lines: &[Line<'static>],
     prompt_cursor_column: u16,
     prompt_cursor_row: u16,
     footer: &str,
@@ -28,11 +30,7 @@ pub(crate) fn render_shell_bottom_viewport(
 
     if transient_height > 0 {
         let transient_area = Rect::new(0, 0, width, transient_height);
-        let transient = transient_lines
-            .into_iter()
-            .map(Line::from)
-            .collect::<Vec<_>>();
-        Paragraph::new(transient)
+        Paragraph::new(transient_lines)
             .wrap(Wrap { trim: false })
             .render(transient_area, &mut buffer);
     }
@@ -42,18 +40,13 @@ pub(crate) fn render_shell_bottom_viewport(
     let block = Block::default()
         .borders(Borders::ALL)
         .title_bottom(format!(" {footer_title} "));
-    let prompt = prompt_lines
-        .iter()
-        .cloned()
-        .map(Line::from)
-        .collect::<Vec<_>>();
-    Paragraph::new(prompt)
+    Paragraph::new(prompt_lines.to_vec())
         .block(block)
         .wrap(Wrap { trim: false })
         .render(prompt_area, &mut buffer);
 
     ShellBottomViewport {
-        lines: buffer_to_plain_lines(&buffer),
+        lines: buffer_to_styled_lines(&buffer),
         cursor_x: (1 + prompt_cursor_column).min(width.saturating_sub(2)),
         cursor_y: transient_height + 1 + prompt_cursor_row,
     }
@@ -74,60 +67,99 @@ fn truncate_display_width(value: &str, width: u16) -> String {
     out
 }
 
-fn buffer_to_plain_lines(buffer: &Buffer) -> Vec<String> {
+fn buffer_to_styled_lines(buffer: &Buffer) -> Vec<Line<'static>> {
     let mut lines = Vec::with_capacity(buffer.area.height as usize);
     for y in 0..buffer.area.height {
-        let mut line = String::new();
+        let mut spans: Vec<Span<'static>> = Vec::new();
         let mut x = 0;
+        let last_content_x = last_content_cell_x(buffer, y);
         while x < buffer.area.width {
             if let Some(cell) = buffer.cell((x, y))
                 && !cell.skip
             {
+                if last_content_x.is_some_and(|last| x > last) {
+                    break;
+                }
                 let symbol = cell.symbol();
-                line.push_str(symbol);
+                push_symbol(&mut spans, symbol, cell.style());
                 x += unicode_width::UnicodeWidthStr::width(symbol).max(1) as u16;
                 continue;
             }
             x += 1;
         }
-        lines.push(line.trim_end_matches(' ').to_string());
+        lines.push(Line::from(spans));
     }
     lines
 }
 
+fn last_content_cell_x(buffer: &Buffer, y: u16) -> Option<u16> {
+    let mut last = None;
+    for x in 0..buffer.area.width {
+        if let Some(cell) = buffer.cell((x, y))
+            && !cell.skip
+            && !cell.symbol().trim_end_matches(' ').is_empty()
+        {
+            last = Some(x);
+        }
+    }
+    last
+}
+
+fn push_symbol(spans: &mut Vec<Span<'static>>, symbol: &str, style: Style) {
+    if let Some(last) = spans.last_mut()
+        && last.style == style
+    {
+        last.content.to_mut().push_str(symbol);
+        return;
+    }
+    spans.push(Span::styled(symbol.to_string(), style));
+}
+
+#[cfg(test)]
+fn line_text(line: &Line<'_>) -> String {
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>()
+}
+
 #[cfg(test)]
 mod tests {
+    use ratatui::style::{Color, Style};
+    use ratatui::text::Line;
+
+    use super::line_text;
     use super::render_shell_bottom_viewport;
 
     #[test]
     fn bottom_viewport_keeps_footer_and_borders() {
-        let prompt_lines = vec![String::from("hello")];
+        let prompt_lines = vec![Line::from("hello")];
         let rendered =
             render_shell_bottom_viewport(20, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
 
         assert_eq!(rendered.lines.len(), 3);
-        assert!(rendered.lines[0].starts_with('┌'));
-        assert!(rendered.lines[1].starts_with('│'));
-        assert!(rendered.lines[2].starts_with('└'));
-        assert!(rendered.lines[2].contains("openai"));
+        assert!(line_text(&rendered.lines[0]).starts_with('┌'));
+        assert!(line_text(&rendered.lines[1]).starts_with('│'));
+        assert!(line_text(&rendered.lines[2]).starts_with('└'));
+        assert!(line_text(&rendered.lines[2]).contains("openai"));
     }
 
     #[test]
     fn bottom_viewport_preserves_cjk_without_spacer_cells() {
-        let prompt_lines = vec![String::from("帮我打开浏览器")];
+        let prompt_lines = vec![Line::from("帮我打开浏览器")];
         let rendered =
             render_shell_bottom_viewport(32, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
 
-        assert!(rendered.lines[1].contains("帮我打开浏览器"));
-        assert!(!rendered.lines[1].contains("帮 我"));
+        assert!(line_text(&rendered.lines[1]).contains("帮我打开浏览器"));
+        assert!(!line_text(&rendered.lines[1]).contains("帮 我"));
     }
 
     #[test]
     fn bottom_viewport_places_cursor_after_transient_lines() {
-        let prompt_lines = vec![String::from("hello")];
+        let prompt_lines = vec![Line::from("hello")];
         let rendered = render_shell_bottom_viewport(
             24,
-            vec!["Agent · typing…".to_string()],
+            vec![Line::from("Agent · typing…")],
             &prompt_lines,
             2,
             0,
@@ -136,5 +168,20 @@ mod tests {
 
         assert_eq!(rendered.cursor_x, 3);
         assert_eq!(rendered.cursor_y, 2);
+    }
+
+    #[test]
+    fn bottom_viewport_preserves_line_style() {
+        let prompt_lines = vec![Line::from("hello")];
+        let rendered = render_shell_bottom_viewport(
+            24,
+            vec![Line::from("Agent").style(Style::default().fg(Color::Yellow))],
+            &prompt_lines,
+            0,
+            0,
+            "model",
+        );
+
+        assert_eq!(rendered.lines[0].spans[0].style.fg, Some(Color::Yellow));
     }
 }
