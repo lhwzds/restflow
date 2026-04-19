@@ -1,6 +1,6 @@
 use super::composer::ComposerMode;
 use super::keymap::Action;
-use super::slash_command::{SlashCommand, parse_slash_command};
+use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
 use super::state::AppState;
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
@@ -18,6 +18,16 @@ pub enum ShellAction {
     StateRefreshed {
         sessions: Vec<ChatSessionSummary>,
         runs: Vec<RunSummary>,
+    },
+    SessionPickerLoaded {
+        sessions: Vec<ChatSessionSummary>,
+        status: String,
+    },
+    SessionDeleted {
+        session_id: String,
+        deleted: bool,
+        sessions: Vec<ChatSessionSummary>,
+        status: String,
     },
     CurrentSessionReloaded {
         session: Option<Box<ChatSession>>,
@@ -53,6 +63,13 @@ pub enum ShellAction {
         session: Option<Box<ChatSession>>,
         status: String,
     },
+    DaemonStopped {
+        status: String,
+    },
+    CommandPicked {
+        text: String,
+    },
+    OpenDaemonPicker,
     SubmitText {
         text: String,
     },
@@ -68,6 +85,7 @@ pub enum ShellEffect {
     ActivateOverlaySelection,
     SubmitMessage { message: String },
     ExecuteSlashCommand(SlashCommand),
+    DeleteSession { session_id: String },
     ListSessionsInline,
     ListRunsInline,
     ListApprovalsInline,
@@ -110,6 +128,25 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 state.thread.runs.clear();
                 state.thread.child_runs.clear();
                 state.thread.execution_thread = None;
+            }
+        }
+        ShellAction::SessionPickerLoaded { sessions, status } => {
+            state.sessions = sessions;
+            state.open_session_picker();
+            state.status = status;
+        }
+        ShellAction::SessionDeleted {
+            session_id,
+            deleted,
+            sessions,
+            status,
+        } => {
+            state.apply_session_delete_result(&session_id, sessions);
+            state.status = status.clone();
+            if deleted {
+                state.push_info(status);
+            } else {
+                state.push_error(status);
             }
         }
         ShellAction::CurrentSessionReloaded { session, runs } => {
@@ -180,6 +217,23 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                     .push(ShellAction::SubmitText { text: message });
             }
         }
+        ShellAction::DaemonStopped { status } => {
+            let agent_override = state.default_agent_id.clone();
+            let session_override = state.current_session_id().map(ToOwned::to_owned);
+            state.enter_startup(agent_override, session_override);
+            state.status = status.clone();
+            state.push_info(status);
+        }
+        ShellAction::CommandPicked { text } => {
+            state.clear_overlay();
+            state.composer.replace(text);
+            state.status = "Command selected".to_string();
+        }
+        ShellAction::OpenDaemonPicker => {
+            state.composer.clear();
+            state.open_daemon_picker();
+            state.status = "Select daemon action".to_string();
+        }
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
         ShellAction::RefreshTick => {
             if !state.is_startup_mode() {
@@ -213,6 +267,9 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::CloseOverlay => {
             if state.overlay.is_some() {
                 state.clear_overlay();
+                if matches!(state.composer.mode(), ComposerMode::Command) {
+                    state.composer.clear();
+                }
                 state.status = "Closed overlay".to_string();
             } else if !state.composer.is_blank() {
                 let was_command_mode = matches!(state.composer.mode(), ComposerMode::Command);
@@ -259,21 +316,73 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
             state.composer.move_right();
         }
         Action::ScrollUp | Action::ScrollDown => {}
+        Action::DeleteSelected => {
+            if matches!(
+                state.overlay,
+                Some(crate::state::OverlayState::SessionPicker { .. })
+            ) {
+                let selected = state.selected_session_summary().cloned();
+                if let Some(session) = selected {
+                    if state.is_session_delete_pending(&session.id) {
+                        output.effects.push(ShellEffect::DeleteSession {
+                            session_id: session.id,
+                        });
+                    } else {
+                        state.mark_session_delete_pending(session.id.clone());
+                        state.status = format!("Press d again to delete session {}", session.name);
+                    }
+                }
+            } else if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
+                state.composer.insert_char('d');
+                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
+            }
+        }
         Action::InputChar(ch) => {
-            if state.overlay.is_none() {
+            if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
                 state.composer.insert_char(ch);
+                if ch == '/' && state.composer.draft().trim() == "/" {
+                    state.open_command_picker();
+                }
+                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
             }
         }
         Action::Paste(text) => {
-            if state.overlay.is_none() {
+            if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
                 for ch in text.chars() {
                     state.composer.insert_char(ch);
+                }
+                if state.composer.draft().trim_start().starts_with('/') {
+                    if state.overlay.is_none() {
+                        state.open_command_picker();
+                    }
+                    state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
                 }
             }
         }
         Action::InputBackspace => {
-            if state.overlay.is_none() {
+            if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
                 state.composer.backspace();
+                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
             }
         }
         Action::Newline => {
@@ -287,7 +396,21 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::OverlaySelect => {}
         Action::Submit => {
             if state.overlay.is_some() {
-                output.effects.push(ShellEffect::ActivateOverlaySelection);
+                if matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                ) {
+                    let input = state.composer.draft().trim().to_string();
+                    if input != "/" && parse_slash_command(&input).is_ok() {
+                        state.composer.clear();
+                        state.clear_overlay();
+                        output.actions.push(ShellAction::SubmitText { text: input });
+                    } else {
+                        output.effects.push(ShellEffect::ActivateOverlaySelection);
+                    }
+                } else {
+                    output.effects.push(ShellEffect::ActivateOverlaySelection);
+                }
             } else {
                 let input = state.composer.take_submission();
                 if !input.trim().is_empty() {
@@ -313,9 +436,9 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
         }
     } else if state.current_session_id().is_none() {
         let message = if state.is_startup_mode() {
-            "Daemon is offline. Use /start to launch it.".to_string()
+            "Daemon is offline. Use /daemon to launch it.".to_string()
         } else {
-            "No active session. Use /sessions or configure a default agent.".to_string()
+            "No active session. Use /resume or configure a default agent.".to_string()
         };
         state.status = message.clone();
         state.push_error(message);
@@ -335,7 +458,24 @@ mod tests {
     use crate::slash_command::SlashCommand;
     use crate::state::AppState;
     use restflow_core::daemon::ChatSessionEvent;
-    use restflow_core::models::ChatSession;
+    use restflow_core::models::{ChatSession, ChatSessionSummary};
+
+    fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
+        ChatSessionSummary {
+            id: id.to_string(),
+            name: name.to_string(),
+            agent_id: "agent-1".to_string(),
+            provider: "provider".to_string(),
+            model: "model".to_string(),
+            skill_id: None,
+            message_count: 1,
+            updated_at: 1,
+            last_message_preview: Some("preview".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            archived_at: None,
+        }
+    }
 
     #[test]
     fn submit_plain_message_creates_send_effect() {
@@ -371,6 +511,185 @@ mod tests {
     }
 
     #[test]
+    fn slash_opens_command_picker() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::InputChar('/')));
+
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 0 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_selection_moves_with_navigation() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::NavDown));
+
+        assert!(!output.should_quit);
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 1 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_tracks_typed_prefix() {
+        let mut state = AppState::empty();
+
+        for ch in "/daemon".chars() {
+            reduce(&mut state, ShellAction::Ui(Action::InputChar(ch)));
+        }
+
+        assert_eq!(state.composer.draft(), "/daemon");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 0 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_moves_to_resume_when_typed() {
+        let mut state = AppState::empty();
+
+        for ch in "/resume".chars() {
+            reduce(&mut state, ShellAction::Ui(Action::InputChar(ch)));
+        }
+
+        assert_eq!(state.composer.draft(), "/resume");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 2 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_submit_prefers_typed_alias_over_selected_item() {
+        let mut state = AppState::empty();
+        for ch in "/session".chars() {
+            reduce(&mut state, ShellAction::Ui(Action::InputChar(ch)));
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(state.overlay.is_none());
+        assert!(state.composer.draft().is_empty());
+        assert!(matches!(
+            output.actions.as_slice(),
+            [ShellAction::SubmitText { text }] if text == "/session"
+        ));
+        assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn command_picked_replaces_composer_draft() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::CommandPicked {
+                text: "/task ".to_string(),
+            },
+        );
+
+        assert!(!output.should_quit);
+        assert!(state.overlay.is_none());
+        assert_eq!(state.composer.draft(), "/task ");
+        assert_eq!(state.status, "Command selected");
+    }
+
+    #[test]
+    fn open_daemon_picker_clears_command_draft() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let output = reduce(&mut state, ShellAction::OpenDaemonPicker);
+
+        assert!(!output.should_quit);
+        assert_eq!(state.composer.draft(), "");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::DaemonPicker { selected: 0 })
+        ));
+        assert_eq!(state.status, "Select daemon action");
+    }
+
+    #[test]
+    fn delete_selected_session_requires_confirmation() {
+        let mut state = AppState::empty();
+        state.sessions = vec![session_summary("session-1", "First")];
+        state.open_session_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        assert!(output.effects.is_empty());
+        assert_eq!(state.status, "Press d again to delete session First");
+    }
+
+    #[test]
+    fn delete_selected_session_second_press_creates_effect() {
+        let mut state = AppState::empty();
+        state.sessions = vec![session_summary("session-1", "First")];
+        state.open_session_picker();
+        reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::DeleteSession { session_id }] if session_id == "session-1"
+        ));
+    }
+
+    #[test]
+    fn delete_selected_in_plain_composer_inserts_d() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        assert!(output.effects.is_empty());
+        assert_eq!(state.composer.draft(), "d");
+    }
+
+    #[test]
+    fn session_deleted_updates_picker_sessions() {
+        let mut state = AppState::empty();
+        state.sessions = vec![
+            session_summary("session-1", "First"),
+            session_summary("session-2", "Second"),
+        ];
+        state.open_session_picker();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionDeleted {
+                session_id: "session-1".to_string(),
+                deleted: true,
+                sessions: vec![session_summary("session-2", "Second")],
+                status: "Deleted session session-1".to_string(),
+            },
+        );
+
+        assert!(!output.should_quit);
+        assert_eq!(state.sessions.len(), 1);
+        assert_eq!(state.sessions[0].id, "session-2");
+        assert_eq!(state.status, "Deleted session session-1");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SessionPicker { selected: 0 })
+        ));
+    }
+
+    #[test]
     fn invalid_slash_command_pushes_error() {
         let mut state = AppState::empty();
         for ch in "/run nope".chars() {
@@ -402,6 +721,22 @@ mod tests {
         assert!(matches!(
             output.effects.as_slice(),
             [ShellEffect::ExecuteSlashCommand(SlashCommand::Help)]
+        ));
+    }
+
+    #[test]
+    fn submit_daemon_command_routes_to_daemon_picker() {
+        let mut state = AppState::empty();
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "/daemon".to_string(),
+            },
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ExecuteSlashCommand(SlashCommand::Daemon)]
         ));
     }
 
@@ -467,6 +802,20 @@ mod tests {
     }
 
     #[test]
+    fn esc_closes_overlay_and_clears_command_draft() {
+        let mut state = AppState::empty();
+        state.composer.replace("/daemon");
+        state.open_daemon_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(state.overlay.is_none());
+        assert_eq!(state.composer.draft(), "");
+        assert_eq!(state.status, "Closed overlay");
+    }
+
+    #[test]
     fn message_added_event_does_not_reload_current_session() {
         let mut state = AppState::empty();
         let session = ChatSession::new("agent-1".to_string(), "model".to_string());
@@ -489,7 +838,7 @@ mod tests {
         let mut state = AppState::empty();
         state.enter_startup(Some("agent-1".to_string()), Some("session-1".to_string()));
 
-        for ch in "/start".chars() {
+        for ch in "/daemon start".chars() {
             state.composer.insert_char(ch);
         }
 
@@ -497,7 +846,7 @@ mod tests {
 
         assert!(matches!(
             output.actions.as_slice(),
-            [ShellAction::SubmitText { text }] if text == "/start"
+            [ShellAction::SubmitText { text }] if text == "/daemon start"
         ));
     }
 
@@ -529,7 +878,41 @@ mod tests {
 
         assert!(output.effects.is_empty());
         assert_eq!(state.runtime_cells.len(), 1);
-        assert!(state.runtime_cells[0].cell.body.contains("/start"));
+        assert!(state.runtime_cells[0].cell.body.contains("/daemon"));
+    }
+
+    #[test]
+    fn daemon_stopped_enters_startup_mode_and_records_notice() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        state.set_current_session(session);
+
+        let output = reduce(
+            &mut state,
+            ShellAction::DaemonStopped {
+                status: "RestFlow daemon stopped".to_string(),
+            },
+        );
+
+        assert!(!output.should_quit);
+        assert!(state.is_startup_mode());
+        assert_eq!(state.status, "RestFlow daemon stopped");
+        assert_eq!(
+            state
+                .startup_state()
+                .and_then(|startup| startup.agent_override.as_deref()),
+            Some("agent-1")
+        );
+        assert_eq!(
+            state
+                .startup_state()
+                .and_then(|startup| startup.session_override.as_deref()),
+            Some(session_id.as_str())
+        );
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert!(state.runtime_cells[0].cell.body.contains("daemon stopped"));
     }
 
     #[test]

@@ -13,6 +13,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::render::render_shell_bottom_viewport;
+use crate::slash_command::SLASH_COMMAND_SPECS;
 use crate::state::AppState;
 use crate::transcript::{TranscriptCell, TranscriptCellKind};
 
@@ -20,7 +21,7 @@ const CONTINUATION_PREFIX: &str = "  ";
 const TOOL_SUMMARY_LIMIT: usize = 120;
 const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
 const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
-const MAX_TRANSIENT_ROWS: u16 = 8;
+const MAX_TRANSIENT_ROWS: u16 = 16;
 
 pub struct ShellRenderer {
     stdout: Stdout,
@@ -422,6 +423,18 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Lin
         return Vec::new();
     }
 
+    if let Some(lines) = build_session_picker_lines(state, width, max_rows) {
+        return lines;
+    }
+
+    if let Some(lines) = build_daemon_picker_lines(state, width) {
+        return lines;
+    }
+
+    if let Some(lines) = build_command_picker_lines(state, width, max_rows) {
+        return lines;
+    }
+
     let Some(active_cell) = state.active_cell.as_ref() else {
         return Vec::new();
     };
@@ -432,6 +445,200 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Lin
         max_rows as usize,
         stable_history_has_rendered_lines(state),
     )
+}
+
+fn build_session_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::SessionPicker { selected }) = state.overlay.as_ref()
+    else {
+        return None;
+    };
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Resume session", tool_title_style()),
+        Span::styled(
+            "  Up/Down select, Enter resume, d delete, Esc close",
+            muted_style(),
+        ),
+    ]));
+    if state.sessions.is_empty() {
+        lines.push(styled_line("  No sessions to resume yet.", muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let rows_per_session = 3usize;
+    let visible_sessions = (visible_capacity / rows_per_session).max(1);
+    let selected_index = (*selected).min(state.sessions.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_sessions / 2)
+        .min(state.sessions.len().saturating_sub(visible_sessions));
+    let end = (start + visible_sessions).min(state.sessions.len());
+
+    for (index, session) in state.sessions[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let preview = session
+            .last_message_preview
+            .as_deref()
+            .map(compact_session_preview)
+            .filter(|preview| !preview.is_empty())
+            .unwrap_or_else(|| "No messages yet".to_string());
+        let mut title_spans = vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(session.name.clone(), title_style),
+            Span::styled(
+                format!(" · {} messages", session.message_count),
+                muted_style(),
+            ),
+        ];
+        if is_selected && state.is_session_delete_pending(&session.id) {
+            title_spans.push(Span::styled(" · press d again to delete", error_style()));
+        }
+        let title = Line::from(title_spans);
+        lines.extend(wrap_styled_line(title, width));
+        let detail = Line::from(vec![
+            Span::styled("    Last: ", muted_style()),
+            Span::styled(preview, muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(detail, width));
+        let id_line = Line::from(vec![
+            Span::styled("    id: ", muted_style()),
+            Span::styled(session.id.clone(), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(id_line, width));
+    }
+
+    if end < state.sessions.len() {
+        lines.push(styled_line(
+            format!("  ... {} more", state.sessions.len() - end),
+            muted_style(),
+        ));
+    }
+
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_daemon_picker_lines(state: &AppState, width: u16) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::DaemonPicker { selected }) = state.overlay.as_ref() else {
+        return None;
+    };
+
+    let actions = [
+        ("start", "Start the local daemon"),
+        ("stop", "Stop the local daemon"),
+    ];
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Daemon", tool_title_style()),
+        Span::styled("  Up/Down select, Enter run, Esc close", muted_style()),
+    ])];
+    for (index, (action, description)) in actions.iter().enumerate() {
+        let selected = index == *selected;
+        let line = Line::from(vec![
+            Span::styled(
+                if selected { "› " } else { "  " },
+                if selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(
+                format!("/daemon {action}"),
+                if selected {
+                    tool_title_style()
+                } else {
+                    Style::default().add_modifier(Modifier::BOLD)
+                },
+            ),
+            Span::styled("  ", muted_style()),
+            Span::styled(*description, muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(line, width));
+    }
+    Some(lines)
+}
+
+fn build_command_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::CommandPicker { selected }) = state.overlay.as_ref()
+    else {
+        return None;
+    };
+
+    let mut lines = Vec::with_capacity(SLASH_COMMAND_SPECS.len() + 1);
+    lines.push(Line::from(vec![
+        Span::styled("Slash commands", tool_title_style()),
+        Span::styled("  Enter to run, Esc to clear", muted_style()),
+    ]));
+    let command_width = SLASH_COMMAND_SPECS
+        .iter()
+        .map(|spec| command_display(spec.command, spec.args).chars().count())
+        .max()
+        .unwrap_or(0);
+
+    for (index, spec) in SLASH_COMMAND_SPECS.iter().enumerate() {
+        let selected = index == *selected;
+        let display = command_display(spec.command, spec.args);
+        let padding = " ".repeat(command_width.saturating_sub(display.chars().count()) + 2);
+        let line = Line::from(vec![
+            Span::styled(
+                if selected { "› " } else { "  " },
+                if selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(
+                display,
+                if selected {
+                    tool_title_style()
+                } else {
+                    Style::default().add_modifier(Modifier::BOLD)
+                },
+            ),
+            Span::raw(padding),
+            Span::styled(spec.description, muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(line, width));
+    }
+
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn compact_session_preview(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn command_display(command: &str, args: &str) -> String {
+    if args.is_empty() {
+        command.to_string()
+    } else {
+        format!("{command} {args}")
+    }
 }
 
 fn render_history_append_lines(
@@ -964,11 +1171,11 @@ impl Command for ResetScrollRegion {
 mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
-        build_viewport_snapshot, cell_title_style, changed_row_indices, format_title,
-        is_cell_prefix, line_text, normalize_body_lines, preserve_active_cell_separator,
-        preserve_first_line_tail, protected_append_top, queue_clear_visible,
-        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
-        visible_history_fill_count, write_styled_line,
+        build_viewport_snapshot, cell_title_style, changed_row_indices, compact_session_preview,
+        format_title, is_cell_prefix, line_text, normalize_body_lines,
+        preserve_active_cell_separator, preserve_first_line_tail, protected_append_top,
+        queue_clear_visible, queue_purge_visible_and_scrollback, render_history_append_lines,
+        summarize_tool_body, visible_history_fill_count, write_styled_line,
     };
     use crossterm::queue;
     use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
@@ -977,8 +1184,10 @@ mod tests {
     use ratatui::text::Span;
 
     use crate::render::render_shell_bottom_viewport;
+    use crate::slash_command::SLASH_COMMAND_SPECS;
     use crate::state::{AnchoredRuntimeCell, AppState, PendingUserCell};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
+    use restflow_core::models::ChatSessionSummary;
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
@@ -1412,6 +1621,202 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("committed history"))
         );
+    }
+
+    #[test]
+    fn slash_command_dropdown_lists_all_commands_when_composer_starts_with_slash() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let lines = build_transient_lines(&state, 100, 32);
+        let rendered = line_texts(&lines);
+
+        assert_eq!(rendered.len(), SLASH_COMMAND_SPECS.len() + 1);
+        assert!(rendered[0].contains("Slash commands"));
+        assert!(rendered.iter().any(|line| line.contains("/daemon")));
+        assert!(!rendered.iter().any(|line| line.contains("/start")));
+        assert!(!rendered.iter().any(|line| line.contains("/stop")));
+        assert!(rendered.iter().any(|line| line.contains("/resume")));
+        assert!(rendered.iter().any(|line| line.contains("/task")));
+        assert!(rendered.iter().any(|line| line.contains("/team")));
+        assert!(
+            !rendered
+                .iter()
+                .any(|line| line.contains("/session open <session_id>"))
+        );
+        assert!(!rendered.iter().any(|line| line.contains("/runs")));
+        assert!(
+            !rendered
+                .iter()
+                .any(|line| line.contains("/run open <run_id>"))
+        );
+        assert!(
+            !rendered
+                .iter()
+                .any(|line| line.contains("/reject <approval_id> [reason]"))
+        );
+    }
+
+    #[test]
+    fn slash_command_dropdown_uses_command_title_style() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let lines = build_transient_lines(&state, 100, 32);
+
+        assert_eq!(lines[1].spans[0].style.fg, Some(Color::Cyan));
+        assert!(lines[1].spans[0].content.contains("/daemon"));
+        assert!(
+            lines[1].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn slash_command_dropdown_is_not_shown_for_plain_input() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('h');
+        state.composer.insert_char('i');
+
+        let lines = build_transient_lines(&state, 100, 32);
+
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn resume_picker_lists_sessions_with_last_message_preview() {
+        let mut state = AppState::empty();
+        state.sessions = vec![
+            ChatSessionSummary {
+                id: "session-1".to_string(),
+                name: "First chat".to_string(),
+                agent_id: "agent-1".to_string(),
+                provider: "provider".to_string(),
+                model: "model".to_string(),
+                skill_id: None,
+                message_count: 2,
+                updated_at: 1,
+                last_message_preview: Some("hello\nworld".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                archived_at: None,
+            },
+            ChatSessionSummary {
+                id: "session-2".to_string(),
+                name: "Second chat".to_string(),
+                agent_id: "agent-1".to_string(),
+                provider: "provider".to_string(),
+                model: "model".to_string(),
+                skill_id: None,
+                message_count: 0,
+                updated_at: 2,
+                last_message_preview: None,
+                source_channel: None,
+                source_conversation_id: None,
+                archived_at: None,
+            },
+        ];
+        state.open_session_picker();
+
+        let lines = build_transient_lines(&state, 120, 16);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered[0].contains("Resume session"));
+        assert!(rendered.iter().any(|line| line.contains("First chat")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("Last: hello world"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("id: session-1")));
+        assert!(rendered.iter().any(|line| line.contains("No messages yet")));
+    }
+
+    #[test]
+    fn resume_picker_scrolls_to_selected_session() {
+        let mut state = AppState::empty();
+        state.sessions = (0..8)
+            .map(|index| ChatSessionSummary {
+                id: format!("session-{index}"),
+                name: format!("Session {index}"),
+                agent_id: "agent-1".to_string(),
+                provider: "provider".to_string(),
+                model: "model".to_string(),
+                skill_id: None,
+                message_count: index,
+                updated_at: index as i64,
+                last_message_preview: Some(format!("preview {index}")),
+                source_channel: None,
+                source_conversation_id: None,
+                archived_at: None,
+            })
+            .collect();
+        state.open_session_picker();
+        for _ in 0..6 {
+            state.move_overlay_selection(1);
+        }
+
+        let lines = build_transient_lines(&state, 120, 7);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered.iter().any(|line| line.contains("› Session 6")));
+        assert!(!rendered.iter().any(|line| line.contains("Session 0")));
+        assert!(rendered.iter().any(|line| line.contains("id: session-6")));
+    }
+
+    #[test]
+    fn resume_picker_scrolls_before_selected_reaches_bottom() {
+        let mut state = AppState::empty();
+        state.sessions = (0..8)
+            .map(|index| ChatSessionSummary {
+                id: format!("session-{index}"),
+                name: format!("Session {index}"),
+                agent_id: "agent-1".to_string(),
+                provider: "provider".to_string(),
+                model: "model".to_string(),
+                skill_id: None,
+                message_count: index,
+                updated_at: index as i64,
+                last_message_preview: Some(format!("preview {index}")),
+                source_channel: None,
+                source_conversation_id: None,
+                archived_at: None,
+            })
+            .collect();
+        state.open_session_picker();
+        for _ in 0..3 {
+            state.move_overlay_selection(1);
+        }
+
+        let lines = build_transient_lines(&state, 120, 16);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered.iter().any(|line| line.contains("› Session 3")));
+        assert!(!rendered.iter().any(|line| line.contains("Session 0")));
+        assert!(rendered.iter().any(|line| line.contains("Session 5")));
+    }
+
+    #[test]
+    fn daemon_picker_lists_start_and_stop_actions() {
+        let mut state = AppState::empty();
+        state.open_daemon_picker();
+
+        let lines = build_transient_lines(&state, 100, 8);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered[0].contains("Daemon"));
+        assert!(rendered.iter().any(|line| line.contains("/daemon start")));
+        assert!(rendered.iter().any(|line| line.contains("/daemon stop")));
+        assert!(rendered[1].contains('›'));
+    }
+
+    #[test]
+    fn compact_session_preview_collapses_whitespace() {
+        assert_eq!(compact_session_preview("hello\n  world"), "hello world");
     }
 
     #[test]

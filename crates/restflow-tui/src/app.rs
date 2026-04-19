@@ -60,7 +60,7 @@ pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
         }
     } else {
         state.enter_startup(options.agent, options.session);
-        state.push_info("Daemon offline. Use /start to launch it.");
+        state.push_info("Daemon offline. Use /daemon to launch it.");
     }
 
     let _terminal = TerminalGuard::new()?;

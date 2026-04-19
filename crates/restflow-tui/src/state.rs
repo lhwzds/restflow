@@ -108,6 +108,8 @@ pub enum TeamOverlayTab {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum OverlayState {
+    CommandPicker { selected: usize },
+    DaemonPicker { selected: usize },
     SessionPicker { selected: usize },
     RunPicker { selected: usize },
     ApprovalPicker { selected: usize },
@@ -145,6 +147,7 @@ pub struct AppState {
     pub status: String,
     pub is_streaming: bool,
     pub startup: Option<StartupState>,
+    pending_session_delete_id: Option<String>,
     pending_initial_message: Option<String>,
     seen_team_message_ids: HashSet<String>,
 }
@@ -169,6 +172,7 @@ impl AppState {
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
             startup: None,
+            pending_session_delete_id: None,
             pending_initial_message: None,
             seen_team_message_ids: HashSet::new(),
         }
@@ -278,6 +282,7 @@ impl AppState {
 
     pub fn clear_overlay(&mut self) {
         self.overlay = None;
+        self.pending_session_delete_id = None;
     }
 
     fn clear_team_context(&mut self) {
@@ -297,6 +302,14 @@ impl AppState {
     #[allow(dead_code)]
     pub fn open_session_picker(&mut self) {
         self.overlay = Some(OverlayState::SessionPicker { selected: 0 });
+    }
+
+    pub fn open_command_picker(&mut self) {
+        self.overlay = Some(OverlayState::CommandPicker { selected: 0 });
+    }
+
+    pub fn open_daemon_picker(&mut self) {
+        self.overlay = Some(OverlayState::DaemonPicker { selected: 0 });
     }
 
     #[allow(dead_code)]
@@ -323,12 +336,15 @@ impl AppState {
     }
 
     pub fn move_overlay_selection(&mut self, delta: isize) {
+        self.pending_session_delete_id = None;
         let len = match self.overlay_item_len() {
             Some(len) if len > 0 => len,
             _ => return,
         };
         match self.overlay.as_mut() {
-            Some(OverlayState::SessionPicker { selected })
+            Some(OverlayState::CommandPicker { selected })
+            | Some(OverlayState::DaemonPicker { selected })
+            | Some(OverlayState::SessionPicker { selected })
             | Some(OverlayState::RunPicker { selected })
             | Some(OverlayState::ApprovalPicker { selected }) => {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
@@ -339,6 +355,26 @@ impl AppState {
                 *scroll = next;
             }
             Some(OverlayState::Help) | None => {}
+        }
+    }
+
+    pub fn sync_command_picker_to_draft(
+        &mut self,
+        commands: &[super::slash_command::SlashCommandSpec],
+    ) {
+        let Some(OverlayState::CommandPicker { selected }) = self.overlay.as_mut() else {
+            return;
+        };
+        let draft = self.composer.draft().trim();
+        if !draft.starts_with('/') {
+            self.overlay = None;
+            return;
+        }
+        if let Some(index) = commands
+            .iter()
+            .position(|spec| spec.command.starts_with(draft))
+        {
+            *selected = index;
         }
     }
 
@@ -360,6 +396,10 @@ impl AppState {
 
     pub fn overlay_item_len(&self) -> Option<usize> {
         match self.overlay.as_ref()? {
+            OverlayState::CommandPicker { .. } => {
+                Some(super::slash_command::SLASH_COMMAND_SPECS.len())
+            }
+            OverlayState::DaemonPicker { .. } => Some(2),
             OverlayState::SessionPicker { .. } => Some(self.sessions.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
             OverlayState::ApprovalPicker { .. } => Some(self.current_team_approvals.len()),
@@ -373,6 +413,57 @@ impl AppState {
                 .sessions
                 .get(*selected)
                 .map(|session| session.id.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn selected_session_summary(&self) -> Option<&ChatSessionSummary> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::SessionPicker { selected }) => self.sessions.get(*selected),
+            _ => None,
+        }
+    }
+
+    pub fn mark_session_delete_pending(&mut self, session_id: impl Into<String>) {
+        self.pending_session_delete_id = Some(session_id.into());
+    }
+
+    pub fn is_session_delete_pending(&self, session_id: &str) -> bool {
+        self.pending_session_delete_id.as_deref() == Some(session_id)
+    }
+
+    pub fn apply_session_delete_result(
+        &mut self,
+        session_id: &str,
+        sessions: Vec<ChatSessionSummary>,
+    ) {
+        self.sessions = sessions;
+        self.pending_session_delete_id = None;
+        if self.current_session_id() == Some(session_id) {
+            self.clear_current_session("Deleted current session.");
+        }
+        if self.sessions.is_empty()
+            && matches!(self.overlay, Some(OverlayState::SessionPicker { .. }))
+        {
+            self.overlay = None;
+            return;
+        }
+        if let Some(OverlayState::SessionPicker { selected }) = self.overlay.as_mut() {
+            *selected = (*selected).min(self.sessions.len().saturating_sub(1));
+        }
+    }
+
+    pub fn selected_command_index(&self) -> Option<usize> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::CommandPicker { selected }) => Some(*selected),
+            _ => None,
+        }
+    }
+
+    pub fn selected_daemon_action(&self) -> Option<&'static str> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::DaemonPicker { selected: 0 }) => Some("start"),
+            Some(OverlayState::DaemonPicker { selected: 1 }) => Some("stop"),
             _ => None,
         }
     }

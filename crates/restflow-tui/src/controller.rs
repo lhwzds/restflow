@@ -9,7 +9,7 @@ use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 use super::daemon_client::TuiDaemonClient;
 use super::event_loop::AppEvent;
 use super::reducer::{ShellAction, ShellEffect};
-use super::slash_command::SlashCommand;
+use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
 use super::state::{AppState, OverlayState, RunPickerItem};
 use super::transcript::ShellMessage;
 
@@ -76,7 +76,10 @@ impl ShellController {
             ShellEffect::ExecuteSlashCommand(command) => {
                 self.slash_command_actions(state, command).await
             }
-            ShellEffect::ListSessionsInline => self.list_sessions_inline_actions().await,
+            ShellEffect::DeleteSession { session_id } => {
+                self.delete_session_actions(session_id).await
+            }
+            ShellEffect::ListSessionsInline => self.session_picker_actions().await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
             ShellEffect::ListApprovalsInline => Ok(self.list_approvals_inline_actions(state)),
             ShellEffect::ShowTeamInline => Ok(self.show_team_inline_actions(state)),
@@ -172,6 +175,37 @@ impl ShellController {
 
     async fn overlay_selection_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
         match state.overlay.clone() {
+            Some(OverlayState::CommandPicker { .. }) => {
+                let Some(index) = state.selected_command_index() else {
+                    return Ok(Vec::new());
+                };
+                let Some(spec) = SLASH_COMMAND_SPECS.get(index) else {
+                    return Ok(Vec::new());
+                };
+                if matches!(spec.command, "/daemon") {
+                    return Ok(vec![ShellAction::OpenDaemonPicker]);
+                }
+                let command = command_display(spec.command, spec.args);
+                if matches!(spec.command, "/task") {
+                    return Ok(vec![ShellAction::CommandPicked {
+                        text: "/task ".to_string(),
+                    }]);
+                }
+                if spec.args.is_empty() {
+                    return Ok(vec![ShellAction::SubmitText { text: command }]);
+                }
+                Ok(vec![ShellAction::CommandPicked {
+                    text: format!("{command} "),
+                }])
+            }
+            Some(OverlayState::DaemonPicker { .. }) => {
+                let Some(action) = state.selected_daemon_action() else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![ShellAction::SubmitText {
+                    text: format!("/daemon {action}"),
+                }])
+            }
             Some(OverlayState::SessionPicker { .. }) => {
                 let Some(session_id) = state.selected_session_id().map(str::to_string) else {
                     return Ok(Vec::new());
@@ -237,6 +271,7 @@ impl ShellController {
         command: SlashCommand,
     ) -> Result<Vec<ShellAction>> {
         match command {
+            SlashCommand::Daemon => Ok(vec![ShellAction::OpenDaemonPicker]),
             SlashCommand::Start => {
                 match self
                     .start_daemon_actions(
@@ -253,25 +288,21 @@ impl ShellController {
                     Err(err) => Ok(start_daemon_error_actions(err)),
                 }
             }
+            SlashCommand::Stop => {
+                let stopped = self.client.stop_daemon().await?;
+                let status = if stopped {
+                    "RestFlow daemon stopped".to_string()
+                } else {
+                    "RestFlow daemon was not running".to_string()
+                };
+                Ok(vec![ShellAction::DaemonStopped { status }])
+            }
             SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(
                 ShellMessage::InfoNotice {
                     content: help_text().to_string(),
                 },
             )]),
-            SlashCommand::ListSessions => self.list_sessions_inline_actions().await,
-            SlashCommand::OpenSession { session_id } => {
-                let session = self.client.get_session(&session_id).await?;
-                let runs = self
-                    .client
-                    .list_runs_for_session(&session_id)
-                    .await
-                    .unwrap_or_default();
-                Ok(vec![ShellAction::SessionOpened {
-                    session: Box::new(session),
-                    runs,
-                    status: format!("Opened session {session_id}"),
-                }])
-            }
+            SlashCommand::ListSessions => self.session_picker_actions().await,
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
             SlashCommand::ListApprovals => Ok(self.list_approvals_inline_actions(state)),
             SlashCommand::ShowTeam => Ok(self.show_team_inline_actions(state)),
@@ -347,26 +378,45 @@ impl ShellController {
         }
     }
 
-    async fn list_sessions_inline_actions(&self) -> Result<Vec<ShellAction>> {
+    async fn session_picker_actions(&self) -> Result<Vec<ShellAction>> {
         let sessions = self.client.list_sessions().await?;
-        if sessions.is_empty() {
-            return Ok(vec![ShellAction::MessageAppended(
-                ShellMessage::InfoNotice {
-                    content: "No sessions yet.".to_string(),
-                },
-            )]);
-        }
+        let bound_session_ids = self
+            .client
+            .list_background_bound_session_ids()
+            .await
+            .unwrap_or_default();
+        let sessions = filter_resume_sessions(sessions, &bound_session_ids);
+        let status = if sessions.is_empty() {
+            "No sessions to resume yet.".to_string()
+        } else {
+            "Select a session to resume".to_string()
+        };
+        Ok(vec![ShellAction::SessionPickerLoaded { sessions, status }])
+    }
 
-        let mut lines = vec!["Sessions".to_string()];
-        for session in sessions {
-            lines.push(format!("- {} ({})", session.name, session.id));
-        }
-        lines.push("Open one with /session open <session_id>".to_string());
-        Ok(vec![ShellAction::MessageAppended(
-            ShellMessage::InfoNotice {
-                content: lines.join("\n"),
-            },
-        )])
+    async fn delete_session_actions(&self, session_id: String) -> Result<Vec<ShellAction>> {
+        let delete_result = self.client.delete_session(&session_id).await;
+        let sessions = self.client.list_sessions().await.unwrap_or_default();
+        let bound_session_ids = self
+            .client
+            .list_background_bound_session_ids()
+            .await
+            .unwrap_or_default();
+        let sessions = filter_resume_sessions(sessions, &bound_session_ids);
+        let (deleted, status) = match delete_result {
+            Ok(deleted) if deleted => (true, format!("Deleted session {session_id}")),
+            Ok(_) => (false, format!("Session {session_id} was not deleted")),
+            Err(error) => (
+                false,
+                delete_session_error_message(&session_id, error.to_string()),
+            ),
+        };
+        Ok(vec![ShellAction::SessionDeleted {
+            session_id,
+            deleted,
+            sessions,
+            status,
+        }])
     }
 
     async fn list_runs_inline_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
@@ -609,42 +659,61 @@ impl ShellController {
     }
 }
 
+fn filter_resume_sessions(
+    sessions: Vec<ChatSessionSummary>,
+    bound_session_ids: &std::collections::HashSet<String>,
+) -> Vec<ChatSessionSummary> {
+    sessions
+        .into_iter()
+        .filter(|session| !bound_session_ids.contains(&session.id))
+        .collect()
+}
+
+fn delete_session_error_message(session_id: &str, error: String) -> String {
+    if error.contains("bound to background task") {
+        format!("Cannot delete background-bound session {session_id}")
+    } else {
+        format!("Failed to delete session {session_id}: {error}")
+    }
+}
+
 fn start_daemon_error_actions(err: anyhow::Error) -> Vec<ShellAction> {
     vec![ShellAction::Error(format!("Failed to start daemon: {err}"))]
 }
 
+fn command_display(command: &str, args: &str) -> String {
+    if args.is_empty() {
+        command.to_string()
+    } else {
+        format!("{command} {args}")
+    }
+}
+
 fn help_text() -> &'static str {
     "RestFlow terminal shell\n\n\
-Use /start when the daemon is offline.\n\
+Use /daemon when the daemon is offline.\n\
 \
 Enter sends the current draft.\n\
 Ctrl-J inserts a newline.\n\
-Ctrl-P lists sessions.\n\
-Ctrl-R lists runs for the current session.\n\
+Ctrl-P resumes a previous session.\n\
 Ctrl-A lists pending approvals.\n\
 Ctrl-G shows current team state.\n\
 Ctrl-L clears and redraws the screen.\n\
 Ctrl-C exits.\n\n\
 Slash commands:\n\
-/start\n\
+/daemon\n\
 /help\n\
-/sessions\n\
-/session open <session_id>\n\
-/runs\n\
-/run open <run_id>\n\
-/approvals\n\
-/approve <approval_id>\n\
-/reject <approval_id> [reason]\n\
+/resume\n\
 /team\n\
-/team state <team_run_id>\n\
-/team start <saved_team>\n\
-/task pause|resume|stop <task_id>"
+/task"
 }
 
 #[cfg(test)]
 mod tests {
-    use super::start_daemon_error_actions;
+    use super::{delete_session_error_message, filter_resume_sessions, start_daemon_error_actions};
     use crate::reducer::ShellAction;
+    use restflow_core::models::ChatSessionSummary;
+    use std::collections::HashSet;
 
     #[test]
     fn start_daemon_error_stays_inside_shell() {
@@ -655,5 +724,46 @@ mod tests {
             [ShellAction::Error(message)]
                 if message.contains("Failed to start daemon") && message.contains("socket denied")
         ));
+    }
+
+    #[test]
+    fn filter_resume_sessions_removes_background_bound_sessions() {
+        let sessions = vec![
+            session_summary("session-1", "Regular"),
+            session_summary("session-2", "Background"),
+        ];
+        let bound = HashSet::from(["session-2".to_string()]);
+
+        let visible = filter_resume_sessions(sessions, &bound);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, "session-1");
+    }
+
+    #[test]
+    fn delete_session_error_message_summarizes_background_bound_conflict() {
+        let message = delete_session_error_message(
+            "session-1",
+            "IPC error 409: Session session-1 is bound to background task task-1".to_string(),
+        );
+
+        assert_eq!(message, "Cannot delete background-bound session session-1");
+    }
+
+    fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
+        ChatSessionSummary {
+            id: id.to_string(),
+            name: name.to_string(),
+            agent_id: "agent-1".to_string(),
+            provider: "provider".to_string(),
+            model: "model".to_string(),
+            skill_id: None,
+            message_count: 1,
+            updated_at: 1,
+            last_message_preview: Some("preview".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            archived_at: None,
+        }
     }
 }

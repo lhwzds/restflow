@@ -3,7 +3,8 @@ use restflow_contracts::ToolExecutionResult;
 use restflow_contracts::request::ChildRunListQuery;
 use restflow_core::daemon::ChatSessionEvent;
 use restflow_core::daemon::{
-    DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available, start_daemon_with_config,
+    DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available,
+    start_daemon_with_config, stop_daemon,
 };
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
@@ -13,6 +14,7 @@ use restflow_core::paths;
 use restflow_core::storage::agent::{
     DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
 };
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
@@ -65,6 +67,10 @@ impl TuiDaemonClient {
         }
 
         bail!("RestFlow daemon did not become ready in time.")
+    }
+
+    pub async fn stop_daemon(&self) -> Result<bool> {
+        tokio::task::spawn_blocking(stop_daemon).await?
     }
 
     async fn connect(&self) -> Result<IpcClient> {
@@ -149,9 +155,31 @@ impl TuiDaemonClient {
         client.list_sessions().await
     }
 
+    pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
+        let mut client = self.connect().await?;
+        let tasks: Vec<serde_json::Value> = client
+            .request_typed(IpcRequest::ListTasks { status: None })
+            .await?;
+        Ok(tasks
+            .into_iter()
+            .filter_map(|task| {
+                task.get("chat_session_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|session_id| !session_id.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .collect())
+    }
+
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client.get_session(session_id.to_string()).await
+    }
+
+    pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
+        let mut client = self.connect().await?;
+        client.delete_session(session_id.to_string()).await
     }
 
     pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {

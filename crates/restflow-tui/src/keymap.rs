@@ -24,6 +24,7 @@ pub enum Action {
     Submit,
     OverlaySelect,
     RejectSelected,
+    DeleteSelected,
     Noop,
 }
 
@@ -48,6 +49,11 @@ pub fn map_event(event: Event) -> Action {
             modifiers,
             ..
         }) if modifiers.contains(KeyModifiers::CONTROL) => Action::OpenSessions,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('d'),
+            modifiers,
+            ..
+        }) if modifiers.is_empty() => Action::DeleteSelected,
         Event::Key(KeyEvent {
             code: KeyCode::Char('r'),
             modifiers,
@@ -155,6 +161,12 @@ mod tests {
     fn maps_ctrl_p_to_open_sessions() {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         assert_eq!(map_event(event), Action::OpenSessions);
+    }
+
+    #[test]
+    fn maps_d_to_delete_selected() {
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert_eq!(map_event(event), Action::DeleteSelected);
     }
 
     #[test]
