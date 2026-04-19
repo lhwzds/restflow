@@ -66,7 +66,7 @@ impl RenderRequest {
 
 pub async fn run_event_loop(controller: ShellController, mut state: AppState) -> Result<()> {
     let mut renderer = ShellRenderer::new();
-    renderer.clear_screen()?;
+    renderer.purge_screen()?;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let _input_handle = spawn_input_thread(tx.clone());
     let mut session_stream_handle = if state.is_startup_mode() {

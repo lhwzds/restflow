@@ -498,7 +498,7 @@ mod tests {
 
         assert!(output.effects.is_empty());
         assert_eq!(state.runtime_cells.len(), 1);
-        assert!(state.runtime_cells[0].body.contains("/start"));
+        assert!(state.runtime_cells[0].cell.body.contains("/start"));
     }
 
     #[test]

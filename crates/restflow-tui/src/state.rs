@@ -29,6 +29,12 @@ pub struct PendingUserCell {
     pub cell: TranscriptCell,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchoredRuntimeCell {
+    pub base_cell_index: usize,
+    pub cell: TranscriptCell,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ThreadFocus {
     #[default]
@@ -130,7 +136,7 @@ pub struct AppState {
     // Conversation cells are rebuilt from persisted session messages and should stay stable.
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
-    pub runtime_cells: Vec<TranscriptCell>,
+    pub runtime_cells: Vec<AnchoredRuntimeCell>,
     // Active cell is the single in-flight assistant response while streaming.
     pub active_cell: Option<TranscriptCell>,
     pub pending_user_cells: Vec<PendingUserCell>,
@@ -404,7 +410,10 @@ impl AppState {
         if cell.is_conversation_cell() {
             self.conversation_cells.push(cell);
         } else {
-            self.runtime_cells.push(cell);
+            self.runtime_cells.push(AnchoredRuntimeCell {
+                base_cell_index: self.conversation_cells.len(),
+                cell,
+            });
         }
     }
 
@@ -484,7 +493,6 @@ impl AppState {
             return;
         }
 
-        self.runtime_cells.clear();
         self.active_cell = Some(cell_from_message(
             &ShellMessage::AssistantStream {
                 content: chunk.to_string(),
@@ -578,6 +586,7 @@ impl AppState {
         );
 
         let mut pending = self.pending_user_cells.iter().peekable();
+        let mut runtime = self.runtime_cells.iter().peekable();
         for (index, cell) in self.conversation_cells.iter().enumerate() {
             while let Some(entry) = pending.peek() {
                 if entry.base_cell_index <= index {
@@ -587,6 +596,33 @@ impl AppState {
                     break;
                 }
             }
+
+            if runtime
+                .peek()
+                .is_some_and(|entry| entry.base_cell_index == index)
+                && cell.kind == TranscriptCellKind::User
+            {
+                cells.push(cell.clone());
+                while let Some(entry) = runtime.peek() {
+                    if entry.base_cell_index == index {
+                        cells.push(entry.cell.clone());
+                        runtime.next();
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            while let Some(entry) = runtime.peek() {
+                if entry.base_cell_index == index {
+                    cells.push(entry.cell.clone());
+                    runtime.next();
+                } else {
+                    break;
+                }
+            }
+
             cells.push(cell.clone());
         }
 
@@ -594,7 +630,9 @@ impl AppState {
             cells.push(entry.cell.clone());
         }
 
-        cells.extend(self.runtime_cells.clone());
+        for entry in runtime {
+            cells.push(entry.cell.clone());
+        }
         if let Some(active_cell) = self.active_cell.clone() {
             cells.push(active_cell);
         }
@@ -739,7 +777,7 @@ mod tests {
 
         assert_eq!(state.conversation_cells.len(), 2);
         assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].title, "Info");
+        assert_eq!(state.runtime_cells[0].cell.title, "Info");
     }
 
     #[test]
@@ -798,7 +836,7 @@ mod tests {
 
         assert_eq!(state.conversation_cells.len(), 0);
         assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].title, "Info");
+        assert_eq!(state.runtime_cells[0].cell.title, "Info");
     }
 
     #[test]
@@ -885,7 +923,7 @@ mod tests {
 
         assert_eq!(state.conversation_cells.len(), 2);
         assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].title, "Info");
+        assert_eq!(state.runtime_cells[0].cell.title, "Info");
         assert!(state.active_cell.is_some());
     }
 

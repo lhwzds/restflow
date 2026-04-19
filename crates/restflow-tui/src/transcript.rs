@@ -84,6 +84,24 @@ impl TranscriptCell {
     pub fn append_chunk(&mut self, chunk: &str) -> bool {
         match self.kind {
             TranscriptCellKind::Assistant if self.is_active => {
+                let normalized_chunk = chunk.trim_start_matches(['\r', '\n']);
+                if chunk == self.body
+                    || normalized_chunk == self.body
+                    || (!normalized_chunk.trim().is_empty()
+                        && normalized_chunk.trim() == self.body.trim())
+                    || self.body.starts_with(chunk)
+                    || self.body.starts_with(normalized_chunk)
+                {
+                    return true;
+                }
+                if chunk.starts_with(&self.body) {
+                    self.body = chunk.to_string();
+                    return true;
+                }
+                if normalized_chunk.starts_with(&self.body) {
+                    self.body = normalized_chunk.to_string();
+                    return true;
+                }
                 self.body.push_str(chunk);
                 true
             }
@@ -432,6 +450,48 @@ mod tests {
         assert_eq!(cell.body, "hello");
         assert!(!cell.is_active);
         assert!(cell.subtitle.is_none());
+    }
+
+    #[test]
+    fn stream_append_ignores_duplicate_full_chunk() {
+        let mut cell = cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: "OK".to_string(),
+            },
+            "Agent",
+        );
+
+        assert!(cell.append_chunk("OK"));
+
+        assert_eq!(cell.body, "OK");
+    }
+
+    #[test]
+    fn stream_append_ignores_duplicate_payload_with_leading_newlines() {
+        let mut cell = cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: "OK".to_string(),
+            },
+            "Agent",
+        );
+
+        assert!(cell.append_chunk("\n\nOK"));
+
+        assert_eq!(cell.body, "OK");
+    }
+
+    #[test]
+    fn stream_append_replaces_with_cumulative_chunk() {
+        let mut cell = cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: "hello".to_string(),
+            },
+            "Agent",
+        );
+
+        assert!(cell.append_chunk("hello world"));
+
+        assert_eq!(cell.body, "hello world");
     }
 
     #[test]
