@@ -135,7 +135,6 @@ pub struct AppState {
     pub active_cell: Option<TranscriptCell>,
     pub pending_user_cells: Vec<PendingUserCell>,
     pub overlay: Option<OverlayState>,
-    pub transcript_scroll: u16,
     pub composer: ComposerState,
     pub status: String,
     pub is_streaming: bool,
@@ -160,7 +159,6 @@ impl AppState {
             active_cell: None,
             pending_user_cells: Vec::new(),
             overlay: None,
-            transcript_scroll: 0,
             composer: ComposerState::default(),
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
@@ -241,7 +239,6 @@ impl AppState {
         self.pending_user_cells.clear();
         self.conversation_cells =
             transcript_cells(&messages_from_session(&session), self.assistant_name());
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn refresh_current_session(&mut self, session: ChatSession) {
@@ -409,7 +406,6 @@ impl AppState {
         } else {
             self.runtime_cells.push(cell);
         }
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn push_local_user_message(&mut self, content: String) {
@@ -422,12 +418,10 @@ impl AppState {
             base_cell_index,
             cell,
         });
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn replace_session_projection(&mut self, messages: Vec<ShellMessage>) {
         self.conversation_cells = transcript_cells(&messages, self.assistant_name());
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn push_info(&mut self, content: impl Into<String>) {
@@ -473,15 +467,6 @@ impl AppState {
         }
     }
 
-    pub fn transcript_scroll_to_bottom(&mut self) {
-        self.transcript_scroll = 0;
-    }
-
-    pub fn scroll_transcript(&mut self, delta: i16) {
-        let next = (self.transcript_scroll as i16 - delta).max(0) as u16;
-        self.transcript_scroll = next;
-    }
-
     fn append_assistant_stream_chunk(&mut self, chunk: &str) {
         if chunk.is_empty() {
             return;
@@ -492,7 +477,6 @@ impl AppState {
             .as_mut()
             .is_some_and(|cell| cell.append_chunk(chunk))
         {
-            self.transcript_scroll_to_bottom();
             return;
         }
 
@@ -507,7 +491,6 @@ impl AppState {
             },
             self.assistant_name(),
         ));
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
@@ -531,7 +514,6 @@ impl AppState {
                 {
                     let _ = active_cell.finalize();
                     self.conversation_cells.push(active_cell);
-                    self.transcript_scroll_to_bottom();
                 }
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
@@ -845,17 +827,6 @@ mod tests {
         assert!(state.current_team_assignments.is_empty());
         assert!(state.current_team_approvals.is_empty());
         assert!(state.overlay.is_none());
-    }
-
-    #[test]
-    fn transcript_scroll_uses_bottom_anchored_offsets() {
-        let mut state = AppState::empty();
-        state.scroll_transcript(-3);
-        assert_eq!(state.transcript_scroll, 3);
-        state.scroll_transcript(2);
-        assert_eq!(state.transcript_scroll, 1);
-        state.transcript_scroll_to_bottom();
-        assert_eq!(state.transcript_scroll, 0);
     }
 
     #[test]

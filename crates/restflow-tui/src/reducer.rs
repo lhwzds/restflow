@@ -236,8 +236,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 state.move_overlay_selection(-1);
             } else if state.composer.is_blank() {
                 state.composer.history_previous();
-            } else {
-                state.scroll_transcript(-1);
             }
         }
         Action::NavDown => {
@@ -245,8 +243,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 state.move_overlay_selection(1);
             } else if state.composer.is_navigating_history() {
                 state.composer.history_next();
-            } else {
-                state.scroll_transcript(1);
             }
         }
         Action::MoveLeft => {
