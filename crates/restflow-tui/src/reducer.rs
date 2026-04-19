@@ -38,6 +38,11 @@ pub enum ShellAction {
         runs: Vec<RunSummary>,
         status: String,
     },
+    SessionCreatedForSubmit {
+        session: Box<ChatSession>,
+        runs: Vec<RunSummary>,
+        message: String,
+    },
     RunOpened {
         session: Option<Box<ChatSession>>,
         run_id: String,
@@ -83,6 +88,7 @@ pub enum ShellEffect {
     RefreshState,
     ReloadCurrentSession,
     ActivateOverlaySelection,
+    CreateSessionForSubmit { message: String },
     SubmitMessage { message: String },
     ExecuteSlashCommand(SlashCommand),
     DeleteSession { session_id: String },
@@ -167,6 +173,17 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.clear_overlay();
             state.status = status;
         }
+        ShellAction::SessionCreatedForSubmit {
+            session,
+            runs,
+            message,
+        } => {
+            state.set_current_session(*session);
+            state.set_session_runs(runs);
+            state.push_local_user_message(message.clone());
+            state.status = "Sending message...".to_string();
+            output.effects.push(ShellEffect::SubmitMessage { message });
+        }
         ShellAction::RunOpened {
             session,
             run_id,
@@ -210,7 +227,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.status = status;
             if let Some(message) = state.take_pending_initial_message()
                 && !message.trim().is_empty()
-                && state.current_session_id().is_some()
+                && state.default_agent_id.is_some()
             {
                 output
                     .actions
@@ -435,13 +452,21 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
             }
         }
     } else if state.current_session_id().is_none() {
-        let message = if state.is_startup_mode() {
-            "Daemon is offline. Use /daemon to launch it.".to_string()
+        if state.is_startup_mode() {
+            let message = "Daemon is offline. Use /daemon to launch it.".to_string();
+            state.status = message.clone();
+            state.push_error(message);
+        } else if state.default_agent_id.is_some() {
+            state.status = "Creating session...".to_string();
+            output
+                .effects
+                .push(ShellEffect::CreateSessionForSubmit { message: text });
         } else {
-            "No active session. Use /resume or configure a default agent.".to_string()
-        };
-        state.status = message.clone();
-        state.push_error(message);
+            let message =
+                "No active session. Use /resume or configure a default agent.".to_string();
+            state.status = message.clone();
+            state.push_error(message);
+        }
     } else {
         state.push_local_user_message(text.clone());
         state.status = "Sending message...".to_string();
@@ -757,6 +782,51 @@ mod tests {
         assert_eq!(state.pending_user_cells[0].cell.body, "hi");
         assert!(state.runtime_cells.is_empty());
         assert!(state.active_cell.is_none());
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::SubmitMessage { message }] if message == "hi"
+        ));
+    }
+
+    #[test]
+    fn submit_text_without_session_creates_session_first() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "hi".to_string(),
+            },
+        );
+
+        assert!(state.pending_user_cells.is_empty());
+        assert_eq!(state.status, "Creating session...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CreateSessionForSubmit { message }] if message == "hi"
+        ));
+    }
+
+    #[test]
+    fn session_created_for_submit_sends_pending_message() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionCreatedForSubmit {
+                session: Box::new(session),
+                runs: Vec::new(),
+                message: "hi".to_string(),
+            },
+        );
+
+        assert_eq!(state.current_session_id(), Some(session_id.as_str()));
+        assert_eq!(state.pending_user_cells.len(), 1);
+        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
+        assert_eq!(state.status, "Sending message...");
         assert!(matches!(
             output.effects.as_slice(),
             [ShellEffect::SubmitMessage { message }] if message == "hi"

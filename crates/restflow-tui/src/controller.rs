@@ -69,6 +69,9 @@ impl ShellController {
             ShellEffect::RefreshState => self.refresh_actions(state).await,
             ShellEffect::ReloadCurrentSession => self.reload_current_session_actions(state).await,
             ShellEffect::ActivateOverlaySelection => self.overlay_selection_actions(state).await,
+            ShellEffect::CreateSessionForSubmit { message } => {
+                self.create_session_for_submit_actions(state, message).await
+            }
             ShellEffect::SubmitMessage { message } => {
                 self.submit_message_effect(state, message, tx).await?;
                 Ok(Vec::new())
@@ -263,6 +266,22 @@ impl ShellController {
         };
         self.client.spawn_chat_stream(session_id, message, tx);
         Ok(())
+    }
+
+    async fn create_session_for_submit_actions(
+        &self,
+        state: &AppState,
+        message: String,
+    ) -> Result<Vec<ShellAction>> {
+        let Some(agent_id) = state.default_agent_id.as_deref() else {
+            bail!("No default agent configured. Create one from the standard CLI.");
+        };
+        let session = self.client.create_session_for_agent(agent_id).await?;
+        Ok(vec![ShellAction::SessionCreatedForSubmit {
+            session: Box::new(session),
+            runs: Vec::new(),
+            message,
+        }])
     }
 
     async fn slash_command_actions(
@@ -665,7 +684,7 @@ fn filter_resume_sessions(
 ) -> Vec<ChatSessionSummary> {
     sessions
         .into_iter()
-        .filter(|session| !bound_session_ids.contains(&session.id))
+        .filter(|session| session.message_count > 0 && !bound_session_ids.contains(&session.id))
         .collect()
 }
 
@@ -729,8 +748,9 @@ mod tests {
     #[test]
     fn filter_resume_sessions_removes_background_bound_sessions() {
         let sessions = vec![
-            session_summary("session-1", "Regular"),
-            session_summary("session-2", "Background"),
+            session_summary_with_messages("session-1", "Regular", 1),
+            session_summary_with_messages("session-2", "Background", 1),
+            session_summary_with_messages("session-3", "Empty", 0),
         ];
         let bound = HashSet::from(["session-2".to_string()]);
 
@@ -750,7 +770,11 @@ mod tests {
         assert_eq!(message, "Cannot delete background-bound session session-1");
     }
 
-    fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
+    fn session_summary_with_messages(
+        id: &str,
+        name: &str,
+        message_count: u32,
+    ) -> ChatSessionSummary {
         ChatSessionSummary {
             id: id.to_string(),
             name: name.to_string(),
@@ -758,7 +782,7 @@ mod tests {
             provider: "provider".to_string(),
             model: "model".to_string(),
             skill_id: None,
-            message_count: 1,
+            message_count,
             updated_at: 1,
             last_message_preview: Some("preview".to_string()),
             source_channel: None,

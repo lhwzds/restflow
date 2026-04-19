@@ -26,19 +26,6 @@ pub struct TuiDaemonClient {
     socket_path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SessionSelection<'a> {
-    Existing(&'a str),
-    New,
-}
-
-fn session_selection(session_override: Option<&str>) -> SessionSelection<'_> {
-    match session_override {
-        Some(session_id) => SessionSelection::Existing(session_id),
-        None => SessionSelection::New,
-    }
-}
-
 impl TuiDaemonClient {
     pub fn new() -> Result<Self> {
         Ok(Self {
@@ -132,22 +119,23 @@ impl TuiDaemonClient {
 
     pub async fn resolve_or_create_session(
         &self,
-        agent: &StoredAgent,
+        _agent: &StoredAgent,
         session_override: Option<&str>,
     ) -> Result<Option<ChatSession>> {
-        match session_selection(session_override) {
-            SessionSelection::Existing(session_id) => {
+        match session_override {
+            Some(session_id) => {
                 let mut client = self.connect().await?;
                 client.get_session(session_id.to_string()).await.map(Some)
             }
-            SessionSelection::New => {
-                let mut client = self.connect().await?;
-                client
-                    .create_session(Some(agent.id.clone()), None, None, None)
-                    .await
-                    .map(Some)
-            }
+            None => Ok(None),
         }
+    }
+
+    pub async fn create_session_for_agent(&self, agent_id: &str) -> Result<ChatSession> {
+        let mut client = self.connect().await?;
+        client
+            .create_session(Some(agent_id.to_string()), None, None, None)
+            .await
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -325,23 +313,5 @@ impl TuiDaemonClient {
                 let _ = tx.send(AppEvent::Error(format!("Chat stream failed: {error}")));
             }
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{SessionSelection, session_selection};
-
-    #[test]
-    fn default_chat_session_selection_creates_new_session() {
-        assert_eq!(session_selection(None), SessionSelection::New);
-    }
-
-    #[test]
-    fn explicit_chat_session_selection_reuses_existing_session() {
-        assert_eq!(
-            session_selection(Some("session-123")),
-            SessionSelection::Existing("session-123")
-        );
     }
 }
