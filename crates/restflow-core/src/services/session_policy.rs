@@ -160,9 +160,9 @@ impl SessionPolicy {
 
     pub fn effective_source(&self, session: &ChatSession) -> Result<EffectiveSessionSource> {
         let bindings = self.sessions.list_bindings_by_session(&session.id)?;
-        if let Some(binding) = bindings.first() {
-            let source = Self::parse_binding_channel_source(&binding.channel)
-                .unwrap_or(ChatSessionSource::ExternalLegacy);
+        if let Some(binding) = bindings.first()
+            && let Some(source) = Self::parse_binding_channel_source(&binding.channel)
+        {
             return Ok(EffectiveSessionSource {
                 source,
                 conversation_id: Some(binding.conversation_id.clone()),

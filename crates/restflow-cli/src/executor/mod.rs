@@ -2,8 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-    RouteBindingResponse, SessionSourceMigrationResponse, ToolExecutionResult,
-    request::TaskFromSessionRequest,
+    RouteBindingResponse, ToolExecutionResult, request::TaskFromSessionRequest,
 };
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
@@ -128,10 +127,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn unbind_route(&self, id: &str) -> Result<bool>;
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse>;
-    async fn migrate_session_sources(
-        &self,
-        dry_run: bool,
-    ) -> Result<SessionSourceMigrationResponse>;
 
     // Task operations
     async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>>;

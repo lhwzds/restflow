@@ -29,6 +29,9 @@ GEMINI.md
 /python/scripts/*.py  # User scripts (runtime generated)
 !/python/scripts/templates/  # Keep templates
 
+# Local one-off maintenance scripts
+/scripts/local/
+
 # Hide UV enviroment Dont change
 /.uv
 

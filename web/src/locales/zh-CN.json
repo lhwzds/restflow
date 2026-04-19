@@ -21,8 +21,7 @@
       "workspace": "工作区",
       "telegram": "Telegram",
       "discord": "Discord",
-      "slack": "Slack",
-      "externalLegacy": "外部"
+      "slack": "Slack"
     },
     "tabs": {
       "sessions": "会话",

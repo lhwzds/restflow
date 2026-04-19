@@ -142,7 +142,7 @@ mod tests {
     use async_trait::async_trait;
     use restflow_contracts::{
         CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-        RouteBindingResponse, SessionSourceMigrationResponse, request::TaskFromSessionRequest,
+        RouteBindingResponse, request::TaskFromSessionRequest,
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
@@ -361,12 +361,6 @@ mod tests {
             unreachable!()
         }
         async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
-            unreachable!()
-        }
-        async fn migrate_session_sources(
-            &self,
-            _dry_run: bool,
-        ) -> Result<SessionSourceMigrationResponse> {
             unreachable!()
         }
         async fn list_tasks(&self, _status: Option<String>) -> Result<Vec<Task>> {

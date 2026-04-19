@@ -261,16 +261,13 @@ impl ChatSessionManager {
             return Ok(session);
         }
 
-        // Rebind migrated legacy sessions (`external_legacy` / missing source) when possible.
+        // Rebind legacy sessions with missing source metadata when possible.
         if let Some(source_channel) = source_channel
             && let Some(mut session) = sessions
                 .iter()
                 .find(|s| {
                     s.source_conversation_id.as_deref() == Some(conversation_id)
-                        && matches!(
-                            s.source_channel,
-                            None | Some(ChatSessionSource::ExternalLegacy)
-                        )
+                        && s.source_channel.is_none()
                 })
                 .cloned()
         {
@@ -1324,7 +1321,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_session_manager_rebinds_external_legacy_source_channel() {
+    async fn test_session_manager_rebinds_missing_legacy_source_channel() {
         let (storage, _temp_dir) = create_test_storage();
 
         use crate::models::AgentNode;
@@ -1335,12 +1332,12 @@ mod tests {
         let agents = storage.agents.list_agents().unwrap();
         let agent_id = agents[0].id.clone();
 
-        let legacy = ChatSession::new(
+        let mut legacy = ChatSession::new(
             agent_id.clone(),
             ModelId::Gpt5.as_serialized_str().to_string(),
         )
-        .with_name("conv-legacy")
-        .with_source(ChatSessionSource::ExternalLegacy, "conv-legacy");
+        .with_name("conv-legacy");
+        legacy.source_conversation_id = Some("conv-legacy".to_string());
         storage.chat_sessions.create(&legacy).unwrap();
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);

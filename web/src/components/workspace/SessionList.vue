@@ -103,8 +103,6 @@ function sourceLabel(source: ChatSessionSource | null | undefined): string | nul
       return t('workspace.sessionSource.discord')
     case 'slack':
       return t('workspace.sessionSource.slack')
-    case 'external_legacy':
-      return t('workspace.sessionSource.externalLegacy')
     default:
       return null
   }

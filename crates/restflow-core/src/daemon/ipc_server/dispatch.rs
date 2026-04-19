@@ -125,9 +125,6 @@ impl IpcServer {
             } => Self::handle_bind_route(core, binding_type, target_id, agent_id).await,
             IpcRequest::UnbindRoute { id } => Self::handle_unbind_route(core, id).await,
             IpcRequest::RunCleanup => Self::handle_run_cleanup(core).await,
-            IpcRequest::MigrateSessionSources { dry_run } => {
-                Self::handle_migrate_session_sources(core, dry_run).await
-            }
             IpcRequest::ListSecrets => Self::handle_list_secrets(core).await,
             IpcRequest::GetSecret { key } => Self::handle_get_secret(core, key).await,
             IpcRequest::SetSecret {

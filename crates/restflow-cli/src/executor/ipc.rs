@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, ClearResponse, IdResponse, OkResponse, PairingApprovalResponse,
     PairingOwnerResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse, request::TaskFromSessionRequest,
+    request::TaskFromSessionRequest,
 };
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -426,14 +426,6 @@ impl CommandExecutor for IpcExecutor {
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
         self.request_typed(IpcRequest::RunCleanup).await
-    }
-
-    async fn migrate_session_sources(
-        &self,
-        dry_run: bool,
-    ) -> Result<SessionSourceMigrationResponse> {
-        self.request_typed(IpcRequest::MigrateSessionSources { dry_run })
-            .await
     }
 
     // Task operations - use IPC client methods

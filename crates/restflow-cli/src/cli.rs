@@ -527,23 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_maintenance_migrate_session_sources_command() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "maintenance",
-            "migrate-session-sources",
-            "--dry-run",
-        ])
-        .expect("parse migrate session sources");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Maintenance {
-                command: super::MaintenanceCommands::MigrateSessionSources { dry_run: true }
-            })
-        ));
-    }
-
-    #[test]
     fn parses_mcp_sync_command() {
         let cli = Cli::try_parse_from(["restflow", "mcp", "sync", "--port", "9900"])
             .expect("parse mcp sync");
@@ -1096,13 +1079,6 @@ pub enum ConfigCommands {
 pub enum MaintenanceCommands {
     /// Run storage cleanup immediately
     Cleanup,
-
-    /// Migrate legacy `channel:*` chat sessions to explicit source metadata
-    MigrateSessionSources {
-        /// Print migration stats without writing changes
-        #[arg(long)]
-        dry_run: bool,
-    },
 }
 
 #[derive(Subcommand)]

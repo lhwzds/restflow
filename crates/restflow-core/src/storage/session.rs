@@ -166,7 +166,7 @@ fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
         ChatSessionSource::Telegram => Some("telegram"),
         ChatSessionSource::Discord => Some("discord"),
         ChatSessionSource::Slack => Some("slack"),
-        ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
+        ChatSessionSource::Workspace => None,
     }
 }
 

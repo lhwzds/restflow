@@ -198,9 +198,7 @@ fn backfill_channel_session_bindings_from_legacy_sources(
             Some(ChatSessionSource::Telegram) => Some("telegram"),
             Some(ChatSessionSource::Discord) => Some("discord"),
             Some(ChatSessionSource::Slack) => Some("slack"),
-            Some(ChatSessionSource::Workspace) | Some(ChatSessionSource::ExternalLegacy) | None => {
-                None
-            }
+            Some(ChatSessionSource::Workspace) | None => None,
         };
         let Some(channel_key) = channel_key else {
             continue;

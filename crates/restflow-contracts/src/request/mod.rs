@@ -113,9 +113,6 @@ pub enum IpcRequest {
         id: String,
     },
     RunCleanup,
-    MigrateSessionSources {
-        dry_run: bool,
-    },
 
     ListSecrets,
     GetSecret {

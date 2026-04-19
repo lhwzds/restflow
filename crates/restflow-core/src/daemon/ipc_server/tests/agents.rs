@@ -4,7 +4,7 @@ use crate::models::{ApiKeyConfig, ModelId};
 use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
 use restflow_contracts::{
     ApprovalHandledResponse, CleanupReportResponse, DeleteWithIdResponse, PairingApprovalResponse,
-    PairingStateResponse, RouteBindingResponse, SessionSourceMigrationResponse,
+    PairingStateResponse, RouteBindingResponse,
 };
 use restflow_storage::SimpleStorage;
 
@@ -707,45 +707,6 @@ async fn process_run_cleanup_returns_report() {
             let report: CleanupReportResponse =
                 serde_json::from_value(value).expect("cleanup report");
             assert_eq!(report.chat_sessions, 0);
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn process_migrate_session_sources_dry_run_reports_stats_without_writing() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let mut session = crate::models::ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    session.name = "channel:chat-legacy".to_string();
-    core.storage
-        .chat_sessions
-        .create(&session)
-        .expect("create session");
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::MigrateSessionSources { dry_run: true },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let report: SessionSourceMigrationResponse =
-                serde_json::from_value(value).expect("migration report");
-            assert!(report.dry_run);
-            assert_eq!(report.scanned, 1);
-            assert_eq!(report.migrated, 1);
-            let persisted = core
-                .storage
-                .chat_sessions
-                .get(&session.id)
-                .expect("load session")
-                .expect("session");
-            assert!(persisted.source_channel.is_none());
-            assert!(persisted.source_conversation_id.is_none());
-            assert_eq!(persisted.name, "channel:chat-legacy");
         }
         other => panic!("expected success response, got {other:?}"),
     }

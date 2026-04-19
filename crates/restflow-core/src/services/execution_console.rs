@@ -863,7 +863,6 @@ fn external_channel_key(source: ChatSessionSource) -> &'static str {
         ChatSessionSource::Telegram => "telegram",
         ChatSessionSource::Discord => "discord",
         ChatSessionSource::Slack => "slack",
-        ChatSessionSource::ExternalLegacy => "external",
         ChatSessionSource::Workspace => "workspace",
     }
 }

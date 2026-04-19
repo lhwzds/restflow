@@ -21,8 +21,7 @@
       "workspace": "Workspace",
       "telegram": "Telegram",
       "discord": "Discord",
-      "slack": "Slack",
-      "externalLegacy": "External"
+      "slack": "Slack"
     },
     "tabs": {
       "sessions": "Sessions",

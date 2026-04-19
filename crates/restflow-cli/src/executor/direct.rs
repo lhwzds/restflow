@@ -7,7 +7,7 @@ use crate::setup;
 use restflow_contracts::{
     AllowedPeerResponse, CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse,
     PairingRequestResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse, request::TaskFromSessionRequest,
+    request::TaskFromSessionRequest,
 };
 use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
@@ -409,24 +409,6 @@ impl CommandExecutor for DirectExecutor {
             memory_sessions: report.memory_sessions,
             vector_orphans: report.vector_orphans,
             daemon_log_files: report.daemon_log_files,
-        })
-    }
-
-    async fn migrate_session_sources(
-        &self,
-        dry_run: bool,
-    ) -> Result<SessionSourceMigrationResponse> {
-        let stats = self
-            .core
-            .storage
-            .chat_sessions
-            .migrate_legacy_channel_sources(dry_run)?;
-        Ok(SessionSourceMigrationResponse {
-            dry_run,
-            scanned: stats.scanned,
-            migrated: stats.migrated,
-            skipped: stats.skipped,
-            failed: stats.failed,
         })
     }
 

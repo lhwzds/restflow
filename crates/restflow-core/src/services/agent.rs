@@ -159,9 +159,6 @@ pub(crate) fn check_agent_has_external_channel_sessions(
                 }
                 sources.insert("slack".to_string());
             }
-            Some(ChatSessionSource::ExternalLegacy) => {
-                sources.insert("external_legacy".to_string());
-            }
         }
     }
 

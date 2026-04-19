@@ -260,7 +260,7 @@ mod tests {
     use restflow_contracts::request::TaskFromSessionRequest;
     use restflow_contracts::{
         CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-        RouteBindingResponse, SessionSourceMigrationResponse,
+        RouteBindingResponse,
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
@@ -565,13 +565,6 @@ mod tests {
         }
 
         async fn run_cleanup(&self) -> anyhow::Result<CleanupReportResponse> {
-            panic!("unexpected executor call")
-        }
-
-        async fn migrate_session_sources(
-            &self,
-            _dry_run: bool,
-        ) -> anyhow::Result<SessionSourceMigrationResponse> {
             panic!("unexpected executor call")
         }
 
