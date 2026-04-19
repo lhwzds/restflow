@@ -343,10 +343,17 @@ fn buffer_to_plain_lines(buffer: &Buffer) -> Vec<String> {
     let mut lines = Vec::with_capacity(buffer.area.height as usize);
     for y in 0..buffer.area.height {
         let mut line = String::new();
-        for x in 0..buffer.area.width {
-            if let Some(cell) = buffer.cell((x, y)) {
-                line.push_str(cell.symbol());
+        let mut x = 0;
+        while x < buffer.area.width {
+            if let Some(cell) = buffer.cell((x, y))
+                && !cell.skip
+            {
+                let symbol = cell.symbol();
+                line.push_str(symbol);
+                x += unicode_width::UnicodeWidthStr::width(symbol).max(1) as u16;
+                continue;
             }
+            x += 1;
         }
         lines.push(line.trim_end_matches(' ').to_string());
     }

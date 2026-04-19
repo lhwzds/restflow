@@ -676,6 +676,16 @@ mod tests {
     }
 
     #[test]
+    fn bottom_viewport_renderer_preserves_cjk_without_spacer_cells() {
+        let prompt_lines = vec![String::from("帮我打开浏览器")];
+        let rendered =
+            render_shell_bottom_viewport(32, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
+
+        assert!(rendered.lines[1].contains("帮我打开浏览器"));
+        assert!(!rendered.lines[1].contains("帮 我"));
+    }
+
+    #[test]
     fn clear_visible_homes_cursor_before_redraw() {
         let mut output = Vec::new();
         queue_clear_visible(&mut output).expect("clear sequence should render");
