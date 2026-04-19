@@ -410,7 +410,11 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Str
     };
 
     let lines = build_cell_lines(std::slice::from_ref(active_cell), width);
-    preserve_first_line_tail(lines, max_rows as usize)
+    preserve_active_cell_separator(
+        lines,
+        max_rows as usize,
+        stable_history_has_rendered_lines(state),
+    )
 }
 
 fn render_history_append_lines(
@@ -476,6 +480,12 @@ fn should_render_cell(cell: &TranscriptCell) -> bool {
             !cell.body.trim().is_empty()
         }
     }
+}
+
+fn stable_history_has_rendered_lines(state: &AppState) -> bool {
+    build_stable_history_cells(state)
+        .iter()
+        .any(should_render_cell)
 }
 
 fn queue_clear_visible(writer: &mut impl Write) -> IoResult<()> {
@@ -582,6 +592,20 @@ fn preserve_first_line_tail(lines: Vec<String>, max_rows: usize) -> Vec<String> 
     let mut visible = vec![lines[0].clone()];
     let body_start = lines.len().saturating_sub(max_rows - 1);
     visible.extend_from_slice(&lines[body_start.max(1)..]);
+    visible
+}
+
+fn preserve_active_cell_separator(
+    lines: Vec<String>,
+    max_rows: usize,
+    prepend_separator: bool,
+) -> Vec<String> {
+    if !prepend_separator || max_rows <= 1 || lines.is_empty() {
+        return preserve_first_line_tail(lines, max_rows);
+    }
+
+    let mut visible = vec![String::new()];
+    visible.extend(preserve_first_line_tail(lines, max_rows - 1));
     visible
 }
 
@@ -727,9 +751,9 @@ mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
         build_viewport_snapshot, changed_row_indices, format_title, is_cell_prefix,
-        normalize_body_lines, preserve_first_line_tail, protected_append_top, queue_clear_visible,
-        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
-        visible_history_fill_count,
+        normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
+        protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
+        render_history_append_lines, summarize_tool_body, visible_history_fill_count,
     };
     use crate::render::render_shell_bottom_viewport;
     use crate::state::{AnchoredRuntimeCell, AppState, PendingUserCell};
@@ -1041,6 +1065,66 @@ mod tests {
     }
 
     #[test]
+    fn transient_view_separates_active_assistant_from_prior_history() {
+        let mut state = AppState::empty();
+        state.pending_user_cells.push(PendingUserCell {
+            base_cell_index: 0,
+            cell: TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "hello".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        });
+        state.active_cell = Some(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "streaming".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        });
+
+        let lines = build_transient_lines(&state, 80, 8);
+
+        assert_eq!(lines[0], "");
+        assert!(lines[1].contains("Agent"));
+        assert!(lines[1].contains("typing"));
+    }
+
+    #[test]
+    fn transient_view_prioritizes_title_when_separator_would_exhaust_space() {
+        let mut state = AppState::empty();
+        state.pending_user_cells.push(PendingUserCell {
+            base_cell_index: 0,
+            cell: TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "hello".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        });
+        state.active_cell = Some(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "streaming".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        });
+
+        let lines = build_transient_lines(&state, 80, 1);
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("Agent"));
+        assert!(lines[0].contains("typing"));
+    }
+
+    #[test]
     fn transient_view_preserves_active_assistant_title_when_tail_clipped() {
         let mut state = AppState::empty();
         state.active_cell = Some(TranscriptCell {
@@ -1074,6 +1158,22 @@ mod tests {
         );
 
         assert_eq!(lines, vec!["Header", "middle", "new"]);
+    }
+
+    #[test]
+    fn preserve_active_cell_separator_keeps_header_after_separator() {
+        let lines = preserve_active_cell_separator(
+            vec![
+                "Header".to_string(),
+                "old".to_string(),
+                "middle".to_string(),
+                "new".to_string(),
+            ],
+            3,
+            true,
+        );
+
+        assert_eq!(lines, vec!["", "Header", "new"]);
     }
 
     #[test]
