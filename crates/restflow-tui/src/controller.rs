@@ -192,6 +192,11 @@ impl ShellController {
                 if matches!(spec.command, "/daemon") {
                     return Ok(vec![ShellAction::OpenDaemonPicker]);
                 }
+                if matches!(spec.command, "/new") {
+                    return Ok(vec![ShellAction::SubmitText {
+                        text: "/new".to_string(),
+                    }]);
+                }
                 if matches!(spec.command, "/task") {
                     return self.task_picker_actions().await;
                 }
@@ -361,6 +366,9 @@ impl ShellController {
     ) -> Result<Vec<ShellAction>> {
         match command {
             SlashCommand::Daemon => Ok(vec![ShellAction::OpenDaemonPicker]),
+            SlashCommand::NewChat => Ok(vec![ShellAction::NewChatStarted {
+                status: "Started new chat".to_string(),
+            }]),
             SlashCommand::Start => {
                 match self
                     .start_daemon_actions(
@@ -1147,6 +1155,7 @@ Ctrl-L clears and redraws the screen.\n\
 Ctrl-C exits.\n\n\
 Slash commands:\n\
 /daemon\n\
+/new\n\
 /help\n\
 /resume\n\
 /model\n\

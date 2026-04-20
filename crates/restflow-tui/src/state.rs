@@ -434,6 +434,45 @@ impl AppState {
         self.push_info(notice);
     }
 
+    pub fn start_new_chat(&mut self) {
+        let pending_session = self
+            .pending_session
+            .clone()
+            .or_else(|| {
+                self.thread.session.as_ref().map(|session| {
+                    PendingSessionState::new(
+                        session.agent_id.clone(),
+                        self.default_agent_name
+                            .clone()
+                            .unwrap_or_else(|| "Agent".to_string()),
+                        session.model.clone(),
+                    )
+                })
+            })
+            .or_else(|| {
+                self.default_agent_id.clone().map(|agent_id| {
+                    PendingSessionState::new(
+                        agent_id,
+                        self.default_agent_name
+                            .clone()
+                            .unwrap_or_else(|| "Agent".to_string()),
+                        ModelId::Gpt5.as_serialized_str().to_string(),
+                    )
+                })
+            });
+
+        self.thread.clear_session();
+        self.clear_team_context();
+        self.conversation_cells.clear();
+        self.runtime_cells.clear();
+        self.active_cell = None;
+        self.pending_user_cells.clear();
+        self.pending_session = pending_session;
+        self.clear_overlay();
+        self.composer.clear();
+        self.is_streaming = false;
+    }
+
     pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
         self.thread.set_session_runs(runs);
     }

@@ -20,6 +20,7 @@ impl TaskControlAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
     Daemon,
+    NewChat,
     Start,
     Stop,
     Help,
@@ -71,6 +72,11 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         description: "Control the local daemon",
     },
     SlashCommandSpec {
+        command: "/new",
+        args: "",
+        description: "Start a new chat",
+    },
+    SlashCommandSpec {
         command: "/help",
         args: "",
         description: "Show slash command help",
@@ -107,6 +113,7 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
             "stop" => Ok(SlashCommand::Stop),
             _ => bail!("Usage: /daemon [start|stop]"),
         },
+        "/new" | "/clear" => Ok(SlashCommand::NewChat),
         "/start" => Ok(SlashCommand::Start),
         "/stop" => Ok(SlashCommand::Stop),
         "/help" => Ok(SlashCommand::Help),
@@ -403,6 +410,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_new_chat_aliases() {
+        assert_eq!(
+            parse_slash_command("/new").expect("parse"),
+            SlashCommand::NewChat
+        );
+        assert_eq!(
+            parse_slash_command("/clear").expect("parse"),
+            SlashCommand::NewChat
+        );
+    }
+
+    #[test]
     fn command_specs_include_all_supported_entrypoints() {
         let specs = SLASH_COMMAND_SPECS
             .iter()
@@ -410,6 +429,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(specs.contains(&("/daemon", "")));
+        assert!(specs.contains(&("/new", "")));
+        assert!(!specs.contains(&("/clear", "")));
         assert!(!specs.contains(&("/start", "")));
         assert!(!specs.contains(&("/stop", "")));
         assert!(specs.contains(&("/help", "")));

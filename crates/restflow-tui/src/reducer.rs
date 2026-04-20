@@ -108,6 +108,9 @@ pub enum ShellAction {
     CommandPicked {
         text: String,
     },
+    NewChatStarted {
+        status: String,
+    },
     OpenDaemonPicker,
     OpenTaskActionPicker {
         task_id: String,
@@ -332,6 +335,10 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.clear_overlay();
             state.composer.replace(text);
             state.status = "Command selected".to_string();
+        }
+        ShellAction::NewChatStarted { status } => {
+            state.start_new_chat();
+            state.status = status;
         }
         ShellAction::OpenDaemonPicker => {
             state.composer.clear();
@@ -583,6 +590,7 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
 
 fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
     match command {
+        SlashCommand::NewChat => "Starting new chat...",
         SlashCommand::ListModels => "Loading providers...",
         SlashCommand::ListModelsForProvider { .. } => "Loading models...",
         SlashCommand::SwitchModel { .. } => "Switching model...",
@@ -725,7 +733,7 @@ mod tests {
         assert_eq!(state.composer.draft(), "/resume");
         assert!(matches!(
             state.overlay,
-            Some(crate::state::OverlayState::CommandPicker { selected: 2 })
+            Some(crate::state::OverlayState::CommandPicker { selected: 3 })
         ));
     }
 
@@ -1052,6 +1060,38 @@ mod tests {
         );
 
         assert!(state.pending_session.is_none());
+    }
+
+    #[test]
+    fn new_chat_started_clears_view_and_sets_pending_session() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5.4".to_string());
+        session.add_message(restflow_core::models::ChatMessage::user("old"));
+        state.set_current_session(session);
+        state.push_local_user_message("pending".to_string());
+        state.push_info("notice");
+        state.open_command_picker();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::NewChatStarted {
+                status: "Started new chat".to_string(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        assert!(state.current_session_id().is_none());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.pending_user_cells.is_empty());
+        assert!(state.active_cell.is_none());
+        assert!(state.overlay.is_none());
+        assert!(state.composer.draft().is_empty());
+        let pending = state.pending_session.as_ref().expect("pending session");
+        assert_eq!(pending.agent_id, "agent-1");
+        assert_eq!(pending.model, "gpt-5.4");
+        assert_eq!(state.status, "Started new chat");
     }
 
     #[test]
