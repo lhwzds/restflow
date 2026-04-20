@@ -25,7 +25,7 @@
 //! ```
 
 use crate::models::ModelId;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
@@ -355,7 +355,7 @@ impl ChatSessionMetadata {
 }
 
 /// Origin of a chat session.
-#[derive(Debug, Clone, Copy, Serialize, TS, Type, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
@@ -368,25 +368,6 @@ pub enum ChatSessionSource {
     Discord,
     /// Created from Slack inbound messages.
     Slack,
-}
-
-impl<'de> Deserialize<'de> for ChatSessionSource {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let source = String::deserialize(deserializer)?;
-        match source.as_str() {
-            "workspace" | "external_legacy" => Ok(ChatSessionSource::Workspace),
-            "telegram" => Ok(ChatSessionSource::Telegram),
-            "discord" => Ok(ChatSessionSource::Discord),
-            "slack" => Ok(ChatSessionSource::Slack),
-            value => Err(serde::de::Error::unknown_variant(
-                value,
-                &["workspace", "telegram", "discord", "slack"],
-            )),
-        }
-    }
 }
 
 /// A chat session containing conversation history with an agent.

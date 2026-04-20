@@ -630,28 +630,6 @@ async fn is_workspace_managed_session_rejects_sessions_with_channel_bindings() {
 }
 
 #[tokio::test]
-async fn apply_effective_source_backfills_binding_for_legacy_external_session() {
-    let (core, _temp) = create_test_core().await;
-    let session_service = SessionService::from_storage(&core.storage);
-
-    let mut telegram = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-        .with_source(ChatSessionSource::Telegram, "chat-legacy");
-    core.storage.chat_sessions.create(&telegram).unwrap();
-
-    session_service
-        .apply_effective_source(&mut telegram)
-        .unwrap();
-
-    let binding = core
-        .storage
-        .channel_session_bindings
-        .get_by_route("telegram", None, "chat-legacy")
-        .unwrap()
-        .expect("legacy external route should be backfilled");
-    assert_eq!(binding.session_id, telegram.id);
-}
-
-#[tokio::test]
 async fn delete_session_rejects_background_bound_workspace_session() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -768,31 +746,6 @@ async fn apply_effective_session_source_uses_binding_data() {
 }
 
 #[tokio::test]
-async fn apply_effective_session_source_backfills_legacy_external_binding() {
-    let (core, _temp) = create_test_core().await;
-    let session_service = SessionService::from_storage(&core.storage);
-
-    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-        .with_source(ChatSessionSource::Telegram, "legacy-conv");
-    session_service
-        .apply_effective_source(&mut session)
-        .unwrap();
-    assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
-    assert_eq!(
-        session.source_conversation_id.as_deref(),
-        Some("legacy-conv")
-    );
-
-    let binding = core
-        .storage
-        .channel_session_bindings
-        .get_by_route("telegram", None, "legacy-conv")
-        .unwrap()
-        .expect("legacy route should be backfilled");
-    assert_eq!(binding.session_id, session.id);
-}
-
-#[tokio::test]
 async fn apply_effective_session_source_defaults_to_workspace_when_no_external_route() {
     let (core, _temp) = create_test_core().await;
     let session_service = SessionService::from_storage(&core.storage);
@@ -853,13 +806,13 @@ fn rebuild_external_session_rejects_workspace_session() {
 }
 
 #[tokio::test]
-async fn effective_source_prefers_binding_over_legacy_fields() {
+async fn effective_source_prefers_binding_over_session_source_fields() {
     let (core, _temp) = create_test_core().await;
     let service = SessionService::from_storage(&core.storage);
 
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-        .with_source(ChatSessionSource::Telegram, "legacy-chat");
-    session.source_conversation_id = Some("legacy-chat".to_string());
+        .with_source(ChatSessionSource::Telegram, "source-chat");
+    session.source_conversation_id = Some("source-chat".to_string());
     core.storage.chat_sessions.create(&session).unwrap();
     core.storage
         .channel_session_bindings

@@ -553,14 +553,6 @@ mod tests {
         assert!(msg.contains("Cannot delete agent"));
         assert!(msg.contains("external channel sessions"));
         assert!(msg.contains("telegram"));
-
-        let binding = core
-            .storage
-            .channel_session_bindings
-            .get_by_route("telegram", None, "chat-1")
-            .unwrap()
-            .expect("legacy source route should be backfilled");
-        assert_eq!(binding.session_id, session.id);
     }
 
     #[tokio::test]

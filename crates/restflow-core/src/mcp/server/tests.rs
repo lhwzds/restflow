@@ -155,41 +155,6 @@ async fn test_core_backend_session_source_is_resolved_from_binding() {
     );
 }
 
-#[tokio::test]
-async fn test_core_backend_backfills_legacy_external_route_to_binding() {
-    let (server, core, _db, _agents, _guard) = create_test_server().await;
-
-    let default_agent = core.storage.agents.resolve_default_agent().unwrap();
-    let session = ChatSession::new(
-        default_agent.id.clone(),
-        ModelId::Gpt5.as_serialized_str().to_string(),
-    )
-    .with_name("legacy-source-test")
-    .with_source(ChatSessionSource::Telegram, "legacy-chat");
-    core.storage.chat_sessions.create(&session).unwrap();
-
-    let get_json = server
-        .handle_chat_session_get(ChatSessionGetParams {
-            session_id: session.id.clone(),
-        })
-        .await
-        .unwrap();
-    let fetched: ChatSession = serde_json::from_str(&get_json).unwrap();
-    assert_eq!(fetched.source_channel, Some(ChatSessionSource::Telegram));
-    assert_eq!(
-        fetched.source_conversation_id.as_deref(),
-        Some("legacy-chat")
-    );
-
-    let binding = core
-        .storage
-        .channel_session_bindings
-        .get_by_route("telegram", None, "legacy-chat")
-        .unwrap()
-        .expect("legacy route should be backfilled to binding");
-    assert_eq!(binding.session_id, session.id);
-}
-
 // =========================================================================
 // Serialization Tests
 // =========================================================================

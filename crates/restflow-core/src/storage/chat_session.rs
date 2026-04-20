@@ -399,25 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reads_legacy_external_source_as_workspace_compat() {
-        let (storage, _temp_dir) = setup();
-        let legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-        let id = legacy.id.clone();
-        let mut value = serde_json::to_value(&legacy).unwrap();
-        value["source_channel"] = serde_json::Value::String("external_legacy".to_string());
-        storage
-            .inner
-            .put_raw(&id, value.to_string().as_bytes())
-            .unwrap();
-
-        let persisted = storage.get(&id).unwrap().unwrap();
-        assert_eq!(
-            persisted.source_channel,
-            Some(crate::models::ChatSessionSource::Workspace)
-        );
-    }
-
-    #[test]
     fn test_list_sorted_by_updated_at() {
         let (storage, _temp_dir) = setup();
 

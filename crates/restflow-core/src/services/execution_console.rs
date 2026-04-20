@@ -1015,6 +1015,15 @@ mod tests {
             .chat_sessions
             .create(&telegram)
             .expect("telegram session");
+        storage
+            .channel_session_bindings
+            .upsert(&crate::models::ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-42",
+                &telegram.id,
+            ))
+            .expect("telegram binding");
 
         store_run_events(
             &storage,
