@@ -10,7 +10,7 @@ use super::daemon_client::TuiDaemonClient;
 use super::event_loop::AppEvent;
 use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
-use super::state::{AppState, OverlayState, RunPickerItem};
+use super::state::{AppState, OverlayState, RunPickerItem, TaskPickerItem, TeamPickerItem};
 use super::transcript::ShellMessage;
 
 #[derive(Clone)]
@@ -83,9 +83,9 @@ impl ShellController {
                 self.delete_session_actions(session_id).await
             }
             ShellEffect::ListSessionsInline => self.session_picker_actions().await,
+            ShellEffect::ListTeamsInline => self.team_picker_actions(state).await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
             ShellEffect::ListApprovalsInline => Ok(self.list_approvals_inline_actions(state)),
-            ShellEffect::ShowTeamInline => Ok(self.show_team_inline_actions(state)),
             ShellEffect::ClearScreen => Ok(Vec::new()),
         }
     }
@@ -188,12 +188,13 @@ impl ShellController {
                 if matches!(spec.command, "/daemon") {
                     return Ok(vec![ShellAction::OpenDaemonPicker]);
                 }
-                let command = command_display(spec.command, spec.args);
                 if matches!(spec.command, "/task") {
-                    return Ok(vec![ShellAction::CommandPicked {
-                        text: "/task ".to_string(),
-                    }]);
+                    return self.task_picker_actions().await;
                 }
+                if matches!(spec.command, "/team") {
+                    return self.team_picker_actions(state).await;
+                }
+                let command = command_display(spec.command, spec.args);
                 if spec.args.is_empty() {
                     return Ok(vec![ShellAction::SubmitText { text: command }]);
                 }
@@ -224,6 +225,33 @@ impl ShellController {
                     runs,
                     status: format!("Opened session {session_id}"),
                 }])
+            }
+            Some(OverlayState::TaskPicker { .. }) => {
+                let Some(task_id) = state.selected_task_id().map(str::to_string) else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![ShellAction::OpenTaskActionPicker { task_id }])
+            }
+            Some(OverlayState::TaskActionPicker { .. }) => {
+                let Some((task_id, action)) = state.selected_task_action() else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![ShellAction::SubmitText {
+                    text: format!("/task {action} {task_id}"),
+                }])
+            }
+            Some(OverlayState::TeamPicker { .. }) => {
+                let Some(item) = state.selected_team_item() else {
+                    return Ok(Vec::new());
+                };
+                match item {
+                    TeamPickerItem::Current { team_run_id, .. } => {
+                        self.load_team_actions(&team_run_id, true).await
+                    }
+                    TeamPickerItem::Saved { name, .. } => Ok(vec![ShellAction::SubmitText {
+                        text: format!("/team start {name}"),
+                    }]),
+                }
             }
             Some(OverlayState::RunPicker { .. }) => {
                 let Some(RunPickerItem::Run { run_id, .. }) = state.selected_run_picker_item()
@@ -322,9 +350,10 @@ impl ShellController {
                 },
             )]),
             SlashCommand::ListSessions => self.session_picker_actions().await,
+            SlashCommand::ListTasks => self.task_picker_actions().await,
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
             SlashCommand::ListApprovals => Ok(self.list_approvals_inline_actions(state)),
-            SlashCommand::ShowTeam => Ok(self.show_team_inline_actions(state)),
+            SlashCommand::ListTeams => self.team_picker_actions(state).await,
             SlashCommand::TaskControl { action, task_id } => {
                 let task = self.client.control_task(&task_id, action.as_str()).await?;
                 Ok(vec![ShellAction::TaskControlCompleted {
@@ -413,6 +442,71 @@ impl ShellController {
         Ok(vec![ShellAction::SessionPickerLoaded { sessions, status }])
     }
 
+    async fn task_picker_actions(&self) -> Result<Vec<ShellAction>> {
+        let tasks = self.client.list_tasks().await?;
+        let tasks = tasks
+            .into_iter()
+            .map(|task| TaskPickerItem {
+                task_id: task.id,
+                name: task.name,
+                status: format!("{:?}", task.status),
+                next_run_at: task.next_run_at,
+            })
+            .collect::<Vec<_>>();
+        let status = if tasks.is_empty() {
+            "No tasks available.".to_string()
+        } else {
+            "Select a task".to_string()
+        };
+        Ok(vec![ShellAction::TaskPickerLoaded { tasks, status }])
+    }
+
+    async fn team_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
+        let mut items = Vec::new();
+        if let Some(team) = state.current_team_state.as_ref() {
+            items.push(TeamPickerItem::Current {
+                team_run_id: team.team_run_id.clone(),
+                status: format!("{:?}", team.status),
+                members: team.members.len(),
+            });
+        }
+
+        if let Ok(output) = self
+            .client
+            .execute_runtime_tool("spawn_subagent_batch", json!({ "operation": "list_teams" }))
+            .await
+            && output.success
+            && let Some(teams) = output
+                .result
+                .get("teams")
+                .and_then(serde_json::Value::as_array)
+        {
+            for team in teams {
+                let Some(name) = team.get("team").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                items.push(TeamPickerItem::Saved {
+                    name: name.to_string(),
+                    member_groups: team
+                        .get("member_groups")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or_default() as usize,
+                    total_instances: team
+                        .get("total_instances")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or_default() as usize,
+                });
+            }
+        }
+
+        let status = if items.is_empty() {
+            "No teams available.".to_string()
+        } else {
+            "Select a team".to_string()
+        };
+        Ok(vec![ShellAction::TeamPickerLoaded { items, status }])
+    }
+
     async fn delete_session_actions(&self, session_id: String) -> Result<Vec<ShellAction>> {
         let delete_result = self.client.delete_session(&session_id).await;
         let sessions = self.client.list_sessions().await.unwrap_or_default();
@@ -480,47 +574,6 @@ impl ShellController {
             ));
         }
         lines.push("Use /approve <approval_id> or /reject <approval_id> [reason]".to_string());
-        vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-            content: lines.join("\n"),
-        })]
-    }
-
-    fn show_team_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {
-        let Some(team) = state.current_team_state.as_ref() else {
-            return vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: "No team context for the current session.".to_string(),
-            })];
-        };
-
-        let mut lines = vec![
-            format!("Team {}", team.team_run_id),
-            format!(
-                "Leader: {} · Status: {:?}",
-                team.leader_member_id, team.status
-            ),
-            format!(
-                "Members: {} · Pending messages: {} · Pending assignments: {}",
-                team.members.len(),
-                team.pending_message_count,
-                team.pending_assignment_count
-            ),
-        ];
-        if !state.current_team_assignments.is_empty() {
-            lines.push("Assignments".to_string());
-            for assignment in &state.current_team_assignments {
-                lines.push(format!(
-                    "- {} -> {} · {:?}",
-                    assignment.assignment_id, assignment.assignee_member_id, assignment.status
-                ));
-            }
-        }
-        if !state.current_team_approvals.is_empty() {
-            lines.push(format!(
-                "Pending approvals: {}",
-                state.current_team_approvals.len()
-            ));
-        }
-
         vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
             content: lines.join("\n"),
         })]

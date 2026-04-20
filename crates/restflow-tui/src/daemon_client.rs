@@ -160,6 +160,13 @@ impl TuiDaemonClient {
             .collect())
     }
 
+    pub async fn list_tasks(&self) -> Result<Vec<Task>> {
+        let mut client = self.connect().await?;
+        client
+            .request_typed(IpcRequest::ListTasks { status: None })
+            .await
+    }
+
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client.get_session(session_id.to_string()).await

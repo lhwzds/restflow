@@ -1,7 +1,7 @@
 use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
-use super::state::AppState;
+use super::state::{AppState, TaskPickerItem, TeamPickerItem};
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
@@ -54,6 +54,14 @@ pub enum ShellAction {
         task_id: String,
         status: String,
     },
+    TaskPickerLoaded {
+        tasks: Vec<TaskPickerItem>,
+        status: String,
+    },
+    TeamPickerLoaded {
+        items: Vec<TeamPickerItem>,
+        status: String,
+    },
     TeamSnapshotLoaded {
         team_state: Option<TeamState>,
         messages: Vec<TeamMessage>,
@@ -75,6 +83,9 @@ pub enum ShellAction {
         text: String,
     },
     OpenDaemonPicker,
+    OpenTaskActionPicker {
+        task_id: String,
+    },
     SubmitText {
         text: String,
     },
@@ -93,9 +104,9 @@ pub enum ShellEffect {
     ExecuteSlashCommand(SlashCommand),
     DeleteSession { session_id: String },
     ListSessionsInline,
+    ListTeamsInline,
     ListRunsInline,
     ListApprovalsInline,
-    ShowTeamInline,
 }
 
 #[derive(Debug, Default)]
@@ -200,6 +211,17 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         }
         ShellAction::TaskControlCompleted { task_id, status } => {
             state.status = format!("Task {task_id} -> {status}");
+            state.clear_overlay();
+        }
+        ShellAction::TaskPickerLoaded { tasks, status } => {
+            state.tasks = tasks;
+            state.open_task_picker();
+            state.status = status;
+        }
+        ShellAction::TeamPickerLoaded { items, status } => {
+            state.team_items = items;
+            state.open_team_picker();
+            state.status = status;
         }
         ShellAction::TeamSnapshotLoaded {
             team_state,
@@ -250,6 +272,11 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.composer.clear();
             state.open_daemon_picker();
             state.status = "Select daemon action".to_string();
+        }
+        ShellAction::OpenTaskActionPicker { task_id } => {
+            state.composer.clear();
+            state.open_task_action_picker(task_id);
+            state.status = "Select task action".to_string();
         }
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
         ShellAction::RefreshTick => {
@@ -303,7 +330,7 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
         Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
         Action::OpenApprovals => output.effects.push(ShellEffect::ListApprovalsInline),
-        Action::OpenTeam => output.effects.push(ShellEffect::ShowTeamInline),
+        Action::OpenTeam => output.effects.push(ShellEffect::ListTeamsInline),
         Action::OpenHelp => output
             .effects
             .push(ShellEffect::ExecuteSlashCommand(SlashCommand::Help)),

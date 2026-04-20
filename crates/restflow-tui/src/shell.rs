@@ -427,6 +427,18 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Lin
         return lines;
     }
 
+    if let Some(lines) = build_task_picker_lines(state, width, max_rows) {
+        return lines;
+    }
+
+    if let Some(lines) = build_task_action_picker_lines(state, width) {
+        return lines;
+    }
+
+    if let Some(lines) = build_team_picker_lines(state, width, max_rows) {
+        return lines;
+    }
+
     if let Some(lines) = build_daemon_picker_lines(state, width) {
         return lines;
     }
@@ -533,6 +545,202 @@ fn build_session_picker_lines(
         ));
     }
 
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_task_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::TaskPicker { selected }) = state.overlay.as_ref() else {
+        return None;
+    };
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Tasks", tool_title_style()),
+        Span::styled("  Up/Down select, Enter actions, Esc close", muted_style()),
+    ])];
+    if state.tasks.is_empty() {
+        lines.push(styled_line("  No tasks available.", muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let rows_per_task = 2usize;
+    let visible_tasks = (visible_capacity / rows_per_task).max(1);
+    let selected_index = (*selected).min(state.tasks.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_tasks / 2)
+        .min(state.tasks.len().saturating_sub(visible_tasks));
+    let end = (start + visible_tasks).min(state.tasks.len());
+
+    for (index, task) in state.tasks[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let title = Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(task.name.clone(), title_style),
+            Span::styled(format!(" · {}", task.status), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(title, width));
+        let id_line = Line::from(vec![
+            Span::styled("    id: ", muted_style()),
+            Span::styled(task.task_id.clone(), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(id_line, width));
+    }
+
+    if end < state.tasks.len() {
+        lines.push(styled_line(
+            format!("  ... {} more", state.tasks.len() - end),
+            muted_style(),
+        ));
+    }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_task_action_picker_lines(state: &AppState, width: u16) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::TaskActionPicker { task_id, selected }) =
+        state.overlay.as_ref()
+    else {
+        return None;
+    };
+
+    let actions = [
+        ("pause", "Pause task scheduling"),
+        ("resume", "Resume task scheduling"),
+        ("stop", "Interrupt current/future execution"),
+    ];
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Task actions", tool_title_style()),
+        Span::styled("  Up/Down select, Enter run, Esc close", muted_style()),
+    ])];
+    lines.push(styled_line(format!("  task: {task_id}"), muted_style()));
+    for (index, (action, description)) in actions.iter().enumerate() {
+        let selected = index == *selected;
+        let line = Line::from(vec![
+            Span::styled(
+                if selected { "› " } else { "  " },
+                if selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(
+                format!("/task {action}"),
+                if selected {
+                    tool_title_style()
+                } else {
+                    Style::default().add_modifier(Modifier::BOLD)
+                },
+            ),
+            Span::styled("  ", muted_style()),
+            Span::styled(*description, muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(line, width));
+    }
+    Some(lines)
+}
+
+fn build_team_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::TeamPicker { selected }) = state.overlay.as_ref() else {
+        return None;
+    };
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Teams", tool_title_style()),
+        Span::styled(
+            "  Up/Down select, Enter open/start, Esc close",
+            muted_style(),
+        ),
+    ])];
+    if state.team_items.is_empty() {
+        lines.push(styled_line("  No teams available.", muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let selected_index = (*selected).min(state.team_items.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_capacity / 2)
+        .min(state.team_items.len().saturating_sub(visible_capacity));
+    let end = (start + visible_capacity).min(state.team_items.len());
+
+    for (index, item) in state.team_items[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let line = match item {
+            crate::state::TeamPickerItem::Current {
+                team_run_id,
+                status,
+                members,
+            } => Line::from(vec![
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        tool_title_style()
+                    } else {
+                        muted_style()
+                    },
+                ),
+                Span::styled(format!("Current team {team_run_id}"), title_style),
+                Span::styled(format!(" · {status} · {members} members"), muted_style()),
+            ]),
+            crate::state::TeamPickerItem::Saved {
+                name,
+                member_groups,
+                total_instances,
+            } => Line::from(vec![
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        tool_title_style()
+                    } else {
+                        muted_style()
+                    },
+                ),
+                Span::styled(format!("Saved team {name}"), title_style),
+                Span::styled(
+                    format!(" · {member_groups} groups · {total_instances} members"),
+                    muted_style(),
+                ),
+            ]),
+        };
+        lines.extend(wrap_styled_line(line, width));
+    }
+    if end < state.team_items.len() {
+        lines.push(styled_line(
+            format!("  ... {} more", state.team_items.len() - end),
+            muted_style(),
+        ));
+    }
     lines.truncate(max_rows as usize);
     Some(lines)
 }
@@ -1185,7 +1393,9 @@ mod tests {
 
     use crate::render::render_shell_bottom_viewport;
     use crate::slash_command::SLASH_COMMAND_SPECS;
-    use crate::state::{AnchoredRuntimeCell, AppState, PendingUserCell};
+    use crate::state::{
+        AnchoredRuntimeCell, AppState, PendingUserCell, TaskPickerItem, TeamPickerItem,
+    };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use restflow_core::models::ChatSessionSummary;
 
@@ -1734,6 +1944,56 @@ mod tests {
         );
         assert!(rendered.iter().any(|line| line.contains("id: session-1")));
         assert!(rendered.iter().any(|line| line.contains("No messages yet")));
+    }
+
+    #[test]
+    fn task_picker_lists_tasks_and_actions() {
+        let mut state = AppState::empty();
+        state.tasks = vec![TaskPickerItem {
+            task_id: "task-1".to_string(),
+            name: "Daily digest".to_string(),
+            status: "Active".to_string(),
+            next_run_at: None,
+        }];
+        state.open_task_picker();
+
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("Tasks"));
+        assert!(text.contains("Daily digest"));
+        assert!(text.contains("task-1"));
+
+        state.open_task_action_picker("task-1");
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("Task actions"));
+        assert!(text.contains("/task pause"));
+        assert!(text.contains("/task resume"));
+        assert!(text.contains("/task stop"));
+    }
+
+    #[test]
+    fn team_picker_lists_current_and_saved_teams() {
+        let mut state = AppState::empty();
+        state.team_items = vec![
+            TeamPickerItem::Current {
+                team_run_id: "team-run-1".to_string(),
+                status: "Running".to_string(),
+                members: 2,
+            },
+            TeamPickerItem::Saved {
+                name: "reviewers".to_string(),
+                member_groups: 1,
+                total_instances: 3,
+            },
+        ];
+        state.open_team_picker();
+
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("Teams"));
+        assert!(text.contains("Current team team-run-1"));
+        assert!(text.contains("Saved team reviewers"));
     }
 
     #[test]

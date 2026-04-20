@@ -24,9 +24,10 @@ pub enum SlashCommand {
     Stop,
     Help,
     ListSessions,
+    ListTasks,
     ListRuns,
     ListApprovals,
-    ShowTeam,
+    ListTeams,
     TaskControl {
         action: TaskControlAction,
         task_id: String,
@@ -101,6 +102,9 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
         "/runs" => Ok(SlashCommand::ListRuns),
         "/approvals" => Ok(SlashCommand::ListApprovals),
         "/task" => {
+            if parts.clone().next().is_none() {
+                return Ok(SlashCommand::ListTasks);
+            }
             let action = match parts.next().unwrap_or_default() {
                 "pause" => TaskControlAction::Pause,
                 "resume" => TaskControlAction::Resume,
@@ -129,7 +133,7 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
         "/team" => {
             let action = parts.next().unwrap_or_default();
             if action.is_empty() {
-                return Ok(SlashCommand::ShowTeam);
+                return Ok(SlashCommand::ListTeams);
             }
             match action {
                 "state" => {
@@ -264,10 +268,18 @@ mod tests {
     }
 
     #[test]
-    fn bare_team_command_shows_current_team() {
+    fn bare_team_command_lists_teams() {
         assert_eq!(
             parse_slash_command("/team").expect("parse"),
-            SlashCommand::ShowTeam
+            SlashCommand::ListTeams
+        );
+    }
+
+    #[test]
+    fn bare_task_command_lists_tasks() {
+        assert_eq!(
+            parse_slash_command("/task").expect("parse"),
+            SlashCommand::ListTasks
         );
     }
 

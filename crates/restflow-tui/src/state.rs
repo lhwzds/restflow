@@ -24,6 +24,28 @@ pub enum RunPickerItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskPickerItem {
+    pub task_id: String,
+    pub name: String,
+    pub status: String,
+    pub next_run_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamPickerItem {
+    Current {
+        team_run_id: String,
+        status: String,
+        members: usize,
+    },
+    Saved {
+        name: String,
+        member_groups: usize,
+        total_instances: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingUserCell {
     pub base_cell_index: usize,
     pub cell: TranscriptCell,
@@ -111,6 +133,9 @@ pub enum OverlayState {
     CommandPicker { selected: usize },
     DaemonPicker { selected: usize },
     SessionPicker { selected: usize },
+    TaskPicker { selected: usize },
+    TaskActionPicker { task_id: String, selected: usize },
+    TeamPicker { selected: usize },
     RunPicker { selected: usize },
     ApprovalPicker { selected: usize },
     TeamView { tab: TeamOverlayTab, scroll: u16 },
@@ -135,6 +160,8 @@ pub struct AppState {
     pub current_team_assignments: Vec<TeamAssignment>,
     pub current_team_approvals: Vec<PendingTeamApproval>,
     pub sessions: Vec<ChatSessionSummary>,
+    pub tasks: Vec<TaskPickerItem>,
+    pub team_items: Vec<TeamPickerItem>,
     // Conversation cells are rebuilt from persisted session messages and should stay stable.
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
@@ -163,6 +190,8 @@ impl AppState {
             current_team_assignments: Vec::new(),
             current_team_approvals: Vec::new(),
             sessions: Vec::new(),
+            tasks: Vec::new(),
+            team_items: Vec::new(),
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
             active_cell: None,
@@ -312,6 +341,21 @@ impl AppState {
         self.overlay = Some(OverlayState::DaemonPicker { selected: 0 });
     }
 
+    pub fn open_task_picker(&mut self) {
+        self.overlay = Some(OverlayState::TaskPicker { selected: 0 });
+    }
+
+    pub fn open_task_action_picker(&mut self, task_id: impl Into<String>) {
+        self.overlay = Some(OverlayState::TaskActionPicker {
+            task_id: task_id.into(),
+            selected: 0,
+        });
+    }
+
+    pub fn open_team_picker(&mut self) {
+        self.overlay = Some(OverlayState::TeamPicker { selected: 0 });
+    }
+
     #[allow(dead_code)]
     pub fn open_run_picker(&mut self) {
         self.overlay = Some(OverlayState::RunPicker { selected: 0 });
@@ -345,6 +389,9 @@ impl AppState {
             Some(OverlayState::CommandPicker { selected })
             | Some(OverlayState::DaemonPicker { selected })
             | Some(OverlayState::SessionPicker { selected })
+            | Some(OverlayState::TaskPicker { selected })
+            | Some(OverlayState::TaskActionPicker { selected, .. })
+            | Some(OverlayState::TeamPicker { selected })
             | Some(OverlayState::RunPicker { selected })
             | Some(OverlayState::ApprovalPicker { selected }) => {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
@@ -401,6 +448,9 @@ impl AppState {
             }
             OverlayState::DaemonPicker { .. } => Some(2),
             OverlayState::SessionPicker { .. } => Some(self.sessions.len()),
+            OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
+            OverlayState::TaskActionPicker { .. } => Some(3),
+            OverlayState::TeamPicker { .. } => Some(self.team_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
             OverlayState::ApprovalPicker { .. } => Some(self.current_team_approvals.len()),
             OverlayState::TeamView { .. } | OverlayState::Help => None,
@@ -464,6 +514,37 @@ impl AppState {
         match self.overlay.as_ref() {
             Some(OverlayState::DaemonPicker { selected: 0 }) => Some("start"),
             Some(OverlayState::DaemonPicker { selected: 1 }) => Some("stop"),
+            _ => None,
+        }
+    }
+
+    pub fn selected_task_id(&self) -> Option<&str> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::TaskPicker { selected }) => {
+                self.tasks.get(*selected).map(|task| task.task_id.as_str())
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_task_action(&self) -> Option<(String, &'static str)> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::TaskActionPicker { task_id, selected }) => {
+                let action = match *selected {
+                    0 => "pause",
+                    1 => "resume",
+                    2 => "stop",
+                    _ => return None,
+                };
+                Some((task_id.clone(), action))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_team_item(&self) -> Option<TeamPickerItem> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::TeamPicker { selected }) => self.team_items.get(*selected).cloned(),
             _ => None,
         }
     }
