@@ -3,7 +3,6 @@
  * Auth Profiles Management Component
  *
  * Manages authentication profiles for LLM providers with:
- * - Auto-discovery from Claude Code, environment, keychain
  * - Manual profile creation
  * - Health tracking and status display
  */
@@ -33,13 +32,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import {
-  authInitialize,
   authListProfiles,
   authAddProfile,
   authRemoveProfile,
   authEnableProfile,
   authDisableProfile,
-  authDiscover,
   authGetSummary,
   type ManagerSummary,
 } from '@/api/auth'
@@ -91,23 +88,8 @@ async function loadProfiles() {
   loading.value = true
   error.value = null
   try {
-    // Initialize if needed
-    await authInitialize()
     profiles.value = await authListProfiles()
     summary.value = await authGetSummary()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function runDiscovery() {
-  loading.value = true
-  error.value = null
-  try {
-    await authDiscover()
-    await loadProfiles()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -263,9 +245,6 @@ onMounted(loadProfiles)
         <p class="text-muted-foreground">{{ t('settings.auth.description') }}</p>
       </div>
       <div class="flex gap-2">
-        <Button variant="outline" @click="runDiscovery" :disabled="loading">
-          🔍 {{ t('settings.auth.discover') }}
-        </Button>
         <Dialog v-model:open="showAddDialog">
           <DialogTrigger as-child>
             <Button>➕ {{ t('settings.auth.addProfile') }}</Button>

@@ -6,7 +6,6 @@
 
 import type { AuthProfile } from '@/types/generated/AuthProfile'
 import type { AuthProvider } from '@/types/generated/AuthProvider'
-import type { DiscoverySummary } from '@/types/generated/DiscoverySummary'
 import type { AddProfileRequest } from '@/types/generated/AddProfileRequest'
 import type { ProfileResponse } from '@/types/generated/ProfileResponse'
 import { requestOptional, requestTyped } from './http-client'
@@ -73,14 +72,6 @@ function summarizeProfiles(profiles: AuthProfile[]): ManagerSummary {
     by_provider,
     by_source,
   }
-}
-
-export async function authInitialize(): Promise<DiscoverySummary> {
-  return requestTyped<DiscoverySummary>({ type: 'DiscoverAuth' })
-}
-
-export async function authDiscover(): Promise<DiscoverySummary> {
-  return requestTyped<DiscoverySummary>({ type: 'DiscoverAuth' })
 }
 
 export async function authListProfiles(): Promise<AuthProfile[]> {

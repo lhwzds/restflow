@@ -340,15 +340,14 @@ fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessme
 }
 
 async fn build_auth(context: &AssessmentContext) -> Result<AuthProfileManager> {
-    let config = AuthManagerConfig {
-        auto_discover: false,
-        ..AuthManagerConfig::default()
-    };
     let secrets = Arc::new(context.secrets.clone());
     let profile_storage = AuthProfileStorage::new(context.db.clone())?;
-    let manager = AuthProfileManager::with_storage(config, secrets, Some(profile_storage));
+    let manager = AuthProfileManager::with_storage(
+        AuthManagerConfig::default(),
+        secrets,
+        Some(profile_storage),
+    );
     manager.initialize().await?;
-    let _ = manager.discover().await;
     Ok(manager)
 }
 

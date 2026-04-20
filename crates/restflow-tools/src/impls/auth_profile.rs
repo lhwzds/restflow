@@ -45,7 +45,6 @@ impl AuthProfileTool {
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum AuthProfileAction {
     List,
-    Discover,
     Add {
         name: String,
         provider: String,
@@ -71,7 +70,7 @@ impl Tool for AuthProfileTool {
     }
 
     fn description(&self) -> &str {
-        "Discover, create, test, list, and remove authentication profiles for model providers."
+        "Create, test, list, and remove explicitly configured authentication profiles for model providers."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -80,7 +79,7 @@ impl Tool for AuthProfileTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "discover", "add", "remove", "test"],
+                    "enum": ["list", "add", "remove", "test"],
                     "description": "Auth profile operation to perform"
                 },
                 "id": {
@@ -116,11 +115,6 @@ impl Tool for AuthProfileTool {
                 AuthProfileAction::List => {
                     ToolOutput::success(self.store.list_profiles().map_err(|e| {
                         ToolError::Tool(format!("Failed to list auth profile: {e}"))
-                    })?)
-                }
-                AuthProfileAction::Discover => {
-                    ToolOutput::success(self.store.discover_profiles().map_err(|e| {
-                        ToolError::Tool(format!("Failed to discover auth profile: {e}"))
                     })?)
                 }
                 AuthProfileAction::Add {
@@ -169,10 +163,6 @@ mod tests {
     impl AuthProfileStore for MockStore {
         fn list_profiles(&self) -> Result<Value> {
             Ok(json!([{"id": "profile"}]))
-        }
-
-        fn discover_profiles(&self) -> Result<Value> {
-            Ok(json!({"total": 1}))
         }
 
         fn add_profile(&self, _request: AuthProfileCreateRequest) -> Result<Value> {

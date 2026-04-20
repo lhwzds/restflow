@@ -25,12 +25,19 @@ pub enum SlashCommand {
     Help,
     ListSessions,
     ListTasks,
+    ListModels,
+    ListModelsForProvider {
+        provider: String,
+    },
     ListRuns,
     ListApprovals,
     ListTeams,
     TaskControl {
         action: TaskControlAction,
         task_id: String,
+    },
+    SwitchModel {
+        model: String,
     },
     OpenRun {
         run_id: String,
@@ -74,6 +81,11 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         description: "Resume a previous session",
     },
     SlashCommandSpec {
+        command: "/model",
+        args: "",
+        description: "Switch the current session model",
+    },
+    SlashCommandSpec {
         command: "/task",
         args: "",
         description: "Select a task action",
@@ -99,6 +111,21 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
         "/stop" => Ok(SlashCommand::Stop),
         "/help" => Ok(SlashCommand::Help),
         "/resume" | "/session" | "/sessions" => Ok(SlashCommand::ListSessions),
+        "/model" => {
+            let first = parts.next().unwrap_or_default();
+            if first.is_empty() {
+                return Ok(SlashCommand::ListModels);
+            }
+            let second = parts.next().unwrap_or_default();
+            if second.is_empty() {
+                return Ok(SlashCommand::ListModelsForProvider {
+                    provider: first.to_string(),
+                });
+            }
+            Ok(SlashCommand::SwitchModel {
+                model: format!("{first}:{second}"),
+            })
+        }
         "/runs" => Ok(SlashCommand::ListRuns),
         "/approvals" => Ok(SlashCommand::ListApprovals),
         "/task" => {
@@ -284,6 +311,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_model_commands() {
+        assert_eq!(
+            parse_slash_command("/model").expect("parse"),
+            SlashCommand::ListModels
+        );
+        assert_eq!(
+            parse_slash_command("/model gpt-5.4").expect("parse"),
+            SlashCommand::ListModelsForProvider {
+                provider: "gpt-5.4".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_slash_command("/model codex").expect("parse"),
+            SlashCommand::ListModelsForProvider {
+                provider: "codex".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_slash_command("/model codex gpt-5.4").expect("parse"),
+            SlashCommand::SwitchModel {
+                model: "codex:gpt-5.4".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn parses_team_state_and_start_commands() {
         assert_eq!(
             parse_slash_command("/team state team-run-1").expect("parse"),
@@ -361,6 +414,7 @@ mod tests {
         assert!(!specs.contains(&("/stop", "")));
         assert!(specs.contains(&("/help", "")));
         assert!(specs.contains(&("/resume", "")));
+        assert!(specs.contains(&("/model", "")));
         assert!(specs.contains(&("/task", "")));
         assert!(specs.contains(&("/team", "")));
         assert!(!specs.contains(&("/session", "open <session_id>")));

@@ -785,7 +785,6 @@ pub struct AuthProfileTestRequest {
 
 pub trait AuthProfileStore: Send + Sync {
     fn list_profiles(&self) -> Result<Value>;
-    fn discover_profiles(&self) -> Result<Value>;
     fn add_profile(&self, request: AuthProfileCreateRequest) -> Result<Value>;
     fn remove_profile(&self, id: &str) -> Result<Value>;
     fn test_profile(&self, request: AuthProfileTestRequest) -> Result<Value>;

@@ -389,7 +389,6 @@ impl IpcServer {
                 Ok(updates) => Self::handle_update_auth_profile(core, id, updates).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::DiscoverAuth => Self::handle_discover_auth(core).await,
             IpcRequest::EnableAuthProfile { id } => {
                 Self::handle_enable_auth_profile(core, id).await
             }

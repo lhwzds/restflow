@@ -261,7 +261,6 @@ When creating pull requests:
 - Use `manage_sessions` to create, list, search, and delete chat sessions
 - Use `manage_config` to read and update runtime configuration (workers, retries, timeouts)
 - Use `manage_auth_profiles` to manage LLM provider credentials:
-  - `discover`: Auto-detect available credentials from environment
   - `list`: List configured profiles (no secrets revealed)
   - `test`: Verify if a credential works
   - `add` / `remove`: Create or delete profiles (write-protected by default)

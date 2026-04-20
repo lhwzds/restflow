@@ -169,7 +169,7 @@ async fn process_get_available_models_returns_minimax_m27_catalog_when_secret_ex
 }
 
 #[tokio::test]
-async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_profiles() {
+async fn process_get_available_models_ignores_auth_profiles_without_provider_secret() {
     let (core, _temp) = create_test_core().await;
     let manager = build_auth_manager(&core).await.expect("auth manager");
     manager
@@ -200,14 +200,9 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
             let models: Vec<crate::models::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
             assert!(
-                models
+                !models
                     .iter()
                     .any(|model| model.provider == crate::models::Provider::Codex)
-            );
-            assert!(
-                models
-                    .iter()
-                    .any(|model| model.model == crate::models::ModelId::Gpt5_4Codex)
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -230,22 +225,6 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
         .set_secret("ZAI_CODING_PLAN_API_KEY", "test-zai-key", None)
         .expect("store zai key");
 
-    let manager = build_auth_manager(&core).await.expect("auth manager");
-    manager
-        .add_profile_from_credential(
-            "Codex",
-            Credential::OAuth {
-                access_token: "codex-token".to_string(),
-                refresh_token: None,
-                expires_at: None,
-                email: None,
-            },
-            CredentialSource::Manual,
-            AuthProvider::OpenAICodex,
-        )
-        .await
-        .expect("add codex profile");
-
     let runtime_tool_registry = OnceLock::new();
     let response = IpcServer::process(
         &core,
@@ -266,7 +245,6 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
                     crate::models::Provider::OpenAI,
                     crate::models::Provider::MiniMaxCodingPlan,
                     crate::models::Provider::ZaiCodingPlan,
-                    crate::models::Provider::Codex,
                 ])
             );
             assert!(models.iter().any(|model| {

@@ -33,7 +33,6 @@ async fn run_ipc(socket_path: &Path, command: AuthCommands, format: OutputFormat
 
     match command {
         AuthCommands::Status => status_ipc(&mut client, format).await,
-        AuthCommands::Discover => discover_ipc(&mut client, format).await,
         AuthCommands::List => list_profiles_ipc(&mut client, format).await,
         AuthCommands::Show { id } => show_profile_ipc(&mut client, &id, format).await,
         AuthCommands::Add {
@@ -69,23 +68,6 @@ async fn status_ipc(client: &mut IpcClient, format: OutputFormat) -> Result<()> 
     println!("By Source:");
     for (source, count) in summary.by_source {
         println!("  {source}: {count}");
-    }
-
-    Ok(())
-}
-
-async fn discover_ipc(client: &mut IpcClient, format: OutputFormat) -> Result<()> {
-    let summary = client.discover_auth().await?;
-
-    if format.is_json() {
-        return print_json(&summary);
-    }
-
-    println!("Discovery complete!");
-    println!("  Found: {} profiles", summary.total);
-    println!("  Available: {}", summary.available);
-    if !summary.errors.is_empty() {
-        println!("  Errors: {}", summary.errors.len());
     }
 
     Ok(())

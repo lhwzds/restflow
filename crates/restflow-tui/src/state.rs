@@ -1,8 +1,11 @@
 use std::collections::HashSet;
 
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
+use restflow_core::models::{
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, RunSummary,
+};
 use restflow_core::runtime::TaskStreamEvent;
+use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{
     PendingTeamApproval, TeamAssignment, TeamMessage, TeamMessageKind, TeamState,
 };
@@ -43,6 +46,86 @@ pub enum TeamPickerItem {
         member_groups: usize,
         total_instances: usize,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPickerCategory {
+    Recent,
+    Frequent,
+    Available,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPickerItem {
+    pub provider: String,
+    pub label: String,
+    pub category: ModelPickerCategory,
+    pub usage_count: usize,
+    pub last_used_at: Option<i64>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelPickerItem {
+    pub provider: String,
+    pub model: String,
+    pub name: String,
+    pub category: ModelPickerCategory,
+    pub usage_count: usize,
+    pub last_used_at: Option<i64>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingSessionState {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub provider: String,
+    pub model: String,
+    pub model_name: String,
+}
+
+impl PendingSessionState {
+    pub fn from_agent(agent: &StoredAgent) -> Self {
+        let model = agent
+            .agent
+            .model
+            .map(|model| model.as_serialized_str().to_string())
+            .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string());
+        Self::new(agent.id.clone(), agent.name.clone(), model)
+    }
+
+    pub fn new(agent_id: String, agent_name: String, model: String) -> Self {
+        let (provider, model) = ChatSession::resolve_model_identity(&model);
+        let model_name = model_display_name(&model);
+        Self {
+            agent_id,
+            agent_name,
+            provider,
+            model,
+            model_name,
+        }
+    }
+
+    pub fn update_model(&mut self, provider: String, model: String, model_name: String) {
+        self.provider = provider;
+        self.model = model;
+        self.model_name = model_name;
+    }
+
+    pub fn model_label(&self) -> String {
+        if self.provider.trim().is_empty() {
+            self.model.clone()
+        } else {
+            format!("{} · {}", self.provider, self.model)
+        }
+    }
+}
+
+fn model_display_name(model: &str) -> String {
+    ModelId::from_serialized_str(model)
+        .map(|model_id| model_id.metadata().name.to_string())
+        .unwrap_or_else(|| model.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +219,8 @@ pub enum OverlayState {
     TaskPicker { selected: usize },
     TaskActionPicker { task_id: String, selected: usize },
     TeamPicker { selected: usize },
+    ProviderPicker { selected: usize },
+    ModelPicker { provider: String, selected: usize },
     RunPicker { selected: usize },
     ApprovalPicker { selected: usize },
     TeamView { tab: TeamOverlayTab, scroll: u16 },
@@ -162,6 +247,10 @@ pub struct AppState {
     pub sessions: Vec<ChatSessionSummary>,
     pub tasks: Vec<TaskPickerItem>,
     pub team_items: Vec<TeamPickerItem>,
+    pub provider_items: Vec<ProviderPickerItem>,
+    pub model_items: Vec<ModelPickerItem>,
+    pub available_models: Vec<ModelMetadataDTO>,
+    pub pending_session: Option<PendingSessionState>,
     // Conversation cells are rebuilt from persisted session messages and should stay stable.
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
@@ -192,6 +281,10 @@ impl AppState {
             sessions: Vec::new(),
             tasks: Vec::new(),
             team_items: Vec::new(),
+            provider_items: Vec::new(),
+            model_items: Vec::new(),
+            available_models: Vec::new(),
+            pending_session: None,
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
             active_cell: None,
@@ -236,6 +329,49 @@ impl AppState {
         self.pending_initial_message = message;
     }
 
+    pub fn set_pending_session(&mut self, pending_session: Option<PendingSessionState>) {
+        self.pending_session = pending_session;
+    }
+
+    pub fn set_pending_session_from_agent(&mut self, agent: &StoredAgent) {
+        self.pending_session = Some(PendingSessionState::from_agent(agent));
+    }
+
+    pub fn update_pending_session_model(
+        &mut self,
+        provider: String,
+        model: String,
+        model_name: String,
+    ) -> bool {
+        if self.pending_session.is_none()
+            && let Some(agent_id) = self.default_agent_id.clone()
+        {
+            let agent_name = self
+                .default_agent_name
+                .clone()
+                .unwrap_or_else(|| "Agent".to_string());
+            self.pending_session = Some(PendingSessionState::new(
+                agent_id,
+                agent_name,
+                model.clone(),
+            ));
+        }
+        let Some(pending_session) = self.pending_session.as_mut() else {
+            return false;
+        };
+        pending_session.update_model(provider, model, model_name);
+        true
+    }
+
+    pub fn current_model_identity(&self) -> Option<(&str, &str)> {
+        if let Some(session) = self.current_session() {
+            return Some((session.provider.as_str(), session.model.as_str()));
+        }
+        self.pending_session
+            .as_ref()
+            .map(|session| (session.provider.as_str(), session.model.as_str()))
+    }
+
     pub fn take_pending_initial_message(&mut self) -> Option<String> {
         self.pending_initial_message.take()
     }
@@ -245,6 +381,7 @@ impl AppState {
         agent_override: Option<String>,
         session_override: Option<String>,
     ) {
+        self.pending_session = None;
         self.startup = Some(StartupState {
             starting_daemon: false,
             error: None,
@@ -269,6 +406,7 @@ impl AppState {
     pub fn set_current_session(&mut self, session: ChatSession) {
         let session_changed = self.current_session_id() != Some(session.id.as_str());
         self.thread.set_session(session.clone());
+        self.pending_session = None;
         if session_changed {
             self.clear_team_context();
         }
@@ -356,6 +494,17 @@ impl AppState {
         self.overlay = Some(OverlayState::TeamPicker { selected: 0 });
     }
 
+    pub fn open_provider_picker(&mut self) {
+        self.overlay = Some(OverlayState::ProviderPicker { selected: 0 });
+    }
+
+    pub fn open_model_picker(&mut self, provider: impl Into<String>) {
+        self.overlay = Some(OverlayState::ModelPicker {
+            provider: provider.into(),
+            selected: 0,
+        });
+    }
+
     #[allow(dead_code)]
     pub fn open_run_picker(&mut self) {
         self.overlay = Some(OverlayState::RunPicker { selected: 0 });
@@ -392,6 +541,8 @@ impl AppState {
             | Some(OverlayState::TaskPicker { selected })
             | Some(OverlayState::TaskActionPicker { selected, .. })
             | Some(OverlayState::TeamPicker { selected })
+            | Some(OverlayState::ProviderPicker { selected })
+            | Some(OverlayState::ModelPicker { selected, .. })
             | Some(OverlayState::RunPicker { selected })
             | Some(OverlayState::ApprovalPicker { selected }) => {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
@@ -451,6 +602,8 @@ impl AppState {
             OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
             OverlayState::TaskActionPicker { .. } => Some(3),
             OverlayState::TeamPicker { .. } => Some(self.team_items.len()),
+            OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
+            OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
             OverlayState::ApprovalPicker { .. } => Some(self.current_team_approvals.len()),
             OverlayState::TeamView { .. } | OverlayState::Help => None,
@@ -545,6 +698,24 @@ impl AppState {
     pub fn selected_team_item(&self) -> Option<TeamPickerItem> {
         match self.overlay.as_ref() {
             Some(OverlayState::TeamPicker { selected }) => self.team_items.get(*selected).cloned(),
+            _ => None,
+        }
+    }
+
+    pub fn selected_provider_item(&self) -> Option<ProviderPickerItem> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::ProviderPicker { selected }) => {
+                self.provider_items.get(*selected).cloned()
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_model_item(&self) -> Option<ModelPickerItem> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::ModelPicker { selected, .. }) => {
+                self.model_items.get(*selected).cloned()
+            }
             _ => None,
         }
     }

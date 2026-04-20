@@ -7,8 +7,8 @@ use restflow_core::daemon::{
     start_daemon_with_config, stop_daemon,
 };
 use restflow_core::models::{
-    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionThread, RunListQuery, RunSummary, Task,
+    ChatSession, ChatSessionSummary, ChatSessionUpdate, ExecutionContainerKind,
+    ExecutionContainerRef, ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Task,
 };
 use restflow_core::paths;
 use restflow_core::storage::agent::{
@@ -131,16 +131,30 @@ impl TuiDaemonClient {
         }
     }
 
-    pub async fn create_session_for_agent(&self, agent_id: &str) -> Result<ChatSession> {
+    pub async fn create_session_for_agent(
+        &self,
+        agent_id: &str,
+        model: Option<&str>,
+    ) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client
-            .create_session(Some(agent_id.to_string()), None, None, None)
+            .create_session(
+                Some(agent_id.to_string()),
+                model.map(ToOwned::to_owned),
+                None,
+                None,
+            )
             .await
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
         let mut client = self.connect().await?;
         client.list_sessions().await
+    }
+
+    pub async fn list_available_models(&self) -> Result<Vec<ModelMetadataDTO>> {
+        let mut client = self.connect().await?;
+        client.request_typed(IpcRequest::GetAvailableModels).await
     }
 
     pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
@@ -170,6 +184,20 @@ impl TuiDaemonClient {
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client.get_session(session_id.to_string()).await
+    }
+
+    pub async fn update_session_model(&self, session_id: &str, model: &str) -> Result<ChatSession> {
+        let mut client = self.connect().await?;
+        client
+            .update_session(
+                session_id.to_string(),
+                ChatSessionUpdate {
+                    agent_id: None,
+                    model: Some(model.to_string()),
+                    name: None,
+                },
+            )
+            .await
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<bool> {

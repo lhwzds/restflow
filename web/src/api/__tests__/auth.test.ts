@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
-  authInitialize,
-  authDiscover,
   authListProfiles,
   authGetProfilesForProvider,
   authGetAvailableProfiles,
@@ -48,16 +46,6 @@ describe('Auth API', () => {
   beforeEach(() => {
     mockedRequestTyped.mockReset()
     mockedRequestOptional.mockReset()
-  })
-
-  it('loads discovery through daemon request contracts', async () => {
-    mockedRequestTyped.mockResolvedValueOnce({ found: 1 }).mockResolvedValueOnce({ found: 2 })
-
-    await authInitialize()
-    await authDiscover()
-
-    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, { type: 'DiscoverAuth' })
-    expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, { type: 'DiscoverAuth' })
   })
 
   it('lists and filters profiles', async () => {

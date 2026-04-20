@@ -36,36 +36,6 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         Ok(json!(profiles))
     }
 
-    fn discover_profiles(&self) -> restflow_tools::Result<Value> {
-        let known_vars = [
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "GEMINI_API_KEY",
-            "GROQ_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "OPENROUTER_API_KEY",
-            "XAI_API_KEY",
-            "GITHUB_TOKEN",
-        ];
-
-        let discovered: Vec<Value> = known_vars
-            .iter()
-            .filter_map(|var| {
-                std::env::var(var).ok().map(|_| {
-                    json!({
-                        "env_var": var,
-                        "available": true
-                    })
-                })
-            })
-            .collect();
-
-        Ok(json!({
-            "total": discovered.len(),
-            "profiles": discovered
-        }))
-    }
-
     fn add_profile(&self, request: AuthProfileCreateRequest) -> restflow_tools::Result<Value> {
         let key_name = format!(
             "{}_API_KEY",
@@ -256,13 +226,5 @@ mod tests {
             })
             .unwrap();
         assert_eq!(result["available"], false);
-    }
-
-    #[test]
-    fn test_discover_profiles() {
-        let (adapter, _dir, _guard) = setup();
-        let result = adapter.discover_profiles().unwrap();
-        assert!(result.get("total").is_some());
-        assert!(result.get("profiles").is_some());
     }
 }

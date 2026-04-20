@@ -163,7 +163,6 @@ impl IpcClient {
         fn add_auth_profile(&mut self, _name: String, _credential: Credential, _source: CredentialSource, _provider: AuthProvider) -> AuthProfile;
         fn remove_auth_profile(&mut self, _id: String) -> AuthProfile;
         fn update_auth_profile(&mut self, _id: String, _updates: ProfileUpdate) -> AuthProfile;
-        fn discover_auth(&mut self) -> crate::auth::DiscoverySummary;
         fn enable_auth_profile(&mut self, _id: String) -> ();
         fn disable_auth_profile(&mut self, _id: String, _reason: String) -> ();
         fn get_api_key(&mut self, _provider: AuthProvider) -> String;

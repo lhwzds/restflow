@@ -439,6 +439,14 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Lin
         return lines;
     }
 
+    if let Some(lines) = build_provider_picker_lines(state, width, max_rows) {
+        return lines;
+    }
+
+    if let Some(lines) = build_model_picker_lines(state, width, max_rows) {
+        return lines;
+    }
+
     if let Some(lines) = build_daemon_picker_lines(state, width) {
         return lines;
     }
@@ -743,6 +751,178 @@ fn build_team_picker_lines(
     }
     lines.truncate(max_rows as usize);
     Some(lines)
+}
+
+fn build_model_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::ModelPicker { provider, selected }) =
+        state.overlay.as_ref()
+    else {
+        return None;
+    };
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled(format!("{provider} models"), tool_title_style()),
+        Span::styled("  Up/Down select, Enter switch, Esc close", muted_style()),
+    ])];
+    if state.model_items.is_empty() {
+        lines.push(styled_line("  No available models.", muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let rows_per_model = 2usize;
+    let visible_models = (visible_capacity / rows_per_model).max(1);
+    let selected_index = (*selected).min(state.model_items.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_models / 2)
+        .min(state.model_items.len().saturating_sub(visible_models));
+    let end = (start + visible_models).min(state.model_items.len());
+
+    let mut previous_category = None;
+    for (index, item) in state.model_items[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        if previous_category != Some(item.category) {
+            previous_category = Some(item.category);
+            lines.push(styled_line(
+                format!("  {}", model_category_label(item.category)),
+                muted_style(),
+            ));
+        }
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let current = if item.is_current { " · current" } else { "" };
+        let usage = if item.usage_count > 0 {
+            format!(" · used {}", item.usage_count)
+        } else {
+            String::new()
+        };
+        let title = Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(format!("{} · {}", item.provider, item.name), title_style),
+            Span::styled(format!("{current}{usage}"), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(title, width));
+        let model_line = Line::from(vec![
+            Span::styled("    model: ", muted_style()),
+            Span::styled(item.model.clone(), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(model_line, width));
+    }
+
+    if end < state.model_items.len() {
+        lines.push(styled_line(
+            format!("  ... {} more", state.model_items.len() - end),
+            muted_style(),
+        ));
+    }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_provider_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::ProviderPicker { selected }) = state.overlay.as_ref()
+    else {
+        return None;
+    };
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Providers", tool_title_style()),
+        Span::styled("  Up/Down select, Enter models, Esc close", muted_style()),
+    ])];
+    if state.provider_items.is_empty() {
+        lines.push(styled_line("  No available providers.", muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let selected_index = (*selected).min(state.provider_items.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_capacity / 2)
+        .min(state.provider_items.len().saturating_sub(visible_capacity));
+    let end = (start + visible_capacity).min(state.provider_items.len());
+    let mut previous_category = None;
+
+    for (index, item) in state.provider_items[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        if previous_category != Some(item.category) {
+            previous_category = Some(item.category);
+            lines.push(styled_line(
+                format!("  {}", provider_category_label(item.category)),
+                muted_style(),
+            ));
+        }
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let current = if item.is_current { " · current" } else { "" };
+        let usage = if item.usage_count > 0 {
+            format!(" · used {}", item.usage_count)
+        } else {
+            String::new()
+        };
+        let line = Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(item.label.clone(), title_style),
+            Span::styled(format!("{current}{usage}"), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(line, width));
+    }
+
+    if end < state.provider_items.len() {
+        lines.push(styled_line(
+            format!("  ... {} more", state.provider_items.len() - end),
+            muted_style(),
+        ));
+    }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn provider_category_label(category: crate::state::ModelPickerCategory) -> &'static str {
+    match category {
+        crate::state::ModelPickerCategory::Recent => "Recently used providers",
+        crate::state::ModelPickerCategory::Frequent => "Most used providers",
+        crate::state::ModelPickerCategory::Available => "Available providers",
+    }
+}
+
+fn model_category_label(category: crate::state::ModelPickerCategory) -> &'static str {
+    match category {
+        crate::state::ModelPickerCategory::Recent => "Recently used",
+        crate::state::ModelPickerCategory::Frequent => "Most used",
+        crate::state::ModelPickerCategory::Available => "Available with API key",
+    }
 }
 
 fn build_daemon_picker_lines(state: &AppState, width: u16) -> Option<Vec<Line<'static>>> {
@@ -1056,6 +1236,9 @@ fn summarize_tool_body(body: &str) -> String {
 
 fn footer_status_line(state: &AppState) -> String {
     let Some(session) = state.current_session() else {
+        if let Some(pending_session) = state.pending_session.as_ref() {
+            return pending_session.model_label();
+        }
         return state.status.clone();
     };
 
@@ -1380,7 +1563,7 @@ mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
         build_viewport_snapshot, cell_title_style, changed_row_indices, compact_session_preview,
-        format_title, is_cell_prefix, line_text, normalize_body_lines,
+        footer_status_line, format_title, is_cell_prefix, line_text, normalize_body_lines,
         preserve_active_cell_separator, preserve_first_line_tail, protected_append_top,
         queue_clear_visible, queue_purge_visible_and_scrollback, render_history_append_lines,
         summarize_tool_body, visible_history_fill_count, write_styled_line,
@@ -1394,7 +1577,8 @@ mod tests {
     use crate::render::render_shell_bottom_viewport;
     use crate::slash_command::SLASH_COMMAND_SPECS;
     use crate::state::{
-        AnchoredRuntimeCell, AppState, PendingUserCell, TaskPickerItem, TeamPickerItem,
+        AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem, PendingSessionState,
+        PendingUserCell, ProviderPickerItem, TaskPickerItem, TeamPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use restflow_core::models::ChatSessionSummary;
@@ -1407,6 +1591,18 @@ mod tests {
     fn tool_summary_compacts_and_truncates_multiline_content() {
         let summary = summarize_tool_body(" \n {\"ok\": true}\n\nsecond line");
         assert_eq!(summary, "{\"ok\": true} second line");
+    }
+
+    #[test]
+    fn footer_uses_pending_session_model_when_no_persisted_session() {
+        let mut state = AppState::empty();
+        state.set_pending_session(Some(PendingSessionState::new(
+            "agent-1".to_string(),
+            "Agent".to_string(),
+            "gpt-5.4".to_string(),
+        )));
+
+        assert_eq!(footer_status_line(&state), "codex · gpt-5.4");
     }
 
     #[test]
@@ -1994,6 +2190,71 @@ mod tests {
         assert!(text.contains("Teams"));
         assert!(text.contains("Current team team-run-1"));
         assert!(text.contains("Saved team reviewers"));
+    }
+
+    #[test]
+    fn provider_picker_lists_grouped_providers() {
+        let mut state = AppState::empty();
+        state.provider_items = vec![
+            ProviderPickerItem {
+                provider: "codex".to_string(),
+                label: "codex".to_string(),
+                category: ModelPickerCategory::Recent,
+                usage_count: 2,
+                last_used_at: Some(10),
+                is_current: true,
+            },
+            ProviderPickerItem {
+                provider: "openai".to_string(),
+                label: "openai".to_string(),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+            },
+        ];
+        state.open_provider_picker();
+
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("Providers"));
+        assert!(text.contains("Recently used providers"));
+        assert!(text.contains("codex"));
+        assert!(text.contains("current"));
+    }
+
+    #[test]
+    fn model_picker_lists_provider_models() {
+        let mut state = AppState::empty();
+        state.model_items = vec![
+            ModelPickerItem {
+                provider: "codex".to_string(),
+                model: "gpt-5.4".to_string(),
+                name: "GPT-5.4".to_string(),
+                category: ModelPickerCategory::Recent,
+                usage_count: 2,
+                last_used_at: Some(10),
+                is_current: true,
+            },
+            ModelPickerItem {
+                provider: "openai".to_string(),
+                model: "gpt-5".to_string(),
+                name: "GPT-5".to_string(),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+            },
+        ];
+        state.open_model_picker("codex");
+
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("codex models"));
+        assert!(text.contains("Recently used"));
+        assert!(text.contains("codex · GPT-5.4"));
+        assert!(text.contains("current"));
+        assert!(text.contains("model: gpt-5.4"));
     }
 
     #[test]

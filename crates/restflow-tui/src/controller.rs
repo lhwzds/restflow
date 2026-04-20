@@ -1,8 +1,9 @@
 use anyhow::{Result, bail};
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
-use restflow_core::models::{ChatSession, ChatSessionSummary};
+use restflow_core::models::{ChatSession, ChatSessionSummary, ModelMetadataDTO};
 use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
@@ -10,7 +11,10 @@ use super::daemon_client::TuiDaemonClient;
 use super::event_loop::AppEvent;
 use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
-use super::state::{AppState, OverlayState, RunPickerItem, TaskPickerItem, TeamPickerItem};
+use super::state::{
+    AppState, ModelPickerCategory, ModelPickerItem, OverlayState, ProviderPickerItem,
+    RunPickerItem, TaskPickerItem, TeamPickerItem,
+};
 use super::transcript::ShellMessage;
 
 #[derive(Clone)]
@@ -194,6 +198,9 @@ impl ShellController {
                 if matches!(spec.command, "/team") {
                     return self.team_picker_actions(state).await;
                 }
+                if matches!(spec.command, "/model") {
+                    return self.provider_picker_actions(state).await;
+                }
                 let command = command_display(spec.command, spec.args);
                 if spec.args.is_empty() {
                     return Ok(vec![ShellAction::SubmitText { text: command }]);
@@ -253,6 +260,27 @@ impl ShellController {
                     }]),
                 }
             }
+            Some(OverlayState::ProviderPicker { .. }) => {
+                let Some(item) = state.selected_provider_item() else {
+                    return Ok(Vec::new());
+                };
+                self.model_picker_actions_for_provider(state, item.provider)
+                    .await
+            }
+            Some(OverlayState::ModelPicker { .. }) => {
+                let Some(item) = state.selected_model_item() else {
+                    return Ok(Vec::new());
+                };
+                if state.current_session_id().is_none() {
+                    return Ok(vec![ShellAction::PendingSessionModelSelected {
+                        provider: item.provider,
+                        model: item.model,
+                        model_name: item.name,
+                        status: "Model selected for new chat.".to_string(),
+                    }]);
+                }
+                self.switch_model_actions(state, item.model).await
+            }
             Some(OverlayState::RunPicker { .. }) => {
                 let Some(RunPickerItem::Run { run_id, .. }) = state.selected_run_picker_item()
                 else {
@@ -301,10 +329,24 @@ impl ShellController {
         state: &AppState,
         message: String,
     ) -> Result<Vec<ShellAction>> {
-        let Some(agent_id) = state.default_agent_id.as_deref() else {
+        let agent_id = state
+            .pending_session
+            .as_ref()
+            .map(|session| session.agent_id.as_str())
+            .or(state.default_agent_id.as_deref());
+        let Some(agent_id) = agent_id else {
             bail!("No default agent configured. Create one from the standard CLI.");
         };
-        let session = self.client.create_session_for_agent(agent_id).await?;
+        let session = self
+            .client
+            .create_session_for_agent(
+                agent_id,
+                state
+                    .pending_session
+                    .as_ref()
+                    .map(|session| session.model.as_str()),
+            )
+            .await?;
         Ok(vec![ShellAction::SessionCreatedForSubmit {
             session: Box::new(session),
             runs: Vec::new(),
@@ -351,9 +393,25 @@ impl ShellController {
             )]),
             SlashCommand::ListSessions => self.session_picker_actions().await,
             SlashCommand::ListTasks => self.task_picker_actions().await,
+            SlashCommand::ListModels => self.provider_picker_actions(state).await,
+            SlashCommand::ListModelsForProvider { provider } => {
+                match self
+                    .resolve_provider_for_model_command(state, &provider)
+                    .await?
+                {
+                    ModelCommandTarget::Provider(provider) => {
+                        self.model_picker_actions_for_provider(state, provider)
+                            .await
+                    }
+                    ModelCommandTarget::Model(model) => {
+                        self.switch_model_actions(state, model).await
+                    }
+                }
+            }
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
             SlashCommand::ListApprovals => Ok(self.list_approvals_inline_actions(state)),
             SlashCommand::ListTeams => self.team_picker_actions(state).await,
+            SlashCommand::SwitchModel { model } => self.switch_model_actions(state, model).await,
             SlashCommand::TaskControl { action, task_id } => {
                 let task = self.client.control_task(&task_id, action.as_str()).await?;
                 Ok(vec![ShellAction::TaskControlCompleted {
@@ -505,6 +563,120 @@ impl ShellController {
             "Select a team".to_string()
         };
         Ok(vec![ShellAction::TeamPickerLoaded { items, status }])
+    }
+
+    async fn provider_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
+        let available = if state.available_models.is_empty() {
+            self.client.list_available_models().await?
+        } else {
+            state.available_models.clone()
+        };
+        let sessions = if state.sessions.is_empty() {
+            self.client.list_sessions().await.unwrap_or_default()
+        } else {
+            state.sessions.clone()
+        };
+        let items =
+            build_provider_picker_items(&sessions, &available, state.current_model_identity());
+        let status = if items.is_empty() {
+            "No available providers. Configure provider credentials first.".to_string()
+        } else {
+            "Select a provider".to_string()
+        };
+        Ok(vec![ShellAction::ProviderPickerLoaded {
+            items,
+            available_models: available,
+            sessions,
+            status,
+        }])
+    }
+
+    async fn model_picker_actions_for_provider(
+        &self,
+        state: &AppState,
+        provider: String,
+    ) -> Result<Vec<ShellAction>> {
+        let available = if state.available_models.is_empty() {
+            self.client.list_available_models().await?
+        } else {
+            state.available_models.clone()
+        };
+        let sessions = if state.sessions.is_empty() {
+            self.client.list_sessions().await.unwrap_or_default()
+        } else {
+            state.sessions.clone()
+        };
+        let items = build_model_picker_items_for_provider(
+            &sessions,
+            &available,
+            state.current_model_identity(),
+            &provider,
+        );
+        let status = if items.is_empty() {
+            format!("No available models for {provider}.")
+        } else {
+            format!("Select a {provider} model")
+        };
+        Ok(vec![ShellAction::ModelPickerLoaded {
+            provider,
+            items,
+            status,
+        }])
+    }
+
+    async fn switch_model_actions(
+        &self,
+        state: &AppState,
+        model: String,
+    ) -> Result<Vec<ShellAction>> {
+        let Some(session_id) = state.current_session_id() else {
+            let available = self
+                .client
+                .list_available_models()
+                .await
+                .unwrap_or_default();
+            let Some(item) = resolve_model_picker_item(&available, &model) else {
+                return Ok(vec![ShellAction::StatusUpdated(format!(
+                    "Unknown or unavailable model: {model}"
+                ))]);
+            };
+            return Ok(vec![ShellAction::PendingSessionModelSelected {
+                provider: item.provider,
+                model: item.model,
+                model_name: item.name,
+                status: "Model selected for new chat.".to_string(),
+            }]);
+        };
+        match self.client.update_session_model(session_id, &model).await {
+            Ok(session) => Ok(vec![ShellAction::ModelSwitched {
+                session: Box::new(session),
+                status: format!("Switched model to {model}"),
+            }]),
+            Err(error) => Ok(vec![ShellAction::StatusUpdated(format!(
+                "Failed to switch model: {error}"
+            ))]),
+        }
+    }
+
+    async fn resolve_provider_for_model_command(
+        &self,
+        state: &AppState,
+        value: &str,
+    ) -> Result<ModelCommandTarget> {
+        let available = self.client.list_available_models().await?;
+        if available
+            .iter()
+            .any(|metadata| metadata.provider.as_canonical_str() == value)
+        {
+            return Ok(ModelCommandTarget::Provider(value.to_string()));
+        }
+        let Some(item) = resolve_model_picker_item(&available, value) else {
+            return Ok(ModelCommandTarget::Provider(value.to_string()));
+        };
+        if state.current_session_id().is_none() {
+            return Ok(ModelCommandTarget::Model(item.model));
+        }
+        Ok(ModelCommandTarget::Model(item.model))
     }
 
     async fn delete_session_actions(&self, session_id: String) -> Result<Vec<ShellAction>> {
@@ -741,6 +913,207 @@ fn filter_resume_sessions(
         .collect()
 }
 
+#[derive(Debug, Clone, Default)]
+struct ModelUsage {
+    count: usize,
+    last_used_at: Option<i64>,
+}
+
+enum ModelCommandTarget {
+    Provider(String),
+    Model(String),
+}
+
+fn model_key(provider: &str, model: &str) -> String {
+    format!("{}:{}", provider.trim(), model.trim())
+}
+
+fn model_usage_by_key(sessions: &[ChatSessionSummary]) -> HashMap<String, ModelUsage> {
+    let mut usage = HashMap::<String, ModelUsage>::new();
+    for session in sessions {
+        if session.provider.trim().is_empty() || session.model.trim().is_empty() {
+            continue;
+        }
+        let entry = usage
+            .entry(model_key(&session.provider, &session.model))
+            .or_default();
+        entry.count += 1;
+        entry.last_used_at = Some(
+            entry
+                .last_used_at
+                .map(|existing| existing.max(session.updated_at))
+                .unwrap_or(session.updated_at),
+        );
+    }
+    usage
+}
+
+fn provider_usage_by_key(sessions: &[ChatSessionSummary]) -> HashMap<String, ModelUsage> {
+    let mut usage = HashMap::<String, ModelUsage>::new();
+    for session in sessions {
+        if session.provider.trim().is_empty() {
+            continue;
+        }
+        let entry = usage.entry(session.provider.clone()).or_default();
+        entry.count += 1;
+        entry.last_used_at = Some(
+            entry
+                .last_used_at
+                .map(|existing| existing.max(session.updated_at))
+                .unwrap_or(session.updated_at),
+        );
+    }
+    usage
+}
+
+fn recent_usage_keys(usage: &HashMap<String, ModelUsage>, limit: usize) -> HashSet<String> {
+    let mut entries = usage
+        .iter()
+        .filter_map(|(key, usage)| usage.last_used_at.map(|last| (key.clone(), last)))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(_, last)| std::cmp::Reverse(*last));
+    entries
+        .into_iter()
+        .take(limit)
+        .map(|(key, _)| key)
+        .collect()
+}
+
+fn build_provider_picker_items(
+    sessions: &[ChatSessionSummary],
+    available: &[ModelMetadataDTO],
+    current_model: Option<(&str, &str)>,
+) -> Vec<ProviderPickerItem> {
+    let usage = provider_usage_by_key(sessions);
+    let recent_keys = recent_usage_keys(&usage, 5);
+    let current_provider = current_model.map(|(provider, _)| provider.to_string());
+    let mut providers = HashSet::<String>::new();
+
+    let mut items = Vec::new();
+    for metadata in available {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        if !providers.insert(provider.clone()) {
+            continue;
+        }
+        let usage = usage.get(&provider).cloned().unwrap_or_default();
+        let category = if recent_keys.contains(&provider) {
+            ModelPickerCategory::Recent
+        } else if usage.count > 0 {
+            ModelPickerCategory::Frequent
+        } else {
+            ModelPickerCategory::Available
+        };
+        items.push(ProviderPickerItem {
+            label: provider.clone(),
+            is_current: current_provider.as_deref() == Some(provider.as_str()),
+            provider,
+            category,
+            usage_count: usage.count,
+            last_used_at: usage.last_used_at,
+        });
+    }
+
+    items.sort_by(|left, right| {
+        model_category_order(left.category)
+            .cmp(&model_category_order(right.category))
+            .then_with(|| match left.category {
+                ModelPickerCategory::Recent => right.last_used_at.cmp(&left.last_used_at),
+                ModelPickerCategory::Frequent => right.usage_count.cmp(&left.usage_count),
+                ModelPickerCategory::Available => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    items
+}
+
+fn build_model_picker_items_for_provider(
+    sessions: &[ChatSessionSummary],
+    available: &[ModelMetadataDTO],
+    current_model: Option<(&str, &str)>,
+    provider_filter: &str,
+) -> Vec<ModelPickerItem> {
+    let usage = model_usage_by_key(sessions);
+    let recent_keys = recent_usage_keys(&usage, 5);
+
+    let current_key = current_model
+        .map(|(provider, model)| model_key(provider, model))
+        .filter(|key| key != ":");
+
+    let mut items = available
+        .iter()
+        .filter(|metadata| metadata.provider.as_canonical_str() == provider_filter)
+        .map(|metadata| {
+            let provider = metadata.provider.as_canonical_str().to_string();
+            let model = metadata.model.as_serialized_str().to_string();
+            let key = model_key(&provider, &model);
+            let usage = usage.get(&key).cloned().unwrap_or_default();
+            let category = if recent_keys.contains(&key) {
+                ModelPickerCategory::Recent
+            } else if usage.count > 0 {
+                ModelPickerCategory::Frequent
+            } else {
+                ModelPickerCategory::Available
+            };
+            ModelPickerItem {
+                provider,
+                model,
+                name: metadata.name.clone(),
+                category,
+                usage_count: usage.count,
+                last_used_at: usage.last_used_at,
+                is_current: current_key.as_deref() == Some(key.as_str()),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    items.sort_by(|left, right| {
+        model_category_order(left.category)
+            .cmp(&model_category_order(right.category))
+            .then_with(|| match left.category {
+                ModelPickerCategory::Recent => right.last_used_at.cmp(&left.last_used_at),
+                ModelPickerCategory::Frequent => right.usage_count.cmp(&left.usage_count),
+                ModelPickerCategory::Available => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.model.cmp(&right.model))
+    });
+    items
+}
+
+fn resolve_model_picker_item(
+    available: &[ModelMetadataDTO],
+    requested: &str,
+) -> Option<ModelPickerItem> {
+    let requested = requested.trim();
+    available.iter().find_map(|metadata| {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        let model = metadata.model.as_serialized_str().to_string();
+        let qualified = model_key(&provider, &model);
+        if requested == model || requested == qualified {
+            Some(ModelPickerItem {
+                provider,
+                model,
+                name: metadata.name.clone(),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+            })
+        } else {
+            None
+        }
+    })
+}
+
+fn model_category_order(category: ModelPickerCategory) -> u8 {
+    match category {
+        ModelPickerCategory::Recent => 0,
+        ModelPickerCategory::Frequent => 1,
+        ModelPickerCategory::Available => 2,
+    }
+}
+
 fn delete_session_error_message(session_id: &str, error: String) -> String {
     if error.contains("bound to background task") {
         format!("Cannot delete background-bound session {session_id}")
@@ -776,15 +1149,20 @@ Slash commands:\n\
 /daemon\n\
 /help\n\
 /resume\n\
+/model\n\
 /team\n\
 /task"
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{delete_session_error_message, filter_resume_sessions, start_daemon_error_actions};
+    use super::{
+        build_model_picker_items_for_provider, build_provider_picker_items,
+        delete_session_error_message, filter_resume_sessions, start_daemon_error_actions,
+    };
     use crate::reducer::ShellAction;
-    use restflow_core::models::ChatSessionSummary;
+    use crate::state::ModelPickerCategory;
+    use restflow_core::models::{ChatSessionSummary, ModelId, ModelMetadataDTO};
     use std::collections::HashSet;
 
     #[test]
@@ -823,6 +1201,77 @@ mod tests {
         assert_eq!(message, "Cannot delete background-bound session session-1");
     }
 
+    #[test]
+    fn provider_picker_orders_recent_frequent_then_available_providers() {
+        let sessions = vec![
+            session_summary_with_model("session-1", "Recent", "codex", "gpt-5.4", 100),
+            session_summary_with_model(
+                "session-2",
+                "Frequent 1",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                50,
+            ),
+            session_summary_with_model(
+                "session-3",
+                "Frequent 2",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                60,
+            ),
+        ];
+        let available = vec![
+            model_metadata(ModelId::MiniMaxM25CodingPlan, "MiniMax M2.5"),
+            model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4"),
+            model_metadata(ModelId::Gpt5_4MiniCodex, "GPT-5.4 Mini"),
+        ];
+        let items = build_provider_picker_items(&sessions, &available, Some(("codex", "gpt-5.4")));
+
+        assert_eq!(items[0].provider, "codex");
+        assert_eq!(items[0].category, ModelPickerCategory::Recent);
+        assert!(items[0].is_current);
+        assert_eq!(items[1].provider, "minimax-coding-plan");
+        assert_eq!(items[1].usage_count, 2);
+    }
+
+    #[test]
+    fn model_picker_filters_models_to_selected_provider() {
+        let sessions = vec![
+            session_summary_with_model("session-1", "Recent", "codex", "gpt-5.4", 100),
+            session_summary_with_model(
+                "session-2",
+                "Frequent 1",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                50,
+            ),
+            session_summary_with_model(
+                "session-3",
+                "Frequent 2",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                60,
+            ),
+        ];
+        let available = vec![
+            model_metadata(ModelId::MiniMaxM25CodingPlan, "MiniMax M2.5"),
+            model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4"),
+            model_metadata(ModelId::Gpt5_4MiniCodex, "GPT-5.4 Mini"),
+        ];
+        let items = build_model_picker_items_for_provider(
+            &sessions,
+            &available,
+            Some(("codex", "gpt-5.4")),
+            "codex",
+        );
+
+        assert_eq!(items[0].model, "gpt-5.4");
+        assert_eq!(items[0].category, ModelPickerCategory::Recent);
+        assert!(items[0].is_current);
+        assert_eq!(items[1].model, "gpt-5.4-mini");
+        assert_eq!(items[1].category, ModelPickerCategory::Available);
+    }
+
     fn session_summary_with_messages(
         id: &str,
         name: &str,
@@ -841,6 +1290,38 @@ mod tests {
             source_channel: None,
             source_conversation_id: None,
             archived_at: None,
+        }
+    }
+
+    fn session_summary_with_model(
+        id: &str,
+        name: &str,
+        provider: &str,
+        model: &str,
+        updated_at: i64,
+    ) -> ChatSessionSummary {
+        ChatSessionSummary {
+            id: id.to_string(),
+            name: name.to_string(),
+            agent_id: "agent-1".to_string(),
+            provider: provider.to_string(),
+            model: model.to_string(),
+            skill_id: None,
+            message_count: 1,
+            updated_at,
+            last_message_preview: Some("preview".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            archived_at: None,
+        }
+    }
+
+    fn model_metadata(model: ModelId, name: &str) -> ModelMetadataDTO {
+        ModelMetadataDTO {
+            model,
+            provider: model.provider(),
+            supports_temperature: false,
+            name: name.to_string(),
         }
     }
 }

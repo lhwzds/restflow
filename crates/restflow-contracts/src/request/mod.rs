@@ -357,7 +357,6 @@ pub enum IpcRequest {
         id: String,
         updates: ProfileUpdate,
     },
-    DiscoverAuth,
     EnableAuthProfile {
         id: String,
     },

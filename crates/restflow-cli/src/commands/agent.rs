@@ -114,7 +114,7 @@ async fn show_agent(
         println!("Model:       {}", model.as_serialized_str());
         println!("Provider:    {:?}", model.provider());
     } else {
-        println!("Model:       (not set - will auto-select based on auth profile)");
+        println!("Model:       (not set - will auto-select based on configured credentials)");
     }
     println!("Created:     {}", format_timestamp(agent.created_at));
     println!("Updated:     {}", format_timestamp(agent.updated_at));

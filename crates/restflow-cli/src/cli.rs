@@ -1025,18 +1025,12 @@ pub enum KeyCommands {
         /// Key ID
         id: String,
     },
-
-    /// Auto-discover keys from environment and files
-    Discover,
 }
 
 #[derive(Subcommand)]
 pub enum AuthCommands {
     /// Show authentication status
     Status,
-
-    /// Discover credentials from all sources
-    Discover,
 
     /// List all credential profiles
     List,

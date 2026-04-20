@@ -1,10 +1,15 @@
 use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
-use super::state::{AppState, TaskPickerItem, TeamPickerItem};
+use super::state::{
+    AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, TaskPickerItem,
+    TeamPickerItem,
+};
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
+use restflow_core::models::{
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary,
+};
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
@@ -60,6 +65,27 @@ pub enum ShellAction {
     },
     TeamPickerLoaded {
         items: Vec<TeamPickerItem>,
+        status: String,
+    },
+    ProviderPickerLoaded {
+        items: Vec<ProviderPickerItem>,
+        available_models: Vec<ModelMetadataDTO>,
+        sessions: Vec<ChatSessionSummary>,
+        status: String,
+    },
+    ModelPickerLoaded {
+        provider: String,
+        items: Vec<ModelPickerItem>,
+        status: String,
+    },
+    ModelSwitched {
+        session: Box<ChatSession>,
+        status: String,
+    },
+    PendingSessionModelSelected {
+        provider: String,
+        model: String,
+        model_name: String,
         status: String,
     },
     TeamSnapshotLoaded {
@@ -223,6 +249,43 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.open_team_picker();
             state.status = status;
         }
+        ShellAction::ProviderPickerLoaded {
+            items,
+            available_models,
+            sessions,
+            status,
+        } => {
+            state.provider_items = items;
+            state.available_models = available_models;
+            state.sessions = sessions;
+            state.open_provider_picker();
+            state.status = status;
+        }
+        ShellAction::ModelPickerLoaded {
+            provider,
+            items,
+            status,
+        } => {
+            state.model_items = items;
+            state.open_model_picker(provider);
+            state.status = status;
+        }
+        ShellAction::ModelSwitched { session, status } => {
+            state.refresh_current_session(*session);
+            state.clear_overlay();
+            state.status = status;
+        }
+        ShellAction::PendingSessionModelSelected {
+            provider,
+            model,
+            model_name,
+            status,
+        } => {
+            if state.update_pending_session_model(provider, model, model_name) {
+                state.clear_overlay();
+            }
+            state.status = status;
+        }
         ShellAction::TeamSnapshotLoaded {
             team_state,
             messages,
@@ -238,13 +301,15 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             status,
         } => {
             state.exit_startup();
-            if let Some(agent) = agent {
+            if let Some(agent) = agent.as_ref() {
                 state.set_default_agent(Some(agent.id.clone()), Some(agent.name.clone()));
             } else {
                 state.set_default_agent(None, None);
             }
             if let Some(session) = session {
                 state.set_current_session(*session);
+            } else if let Some(agent) = agent.as_ref() {
+                state.set_pending_session(Some(PendingSessionState::from_agent(agent)));
             }
             state.status = status;
             if let Some(message) = state.take_pending_initial_message()
@@ -314,7 +379,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 if matches!(state.composer.mode(), ComposerMode::Command) {
                     state.composer.clear();
                 }
-                state.status = "Closed overlay".to_string();
             } else if !state.composer.is_blank() {
                 let was_command_mode = matches!(state.composer.mode(), ComposerMode::Command);
                 state.composer.clear();
@@ -453,6 +517,17 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                         output.effects.push(ShellEffect::ActivateOverlaySelection);
                     }
                 } else {
+                    if matches!(
+                        state.overlay,
+                        Some(crate::state::OverlayState::ModelPicker { .. })
+                    ) {
+                        state.status = "Switching model...".to_string();
+                    } else if matches!(
+                        state.overlay,
+                        Some(crate::state::OverlayState::ProviderPicker { .. })
+                    ) {
+                        state.status = "Loading models...".to_string();
+                    }
                     output.effects.push(ShellEffect::ActivateOverlaySelection);
                 }
             } else {
@@ -470,9 +545,12 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
 fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOutput) {
     if super::composer::ComposerState::is_command_text(&text) {
         match parse_slash_command(&text) {
-            Ok(command) => output
-                .effects
-                .push(ShellEffect::ExecuteSlashCommand(command)),
+            Ok(command) => {
+                state.status = slash_command_pending_status(&command).to_string();
+                output
+                    .effects
+                    .push(ShellEffect::ExecuteSlashCommand(command));
+            }
             Err(error) => {
                 state.status = error.to_string();
                 state.push_error(error.to_string());
@@ -503,12 +581,24 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
     }
 }
 
+fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
+    match command {
+        SlashCommand::ListModels => "Loading providers...",
+        SlashCommand::ListModelsForProvider { .. } => "Loading models...",
+        SlashCommand::SwitchModel { .. } => "Switching model...",
+        SlashCommand::ListTasks => "Loading tasks...",
+        SlashCommand::ListTeams => "Loading teams...",
+        SlashCommand::ListSessions => "Loading sessions...",
+        _ => "Running command...",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ShellAction, ShellEffect, reduce};
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
-    use crate::state::AppState;
+    use crate::state::{AppState, PendingSessionState};
     use restflow_core::daemon::ChatSessionEvent;
     use restflow_core::models::{ChatSession, ChatSessionSummary};
 
@@ -559,6 +649,24 @@ mod tests {
         assert!(matches!(
             output.actions.as_slice(),
             [ShellAction::SubmitText { text }] if text == "/help"
+        ));
+    }
+
+    #[test]
+    fn model_slash_command_sets_loading_status_before_effect() {
+        let mut state = AppState::empty();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "/model".to_string(),
+            },
+        );
+
+        assert_eq!(state.status, "Loading providers...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ExecuteSlashCommand(SlashCommand::ListModels)]
         ));
     }
 
@@ -673,6 +781,44 @@ mod tests {
             Some(crate::state::OverlayState::DaemonPicker { selected: 0 })
         ));
         assert_eq!(state.status, "Select daemon action");
+    }
+
+    #[test]
+    fn submitting_model_picker_shows_switching_status_before_effect() {
+        let mut state = AppState::empty();
+        state.open_model_picker("codex");
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(!output.should_quit);
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::ModelPicker { .. })
+        ));
+        assert_eq!(state.status, "Switching model...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ActivateOverlaySelection]
+        ));
+    }
+
+    #[test]
+    fn submitting_provider_picker_shows_loading_status_before_effect() {
+        let mut state = AppState::empty();
+        state.open_provider_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(!output.should_quit);
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::ProviderPicker { .. })
+        ));
+        assert_eq!(state.status, "Loading models...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ActivateOverlaySelection]
+        ));
     }
 
     #[test]
@@ -861,6 +1007,54 @@ mod tests {
     }
 
     #[test]
+    fn model_selection_without_session_updates_pending_session() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        state.open_model_picker("codex");
+
+        let output = reduce(
+            &mut state,
+            ShellAction::PendingSessionModelSelected {
+                provider: "codex".to_string(),
+                model: "gpt-5.4".to_string(),
+                model_name: "GPT-5.4".to_string(),
+                status: "Model selected for new chat.".to_string(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        let pending = state.pending_session.as_ref().expect("pending session");
+        assert_eq!(pending.agent_id, "agent-1");
+        assert_eq!(pending.provider, "codex");
+        assert_eq!(pending.model, "gpt-5.4");
+        assert_eq!(pending.model_name, "GPT-5.4");
+        assert!(state.overlay.is_none());
+        assert_eq!(state.status, "Model selected for new chat.");
+    }
+
+    #[test]
+    fn session_created_for_submit_clears_pending_session() {
+        let mut state = AppState::empty();
+        state.set_pending_session(Some(PendingSessionState::new(
+            "agent-1".to_string(),
+            "Agent".to_string(),
+            "gpt-5.4".to_string(),
+        )));
+        let session = ChatSession::new("agent-1".to_string(), "gpt-5.4".to_string());
+
+        let _ = reduce(
+            &mut state,
+            ShellAction::SessionCreatedForSubmit {
+                session: Box::new(session),
+                runs: Vec::new(),
+                message: "hi".to_string(),
+            },
+        );
+
+        assert!(state.pending_session.is_none());
+    }
+
+    #[test]
     fn esc_in_command_mode_clears_draft_instead_of_quitting() {
         let mut state = AppState::empty();
         for ch in "/help".chars() {
@@ -909,7 +1103,7 @@ mod tests {
         assert!(!output.should_quit);
         assert!(state.overlay.is_none());
         assert_eq!(state.composer.draft(), "");
-        assert_eq!(state.status, "Closed overlay");
+        assert_eq!(state.status, "Connecting to daemon...");
     }
 
     #[test]

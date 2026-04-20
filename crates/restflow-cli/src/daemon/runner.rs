@@ -88,7 +88,6 @@ impl CliTaskRunner {
             }
         }
         auth_manager.initialize().await?;
-        auth_manager.discover().await?;
 
         // Create task runtime components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);

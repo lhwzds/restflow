@@ -481,10 +481,7 @@ pub(super) fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) ->
 }
 
 pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
-    let config = AuthManagerConfig {
-        auto_discover: false,
-        ..AuthManagerConfig::default()
-    };
+    let config = AuthManagerConfig::default();
     let db = core.storage.get_db();
     let secrets = Arc::new(core.storage.secrets.clone());
     let profile_storage = AuthProfileStorage::new(db)?;

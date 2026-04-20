@@ -294,6 +294,12 @@ async fn process_actions(
                 continue;
             }
 
+            if output.immediate_render {
+                renderer.sync(state)?;
+                output.render_request = RenderRequest::default();
+                output.immediate_render = false;
+            }
+
             let followup_actions = controller.execute_effect(effect, state, tx.clone()).await?;
             pending.extend(followup_actions);
         }

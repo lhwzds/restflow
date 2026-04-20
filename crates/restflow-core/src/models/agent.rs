@@ -117,7 +117,7 @@ pub enum ApiKeyConfig {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentNode {
-    /// AI model to use for this agent (None = auto-select based on auth profile)
+    /// AI model to use for this agent (None = auto-select based on configured credentials)
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelId>,
