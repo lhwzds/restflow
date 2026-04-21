@@ -423,7 +423,7 @@ impl ExecutionConsoleService {
         let mut runs = contexts
             .into_iter()
             .filter(|ctx| {
-                ctx.source.source != ChatSessionSource::Workspace
+                is_external_channel_source(ctx.source.source)
                     && external_container_id(
                         ctx.source.source,
                         ctx.source
@@ -568,7 +568,7 @@ impl ExecutionConsoleService {
     ) -> HashMap<String, ExternalGroup> {
         let mut groups = HashMap::new();
         for context in contexts {
-            if context.source.source == ChatSessionSource::Workspace {
+            if !is_external_channel_source(context.source.source) {
                 continue;
             }
             let conversation_id = context
@@ -864,7 +864,15 @@ fn external_channel_key(source: ChatSessionSource) -> &'static str {
         ChatSessionSource::Discord => "discord",
         ChatSessionSource::Slack => "slack",
         ChatSessionSource::Workspace => "workspace",
+        ChatSessionSource::Background => "background",
     }
+}
+
+fn is_external_channel_source(source: ChatSessionSource) -> bool {
+    matches!(
+        source,
+        ChatSessionSource::Telegram | ChatSessionSource::Discord | ChatSessionSource::Slack
+    )
 }
 
 fn execution_container_sort_key(container: &ExecutionContainerSummary) -> u8 {

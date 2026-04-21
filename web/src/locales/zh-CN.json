@@ -19,6 +19,7 @@
     "background": "后台",
     "sessionSource": {
       "workspace": "工作区",
+      "background": "后台",
       "telegram": "Telegram",
       "discord": "Discord",
       "slack": "Slack"

@@ -6,8 +6,8 @@
 use crate::models::{
     AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec,
-    BackgroundAgentStatus, BackgroundMessage, BackgroundProgress, ChatSession, ModelId,
-    TaskMessageSource, TaskMessageStatus,
+    BackgroundAgentStatus, BackgroundMessage, BackgroundProgress, ChatSession, ChatSessionSource,
+    ModelId, TaskMessageSource, TaskMessageStatus,
 };
 use anyhow::Result;
 use redb::Database;
@@ -120,7 +120,9 @@ impl BackgroundAgentStorage {
     fn create_bound_chat_session(&self, agent_id: &str, task_name: &str) -> Result<String> {
         let model = self.resolve_agent_model_for_session(agent_id)?;
         let session_name = format!("Background: {}", task_name);
-        let session = ChatSession::new(agent_id.to_string(), model).with_name(session_name);
+        let session = ChatSession::new(agent_id.to_string(), model)
+            .with_name(session_name)
+            .with_source(ChatSessionSource::Background, task_name.to_string());
         let session_id = session.id.clone();
         self.chat_sessions.create(&session)?;
         Ok(session_id)

@@ -159,17 +159,14 @@ impl TuiDaemonClient {
 
     pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
         let mut client = self.connect().await?;
-        let tasks: Vec<serde_json::Value> = client
+        let tasks: Vec<Task> = client
             .request_typed(IpcRequest::ListTasks { status: None })
             .await?;
         Ok(tasks
             .into_iter()
             .filter_map(|task| {
-                task.get("chat_session_id")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::trim)
-                    .filter(|session_id| !session_id.is_empty())
-                    .map(ToOwned::to_owned)
+                let session_id = task.chat_session_id.trim();
+                (!session_id.is_empty()).then(|| session_id.to_string())
             })
             .collect())
     }

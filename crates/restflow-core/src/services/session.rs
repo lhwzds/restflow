@@ -521,7 +521,10 @@ impl SessionService {
         if conversation_id.is_empty() {
             anyhow::bail!("External session is missing conversation_id");
         }
-        if source_channel == ChatSessionSource::Workspace {
+        if matches!(
+            source_channel,
+            ChatSessionSource::Workspace | ChatSessionSource::Background
+        ) {
             anyhow::bail!("Session is not externally managed");
         }
 

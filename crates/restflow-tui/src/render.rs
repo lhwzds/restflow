@@ -28,11 +28,11 @@ pub(crate) fn render_shell_bottom_viewport(
     let area = Rect::new(0, 0, width, height);
     let mut buffer = Buffer::empty(area);
 
-    if transient_height > 0 {
-        let transient_area = Rect::new(0, 0, width, transient_height);
-        Paragraph::new(transient_lines)
-            .wrap(Wrap { trim: false })
-            .render(transient_area, &mut buffer);
+    for (row, line) in transient_lines.into_iter().enumerate() {
+        if row as u16 >= transient_height {
+            break;
+        }
+        line.render(Rect::new(0, row as u16, width, 1), &mut buffer);
     }
 
     let prompt_area = Rect::new(0, transient_height, width, prompt_height);
@@ -73,6 +73,10 @@ fn buffer_to_styled_lines(buffer: &Buffer) -> Vec<Line<'static>> {
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut x = 0;
         let last_content_x = last_content_cell_x(buffer, y);
+        if last_content_x.is_none() {
+            lines.push(Line::from(""));
+            continue;
+        }
         while x < buffer.area.width {
             if let Some(cell) = buffer.cell((x, y))
                 && !cell.skip
@@ -183,5 +187,21 @@ mod tests {
         );
 
         assert_eq!(rendered.lines[0].spans[0].style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn bottom_viewport_does_not_emit_full_width_blank_rows() {
+        let prompt_lines = vec![Line::from("hello")];
+        let rendered = render_shell_bottom_viewport(
+            24,
+            vec![Line::from(""), Line::from("message")],
+            &prompt_lines,
+            0,
+            0,
+            "model",
+        );
+
+        assert_eq!(line_text(&rendered.lines[0]), "");
+        assert_eq!(line_text(&rendered.lines[1]), "message");
     }
 }

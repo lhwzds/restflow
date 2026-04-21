@@ -19,6 +19,7 @@
     "background": "background",
     "sessionSource": {
       "workspace": "Workspace",
+      "background": "Background",
       "telegram": "Telegram",
       "discord": "Discord",
       "slack": "Slack"

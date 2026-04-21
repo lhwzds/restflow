@@ -122,7 +122,7 @@ pub(crate) fn check_agent_has_external_channel_sessions(
 
         // Legacy fallback: session source fields may still exist before full migration.
         match session.source_channel {
-            Some(ChatSessionSource::Workspace) | None => {}
+            Some(ChatSessionSource::Workspace | ChatSessionSource::Background) | None => {}
             Some(ChatSessionSource::Telegram) => {
                 if let Some(conversation_id) = legacy_conversation_id.clone() {
                     let binding = crate::models::ChannelSessionBinding::new(

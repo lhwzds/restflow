@@ -1,8 +1,6 @@
-use std::fmt;
 use std::io::{Result as IoResult, Stdout, Write};
 
-use crossterm::Command;
-use crossterm::cursor::{MoveTo, MoveToColumn};
+use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{
     Attribute, Color as CrosstermColor, Colors, Print, SetAttribute, SetBackgroundColor, SetColors,
@@ -21,13 +19,9 @@ const CONTINUATION_PREFIX: &str = "  ";
 const TOOL_SUMMARY_LIMIT: usize = 120;
 const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
 const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
-const MAX_TRANSIENT_ROWS: u16 = 16;
 
 pub struct ShellRenderer {
     stdout: Stdout,
-    committed_cells: Vec<TranscriptCell>,
-    history_lines: Vec<Line<'static>>,
-    pending_history_lines: Vec<Line<'static>>,
     last_viewport: Option<ViewportSnapshot>,
     last_terminal_size: Option<(u16, u16)>,
 }
@@ -57,9 +51,6 @@ impl ShellRenderer {
     pub fn new() -> Self {
         Self {
             stdout: std::io::stdout(),
-            committed_cells: Vec::new(),
-            history_lines: Vec::new(),
-            pending_history_lines: Vec::new(),
             last_viewport: None,
             last_terminal_size: None,
         }
@@ -83,51 +74,11 @@ impl ShellRenderer {
         let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
         let terminal_viewport = TerminalViewport::build(state, size);
         let viewport = terminal_viewport.snapshot;
-        let stable_cells = build_stable_history_cells(state);
 
-        let mut force_full_redraw = false;
-        if !is_cell_prefix(&self.committed_cells, &stable_cells) {
-            self.committed_cells.clear();
-            self.history_lines.clear();
-            self.pending_history_lines.clear();
-            self.last_viewport = None;
-            force_full_redraw = true;
-        }
-
-        let mut new_history_lines = render_history_append_lines(
-            &stable_cells[self.committed_cells.len()..],
-            size.0,
-            !self.history_lines.is_empty() || !self.pending_history_lines.is_empty(),
-        );
-        if !self.pending_history_lines.is_empty() {
-            let mut pending = std::mem::take(&mut self.pending_history_lines);
-            pending.append(&mut new_history_lines);
-            new_history_lines = pending;
-        }
-
-        let viewport_shape_changed = self.last_terminal_size != Some(size)
-            || self.last_viewport.as_ref().is_none_or(|previous| {
-                previous.top != viewport.top || previous.lines.len() != viewport.lines.len()
-            });
-
-        if force_full_redraw {
-            self.history_lines = new_history_lines;
-            self.pending_history_lines.clear();
+        if self.needs_full_redraw(size, &viewport) {
             queue_clear_visible(&mut self.stdout)?;
-            self.redraw_visible_history(viewport.top, size.0)?;
-            self.redraw_viewport_full(&viewport, size.0)?;
-        } else if viewport_shape_changed {
-            let append_top = protected_append_top(self.last_viewport.as_ref(), &viewport);
-            self.append_history_lines(append_top, size.0, new_history_lines)?;
-            self.redraw_visible_history(viewport.top, size.0)?;
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
-            let history_changed =
-                self.append_history_lines(viewport.top, size.0, new_history_lines)?;
-            if history_changed {
-                self.redraw_visible_history(viewport.top, size.0)?;
-            }
-
             match self.last_viewport.clone() {
                 Some(previous) if previous == viewport => {
                     self.restore_cursor(&viewport)?;
@@ -141,7 +92,6 @@ impl ShellRenderer {
             }
         }
 
-        self.committed_cells = stable_cells;
         self.last_viewport = Some(viewport);
         self.last_terminal_size = Some(terminal_viewport.size);
         self.stdout.flush()
@@ -177,14 +127,11 @@ impl ShellRenderer {
         self.stdout.flush()
     }
 
-    fn redraw_visible_history(&mut self, viewport_top: u16, width: u16) -> IoResult<()> {
-        let visible = bottom_anchor_lines(self.history_lines.clone(), viewport_top as usize, 0);
-        for row in 0..viewport_top {
-            let empty = Line::from("");
-            let line = visible.get(row as usize).unwrap_or(&empty);
-            self.write_row(row, line, width)?;
-        }
-        Ok(())
+    fn needs_full_redraw(&self, size: (u16, u16), viewport: &ViewportSnapshot) -> bool {
+        self.last_terminal_size != Some(size)
+            || self.last_viewport.as_ref().is_none_or(|previous| {
+                previous.top != viewport.top || previous.lines.len() != viewport.lines.len()
+            })
     }
 
     fn redraw_viewport_full(&mut self, viewport: &ViewportSnapshot, width: u16) -> IoResult<()> {
@@ -210,38 +157,6 @@ impl ShellRenderer {
         queue!(self.stdout, MoveTo(viewport.cursor_x, viewport.cursor_y))
     }
 
-    fn append_history_lines(
-        &mut self,
-        viewport_top: u16,
-        width: u16,
-        lines: Vec<Line<'static>>,
-    ) -> IoResult<bool> {
-        if lines.is_empty() {
-            return Ok(false);
-        }
-
-        if viewport_top == 0 {
-            self.pending_history_lines.extend(lines);
-            return Ok(true);
-        }
-
-        let fill_count =
-            visible_history_fill_count(self.history_lines.len(), viewport_top, lines.len());
-        let mut lines = lines;
-        let scroll_lines = lines.split_off(fill_count);
-        if !lines.is_empty() {
-            self.history_lines.extend(lines);
-        }
-
-        if !scroll_lines.is_empty() {
-            self.redraw_visible_history(viewport_top, width)?;
-            HistoryInserter::append(&mut self.stdout, viewport_top, width, &scroll_lines)?;
-            self.history_lines.extend(scroll_lines);
-        }
-
-        Ok(true)
-    }
-
     fn write_row(&mut self, row: u16, line: &Line<'static>, width: u16) -> IoResult<()> {
         queue!(
             self.stdout,
@@ -260,11 +175,21 @@ impl TerminalViewport {
         let (width, height) = size;
         let prompt = build_prompt_snapshot(state, width, height);
         let prompt_height = prompt.lines.len() as u16 + 2;
-        let transient_capacity = height.saturating_sub(prompt_height).min(MAX_TRANSIENT_ROWS);
-        let transient_lines = build_transient_lines(state, width, transient_capacity);
+        let available_above_prompt = height.saturating_sub(prompt_height);
+        let spacer_height = u16::from(available_above_prompt > 0);
+        let message_height = available_above_prompt.saturating_sub(spacer_height);
+        let message_lines = build_message_lines(state, width, message_height);
+        let mut visible_message_lines = bottom_anchor_lines(
+            message_lines,
+            message_height as usize,
+            state.message_scroll_from_bottom,
+        );
+        if spacer_height > 0 {
+            visible_message_lines.push(Line::from(""));
+        }
         let rendered = render_shell_bottom_viewport(
             width,
-            transient_lines,
+            visible_message_lines,
             &prompt.lines,
             prompt.cursor_column,
             prompt.cursor_row,
@@ -287,41 +212,6 @@ impl TerminalViewport {
 #[cfg(test)]
 fn build_viewport_snapshot(state: &AppState, size: (u16, u16)) -> ViewportSnapshot {
     TerminalViewport::build(state, size).snapshot
-}
-
-struct HistoryInserter;
-
-impl HistoryInserter {
-    fn append(
-        writer: &mut impl Write,
-        viewport_top: u16,
-        width: u16,
-        lines: &[Line<'static>],
-    ) -> IoResult<()> {
-        if lines.is_empty() || viewport_top == 0 {
-            return Ok(());
-        }
-
-        queue!(
-            writer,
-            SetScrollRegion(1..viewport_top),
-            MoveTo(0, viewport_top.saturating_sub(1))
-        )?;
-        for line in lines {
-            queue!(
-                writer,
-                Print("\r\n"),
-                MoveToColumn(0),
-                SetForegroundColor(CrosstermColor::Reset),
-                SetBackgroundColor(CrosstermColor::Reset),
-                SetAttribute(Attribute::Reset),
-                Clear(ClearType::CurrentLine),
-            )?;
-            write_styled_line(writer, &truncate_line_to_width(line, width))?;
-        }
-        queue!(writer, ResetScrollRegion)?;
-        Ok(())
-    }
 }
 
 fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSnapshot {
@@ -367,16 +257,19 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     let mut cells = Vec::with_capacity(
         state.conversation_cells.len() + state.pending_user_cells.len() + state.runtime_cells.len(),
     );
+    let include_pending = state.active_cell.is_none() && state.active_turn_cells.is_empty();
 
     let mut pending = state.pending_user_cells.iter().peekable();
     let mut runtime = state.runtime_cells.iter().peekable();
     for (index, cell) in state.conversation_cells.iter().enumerate() {
-        while let Some(entry) = pending.peek() {
-            if entry.base_cell_index <= index {
-                cells.push(entry.cell.clone());
-                pending.next();
-            } else {
-                break;
+        if include_pending {
+            while let Some(entry) = pending.peek() {
+                if entry.base_cell_index <= index {
+                    cells.push(entry.cell.clone());
+                    pending.next();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -409,8 +302,10 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
         cells.push(cell.clone());
     }
 
-    for entry in pending {
-        cells.push(entry.cell.clone());
+    if include_pending {
+        for entry in pending {
+            cells.push(entry.cell.clone());
+        }
     }
     for entry in runtime {
         cells.push(entry.cell.clone());
@@ -418,50 +313,102 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     cells
 }
 
+fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
+    if max_rows == 0 {
+        return Vec::new();
+    }
+
+    if let Some(lines) = build_overlay_lines(state, width, max_rows) {
+        return lines;
+    }
+
+    build_cell_lines(&build_message_cells(state), width)
+}
+
+fn build_message_cells(state: &AppState) -> Vec<TranscriptCell> {
+    let mut cells = build_stable_history_cells(state);
+    if state.active_cell.is_some() || !state.active_turn_cells.is_empty() {
+        cells.extend(
+            state
+                .pending_user_cells
+                .iter()
+                .map(|entry| entry.cell.clone()),
+        );
+        cells.extend(state.active_turn_cells.iter().cloned());
+        if let Some(active_cell) = state.active_cell.as_ref() {
+            cells.push(active_cell.clone());
+        }
+    }
+    cells
+}
+
+fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Vec<Line<'static>>> {
+    if let Some(lines) = build_session_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_task_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_task_action_picker_lines(state, width) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_team_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_provider_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_model_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_daemon_picker_lines(state, width) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_command_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    None
+}
+
+#[cfg(test)]
 fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
     if max_rows == 0 {
         return Vec::new();
     }
 
-    if let Some(lines) = build_session_picker_lines(state, width, max_rows) {
+    if let Some(lines) = build_overlay_lines(state, width, max_rows) {
         return lines;
     }
 
-    if let Some(lines) = build_task_picker_lines(state, width, max_rows) {
-        return lines;
-    }
-
-    if let Some(lines) = build_task_action_picker_lines(state, width) {
-        return lines;
-    }
-
-    if let Some(lines) = build_team_picker_lines(state, width, max_rows) {
-        return lines;
-    }
-
-    if let Some(lines) = build_provider_picker_lines(state, width, max_rows) {
-        return lines;
-    }
-
-    if let Some(lines) = build_model_picker_lines(state, width, max_rows) {
-        return lines;
-    }
-
-    if let Some(lines) = build_daemon_picker_lines(state, width) {
-        return lines;
-    }
-
-    if let Some(lines) = build_command_picker_lines(state, width, max_rows) {
-        return lines;
-    }
-
-    let Some(active_cell) = state.active_cell.as_ref() else {
+    if state.active_cell.is_none() && state.active_turn_cells.is_empty() {
         return Vec::new();
-    };
+    }
 
-    let lines = build_cell_lines(std::slice::from_ref(active_cell), width);
-    preserve_active_cell_separator(
-        lines,
+    let pending_cells = state
+        .pending_user_cells
+        .iter()
+        .map(|entry| entry.cell.clone())
+        .collect::<Vec<_>>();
+    let pending_lines = build_cell_lines(&pending_cells, width);
+    let mut live_cells = Vec::with_capacity(
+        state.active_turn_cells.len() + usize::from(state.active_cell.is_some()),
+    );
+    live_cells.extend(state.active_turn_cells.iter().cloned());
+    if let Some(active_cell) = state.active_cell.as_ref() {
+        live_cells.push(active_cell.clone());
+    }
+    let active_lines = build_cell_lines(&live_cells, width);
+    preserve_live_turn_lines(
+        pending_lines,
+        active_lines,
         max_rows as usize,
         stable_history_has_rendered_lines(state),
     )
@@ -1029,6 +976,7 @@ fn command_display(command: &str, args: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn render_history_append_lines(
     cells: &[TranscriptCell],
     width: u16,
@@ -1089,6 +1037,7 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
     lines
 }
 
+#[cfg(test)]
 fn is_cell_prefix(previous: &[TranscriptCell], current: &[TranscriptCell]) -> bool {
     previous.len() <= current.len()
         && previous
@@ -1153,6 +1102,7 @@ fn error_style() -> Style {
     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
 }
 
+#[cfg(test)]
 fn stable_history_has_rendered_lines(state: &AppState) -> bool {
     build_stable_history_cells(state)
         .iter()
@@ -1258,6 +1208,7 @@ fn placeholder_line(inner_width: u16) -> Line<'static> {
     )
 }
 
+#[cfg(test)]
 fn preserve_first_line_tail(lines: Vec<Line<'static>>, max_rows: usize) -> Vec<Line<'static>> {
     if max_rows == 0 || lines.len() <= max_rows {
         return lines;
@@ -1272,6 +1223,7 @@ fn preserve_first_line_tail(lines: Vec<Line<'static>>, max_rows: usize) -> Vec<L
     visible
 }
 
+#[cfg(test)]
 fn preserve_active_cell_separator(
     lines: Vec<Line<'static>>,
     max_rows: usize,
@@ -1283,6 +1235,38 @@ fn preserve_active_cell_separator(
 
     let mut visible = vec![Line::from("")];
     visible.extend(preserve_first_line_tail(lines, max_rows - 1));
+    visible
+}
+
+#[cfg(test)]
+fn preserve_live_turn_lines(
+    pending_lines: Vec<Line<'static>>,
+    active_lines: Vec<Line<'static>>,
+    max_rows: usize,
+    prepend_separator: bool,
+) -> Vec<Line<'static>> {
+    if max_rows == 0 {
+        return Vec::new();
+    }
+
+    let mut visible = Vec::new();
+    let mut remaining = max_rows;
+    if prepend_separator && remaining > 1 {
+        visible.push(Line::from(""));
+        remaining -= 1;
+    }
+
+    if active_lines.len() >= remaining {
+        visible.extend(preserve_first_line_tail(active_lines, remaining));
+        return visible;
+    }
+
+    let pending_capacity = remaining.saturating_sub(active_lines.len());
+    if pending_capacity > 0 {
+        let start = pending_lines.len().saturating_sub(pending_capacity);
+        visible.extend_from_slice(&pending_lines[start..]);
+    }
+    visible.extend(active_lines);
     visible
 }
 
@@ -1338,6 +1322,7 @@ fn bottom_anchor_lines(
         return Vec::new();
     }
     let total = lines.len();
+    let scroll_from_bottom = clamp_history_scroll(total, height, scroll_from_bottom);
     let end = total.saturating_sub(scroll_from_bottom);
     let start = end.saturating_sub(height);
     let mut visible = lines[start..end].to_vec();
@@ -1347,6 +1332,10 @@ fn bottom_anchor_lines(
         return padding;
     }
     visible
+}
+
+fn clamp_history_scroll(total_lines: usize, viewport_height: usize, requested: usize) -> usize {
+    requested.min(total_lines.saturating_sub(viewport_height))
 }
 
 fn changed_row_indices(previous: &[Line<'static>], current: &[Line<'static>]) -> Vec<usize> {
@@ -1360,12 +1349,14 @@ fn changed_row_indices(previous: &[Line<'static>], current: &[Line<'static>]) ->
     rows
 }
 
+#[cfg(test)]
 fn protected_append_top(previous: Option<&ViewportSnapshot>, current: &ViewportSnapshot) -> u16 {
     previous
         .map(|previous| previous.top.min(current.top))
         .unwrap_or(current.top)
 }
 
+#[cfg(test)]
 fn visible_history_fill_count(
     history_line_count: usize,
     viewport_top: u16,
@@ -1520,53 +1511,16 @@ fn display_width(value: &str) -> u16 {
     unicode_width::UnicodeWidthStr::width(value) as u16
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SetScrollRegion(std::ops::Range<u16>);
-
-impl Command for SetScrollRegion {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        panic!("SetScrollRegion requires ANSI");
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ResetScrollRegion;
-
-impl Command for ResetScrollRegion {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b[r")
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        panic!("ResetScrollRegion requires ANSI");
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
-        build_viewport_snapshot, cell_title_style, changed_row_indices, compact_session_preview,
-        footer_status_line, format_title, is_cell_prefix, line_text, normalize_body_lines,
-        preserve_active_cell_separator, preserve_first_line_tail, protected_append_top,
-        queue_clear_visible, queue_purge_visible_and_scrollback, render_history_append_lines,
-        summarize_tool_body, visible_history_fill_count, write_styled_line,
+        build_viewport_snapshot, cell_title_style, changed_row_indices, clamp_history_scroll,
+        compact_session_preview, footer_status_line, format_title, is_cell_prefix, line_text,
+        normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
+        protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
+        render_history_append_lines, summarize_tool_body, visible_history_fill_count,
+        write_styled_line,
     };
     use crossterm::queue;
     use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
@@ -1784,9 +1738,41 @@ mod tests {
     fn viewport_stays_anchored_to_bottom() {
         let state = AppState::empty();
         let viewport = build_viewport_snapshot(&state, (40, 10));
-        assert_eq!(viewport.top, 7);
+        assert_eq!(viewport.top, 0);
         assert_eq!(viewport.cursor_y, 8);
-        assert_eq!(viewport.lines.len(), 3);
+        assert_eq!(viewport.lines.len(), 10);
+    }
+
+    #[test]
+    fn latest_message_stays_above_composer_rows() {
+        let mut state = AppState::empty();
+        state.conversation_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: None,
+            body: "first\nlatest visible message".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        });
+
+        let viewport = build_viewport_snapshot(&state, (60, 10));
+        let rendered = line_texts(&viewport.lines);
+        let composer_top = rendered
+            .iter()
+            .position(|line| line.starts_with('┌'))
+            .expect("composer top border");
+        let latest_row = rendered
+            .iter()
+            .position(|line| line.contains("latest visible message"))
+            .expect("latest message row");
+
+        assert!(latest_row < composer_top);
+        assert_eq!(rendered[composer_top - 1], "");
+        assert!(
+            !rendered[composer_top..]
+                .iter()
+                .any(|line| line.contains("latest visible message"))
+        );
     }
 
     #[test]
@@ -2366,9 +2352,10 @@ mod tests {
         let lines = build_transient_lines(&state, 80, 8);
         let rendered = line_texts(&lines);
 
-        assert_eq!(rendered[0], "");
-        assert!(rendered[1].contains("Agent"));
-        assert!(rendered[1].contains("typing"));
+        assert!(rendered.iter().any(|line| line.contains("You")));
+        assert!(rendered.iter().any(|line| line.contains("hello")));
+        assert!(rendered.iter().any(|line| line.contains("Agent")));
+        assert!(rendered.iter().any(|line| line.contains("typing")));
     }
 
     #[test]
@@ -2422,6 +2409,103 @@ mod tests {
         assert!(rendered[0].contains("typing"));
         assert!(!rendered.iter().any(|line| line.contains("line one")));
         assert!(rendered.iter().any(|line| line.contains("line four")));
+    }
+
+    #[test]
+    fn live_turn_renders_tool_as_a_separate_cell() {
+        let mut state = AppState::empty();
+        state.active_turn_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: None,
+            body: "Checking first".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        });
+        state.active_turn_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Tool,
+            title: "Tool · web_search".to_string(),
+            subtitle: Some("#call-1".to_string()),
+            body: "Input: {\"query\":\"离骚全文 屈原\"}\nOutput: {\"ok\":true}".to_string(),
+            group: MessageGroup::ToolActivity,
+            is_active: false,
+        });
+        state.active_cell = Some(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "Final answer".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        });
+
+        let lines = build_transient_lines(&state, 100, 12);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered.iter().any(|line| line.contains("Agent")));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("Tool · web_search #call-1"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("Input:")));
+        assert!(rendered.iter().any(|line| line.contains("Final answer")));
+    }
+
+    #[test]
+    fn live_turn_can_fill_the_full_message_viewport() {
+        let mut state = AppState::empty();
+        state.active_cell = Some(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: (1..=30)
+                .map(|index| format!("line {index}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        });
+
+        let viewport = build_viewport_snapshot(&state, (80, 24));
+        let rendered = line_texts(&viewport.lines);
+
+        assert_eq!(viewport.top, 0);
+        assert_eq!(viewport.lines.len(), 24);
+        assert!(rendered.iter().any(|line| line.contains("line 30")));
+        assert!(rendered.iter().any(|line| line.starts_with('┌')));
+    }
+
+    #[test]
+    fn message_scroll_crosses_stable_and_live_turn_boundary() {
+        let mut state = AppState::empty();
+        state.conversation_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: None,
+            body: (1..=20)
+                .map(|index| format!("stable {index}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        });
+        state.active_cell = Some(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "live bottom".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: true,
+        });
+
+        let bottom = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
+        assert!(bottom.iter().any(|line| line.contains("live bottom")));
+
+        state.message_scroll_from_bottom = 10;
+        let scrolled = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
+        assert!(scrolled.iter().any(|line| line.contains("stable")));
+        assert!(!scrolled.iter().any(|line| line.contains("live bottom")));
     }
 
     #[test]
@@ -2565,5 +2649,28 @@ mod tests {
     fn bottom_anchor_lines_pads_from_top() {
         let visible = bottom_anchor_lines(vec![Line::from("one"), Line::from("two")], 4, 0);
         assert_eq!(line_texts(&visible), vec!["", "", "one", "two"]);
+    }
+
+    #[test]
+    fn bottom_anchor_lines_supports_scrollback_offset() {
+        let visible = bottom_anchor_lines(
+            vec![
+                Line::from("one"),
+                Line::from("two"),
+                Line::from("three"),
+                Line::from("four"),
+                Line::from("five"),
+            ],
+            2,
+            1,
+        );
+
+        assert_eq!(line_texts(&visible), vec!["three", "four"]);
+    }
+
+    #[test]
+    fn clamp_history_scroll_prevents_empty_overscroll() {
+        assert_eq!(clamp_history_scroll(5, 2, 99), 3);
+        assert_eq!(clamp_history_scroll(2, 5, 99), 0);
     }
 }

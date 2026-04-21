@@ -155,6 +155,18 @@ impl SessionPolicy {
             });
         }
 
+        if self.bound_background_task(&session.id)?.is_some()
+            || session.source_channel == Some(ChatSessionSource::Background)
+        {
+            return Ok(EffectiveSessionSource {
+                source: ChatSessionSource::Background,
+                conversation_id: session
+                    .source_conversation_id
+                    .clone()
+                    .or_else(|| Some(session.id.clone())),
+            });
+        }
+
         Ok(EffectiveSessionSource {
             source: ChatSessionSource::Workspace,
             conversation_id: None,
@@ -187,15 +199,6 @@ impl SessionPolicy {
         session: &ChatSession,
         operation: &'static str,
     ) -> Result<()> {
-        if let Some(owner) = self.management_owner(session)? {
-            return Err(SessionPolicyError::NotWorkspaceManaged {
-                session_id: session.id.clone(),
-                owner,
-                operation,
-            }
-            .into());
-        }
-
         if let Some(task) = self.bound_background_task(&session.id)? {
             return Err(SessionPolicyError::BoundToBackgroundTask {
                 session_id: session.id.clone(),
@@ -206,12 +209,24 @@ impl SessionPolicy {
             .into());
         }
 
+        if let Some(owner) = self.management_owner(session)? {
+            return Err(SessionPolicyError::NotWorkspaceManaged {
+                session_id: session.id.clone(),
+                owner,
+                operation,
+            }
+            .into());
+        }
+
         Ok(())
     }
 
     pub fn ensure_external_rebuild_allowed(&self, session: &ChatSession) -> Result<()> {
         let effective = self.effective_source(session)?;
-        if effective.source == ChatSessionSource::Workspace {
+        if matches!(
+            effective.source,
+            ChatSessionSource::Workspace | ChatSessionSource::Background
+        ) {
             return Err(SessionPolicyError::NotExternallyManaged {
                 session_id: session.id.clone(),
                 operation: "rebuilt",
@@ -285,13 +300,13 @@ impl SessionPolicy {
                 continue;
             }
 
-            if !self.is_workspace_managed(&session)? {
-                stats.skipped_non_workspace += 1;
+            if task_map.contains_key(&session.id) {
+                stats.skipped_bound_background += 1;
                 continue;
             }
 
-            if task_map.contains_key(&session.id) {
-                stats.skipped_bound_background += 1;
+            if !self.is_workspace_managed(&session)? {
+                stats.skipped_non_workspace += 1;
                 continue;
             }
 
@@ -336,13 +351,13 @@ impl SessionPolicy {
                 continue;
             }
 
-            if !self.is_workspace_managed(&session)? {
-                stats.skipped_non_workspace += 1;
+            if task_map.contains_key(&session.id) {
+                stats.skipped_bound_background += 1;
                 continue;
             }
 
-            if task_map.contains_key(&session.id) {
-                stats.skipped_bound_background += 1;
+            if !self.is_workspace_managed(&session)? {
+                stats.skipped_non_workspace += 1;
                 continue;
             }
 

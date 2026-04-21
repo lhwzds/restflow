@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use chrono::Utc;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, RunSummary,
@@ -257,9 +258,15 @@ pub struct AppState {
     pub runtime_cells: Vec<AnchoredRuntimeCell>,
     // Active cell is the single in-flight assistant response while streaming.
     pub active_cell: Option<TranscriptCell>,
+    pub active_turn_cells: Vec<TranscriptCell>,
+    active_typing_started_at_ms: Option<i64>,
+    active_assistant_stream_body: String,
+    active_tool_call_ids: HashSet<String>,
+    active_tool_result_ids: HashSet<String>,
     pub pending_user_cells: Vec<PendingUserCell>,
     pub overlay: Option<OverlayState>,
     pub composer: ComposerState,
+    pub message_scroll_from_bottom: usize,
     pub status: String,
     pub is_streaming: bool,
     pub startup: Option<StartupState>,
@@ -288,9 +295,15 @@ impl AppState {
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
             active_cell: None,
+            active_turn_cells: Vec::new(),
+            active_typing_started_at_ms: None,
+            active_assistant_stream_body: String::new(),
+            active_tool_call_ids: HashSet::new(),
+            active_tool_result_ids: HashSet::new(),
             pending_user_cells: Vec::new(),
             overlay: None,
             composer: ComposerState::default(),
+            message_scroll_from_bottom: 0,
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
             startup: None,
@@ -412,7 +425,8 @@ impl AppState {
         }
         self.seen_team_message_ids.clear();
         self.runtime_cells.clear();
-        self.active_cell = None;
+        self.clear_active_response();
+        self.reset_message_scroll();
         self.pending_user_cells.clear();
         self.conversation_cells =
             transcript_cells(&messages_from_session(&session), self.assistant_name());
@@ -429,7 +443,8 @@ impl AppState {
         self.clear_team_context();
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
-        self.active_cell = None;
+        self.clear_active_response();
+        self.reset_message_scroll();
         self.pending_user_cells.clear();
         self.push_info(notice);
     }
@@ -465,7 +480,8 @@ impl AppState {
         self.clear_team_context();
         self.conversation_cells.clear();
         self.runtime_cells.clear();
-        self.active_cell = None;
+        self.clear_active_response();
+        self.reset_message_scroll();
         self.pending_user_cells.clear();
         self.pending_session = pending_session;
         self.clear_overlay();
@@ -788,6 +804,14 @@ impl AppState {
     }
 
     pub fn push_message(&mut self, message: ShellMessage) {
+        if matches!(
+            message,
+            ShellMessage::ToolCall { .. } | ShellMessage::ToolResult { .. }
+        ) {
+            self.push_tool_message(message);
+            return;
+        }
+
         let cell = cell_from_message(&message, self.assistant_name());
         if cell.is_conversation_cell() {
             self.conversation_cells.push(cell);
@@ -799,7 +823,212 @@ impl AppState {
         }
     }
 
+    fn finalize_active_cell(&mut self) {
+        self.finish_active_assistant_segment();
+        let live_cells = std::mem::take(&mut self.active_turn_cells);
+        self.active_assistant_stream_body.clear();
+        self.active_tool_call_ids.clear();
+        self.active_tool_result_ids.clear();
+        let mut base_cell_index = self.conversation_cells.len();
+        for mut cell in live_cells {
+            match cell.kind {
+                TranscriptCellKind::Assistant if !cell.body.trim().is_empty() => {
+                    let _ = cell.finalize();
+                    self.conversation_cells.push(cell);
+                    base_cell_index = self.conversation_cells.len();
+                }
+                TranscriptCellKind::Tool => {
+                    self.runtime_cells.push(AnchoredRuntimeCell {
+                        base_cell_index,
+                        cell,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn clear_active_response(&mut self) {
+        self.active_cell = None;
+        self.active_turn_cells.clear();
+        self.active_typing_started_at_ms = None;
+        self.active_assistant_stream_body.clear();
+        self.active_tool_call_ids.clear();
+        self.active_tool_result_ids.clear();
+    }
+
+    fn finish_active_assistant_segment(&mut self) {
+        let Some(mut active_cell) = self.active_cell.take() else {
+            return;
+        };
+        self.active_typing_started_at_ms = None;
+        self.active_assistant_stream_body.clear();
+        active_cell.body = active_cell.body.trim_end().to_string();
+        if !active_cell.body.trim().is_empty() {
+            let _ = active_cell.finalize();
+            self.active_turn_cells.push(active_cell);
+        }
+    }
+
+    pub fn start_assistant_typing(&mut self) {
+        if self.active_cell.is_none() {
+            self.active_cell = Some(cell_from_message(
+                &ShellMessage::AssistantStream {
+                    content: String::new(),
+                },
+                self.assistant_name(),
+            ));
+        }
+        if self.active_typing_started_at_ms.is_none() {
+            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        }
+        let _ = self.update_active_typing_indicator();
+    }
+
+    pub fn cancel_active_response(&mut self) {
+        self.clear_active_response();
+        self.is_streaming = false;
+    }
+
+    pub fn update_active_typing_indicator(&mut self) -> bool {
+        self.update_active_typing_indicator_at(Utc::now().timestamp_millis())
+    }
+
+    fn update_active_typing_indicator_at(&mut self, now_ms: i64) -> bool {
+        let Some(active_cell) = self.active_cell.as_mut() else {
+            return false;
+        };
+        if !active_cell.is_active {
+            return false;
+        }
+        let started_at = *self.active_typing_started_at_ms.get_or_insert(now_ms);
+        let elapsed_ms = now_ms.saturating_sub(started_at);
+        let elapsed_secs = elapsed_ms / 1000;
+        let frame = match (elapsed_ms / 250) % 4 {
+            0 => "typing",
+            1 => "typing.",
+            2 => "typing..",
+            _ => "typing...",
+        };
+        let next = format!("{frame:<9} {elapsed_secs}s");
+        if active_cell.subtitle.as_deref() == Some(next.as_str()) {
+            return false;
+        }
+        active_cell.subtitle = Some(next);
+        true
+    }
+
+    fn push_tool_message(&mut self, message: ShellMessage) {
+        if self.active_cell.is_some() || self.is_streaming || !self.pending_user_cells.is_empty() {
+            match &message {
+                ShellMessage::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
+                } => {
+                    self.append_tool_call_to_active(call_id, name, arguments);
+                    return;
+                }
+                ShellMessage::ToolResult {
+                    call_id,
+                    success,
+                    result,
+                } => {
+                    self.append_tool_result_to_active(call_id, *success, result);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        match &message {
+            ShellMessage::ToolCall { call_id, .. }
+                if self
+                    .runtime_cells
+                    .iter()
+                    .any(|entry| entry.cell.tool_call_id() == Some(call_id.as_str())) =>
+            {
+                return;
+            }
+            ShellMessage::ToolCall { .. } => {}
+            ShellMessage::ToolResult {
+                call_id,
+                success,
+                result,
+            } => {
+                if let Some(entry) = self
+                    .runtime_cells
+                    .iter_mut()
+                    .find(|entry| entry.cell.tool_call_id() == Some(call_id.as_str()))
+                {
+                    let _ = entry.cell.merge_tool_result(*success, result);
+                    return;
+                }
+            }
+            _ => {}
+        }
+
+        let cell = cell_from_message(&message, self.assistant_name());
+        self.runtime_cells.push(AnchoredRuntimeCell {
+            base_cell_index: self.conversation_cells.len(),
+            cell,
+        });
+    }
+
+    fn ensure_active_assistant_cell(&mut self) {
+        if self.active_cell.is_none() {
+            self.active_cell = Some(cell_from_message(
+                &ShellMessage::AssistantStream {
+                    content: String::new(),
+                },
+                self.assistant_name(),
+            ));
+        }
+        if self.active_typing_started_at_ms.is_none() {
+            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        }
+        let _ = self.update_active_typing_indicator();
+    }
+
+    fn append_tool_call_to_active(&mut self, call_id: &str, name: &str, arguments: &str) {
+        if !self.active_tool_call_ids.insert(call_id.to_string()) {
+            return;
+        }
+        self.finish_active_assistant_segment();
+        self.active_turn_cells.push(cell_from_message(
+            &ShellMessage::ToolCall {
+                call_id: call_id.to_string(),
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            },
+            self.assistant_name(),
+        ));
+    }
+
+    fn append_tool_result_to_active(&mut self, call_id: &str, success: bool, result: &str) {
+        if !self.active_tool_result_ids.insert(call_id.to_string()) {
+            return;
+        }
+        if let Some(cell) = self
+            .active_turn_cells
+            .iter_mut()
+            .find(|cell| cell.tool_call_id() == Some(call_id))
+        {
+            let _ = cell.merge_tool_result(success, result);
+            return;
+        }
+        self.active_turn_cells.push(cell_from_message(
+            &ShellMessage::ToolResult {
+                call_id: call_id.to_string(),
+                success,
+                result: result.to_string(),
+            },
+            self.assistant_name(),
+        ));
+    }
+
     pub fn push_local_user_message(&mut self, content: String) {
+        self.reset_message_scroll();
         let base_cell_index = self.conversation_cells.len();
         let cell = cell_from_message(
             &ShellMessage::UserMessage { content },
@@ -825,6 +1054,18 @@ impl AppState {
         self.push_message(ShellMessage::ErrorNotice {
             content: content.into(),
         });
+    }
+
+    pub fn scroll_message_up(&mut self, rows: usize) {
+        self.message_scroll_from_bottom = self.message_scroll_from_bottom.saturating_add(rows);
+    }
+
+    pub fn scroll_message_down(&mut self, rows: usize) {
+        self.message_scroll_from_bottom = self.message_scroll_from_bottom.saturating_sub(rows);
+    }
+
+    pub fn reset_message_scroll(&mut self) {
+        self.message_scroll_from_bottom = 0;
     }
 
     pub fn record_team_message(&mut self, message: &TeamMessage) {
@@ -863,24 +1104,24 @@ impl AppState {
             return;
         }
 
-        if self
-            .active_cell
-            .as_mut()
-            .is_some_and(|cell| cell.append_chunk(chunk))
-        {
+        if self.active_typing_started_at_ms.is_none() {
+            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        }
+
+        let Some(delta) = assistant_stream_delta(&mut self.active_assistant_stream_body, chunk)
+        else {
+            return;
+        };
+
+        if delta.trim().is_empty() {
             return;
         }
 
-        if chunk.trim().is_empty() {
-            return;
+        self.ensure_active_assistant_cell();
+        if let Some(active_cell) = self.active_cell.as_mut() {
+            append_active_text(&mut active_cell.body, &delta);
         }
-
-        self.active_cell = Some(cell_from_message(
-            &ShellMessage::AssistantStream {
-                content: chunk.to_string(),
-            },
-            self.assistant_name(),
-        ));
+        let _ = self.update_active_typing_indicator();
     }
 
     pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
@@ -899,12 +1140,7 @@ impl AppState {
             }
             StreamFrame::Done { total_tokens } => {
                 self.is_streaming = false;
-                if let Some(mut active_cell) = self.active_cell.take()
-                    && !active_cell.body.trim().is_empty()
-                {
-                    let _ = active_cell.finalize();
-                    self.conversation_cells.push(active_cell);
-                }
+                self.finalize_active_cell();
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
                     None => "Stream finished".to_string(),
@@ -915,7 +1151,7 @@ impl AppState {
                     if matches!(message, ShellMessage::ErrorNotice { .. }) {
                         self.is_streaming = false;
                         self.status = "Stream failed".to_string();
-                        self.active_cell = None;
+                        self.cancel_active_response();
                     }
                     self.push_message(message);
                 }
@@ -964,6 +1200,7 @@ impl AppState {
             self.conversation_cells.len()
                 + self.pending_user_cells.len()
                 + self.runtime_cells.len()
+                + self.active_turn_cells.len()
                 + usize::from(self.active_cell.is_some()),
         );
 
@@ -1015,6 +1252,7 @@ impl AppState {
         for entry in runtime {
             cells.push(entry.cell.clone());
         }
+        cells.extend(self.active_turn_cells.iter().cloned());
         if let Some(active_cell) = self.active_cell.clone() {
             cells.push(active_cell);
         }
@@ -1034,6 +1272,45 @@ impl AppState {
     fn assistant_name(&self) -> &str {
         self.default_agent_name.as_deref().unwrap_or("Agent")
     }
+}
+
+fn assistant_stream_delta(current: &mut String, chunk: &str) -> Option<String> {
+    let normalized = chunk.trim_start_matches(['\r', '\n']);
+    if chunk == current
+        || normalized == current
+        || (!normalized.trim().is_empty() && normalized.trim() == current.trim())
+        || current.starts_with(chunk)
+        || current.starts_with(normalized)
+    {
+        return None;
+    }
+
+    if let Some(delta) = chunk.strip_prefix(current.as_str()) {
+        *current = chunk.to_string();
+        return Some(delta.to_string());
+    }
+
+    if let Some(delta) = normalized.strip_prefix(current.as_str()) {
+        *current = normalized.to_string();
+        return Some(delta.to_string());
+    }
+
+    let delta = if current.is_empty() {
+        normalized
+    } else {
+        chunk
+    };
+    current.push_str(delta);
+    Some(delta.to_string())
+}
+
+fn append_active_text(body: &mut String, text: &str) {
+    let text = if body.is_empty() {
+        text.trim_start_matches(['\r', '\n'])
+    } else {
+        text
+    };
+    body.push_str(text);
 }
 
 #[cfg(test)]
@@ -1073,6 +1350,95 @@ mod tests {
             TranscriptCellKind::Assistant
         );
         assert_eq!(state.conversation_cells[0].body, "hello");
+    }
+
+    #[test]
+    fn assistant_typing_indicator_animates_with_elapsed_time() {
+        let mut state = AppState::empty();
+        state.start_assistant_typing();
+        let started_at = state.active_typing_started_at_ms.expect("typing start");
+
+        state.update_active_typing_indicator_at(started_at);
+        let initial = state
+            .active_cell
+            .as_ref()
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("subtitle")
+            .to_string();
+        assert_eq!(initial, "typing    0s");
+
+        state.update_active_typing_indicator_at(started_at + 500);
+        let animated = state
+            .active_cell
+            .as_ref()
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("subtitle")
+            .to_string();
+        assert_eq!(animated, "typing..  0s");
+
+        state.update_active_typing_indicator_at(started_at + 1_250);
+        let elapsed = state
+            .active_cell
+            .as_ref()
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("subtitle");
+        assert_eq!(elapsed, "typing.   1s");
+    }
+
+    #[test]
+    fn tool_frames_render_as_live_runtime_cells_in_the_active_turn() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Checking...".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"cmd": "pwd"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"cwd\":\"/tmp\"}".to_string(),
+            success: true,
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "Done.".to_string(),
+        });
+
+        assert!(state.active_cell.is_some());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert_eq!(state.active_turn_cells.len(), 2);
+        let active = state.active_cell.as_ref().expect("active assistant");
+        assert_eq!(active.kind, TranscriptCellKind::Assistant);
+        assert!(state.active_turn_cells[0].body.contains("Checking..."));
+        assert!(active.body.contains("Done."));
+        assert_eq!(state.active_turn_cells[1].title, "Tool · bash");
+        assert!(state.active_turn_cells[1].body.contains("Input:"));
+        assert!(state.active_turn_cells[1].body.contains("Output:"));
+
+        let cells = state.transcript_cells_for_render();
+        let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            vec![
+                TranscriptCellKind::Assistant,
+                TranscriptCellKind::Tool,
+                TranscriptCellKind::Assistant,
+            ]
+        );
+
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        assert_eq!(state.conversation_cells.len(), 2);
+        assert!(state.active_cell.is_none());
+        assert!(state.active_turn_cells.is_empty());
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert!(
+            !state.conversation_cells[0]
+                .body
+                .contains("Tool · bash #call-1")
+        );
     }
 
     #[test]

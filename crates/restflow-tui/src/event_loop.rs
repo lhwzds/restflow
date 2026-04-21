@@ -17,6 +17,7 @@ use restflow_core::runtime::TaskStreamEvent;
 
 const MAX_BATCHED_INPUT_EVENTS: usize = 64;
 const RENDER_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const TYPING_ANIMATION_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -116,10 +117,17 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
 
     let mut tick = tokio::time::interval(Duration::from_secs(3));
     let mut render_tick = tokio::time::interval(RENDER_FRAME_INTERVAL);
+    let mut typing_tick = tokio::time::interval(TYPING_ANIMATION_INTERVAL);
     render_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    typing_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
+            _ = typing_tick.tick() => {
+                if state.update_active_typing_indicator() {
+                    render_request.merge(RenderRequest::viewport());
+                }
+            }
             _ = render_tick.tick() => {
                 if render_request.full {
                     renderer.sync(&state)?;

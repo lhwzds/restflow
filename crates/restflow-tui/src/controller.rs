@@ -3,7 +3,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
-use restflow_core::models::{ChatSession, ChatSessionSummary, ModelMetadataDTO};
+use restflow_core::models::{ChatSession, ChatSessionSource, ChatSessionSummary, ModelMetadataDTO};
 use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
@@ -95,8 +95,16 @@ impl ShellController {
     }
 
     async fn refresh_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let sessions: Vec<ChatSessionSummary> =
+        let mut sessions: Vec<ChatSessionSummary> =
             self.client.list_sessions().await.unwrap_or_default();
+        if matches!(state.overlay, Some(OverlayState::SessionPicker { .. })) {
+            let bound_session_ids = self
+                .client
+                .list_background_bound_session_ids()
+                .await
+                .unwrap_or_default();
+            sessions = filter_resume_sessions(sessions, &bound_session_ids);
+        }
         let runs = if let Some(session_id) = state.current_session_id() {
             self.client
                 .list_runs_for_session(session_id)
@@ -917,7 +925,12 @@ fn filter_resume_sessions(
 ) -> Vec<ChatSessionSummary> {
     sessions
         .into_iter()
-        .filter(|session| session.message_count > 0 && !bound_session_ids.contains(&session.id))
+        .filter(|session| {
+            session.message_count > 0
+                && !bound_session_ids.contains(&session.id)
+                && session.source_channel != Some(ChatSessionSource::Background)
+                && !session.name.trim_start().starts_with("Background:")
+        })
         .collect()
 }
 
@@ -1171,7 +1184,7 @@ mod tests {
     };
     use crate::reducer::ShellAction;
     use crate::state::ModelPickerCategory;
-    use restflow_core::models::{ChatSessionSummary, ModelId, ModelMetadataDTO};
+    use restflow_core::models::{ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO};
     use std::collections::HashSet;
 
     #[test]
@@ -1191,7 +1204,12 @@ mod tests {
             session_summary_with_messages("session-1", "Regular", 1),
             session_summary_with_messages("session-2", "Background", 1),
             session_summary_with_messages("session-3", "Empty", 0),
+            session_summary_with_messages("session-4", "Background: Reviewer", 1),
         ];
+        let mut source_background = session_summary_with_messages("session-5", "Reviewer", 1);
+        source_background.source_channel = Some(ChatSessionSource::Background);
+        let mut sessions = sessions;
+        sessions.push(source_background);
         let bound = HashSet::from(["session-2".to_string()]);
 
         let visible = filter_resume_sessions(sessions, &bound);

@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -17,6 +17,8 @@ pub enum Action {
     MoveRight,
     ScrollUp,
     ScrollDown,
+    WheelUp,
+    WheelDown,
     InputChar(char),
     Paste(String),
     InputBackspace,
@@ -32,6 +34,11 @@ pub fn map_event(event: Event) -> Action {
     match event {
         Event::Paste(text) => Action::Paste(text),
         Event::Resize(_, _) => Action::Resize,
+        Event::Mouse(event) => match event.kind {
+            MouseEventKind::ScrollUp => Action::WheelUp,
+            MouseEventKind::ScrollDown => Action::WheelDown,
+            _ => Action::Noop,
+        },
         Event::Key(KeyEvent {
             code: KeyCode::Char('c'),
             modifiers,
@@ -137,7 +144,7 @@ pub fn map_event(event: Event) -> Action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
     #[test]
     fn maps_ctrl_c_to_quit() {
@@ -186,5 +193,24 @@ mod tests {
     #[test]
     fn maps_resize_event_to_resize_action() {
         assert_eq!(map_event(Event::Resize(120, 40)), Action::Resize);
+    }
+
+    #[test]
+    fn maps_mouse_wheel_to_scroll_actions() {
+        let up = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        let down = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        assert_eq!(map_event(up), Action::WheelUp);
+        assert_eq!(map_event(down), Action::WheelDown);
     }
 }

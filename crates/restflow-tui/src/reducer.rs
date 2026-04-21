@@ -14,6 +14,9 @@ use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
+const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
+const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
+
 #[derive(Debug)]
 pub enum ShellAction {
     Ui(Action),
@@ -221,6 +224,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.set_current_session(*session);
             state.set_session_runs(runs);
             state.push_local_user_message(message.clone());
+            state.start_assistant_typing();
             state.status = "Sending message...".to_string();
             output.effects.push(ShellEffect::SubmitMessage { message });
         }
@@ -360,6 +364,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             if state.is_startup_mode() {
                 state.set_startup_error(message);
             } else {
+                state.cancel_active_response();
                 state.status = message.clone();
                 state.push_error(message);
             }
@@ -430,7 +435,26 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::MoveRight => {
             state.composer.move_right();
         }
-        Action::ScrollUp | Action::ScrollDown => {}
+        Action::ScrollUp => {
+            if state.overlay.is_none() {
+                state.scroll_message_up(MESSAGE_SCROLL_PAGE_ROWS);
+            }
+        }
+        Action::ScrollDown => {
+            if state.overlay.is_none() {
+                state.scroll_message_down(MESSAGE_SCROLL_PAGE_ROWS);
+            }
+        }
+        Action::WheelUp => {
+            if state.overlay.is_none() {
+                state.scroll_message_up(MESSAGE_SCROLL_WHEEL_ROWS);
+            }
+        }
+        Action::WheelDown => {
+            if state.overlay.is_none() {
+                state.scroll_message_down(MESSAGE_SCROLL_WHEEL_ROWS);
+            }
+        }
         Action::DeleteSelected => {
             if matches!(
                 state.overlay,
@@ -569,6 +593,8 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
             state.status = message.clone();
             state.push_error(message);
         } else if state.default_agent_id.is_some() {
+            state.push_local_user_message(text.clone());
+            state.start_assistant_typing();
             state.status = "Creating session...".to_string();
             output
                 .effects
@@ -581,6 +607,7 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
         }
     } else {
         state.push_local_user_message(text.clone());
+        state.start_assistant_typing();
         state.status = "Sending message...".to_string();
         output
             .effects
@@ -603,7 +630,9 @@ fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{ShellAction, ShellEffect, reduce};
+    use super::{
+        MESSAGE_SCROLL_PAGE_ROWS, MESSAGE_SCROLL_WHEEL_ROWS, ShellAction, ShellEffect, reduce,
+    };
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
     use crate::state::{AppState, PendingSessionState};
@@ -705,6 +734,38 @@ mod tests {
             state.overlay,
             Some(crate::state::OverlayState::CommandPicker { selected: 1 })
         ));
+    }
+
+    #[test]
+    fn page_scroll_updates_history_offset_without_overlay() {
+        let mut state = AppState::empty();
+
+        reduce(&mut state, ShellAction::Ui(Action::ScrollUp));
+        assert_eq!(state.message_scroll_from_bottom, MESSAGE_SCROLL_PAGE_ROWS);
+
+        reduce(&mut state, ShellAction::Ui(Action::ScrollDown));
+        assert_eq!(state.message_scroll_from_bottom, 0);
+    }
+
+    #[test]
+    fn wheel_scroll_uses_fine_grained_offset() {
+        let mut state = AppState::empty();
+
+        reduce(&mut state, ShellAction::Ui(Action::WheelUp));
+        assert_eq!(state.message_scroll_from_bottom, MESSAGE_SCROLL_WHEEL_ROWS);
+
+        reduce(&mut state, ShellAction::Ui(Action::WheelDown));
+        assert_eq!(state.message_scroll_from_bottom, 0);
+    }
+
+    #[test]
+    fn page_scroll_is_ignored_while_overlay_is_open() {
+        let mut state = AppState::empty();
+        state.open_command_picker();
+
+        reduce(&mut state, ShellAction::Ui(Action::ScrollUp));
+
+        assert_eq!(state.message_scroll_from_bottom, 0);
     }
 
     #[test]
@@ -962,7 +1023,14 @@ mod tests {
         assert_eq!(state.pending_user_cells.len(), 1);
         assert_eq!(state.pending_user_cells[0].cell.body, "hi");
         assert!(state.runtime_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        let active = state.active_cell.as_ref().expect("active assistant");
+        assert!(active.is_active);
+        assert!(
+            active
+                .subtitle
+                .as_deref()
+                .is_some_and(|text| text.contains("typing"))
+        );
         assert!(matches!(
             output.effects.as_slice(),
             [ShellEffect::SubmitMessage { message }] if message == "hi"
@@ -981,7 +1049,9 @@ mod tests {
             },
         );
 
-        assert!(state.pending_user_cells.is_empty());
+        assert_eq!(state.pending_user_cells.len(), 1);
+        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
+        assert!(state.active_cell.is_some());
         assert_eq!(state.status, "Creating session...");
         assert!(matches!(
             output.effects.as_slice(),
@@ -1007,6 +1077,7 @@ mod tests {
         assert_eq!(state.current_session_id(), Some(session_id.as_str()));
         assert_eq!(state.pending_user_cells.len(), 1);
         assert_eq!(state.pending_user_cells[0].cell.body, "hi");
+        assert!(state.active_cell.is_some());
         assert_eq!(state.status, "Sending message...");
         assert!(matches!(
             output.effects.as_slice(),
@@ -1244,6 +1315,29 @@ mod tests {
         );
         assert_eq!(state.runtime_cells.len(), 1);
         assert!(state.runtime_cells[0].cell.body.contains("daemon stopped"));
+    }
+
+    #[test]
+    fn error_clears_active_typing_cell() {
+        let mut state = AppState::empty();
+        state.start_assistant_typing();
+        assert!(state.active_cell.is_some());
+
+        let output = reduce(
+            &mut state,
+            ShellAction::Error("Failed to connect to daemon. Is it running?".to_string()),
+        );
+
+        assert!(output.effects.is_empty());
+        assert!(state.active_cell.is_none());
+        assert!(!state.is_streaming);
+        assert_eq!(state.status, "Failed to connect to daemon. Is it running?");
+        assert!(
+            state
+                .runtime_cells
+                .iter()
+                .any(|entry| entry.cell.body.contains("Failed to connect to daemon"))
+        );
     }
 
     #[test]

@@ -81,6 +81,7 @@ impl TranscriptCell {
         )
     }
 
+    #[cfg(test)]
     pub fn append_chunk(&mut self, chunk: &str) -> bool {
         match self.kind {
             TranscriptCellKind::Assistant if self.is_active => {
@@ -118,6 +119,35 @@ impl TranscriptCell {
             }
             _ => false,
         }
+    }
+
+    pub fn tool_call_id(&self) -> Option<&str> {
+        if self.kind != TranscriptCellKind::Tool {
+            return None;
+        }
+        self.subtitle
+            .as_deref()
+            .and_then(|subtitle| subtitle.strip_prefix('#'))
+    }
+
+    pub fn merge_tool_result(&mut self, success: bool, result: &str) -> bool {
+        if self.kind != TranscriptCellKind::Tool {
+            return false;
+        }
+        let label = if success { "Output" } else { "Error" };
+        let marker = format!("\n{label}:");
+        let base = self
+            .body
+            .find("\nOutput:")
+            .or_else(|| self.body.find("\nError:"))
+            .map(|index| self.body[..index].trim_end().to_string())
+            .unwrap_or_else(|| self.body.trim_end().to_string());
+        self.body = if base.is_empty() {
+            format!("{label}: {}", result.trim())
+        } else {
+            format!("{base}{marker} {}", result.trim())
+        };
+        true
     }
 }
 
@@ -205,7 +235,7 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
             kind: TranscriptCellKind::Tool,
             title: format!("Tool · {name}"),
             subtitle: Some(format!("#{call_id}")),
-            body: arguments.clone(),
+            body: format!("Input: {}", arguments.trim()),
             group: message.group(),
             is_active: false,
         },
@@ -221,7 +251,11 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
                 "Tool Error".to_string()
             },
             subtitle: Some(format!("#{call_id}")),
-            body: result.clone(),
+            body: if *success {
+                format!("Output: {}", result.trim())
+            } else {
+                format!("Error: {}", result.trim())
+            },
             group: message.group(),
             is_active: false,
         },
