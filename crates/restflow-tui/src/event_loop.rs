@@ -92,7 +92,7 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     }
     render_request.merge(result.render_request);
     if result.immediate_render {
-        renderer.sync(&state)?;
+        renderer.sync(&mut state)?;
         render_request = RenderRequest::default();
     }
 
@@ -110,7 +110,7 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
         }
         render_request.merge(result.render_request);
         if result.immediate_render {
-            renderer.sync(&state)?;
+            renderer.sync(&mut state)?;
             render_request = RenderRequest::default();
         }
     }
@@ -130,10 +130,10 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
             }
             _ = render_tick.tick() => {
                 if render_request.full {
-                    renderer.sync(&state)?;
+                    renderer.sync(&mut state)?;
                     render_request = RenderRequest::default();
                 } else if render_request.viewport {
-                    renderer.sync_viewport_only(&state)?;
+                    renderer.sync_viewport_only(&mut state)?;
                     render_request = RenderRequest::default();
                 }
             }
@@ -151,7 +151,7 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
                 }
                 render_request.merge(result.render_request);
                 if result.immediate_render {
-                    renderer.sync(&state)?;
+                    renderer.sync(&mut state)?;
                     render_request = RenderRequest::default();
                 }
             }
@@ -164,7 +164,7 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
                 }
                 render_request.merge(result.render_request);
                 if result.immediate_render {
-                    renderer.sync(&state)?;
+                    renderer.sync(&mut state)?;
                     render_request = RenderRequest::default();
                 }
             }

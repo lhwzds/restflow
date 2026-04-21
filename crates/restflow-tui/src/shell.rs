@@ -19,11 +19,13 @@ const CONTINUATION_PREFIX: &str = "  ";
 const TOOL_SUMMARY_LIMIT: usize = 120;
 const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
 const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
+const OVERLAY_MAX_ROWS: u16 = 10;
 
 pub struct ShellRenderer {
     stdout: Stdout,
     last_viewport: Option<ViewportSnapshot>,
     last_terminal_size: Option<(u16, u16)>,
+    last_message_line_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +55,7 @@ impl ShellRenderer {
             stdout: std::io::stdout(),
             last_viewport: None,
             last_terminal_size: None,
+            last_message_line_count: None,
         }
     }
 
@@ -60,6 +63,7 @@ impl ShellRenderer {
         queue_clear_visible(&mut self.stdout)?;
         self.last_viewport = None;
         self.last_terminal_size = None;
+        self.last_message_line_count = None;
         self.stdout.flush()
     }
 
@@ -67,11 +71,13 @@ impl ShellRenderer {
         queue_purge_visible_and_scrollback(&mut self.stdout)?;
         self.last_viewport = None;
         self.last_terminal_size = None;
+        self.last_message_line_count = None;
         self.stdout.flush()
     }
 
-    pub fn sync(&mut self, state: &AppState) -> IoResult<()> {
+    pub fn sync(&mut self, state: &mut AppState) -> IoResult<()> {
         let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
+        self.preserve_scrolled_message_anchor(state, size);
         let terminal_viewport = TerminalViewport::build(state, size);
         let viewport = terminal_viewport.snapshot;
 
@@ -97,8 +103,9 @@ impl ShellRenderer {
         self.stdout.flush()
     }
 
-    pub fn sync_viewport_only(&mut self, state: &AppState) -> IoResult<()> {
+    pub fn sync_viewport_only(&mut self, state: &mut AppState) -> IoResult<()> {
         let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
+        self.preserve_scrolled_message_anchor(state, size);
         let terminal_viewport = TerminalViewport::build(state, size);
         let viewport = terminal_viewport.snapshot;
 
@@ -132,6 +139,20 @@ impl ShellRenderer {
             || self.last_viewport.as_ref().is_none_or(|previous| {
                 previous.top != viewport.top || previous.lines.len() != viewport.lines.len()
             })
+    }
+
+    fn preserve_scrolled_message_anchor(&mut self, state: &mut AppState, size: (u16, u16)) {
+        let message_line_count = message_layout_line_count(state, size);
+        if let Some(previous_count) = self.last_message_line_count
+            && state.message_scroll_from_bottom > 0
+        {
+            state.message_scroll_from_bottom = preserve_scrolled_offset(
+                previous_count,
+                message_line_count,
+                state.message_scroll_from_bottom,
+            );
+        }
+        self.last_message_line_count = Some(message_line_count);
     }
 
     fn redraw_viewport_full(&mut self, viewport: &ViewportSnapshot, width: u16) -> IoResult<()> {
@@ -176,6 +197,10 @@ impl TerminalViewport {
         let prompt = build_prompt_snapshot(state, width, height);
         let prompt_height = prompt.lines.len() as u16 + 2;
         let available_above_prompt = height.saturating_sub(prompt_height);
+        let overlay_capacity = available_above_prompt.min(OVERLAY_MAX_ROWS);
+        let overlay_lines = build_overlay_lines(state, width, overlay_capacity).unwrap_or_default();
+        let overlay_height = overlay_lines.len() as u16;
+        let available_above_prompt = available_above_prompt.saturating_sub(overlay_height);
         let spacer_height = u16::from(available_above_prompt > 0);
         let message_height = available_above_prompt.saturating_sub(spacer_height);
         let message_lines = build_message_lines(state, width, message_height);
@@ -187,6 +212,7 @@ impl TerminalViewport {
         if spacer_height > 0 {
             visible_message_lines.push(Line::from(""));
         }
+        visible_message_lines.extend(overlay_lines);
         let rendered = render_shell_bottom_viewport(
             width,
             visible_message_lines,
@@ -253,6 +279,21 @@ fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSna
     }
 }
 
+fn message_layout_line_count(state: &AppState, size: (u16, u16)) -> usize {
+    let (width, height) = size;
+    let prompt = build_prompt_snapshot(state, width, height);
+    let prompt_height = prompt.lines.len() as u16 + 2;
+    let available_above_prompt = height.saturating_sub(prompt_height);
+    let overlay_capacity = available_above_prompt.min(OVERLAY_MAX_ROWS);
+    let overlay_height = build_overlay_lines(state, width, overlay_capacity)
+        .map(|lines| lines.len() as u16)
+        .unwrap_or_default();
+    let available_above_prompt = available_above_prompt.saturating_sub(overlay_height);
+    let spacer_height = u16::from(available_above_prompt > 0);
+    let message_height = available_above_prompt.saturating_sub(spacer_height);
+    build_message_lines(state, width, message_height).len()
+}
+
 fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     let mut cells = Vec::with_capacity(
         state.conversation_cells.len() + state.pending_user_cells.len() + state.runtime_cells.len(),
@@ -316,10 +357,6 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
 fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
     if max_rows == 0 {
         return Vec::new();
-    }
-
-    if let Some(lines) = build_overlay_lines(state, width, max_rows) {
-        return lines;
     }
 
     build_cell_lines(&build_message_cells(state), width)
@@ -1338,6 +1375,18 @@ fn clamp_history_scroll(total_lines: usize, viewport_height: usize, requested: u
     requested.min(total_lines.saturating_sub(viewport_height))
 }
 
+fn preserve_scrolled_offset(
+    previous_line_count: usize,
+    current_line_count: usize,
+    current_scroll_from_bottom: usize,
+) -> usize {
+    if current_line_count > previous_line_count {
+        current_scroll_from_bottom.saturating_add(current_line_count - previous_line_count)
+    } else {
+        current_scroll_from_bottom.saturating_sub(previous_line_count - current_line_count)
+    }
+}
+
 fn changed_row_indices(previous: &[Line<'static>], current: &[Line<'static>]) -> Vec<usize> {
     let max_len = previous.len().max(current.len());
     let mut rows = Vec::new();
@@ -1518,9 +1567,9 @@ mod tests {
         build_viewport_snapshot, cell_title_style, changed_row_indices, clamp_history_scroll,
         compact_session_preview, footer_status_line, format_title, is_cell_prefix, line_text,
         normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
-        protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
-        render_history_append_lines, summarize_tool_body, visible_history_fill_count,
-        write_styled_line,
+        preserve_scrolled_offset, protected_append_top, queue_clear_visible,
+        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
+        visible_history_fill_count, write_styled_line,
     };
     use crossterm::queue;
     use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
@@ -1773,6 +1822,38 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("latest visible message"))
         );
+    }
+
+    #[test]
+    fn overlay_renders_between_message_and_composer() {
+        let mut state = AppState::empty();
+        state.conversation_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::Assistant,
+            title: "Agent".to_string(),
+            subtitle: None,
+            body: "history still visible".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        });
+        state.open_command_picker();
+
+        let viewport = build_viewport_snapshot(&state, (80, 16));
+        let rendered = line_texts(&viewport.lines);
+        let history_row = rendered
+            .iter()
+            .position(|line| line.contains("history still visible"))
+            .expect("history row");
+        let overlay_row = rendered
+            .iter()
+            .position(|line| line.contains("Slash commands"))
+            .expect("overlay row");
+        let composer_top = rendered
+            .iter()
+            .position(|line| line.starts_with('┌'))
+            .expect("composer top border");
+
+        assert!(history_row < overlay_row);
+        assert!(overlay_row < composer_top);
     }
 
     #[test]
@@ -2672,5 +2753,12 @@ mod tests {
     fn clamp_history_scroll_prevents_empty_overscroll() {
         assert_eq!(clamp_history_scroll(5, 2, 99), 3);
         assert_eq!(clamp_history_scroll(2, 5, 99), 0);
+    }
+
+    #[test]
+    fn preserve_scrolled_offset_keeps_visible_anchor_when_content_changes() {
+        assert_eq!(preserve_scrolled_offset(10, 13, 4), 7);
+        assert_eq!(preserve_scrolled_offset(13, 10, 7), 4);
+        assert_eq!(preserve_scrolled_offset(13, 10, 1), 0);
     }
 }

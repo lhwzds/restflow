@@ -886,7 +886,7 @@ impl AppState {
     }
 
     pub fn cancel_active_response(&mut self) {
-        self.clear_active_response();
+        self.finalize_active_cell();
         self.is_streaming = false;
     }
 
@@ -1439,6 +1439,36 @@ mod tests {
                 .body
                 .contains("Tool · bash #call-1")
         );
+    }
+
+    #[test]
+    fn stream_error_persists_partial_live_turn_before_error_notice() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Partial answer".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "web_search".to_string(),
+            arguments: serde_json::json!({"query": "test"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"ok\":true}".to_string(),
+            success: true,
+        });
+
+        state.apply_stream_frame(StreamFrame::error(500, "stream failed"));
+
+        assert!(state.active_cell.is_none());
+        assert!(state.active_turn_cells.is_empty());
+        assert!(!state.is_streaming);
+        assert_eq!(state.conversation_cells.len(), 1);
+        assert!(state.conversation_cells[0].body.contains("Partial answer"));
+        assert_eq!(state.runtime_cells.len(), 2);
+        assert_eq!(state.runtime_cells[0].cell.kind, TranscriptCellKind::Tool);
+        assert_eq!(state.runtime_cells[1].cell.title, "Error");
+        assert!(state.runtime_cells[1].cell.body.contains("stream failed"));
     }
 
     #[test]
