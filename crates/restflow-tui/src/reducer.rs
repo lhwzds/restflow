@@ -132,7 +132,8 @@ pub enum ShellEffect {
     ReloadCurrentSession,
     ActivateOverlaySelection,
     CreateSessionForSubmit { message: String },
-    SubmitMessage { message: String },
+    SubmitMessage { message: String, stream_id: String },
+    CancelStream { stream_id: String },
     ExecuteSlashCommand(SlashCommand),
     DeleteSession { session_id: String },
     ListSessionsInline,
@@ -226,7 +227,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.push_local_user_message(message.clone());
             state.start_assistant_typing();
             state.status = "Sending message...".to_string();
-            output.effects.push(ShellEffect::SubmitMessage { message });
+            output.effects.push(submit_message_effect(message));
         }
         ShellAction::RunOpened {
             session,
@@ -400,7 +401,16 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                     "Cleared input".to_string()
                 };
             } else {
-                state.status = "Input already empty. Press Ctrl-C to quit.".to_string();
+                if let Some(stream_id) = state.current_stream_id.clone()
+                    && state.is_streaming
+                {
+                    state.cancel_active_response();
+                    state.push_info("Canceled current response.");
+                    state.status = "Canceling response...".to_string();
+                    output.effects.push(ShellEffect::CancelStream { stream_id });
+                } else {
+                    state.status = "Input already empty. Press Ctrl-C to quit.".to_string();
+                }
             }
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
@@ -609,9 +619,14 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
         state.push_local_user_message(text.clone());
         state.start_assistant_typing();
         state.status = "Sending message...".to_string();
-        output
-            .effects
-            .push(ShellEffect::SubmitMessage { message: text });
+        output.effects.push(submit_message_effect(text));
+    }
+}
+
+fn submit_message_effect(message: String) -> ShellEffect {
+    ShellEffect::SubmitMessage {
+        message,
+        stream_id: uuid::Uuid::new_v4().to_string(),
     }
 }
 
@@ -1033,7 +1048,7 @@ mod tests {
         );
         assert!(matches!(
             output.effects.as_slice(),
-            [ShellEffect::SubmitMessage { message }] if message == "hi"
+            [ShellEffect::SubmitMessage { message, stream_id }] if message == "hi" && !stream_id.is_empty()
         ));
     }
 
@@ -1081,7 +1096,7 @@ mod tests {
         assert_eq!(state.status, "Sending message...");
         assert!(matches!(
             output.effects.as_slice(),
-            [ShellEffect::SubmitMessage { message }] if message == "hi"
+            [ShellEffect::SubmitMessage { message, stream_id }] if message == "hi" && !stream_id.is_empty()
         ));
     }
 
@@ -1201,6 +1216,36 @@ mod tests {
 
         assert!(!output.should_quit);
         assert_eq!(state.status, "Input already empty. Press Ctrl-C to quit.");
+    }
+
+    #[test]
+    fn esc_with_empty_composer_cancels_active_stream() {
+        let mut state = AppState::empty();
+        state.is_streaming = true;
+        state.current_stream_id = Some("stream-1".to_string());
+        state.start_assistant_typing();
+        state
+            .active_cell
+            .as_mut()
+            .expect("active cell")
+            .body
+            .push_str("Partial");
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_cell.is_none());
+        assert!(state.conversation_cells[0].body.contains("Partial"));
+        assert!(state.runtime_cells.iter().any(|entry| {
+            entry.cell.title == "Info" && entry.cell.body.contains("Canceled current response")
+        }));
+        assert_eq!(state.status, "Canceling response...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+        ));
     }
 
     #[test]

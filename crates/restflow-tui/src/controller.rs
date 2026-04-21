@@ -76,10 +76,12 @@ impl ShellController {
             ShellEffect::CreateSessionForSubmit { message } => {
                 self.create_session_for_submit_actions(state, message).await
             }
-            ShellEffect::SubmitMessage { message } => {
-                self.submit_message_effect(state, message, tx).await?;
+            ShellEffect::SubmitMessage { message, stream_id } => {
+                self.submit_message_effect(state, message, stream_id, tx)
+                    .await?;
                 Ok(Vec::new())
             }
+            ShellEffect::CancelStream { stream_id } => self.cancel_stream_actions(stream_id).await,
             ShellEffect::ExecuteSlashCommand(command) => {
                 self.slash_command_actions(state, command).await
             }
@@ -327,14 +329,30 @@ impl ShellController {
         &self,
         state: &AppState,
         message: String,
+        stream_id: String,
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> Result<()> {
         let session_id = match state.current_session_id() {
             Some(session_id) => session_id.to_string(),
             None => bail!("No active session available."),
         };
-        self.client.spawn_chat_stream(session_id, message, tx);
+        self.client
+            .spawn_chat_stream(session_id, message, stream_id, tx);
         Ok(())
+    }
+
+    async fn cancel_stream_actions(&self, stream_id: String) -> Result<Vec<ShellAction>> {
+        match self.client.cancel_chat_stream(&stream_id).await {
+            Ok(true) => Ok(vec![ShellAction::StatusUpdated(
+                "Canceled current response.".to_string(),
+            )]),
+            Ok(false) => Ok(vec![ShellAction::StatusUpdated(
+                "No active response to cancel.".to_string(),
+            )]),
+            Err(error) => Ok(vec![ShellAction::Error(format!(
+                "Failed to cancel response: {error}"
+            ))]),
+        }
     }
 
     async fn create_session_for_submit_actions(

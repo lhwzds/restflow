@@ -269,6 +269,7 @@ pub struct AppState {
     pub message_scroll_from_bottom: usize,
     pub status: String,
     pub is_streaming: bool,
+    pub current_stream_id: Option<String>,
     pub startup: Option<StartupState>,
     pending_session_delete_id: Option<String>,
     pending_initial_message: Option<String>,
@@ -306,6 +307,7 @@ impl AppState {
             message_scroll_from_bottom: 0,
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
+            current_stream_id: None,
             startup: None,
             pending_session_delete_id: None,
             pending_initial_message: None,
@@ -829,6 +831,7 @@ impl AppState {
         self.active_assistant_stream_body.clear();
         self.active_tool_call_ids.clear();
         self.active_tool_result_ids.clear();
+        self.current_stream_id = None;
         let mut base_cell_index = self.conversation_cells.len();
         for mut cell in live_cells {
             match cell.kind {
@@ -888,6 +891,7 @@ impl AppState {
     pub fn cancel_active_response(&mut self) {
         self.finalize_active_cell();
         self.is_streaming = false;
+        self.current_stream_id = None;
     }
 
     pub fn update_active_typing_indicator(&mut self) -> bool {
@@ -1128,6 +1132,7 @@ impl AppState {
         match frame {
             StreamFrame::Start { stream_id } => {
                 self.is_streaming = true;
+                self.current_stream_id = Some(stream_id.clone());
                 self.status = format!("Streaming response ({stream_id})");
             }
             StreamFrame::Ack { content } => {
@@ -1140,6 +1145,7 @@ impl AppState {
             }
             StreamFrame::Done { total_tokens } => {
                 self.is_streaming = false;
+                self.current_stream_id = None;
                 self.finalize_active_cell();
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),

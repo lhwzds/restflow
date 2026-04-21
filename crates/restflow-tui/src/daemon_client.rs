@@ -202,6 +202,13 @@ impl TuiDaemonClient {
         client.delete_session(session_id.to_string()).await
     }
 
+    pub async fn cancel_chat_stream(&self, stream_id: &str) -> Result<bool> {
+        let mut client = self.connect().await?;
+        client
+            .cancel_chat_session_stream(stream_id.to_string())
+            .await
+    }
+
     pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {
         let mut client = self.connect().await?;
         client
@@ -316,6 +323,7 @@ impl TuiDaemonClient {
         &self,
         session_id: String,
         input: String,
+        stream_id: String,
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
@@ -327,7 +335,6 @@ impl TuiDaemonClient {
                     return;
                 }
             };
-            let stream_id = uuid::Uuid::new_v4().to_string();
             let result = ipc
                 .execute_chat_session_stream(
                     session_id.clone(),
