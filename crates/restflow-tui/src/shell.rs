@@ -99,7 +99,8 @@ impl ShellRenderer {
         self.scrollback
             .sync_history(&stable_cells, size.0, render_history_append_lines);
 
-        if force_full_redraw || self.needs_full_redraw(size, &viewport) {
+        let needs_full_redraw = force_full_redraw || self.needs_full_redraw(size, &viewport);
+        if needs_full_redraw {
             let clear_from = self
                 .last_viewport
                 .as_ref()
@@ -111,9 +112,12 @@ impl ShellRenderer {
             self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
-            self.scrollback
+            let inserted = self
+                .scrollback
                 .insert_pending(&mut self.stdout, viewport.top, size.0)?;
-            self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+            if inserted {
+                self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+            }
             match self.last_viewport.clone() {
                 Some(previous) if previous == viewport => {
                     self.restore_cursor(&viewport)?;
@@ -153,9 +157,12 @@ impl ShellRenderer {
 
         self.scrollback
             .sync_history(&stable_cells, size.0, render_history_append_lines);
-        self.scrollback
+        let inserted = self
+            .scrollback
             .insert_pending(&mut self.stdout, viewport.top, size.0)?;
-        self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+        if inserted {
+            self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+        }
 
         match self.last_viewport.clone() {
             Some(previous) if previous == viewport => {

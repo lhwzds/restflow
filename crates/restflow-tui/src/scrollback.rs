@@ -52,12 +52,13 @@ impl ScrollbackWriter {
         writer: &mut impl Write,
         viewport_top: u16,
         width: u16,
-    ) -> IoResult<()> {
+    ) -> IoResult<bool> {
         if self.pending_lines.is_empty() || viewport_top == 0 {
-            return Ok(());
+            return Ok(false);
         }
         let lines = std::mem::take(&mut self.pending_lines);
-        insert_history_lines(writer, viewport_top, width, &lines)
+        insert_history_lines(writer, viewport_top, width, &lines)?;
+        Ok(true)
     }
 }
 
@@ -321,5 +322,31 @@ mod tests {
         assert!(ansi.contains("\u{1b}[1;5r"));
         assert!(ansi.contains("history line"));
         assert!(ansi.contains("\u{1b}[r"));
+    }
+
+    #[test]
+    fn insert_pending_reports_whether_lines_were_inserted() {
+        let mut scrollback = ScrollbackWriter::default();
+        let mut output = Vec::new();
+
+        let inserted = scrollback
+            .insert_pending(&mut output, 5, 40)
+            .expect("empty insert should be valid");
+        assert!(!inserted);
+        assert!(output.is_empty());
+
+        scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _, _| {
+            new_cells
+                .iter()
+                .map(|cell| Line::from(cell.body.clone()))
+                .collect()
+        });
+        let inserted = scrollback
+            .insert_pending(&mut output, 5, 40)
+            .expect("pending insert should be valid");
+
+        assert!(inserted);
+        assert!(scrollback.pending_lines.is_empty());
+        assert!(String::from_utf8(output).unwrap().contains("one"));
     }
 }
