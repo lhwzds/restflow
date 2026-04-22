@@ -6,6 +6,7 @@ mod event_loop;
 mod keymap;
 mod reducer;
 mod render;
+mod scrollback;
 mod shell;
 mod slash_command;
 mod state;

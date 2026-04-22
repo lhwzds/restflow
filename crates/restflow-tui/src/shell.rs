@@ -1,8 +1,6 @@
-use std::fmt;
 use std::io::{Result as IoResult, Stdout, Write};
 
-use crossterm::Command;
-use crossterm::cursor::{MoveTo, MoveToColumn};
+use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{
     Attribute, Color as CrosstermColor, Colors, Print, SetAttribute, SetBackgroundColor, SetColors,
@@ -13,6 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::render::render_shell_bottom_viewport;
+use crate::scrollback::ScrollbackWriter;
 use crate::slash_command::SLASH_COMMAND_SPECS;
 use crate::state::AppState;
 use crate::transcript::{TranscriptCell, TranscriptCellKind};
@@ -25,8 +24,7 @@ const OVERLAY_MAX_ROWS: u16 = 10;
 
 pub struct ShellRenderer {
     stdout: Stdout,
-    committed_history_cells: Vec<TranscriptCell>,
-    pending_history_lines: Vec<Line<'static>>,
+    scrollback: ScrollbackWriter,
     last_viewport: Option<ViewportSnapshot>,
     last_terminal_size: Option<(u16, u16)>,
     last_message_line_count: Option<usize>,
@@ -57,8 +55,7 @@ impl ShellRenderer {
     pub fn new() -> Self {
         Self {
             stdout: std::io::stdout(),
-            committed_history_cells: Vec::new(),
-            pending_history_lines: Vec::new(),
+            scrollback: ScrollbackWriter::default(),
             last_viewport: None,
             last_terminal_size: None,
             last_message_line_count: None,
@@ -67,8 +64,7 @@ impl ShellRenderer {
 
     pub fn clear_screen(&mut self) -> IoResult<()> {
         queue_clear_visible(&mut self.stdout)?;
-        self.committed_history_cells.clear();
-        self.pending_history_lines.clear();
+        self.scrollback.reset();
         self.last_viewport = None;
         self.last_terminal_size = None;
         self.last_message_line_count = None;
@@ -77,8 +73,7 @@ impl ShellRenderer {
 
     pub fn purge_screen(&mut self) -> IoResult<()> {
         queue_purge_visible_and_scrollback(&mut self.stdout)?;
-        self.committed_history_cells.clear();
-        self.pending_history_lines.clear();
+        self.scrollback.reset();
         self.last_viewport = None;
         self.last_terminal_size = None;
         self.last_message_line_count = None;
@@ -93,16 +88,16 @@ impl ShellRenderer {
         let stable_cells = build_stable_history_cells(state);
 
         let mut force_full_redraw = false;
-        if !is_cell_prefix(&self.committed_history_cells, &stable_cells) {
-            self.committed_history_cells.clear();
-            self.pending_history_lines.clear();
+        if !self.scrollback.is_prefix_of(&stable_cells) {
+            self.scrollback.reset();
             self.last_viewport = None;
             self.last_message_line_count = None;
             queue_purge_visible_and_scrollback(&mut self.stdout)?;
             force_full_redraw = true;
         }
 
-        self.queue_new_history_lines(&stable_cells, size.0);
+        self.scrollback
+            .sync_history(&stable_cells, size.0, render_history_append_lines);
 
         if force_full_redraw || self.needs_full_redraw(size, &viewport) {
             let clear_from = self
@@ -111,11 +106,13 @@ impl ShellRenderer {
                 .map(|previous| previous.top.min(viewport.top))
                 .unwrap_or(viewport.top);
             self.clear_rows_from(clear_from, size.1, size.0)?;
-            self.insert_pending_history_lines(viewport.top, size.0)?;
+            self.scrollback
+                .insert_pending(&mut self.stdout, viewport.top, size.0)?;
             self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
-            self.insert_pending_history_lines(viewport.top, size.0)?;
+            self.scrollback
+                .insert_pending(&mut self.stdout, viewport.top, size.0)?;
             self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             match self.last_viewport.clone() {
                 Some(previous) if previous == viewport => {
@@ -130,7 +127,6 @@ impl ShellRenderer {
             }
         }
 
-        self.committed_history_cells = stable_cells;
         self.last_viewport = Some(viewport);
         self.last_terminal_size = Some(terminal_viewport.size);
         self.stdout.flush()
@@ -143,7 +139,7 @@ impl ShellRenderer {
         let viewport = terminal_viewport.snapshot;
         let stable_cells = build_stable_history_cells(state);
 
-        if !is_cell_prefix(&self.committed_history_cells, &stable_cells) {
+        if !self.scrollback.is_prefix_of(&stable_cells) {
             return self.sync(state);
         }
 
@@ -155,8 +151,10 @@ impl ShellRenderer {
             return self.sync(state);
         }
 
-        self.queue_new_history_lines(&stable_cells, size.0);
-        self.insert_pending_history_lines(viewport.top, size.0)?;
+        self.scrollback
+            .sync_history(&stable_cells, size.0, render_history_append_lines);
+        self.scrollback
+            .insert_pending(&mut self.stdout, viewport.top, size.0)?;
         self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
 
         match self.last_viewport.clone() {
@@ -171,7 +169,6 @@ impl ShellRenderer {
             }
         }
 
-        self.committed_history_cells = stable_cells;
         self.last_viewport = Some(viewport);
         self.last_terminal_size = Some(terminal_viewport.size);
         self.stdout.flush()
@@ -196,25 +193,6 @@ impl ShellRenderer {
             );
         }
         self.last_message_line_count = Some(message_line_count);
-    }
-
-    fn queue_new_history_lines(&mut self, stable_cells: &[TranscriptCell], width: u16) {
-        let has_existing_history =
-            !self.committed_history_cells.is_empty() || !self.pending_history_lines.is_empty();
-        let mut new_lines = render_history_append_lines(
-            &stable_cells[self.committed_history_cells.len()..],
-            width,
-            has_existing_history,
-        );
-        self.pending_history_lines.append(&mut new_lines);
-    }
-
-    fn insert_pending_history_lines(&mut self, viewport_top: u16, width: u16) -> IoResult<()> {
-        if self.pending_history_lines.is_empty() || viewport_top == 0 {
-            return Ok(());
-        }
-        let lines = std::mem::take(&mut self.pending_history_lines);
-        insert_history_lines(&mut self.stdout, viewport_top, width, &lines)
     }
 
     fn clear_rows_from(&mut self, start_row: u16, height: u16, width: u16) -> IoResult<()> {
@@ -276,37 +254,6 @@ impl ShellRenderer {
         )?;
         write_styled_line(&mut self.stdout, &truncate_line_to_width(line, width))
     }
-}
-
-fn insert_history_lines(
-    writer: &mut impl Write,
-    viewport_top: u16,
-    width: u16,
-    lines: &[Line<'static>],
-) -> IoResult<()> {
-    if lines.is_empty() || viewport_top == 0 {
-        return Ok(());
-    }
-
-    queue!(
-        writer,
-        SetScrollRegion(1..viewport_top),
-        MoveTo(0, viewport_top.saturating_sub(1))
-    )?;
-    for line in lines {
-        queue!(
-            writer,
-            Print("\r\n"),
-            MoveToColumn(0),
-            SetForegroundColor(CrosstermColor::Reset),
-            SetBackgroundColor(CrosstermColor::Reset),
-            SetAttribute(Attribute::Reset),
-            Clear(ClearType::CurrentLine),
-        )?;
-        write_styled_line(writer, &truncate_line_to_width(line, width))?;
-    }
-    queue!(writer, ResetScrollRegion)?;
-    Ok(())
 }
 
 impl TerminalViewport {
@@ -1204,6 +1151,7 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
     lines
 }
 
+#[cfg(test)]
 fn is_cell_prefix(previous: &[TranscriptCell], current: &[TranscriptCell]) -> bool {
     previous.len() <= current.len()
         && previous
@@ -1704,55 +1652,16 @@ fn display_width(value: &str) -> u16 {
     unicode_width::UnicodeWidthStr::width(value) as u16
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SetScrollRegion(std::ops::Range<u16>);
-
-impl Command for SetScrollRegion {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        panic!("SetScrollRegion requires ANSI");
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ResetScrollRegion;
-
-impl Command for ResetScrollRegion {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b[r")
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        panic!("ResetScrollRegion requires ANSI");
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
         build_viewport_snapshot, cell_title_style, changed_row_indices, clamp_history_scroll,
-        compact_session_preview, footer_status_line, format_title, insert_history_lines,
-        is_cell_prefix, line_text, normalize_body_lines, preserve_active_cell_separator,
-        preserve_first_line_tail, preserve_scrolled_offset, protected_append_top,
-        queue_clear_visible, queue_purge_visible_and_scrollback, render_history_append_lines,
-        summarize_tool_body, visible_history_fill_count, visible_history_tail_lines,
-        write_styled_line,
+        compact_session_preview, footer_status_line, format_title, is_cell_prefix, line_text,
+        normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
+        preserve_scrolled_offset, protected_append_top, queue_clear_visible,
+        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
+        visible_history_fill_count, visible_history_tail_lines, write_styled_line,
     };
     use crossterm::queue;
     use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
@@ -1964,18 +1873,6 @@ mod tests {
         assert!(ansi.contains("\u{1b}[2J"));
         assert!(ansi.contains("\u{1b}[3J"));
         assert!(ansi.contains("\u{1b}[1;1H") || ansi.contains("\u{1b}[H"));
-    }
-
-    #[test]
-    fn history_insert_uses_region_above_retained_viewport() {
-        let mut output = Vec::new();
-        insert_history_lines(&mut output, 5, 40, &[Line::from("history line")])
-            .expect("history insertion should render");
-        let ansi = String::from_utf8(output).expect("history insertion should be utf8");
-
-        assert!(ansi.contains("\u{1b}[1;5r"));
-        assert!(ansi.contains("history line"));
-        assert!(ansi.contains("\u{1b}[r"));
     }
 
     #[test]
