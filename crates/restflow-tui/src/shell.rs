@@ -1,6 +1,8 @@
+use std::fmt;
 use std::io::{Result as IoResult, Stdout, Write};
 
-use crossterm::cursor::MoveTo;
+use crossterm::Command;
+use crossterm::cursor::{MoveTo, MoveToColumn};
 use crossterm::queue;
 use crossterm::style::{
     Attribute, Color as CrosstermColor, Colors, Print, SetAttribute, SetBackgroundColor, SetColors,
@@ -23,6 +25,8 @@ const OVERLAY_MAX_ROWS: u16 = 10;
 
 pub struct ShellRenderer {
     stdout: Stdout,
+    committed_history_cells: Vec<TranscriptCell>,
+    pending_history_lines: Vec<Line<'static>>,
     last_viewport: Option<ViewportSnapshot>,
     last_terminal_size: Option<(u16, u16)>,
     last_message_line_count: Option<usize>,
@@ -53,6 +57,8 @@ impl ShellRenderer {
     pub fn new() -> Self {
         Self {
             stdout: std::io::stdout(),
+            committed_history_cells: Vec::new(),
+            pending_history_lines: Vec::new(),
             last_viewport: None,
             last_terminal_size: None,
             last_message_line_count: None,
@@ -61,6 +67,8 @@ impl ShellRenderer {
 
     pub fn clear_screen(&mut self) -> IoResult<()> {
         queue_clear_visible(&mut self.stdout)?;
+        self.committed_history_cells.clear();
+        self.pending_history_lines.clear();
         self.last_viewport = None;
         self.last_terminal_size = None;
         self.last_message_line_count = None;
@@ -69,6 +77,8 @@ impl ShellRenderer {
 
     pub fn purge_screen(&mut self) -> IoResult<()> {
         queue_purge_visible_and_scrollback(&mut self.stdout)?;
+        self.committed_history_cells.clear();
+        self.pending_history_lines.clear();
         self.last_viewport = None;
         self.last_terminal_size = None;
         self.last_message_line_count = None;
@@ -80,11 +90,33 @@ impl ShellRenderer {
         self.preserve_scrolled_message_anchor(state, size);
         let terminal_viewport = TerminalViewport::build(state, size);
         let viewport = terminal_viewport.snapshot;
+        let stable_cells = build_stable_history_cells(state);
 
-        if self.needs_full_redraw(size, &viewport) {
-            queue_clear_visible(&mut self.stdout)?;
+        let mut force_full_redraw = false;
+        if !is_cell_prefix(&self.committed_history_cells, &stable_cells) {
+            self.committed_history_cells.clear();
+            self.pending_history_lines.clear();
+            self.last_viewport = None;
+            self.last_message_line_count = None;
+            queue_purge_visible_and_scrollback(&mut self.stdout)?;
+            force_full_redraw = true;
+        }
+
+        self.queue_new_history_lines(&stable_cells, size.0);
+
+        if force_full_redraw || self.needs_full_redraw(size, &viewport) {
+            let clear_from = self
+                .last_viewport
+                .as_ref()
+                .map(|previous| previous.top.min(viewport.top))
+                .unwrap_or(viewport.top);
+            self.clear_rows_from(clear_from, size.1, size.0)?;
+            self.insert_pending_history_lines(viewport.top, size.0)?;
+            self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
+            self.insert_pending_history_lines(viewport.top, size.0)?;
+            self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             match self.last_viewport.clone() {
                 Some(previous) if previous == viewport => {
                     self.restore_cursor(&viewport)?;
@@ -98,6 +130,7 @@ impl ShellRenderer {
             }
         }
 
+        self.committed_history_cells = stable_cells;
         self.last_viewport = Some(viewport);
         self.last_terminal_size = Some(terminal_viewport.size);
         self.stdout.flush()
@@ -108,6 +141,11 @@ impl ShellRenderer {
         self.preserve_scrolled_message_anchor(state, size);
         let terminal_viewport = TerminalViewport::build(state, size);
         let viewport = terminal_viewport.snapshot;
+        let stable_cells = build_stable_history_cells(state);
+
+        if !is_cell_prefix(&self.committed_history_cells, &stable_cells) {
+            return self.sync(state);
+        }
 
         let can_update_viewport_only = self.last_terminal_size == Some(size)
             && self.last_viewport.as_ref().is_some_and(|previous| {
@@ -116,6 +154,10 @@ impl ShellRenderer {
         if !can_update_viewport_only {
             return self.sync(state);
         }
+
+        self.queue_new_history_lines(&stable_cells, size.0);
+        self.insert_pending_history_lines(viewport.top, size.0)?;
+        self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
 
         match self.last_viewport.clone() {
             Some(previous) if previous == viewport => {
@@ -129,6 +171,7 @@ impl ShellRenderer {
             }
         }
 
+        self.committed_history_cells = stable_cells;
         self.last_viewport = Some(viewport);
         self.last_terminal_size = Some(terminal_viewport.size);
         self.stdout.flush()
@@ -153,6 +196,50 @@ impl ShellRenderer {
             );
         }
         self.last_message_line_count = Some(message_line_count);
+    }
+
+    fn queue_new_history_lines(&mut self, stable_cells: &[TranscriptCell], width: u16) {
+        let has_existing_history =
+            !self.committed_history_cells.is_empty() || !self.pending_history_lines.is_empty();
+        let mut new_lines = render_history_append_lines(
+            &stable_cells[self.committed_history_cells.len()..],
+            width,
+            has_existing_history,
+        );
+        self.pending_history_lines.append(&mut new_lines);
+    }
+
+    fn insert_pending_history_lines(&mut self, viewport_top: u16, width: u16) -> IoResult<()> {
+        if self.pending_history_lines.is_empty() || viewport_top == 0 {
+            return Ok(());
+        }
+        let lines = std::mem::take(&mut self.pending_history_lines);
+        insert_history_lines(&mut self.stdout, viewport_top, width, &lines)
+    }
+
+    fn clear_rows_from(&mut self, start_row: u16, height: u16, width: u16) -> IoResult<()> {
+        for row in start_row..height {
+            self.write_row(row, &Line::from(""), width)?;
+        }
+        Ok(())
+    }
+
+    fn redraw_history_tail(
+        &mut self,
+        viewport_top: u16,
+        width: u16,
+        stable_cells: &[TranscriptCell],
+    ) -> IoResult<()> {
+        if viewport_top == 0 || stable_cells.is_empty() {
+            return Ok(());
+        }
+        let visible = visible_history_tail_lines(stable_cells, width, viewport_top as usize);
+        for row in 0..viewport_top {
+            let empty = Line::from("");
+            let line = visible.get(row as usize).unwrap_or(&empty);
+            self.write_row(row, line, width)?;
+        }
+        Ok(())
     }
 
     fn redraw_viewport_full(&mut self, viewport: &ViewportSnapshot, width: u16) -> IoResult<()> {
@@ -191,6 +278,37 @@ impl ShellRenderer {
     }
 }
 
+fn insert_history_lines(
+    writer: &mut impl Write,
+    viewport_top: u16,
+    width: u16,
+    lines: &[Line<'static>],
+) -> IoResult<()> {
+    if lines.is_empty() || viewport_top == 0 {
+        return Ok(());
+    }
+
+    queue!(
+        writer,
+        SetScrollRegion(1..viewport_top),
+        MoveTo(0, viewport_top.saturating_sub(1))
+    )?;
+    for line in lines {
+        queue!(
+            writer,
+            Print("\r\n"),
+            MoveToColumn(0),
+            SetForegroundColor(CrosstermColor::Reset),
+            SetBackgroundColor(CrosstermColor::Reset),
+            SetAttribute(Attribute::Reset),
+            Clear(ClearType::CurrentLine),
+        )?;
+        write_styled_line(writer, &truncate_line_to_width(line, width))?;
+    }
+    queue!(writer, ResetScrollRegion)?;
+    Ok(())
+}
+
 impl TerminalViewport {
     fn build(state: &AppState, size: (u16, u16)) -> Self {
         let (width, height) = size;
@@ -204,12 +322,12 @@ impl TerminalViewport {
         let spacer_height = u16::from(available_above_prompt > 0);
         let message_height = available_above_prompt.saturating_sub(spacer_height);
         let message_lines = build_message_lines(state, width, message_height);
-        let mut visible_message_lines = bottom_anchor_lines(
+        let mut visible_message_lines = tail_lines(
             message_lines,
             message_height as usize,
             state.message_scroll_from_bottom,
         );
-        if spacer_height > 0 {
+        if spacer_height > 0 && !visible_message_lines.is_empty() {
             visible_message_lines.push(Line::from(""));
         }
         visible_message_lines.extend(overlay_lines);
@@ -354,16 +472,29 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     cells
 }
 
+fn visible_history_tail_lines(
+    stable_cells: &[TranscriptCell],
+    width: u16,
+    height: usize,
+) -> Vec<Line<'static>> {
+    let history_lines = render_history_append_lines(stable_cells, width, false);
+    bottom_anchor_lines(history_lines, height, 0)
+}
+
 fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
     if max_rows == 0 {
         return Vec::new();
     }
 
-    build_cell_lines(&build_message_cells(state), width)
+    build_cell_lines(&build_live_message_cells(state), width)
 }
 
-fn build_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-    let mut cells = build_stable_history_cells(state);
+fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
+    let mut cells = Vec::with_capacity(
+        state.pending_user_cells.len()
+            + state.active_turn_cells.len()
+            + usize::from(state.active_cell.is_some()),
+    );
     if state.active_cell.is_some() || !state.active_turn_cells.is_empty() {
         cells.extend(
             state
@@ -1013,7 +1144,6 @@ fn command_display(command: &str, args: &str) -> String {
     }
 }
 
-#[cfg(test)]
 fn render_history_append_lines(
     cells: &[TranscriptCell],
     width: u16,
@@ -1074,7 +1204,6 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
     lines
 }
 
-#[cfg(test)]
 fn is_cell_prefix(previous: &[TranscriptCell], current: &[TranscriptCell]) -> bool {
     previous.len() <= current.len()
         && previous
@@ -1371,6 +1500,21 @@ fn bottom_anchor_lines(
     visible
 }
 
+fn tail_lines(
+    lines: Vec<Line<'static>>,
+    height: usize,
+    scroll_from_bottom: usize,
+) -> Vec<Line<'static>> {
+    if height == 0 || lines.is_empty() {
+        return Vec::new();
+    }
+    let total = lines.len();
+    let scroll_from_bottom = clamp_history_scroll(total, height, scroll_from_bottom);
+    let end = total.saturating_sub(scroll_from_bottom);
+    let start = end.saturating_sub(height);
+    lines[start..end].to_vec()
+}
+
 fn clamp_history_scroll(total_lines: usize, viewport_height: usize, requested: usize) -> usize {
     requested.min(total_lines.saturating_sub(viewport_height))
 }
@@ -1560,16 +1704,55 @@ fn display_width(value: &str) -> u16 {
     unicode_width::UnicodeWidthStr::width(value) as u16
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetScrollRegion(std::ops::Range<u16>);
+
+impl Command for SetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        panic!("SetScrollRegion requires ANSI");
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResetScrollRegion;
+
+impl Command for ResetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b[r")
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        panic!("ResetScrollRegion requires ANSI");
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
         build_viewport_snapshot, cell_title_style, changed_row_indices, clamp_history_scroll,
-        compact_session_preview, footer_status_line, format_title, is_cell_prefix, line_text,
-        normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
-        preserve_scrolled_offset, protected_append_top, queue_clear_visible,
-        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
-        visible_history_fill_count, write_styled_line,
+        compact_session_preview, footer_status_line, format_title, insert_history_lines,
+        is_cell_prefix, line_text, normalize_body_lines, preserve_active_cell_separator,
+        preserve_first_line_tail, preserve_scrolled_offset, protected_append_top,
+        queue_clear_visible, queue_purge_visible_and_scrollback, render_history_append_lines,
+        summarize_tool_body, visible_history_fill_count, visible_history_tail_lines,
+        write_styled_line,
     };
     use crossterm::queue;
     use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
@@ -1784,24 +1967,64 @@ mod tests {
     }
 
     #[test]
+    fn history_insert_uses_region_above_retained_viewport() {
+        let mut output = Vec::new();
+        insert_history_lines(&mut output, 5, 40, &[Line::from("history line")])
+            .expect("history insertion should render");
+        let ansi = String::from_utf8(output).expect("history insertion should be utf8");
+
+        assert!(ansi.contains("\u{1b}[1;5r"));
+        assert!(ansi.contains("history line"));
+        assert!(ansi.contains("\u{1b}[r"));
+    }
+
+    #[test]
+    fn stable_history_tail_keeps_user_message_visible() {
+        let cells = vec![
+            TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "132".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+            TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Agent".to_string(),
+                subtitle: None,
+                body: "assistant reply".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        ];
+
+        let rendered = line_texts(&visible_history_tail_lines(&cells, 80, 8));
+
+        assert!(rendered.iter().any(|line| line.contains("You")));
+        assert!(rendered.iter().any(|line| line.contains("132")));
+        assert!(rendered.iter().any(|line| line.contains("assistant reply")));
+    }
+
+    #[test]
     fn viewport_stays_anchored_to_bottom() {
         let state = AppState::empty();
         let viewport = build_viewport_snapshot(&state, (40, 10));
-        assert_eq!(viewport.top, 0);
+        assert_eq!(viewport.top, 7);
         assert_eq!(viewport.cursor_y, 8);
-        assert_eq!(viewport.lines.len(), 10);
+        assert_eq!(viewport.lines.len(), 3);
     }
 
     #[test]
     fn latest_message_stays_above_composer_rows() {
         let mut state = AppState::empty();
-        state.conversation_cells.push(TranscriptCell {
+        state.active_cell = Some(TranscriptCell {
             kind: TranscriptCellKind::Assistant,
             title: "Agent".to_string(),
-            subtitle: None,
+            subtitle: Some("typing…".to_string()),
             body: "first\nlatest visible message".to_string(),
             group: MessageGroup::Conversation,
-            is_active: false,
+            is_active: true,
         });
 
         let viewport = build_viewport_snapshot(&state, (60, 10));
@@ -1827,22 +2050,22 @@ mod tests {
     #[test]
     fn overlay_renders_between_message_and_composer() {
         let mut state = AppState::empty();
-        state.conversation_cells.push(TranscriptCell {
+        state.active_cell = Some(TranscriptCell {
             kind: TranscriptCellKind::Assistant,
             title: "Agent".to_string(),
-            subtitle: None,
-            body: "history still visible".to_string(),
+            subtitle: Some("typing…".to_string()),
+            body: "live still visible".to_string(),
             group: MessageGroup::Conversation,
-            is_active: false,
+            is_active: true,
         });
         state.open_command_picker();
 
         let viewport = build_viewport_snapshot(&state, (80, 16));
         let rendered = line_texts(&viewport.lines);
-        let history_row = rendered
+        let live_row = rendered
             .iter()
-            .position(|line| line.contains("history still visible"))
-            .expect("history row");
+            .position(|line| line.contains("live still visible"))
+            .expect("live row");
         let overlay_row = rendered
             .iter()
             .position(|line| line.contains("Slash commands"))
@@ -1852,7 +2075,7 @@ mod tests {
             .position(|line| line.starts_with('┌'))
             .expect("composer top border");
 
-        assert!(history_row < overlay_row);
+        assert!(live_row < overlay_row);
         assert!(overlay_row < composer_top);
     }
 
@@ -2558,7 +2781,7 @@ mod tests {
     }
 
     #[test]
-    fn message_scroll_crosses_stable_and_live_turn_boundary() {
+    fn message_viewport_only_scrolls_live_turn() {
         let mut state = AppState::empty();
         state.conversation_cells.push(TranscriptCell {
             kind: TranscriptCellKind::Assistant,
@@ -2575,18 +2798,23 @@ mod tests {
             kind: TranscriptCellKind::Assistant,
             title: "Agent".to_string(),
             subtitle: Some("typing…".to_string()),
-            body: "live bottom".to_string(),
+            body: (1..=20)
+                .map(|index| format!("live {index}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
             group: MessageGroup::Conversation,
             is_active: true,
         });
 
         let bottom = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
-        assert!(bottom.iter().any(|line| line.contains("live bottom")));
+        assert!(bottom.iter().any(|line| line.contains("live 20")));
+        assert!(!bottom.iter().any(|line| line.contains("stable")));
 
-        state.message_scroll_from_bottom = 10;
+        state.message_scroll_from_bottom = 5;
         let scrolled = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
-        assert!(scrolled.iter().any(|line| line.contains("stable")));
-        assert!(!scrolled.iter().any(|line| line.contains("live bottom")));
+        assert!(!scrolled.iter().any(|line| line.contains("stable")));
+        assert!(!scrolled.iter().any(|line| line.contains("live 20")));
+        assert!(scrolled.iter().any(|line| line.contains("live 15")));
     }
 
     #[test]
