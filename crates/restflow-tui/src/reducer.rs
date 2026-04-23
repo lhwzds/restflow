@@ -153,7 +153,14 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
     let mut output = ReducerOutput::default();
     match action {
         ShellAction::Ui(action) => reduce_ui(state, action, &mut output),
-        ShellAction::StreamFrame(frame) => state.apply_stream_frame(frame),
+        ShellAction::StreamFrame(frame) => {
+            let should_reload_session =
+                matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
+            state.apply_stream_frame(frame);
+            if should_reload_session && state.current_session_id().is_some() {
+                output.effects.push(ShellEffect::ReloadCurrentSession);
+            }
+        }
         ShellAction::SessionEvent(event) => {
             let refresh_current = state.current_session_id() == Some(session_id_of(&event));
             let is_message_added = matches!(event, ChatSessionEvent::MessageAdded { .. });
@@ -651,7 +658,7 @@ mod tests {
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
     use crate::state::{AppState, PendingSessionState};
-    use restflow_core::daemon::ChatSessionEvent;
+    use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
     use restflow_core::models::{ChatSession, ChatSessionSummary};
 
     fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
@@ -1278,6 +1285,44 @@ mod tests {
         );
 
         assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn stream_done_reloads_current_session_to_reconcile_pending_user() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hi".to_string());
+        state.start_assistant_typing();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::StreamFrame(StreamFrame::Done { total_tokens: None }),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn stream_error_reloads_current_session_to_reconcile_pending_user() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hi".to_string());
+        state.start_assistant_typing();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::StreamFrame(StreamFrame::error(500, "failed")),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
     }
 
     #[test]
