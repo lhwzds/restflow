@@ -397,7 +397,7 @@ async fn test_resolve_primary_model_uses_openai_secret_when_model_missing() {
     let node = AgentNode::new();
 
     let resolved = executor.resolve_primary_model(&node).await.unwrap();
-    assert_eq!(resolved, ModelId::Gpt5);
+    assert_eq!(resolved, ModelId::Gpt5_4);
 }
 
 #[tokio::test]
