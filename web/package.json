@@ -24,7 +24,7 @@
     "@codemirror/language": "^6.11.3",
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.41.0",
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.2.4",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
     "@vue-flow/core": "^1.47.0",
