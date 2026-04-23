@@ -14,6 +14,14 @@ type SetupData = {
   targetModelName: string
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI API',
+  'minimax-coding-plan': 'MiniMax Coding Plan',
+  'zai-coding-plan': 'ZAI Coding Plan',
+  codex: 'Codex',
+  minimax: 'MiniMax',
+}
+
 test.describe('ModelRef Persistence', () => {
   test.afterEach(async ({ page }) => {
     await cleanupTrackedState(page)
@@ -81,7 +89,10 @@ test.describe('ModelRef Persistence', () => {
     await modelSelector.click()
 
     const modelListbox = page.getByRole('listbox').last()
-    const modelOption = modelListbox.getByRole('option', {
+    const providerGroup = modelListbox.getByRole('group', {
+      name: PROVIDER_LABELS[setup.targetProvider] ?? setup.targetProvider,
+    })
+    const modelOption = providerGroup.getByRole('option', {
       name: setup.targetModelName,
       exact: true,
     })
