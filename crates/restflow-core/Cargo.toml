@@ -39,7 +39,7 @@ futures = "0.3"
 http = "1.3"
 http-body = "1.0"
 http-body-util = "0.1.3"
-hyper = { version = "1.7", features = ["http1", "server"] }
+hyper = { version = "1.9", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["server", "service", "tokio"] }
 hex = "0.4.3"
 lettre = { version = "0.11", features = ["smtp-transport", "builder", "tokio1-native-tls"] }
