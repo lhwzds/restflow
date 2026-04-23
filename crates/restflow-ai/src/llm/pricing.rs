@@ -223,11 +223,7 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
 
     // CLI-based models (cost tracked externally) - check first to avoid prefix matching
     // codex-cli, claude-code CLI aliases
-    if model_name.contains("codex")
-        || model_name == "gpt-5.3-codex"
-        || model_name == "gpt-5.4"
-        || model_name == "gpt-5.4-mini"
-    {
+    if model_name.contains("codex") || model_name == "gpt-5.3-codex" {
         return None;
     }
     if model_name == "opus" || model_name == "sonnet" || model_name == "haiku" {
@@ -239,6 +235,30 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
     }
 
     // OpenAI
+    if model_name.starts_with("gpt-5.4-mini") {
+        return Some(ModelPricing {
+            cost_per_1m_input: 0.75,
+            cost_per_1m_output: 4.50,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
+        });
+    }
+    if model_name.starts_with("gpt-5.4-nano") {
+        return Some(ModelPricing {
+            cost_per_1m_input: 0.20,
+            cost_per_1m_output: 1.25,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
+        });
+    }
+    if model_name.starts_with("gpt-5.4") {
+        return Some(ModelPricing {
+            cost_per_1m_input: 2.50,
+            cost_per_1m_output: 15.0,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
+        });
+    }
     if model_name.starts_with("gpt-5-pro") {
         return Some(ModelPricing {
             cost_per_1m_input: 10.0,
@@ -367,12 +387,25 @@ mod tests {
     }
 
     #[test]
+    fn test_pricing_openai_gpt54() {
+        let pricing = get_pricing("gpt-5.4").unwrap();
+        assert_eq!(pricing.cost_per_1m_input, 2.50);
+        assert_eq!(pricing.cost_per_1m_output, 15.0);
+
+        let mini = get_pricing("gpt-5.4-mini").unwrap();
+        assert_eq!(mini.cost_per_1m_input, 0.75);
+        assert_eq!(mini.cost_per_1m_output, 4.50);
+
+        let nano = get_pricing("gpt-5.4-nano").unwrap();
+        assert_eq!(nano.cost_per_1m_input, 0.20);
+        assert_eq!(nano.cost_per_1m_output, 1.25);
+    }
+
+    #[test]
     fn test_pricing_cli_models_none() {
         assert!(get_pricing("opus").is_none());
         assert!(get_pricing("sonnet").is_none());
         assert!(get_pricing("gpt-5.3-codex").is_none());
-        assert!(get_pricing("gpt-5.4").is_none());
-        assert!(get_pricing("gpt-5.4-mini").is_none());
     }
 
     #[test]

@@ -1248,7 +1248,7 @@ mod tests {
             .expect("create agent");
         let mut session = ChatSession::new(
             agent.id.clone(),
-            ModelId::Gpt5.as_serialized_str().to_string(),
+            ModelId::Gpt5_4.as_serialized_str().to_string(),
         )
         .with_name("HTTP Convert Session");
         session.add_message(ChatMessage::user("Continue this job in background"));

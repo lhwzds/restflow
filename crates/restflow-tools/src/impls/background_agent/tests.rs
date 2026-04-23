@@ -176,6 +176,18 @@ fn background_agent_tool_keeps_legacy_name() {
     assert_eq!(Tool::name(&tool), "manage_background_agents");
 }
 
+#[test]
+fn task_tool_schema_is_openai_function_compatible() {
+    let schema = tool_parameters_schema();
+
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["required"], json!(["operation"]));
+    assert!(schema.get("oneOf").is_none());
+    assert!(schema.get("anyOf").is_none());
+    assert!(schema.get("allOf").is_none());
+    assert!(schema.get("enum").is_none());
+}
+
 impl KvStore for MockKvStore {
     fn get_entry(&self, key: &str) -> Result<Value> {
         let entries = self

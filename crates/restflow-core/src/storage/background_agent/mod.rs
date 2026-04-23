@@ -105,7 +105,7 @@ impl BackgroundAgentStorage {
     }
 
     fn resolve_agent_model_for_session(&self, agent_id: &str) -> Result<String> {
-        let fallback_model = ModelId::Gpt5.as_serialized_str().to_string();
+        let fallback_model = ModelId::Gpt5_4.as_serialized_str().to_string();
         let Some(agent) = self.agents.get_agent(agent_id.to_string())? else {
             return Ok(fallback_model);
         };

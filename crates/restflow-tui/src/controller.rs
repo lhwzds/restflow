@@ -3,7 +3,9 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
-use restflow_core::models::{ChatSession, ChatSessionSource, ChatSessionSummary, ModelMetadataDTO};
+use restflow_core::models::{
+    ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
+};
 use restflow_core::storage::agent::StoredAgent;
 use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
@@ -1018,6 +1020,36 @@ fn recent_usage_keys(usage: &HashMap<String, ModelUsage>, limit: usize) -> HashS
         .collect()
 }
 
+fn category_for_usage(
+    key: &str,
+    usage: Option<&ModelUsage>,
+    recent_keys: &HashSet<String>,
+) -> ModelPickerCategory {
+    if recent_keys.contains(key) {
+        ModelPickerCategory::Recent
+    } else if usage.is_some_and(|usage| usage.count > 0) {
+        ModelPickerCategory::Frequent
+    } else {
+        ModelPickerCategory::Available
+    }
+}
+
+fn picker_catalog_metadata_by_key() -> HashMap<String, ModelMetadataDTO> {
+    ModelId::all_with_metadata()
+        .into_iter()
+        .filter(|metadata| !metadata.model.is_opencode_cli() && !metadata.model.is_gemini_cli())
+        .map(|metadata| {
+            (
+                model_key(
+                    metadata.provider.as_canonical_str(),
+                    metadata.model.as_serialized_str(),
+                ),
+                metadata,
+            )
+        })
+        .collect()
+}
+
 fn build_provider_picker_items(
     sessions: &[ChatSessionSummary],
     available: &[ModelMetadataDTO],
@@ -1026,32 +1058,58 @@ fn build_provider_picker_items(
     let usage = provider_usage_by_key(sessions);
     let recent_keys = recent_usage_keys(&usage, 5);
     let current_provider = current_model.map(|(provider, _)| provider.to_string());
-    let mut providers = HashSet::<String>::new();
+    let mut items_by_provider = HashMap::<String, ProviderPickerItem>::new();
 
-    let mut items = Vec::new();
-    for metadata in available {
-        let provider = metadata.provider.as_canonical_str().to_string();
-        if !providers.insert(provider.clone()) {
-            continue;
-        }
-        let usage = usage.get(&provider).cloned().unwrap_or_default();
-        let category = if recent_keys.contains(&provider) {
-            ModelPickerCategory::Recent
-        } else if usage.count > 0 {
-            ModelPickerCategory::Frequent
-        } else {
-            ModelPickerCategory::Available
-        };
-        items.push(ProviderPickerItem {
-            label: provider.clone(),
-            is_current: current_provider.as_deref() == Some(provider.as_str()),
-            provider,
-            category,
-            usage_count: usage.count,
-            last_used_at: usage.last_used_at,
-        });
+    for (provider, usage) in &usage {
+        let category = category_for_usage(provider, Some(usage), &recent_keys);
+        items_by_provider.insert(
+            provider.clone(),
+            ProviderPickerItem {
+                label: provider.clone(),
+                is_current: current_provider.as_deref() == Some(provider.as_str()),
+                provider: provider.clone(),
+                category,
+                usage_count: usage.count,
+                last_used_at: usage.last_used_at,
+            },
+        );
     }
 
+    for metadata in available {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        let usage = usage.get(&provider).cloned().unwrap_or_default();
+        let category = category_for_usage(&provider, Some(&usage), &recent_keys);
+        items_by_provider
+            .entry(provider.clone())
+            .and_modify(|item| {
+                item.is_current = current_provider.as_deref() == Some(provider.as_str());
+            })
+            .or_insert_with(|| ProviderPickerItem {
+                label: provider.clone(),
+                is_current: current_provider.as_deref() == Some(provider.as_str()),
+                provider,
+                category,
+                usage_count: usage.count,
+                last_used_at: usage.last_used_at,
+            });
+    }
+
+    if let Some(provider) = current_provider
+        && !provider.trim().is_empty()
+    {
+        items_by_provider
+            .entry(provider.clone())
+            .or_insert_with(|| ProviderPickerItem {
+                label: provider.clone(),
+                is_current: true,
+                provider,
+                category: ModelPickerCategory::Recent,
+                usage_count: 0,
+                last_used_at: None,
+            });
+    }
+
+    let mut items = items_by_provider.into_values().collect::<Vec<_>>();
     items.sort_by(|left, right| {
         model_category_order(left.category)
             .cmp(&model_category_order(right.category))
@@ -1073,27 +1131,32 @@ fn build_model_picker_items_for_provider(
 ) -> Vec<ModelPickerItem> {
     let usage = model_usage_by_key(sessions);
     let recent_keys = recent_usage_keys(&usage, 5);
+    let catalog = picker_catalog_metadata_by_key();
 
     let current_key = current_model
         .map(|(provider, model)| model_key(provider, model))
         .filter(|key| key != ":");
 
-    let mut items = available
+    let mut items_by_key = HashMap::<String, ModelPickerItem>::new();
+    let mut available_keys = HashSet::<String>::new();
+
+    for metadata in available
         .iter()
         .filter(|metadata| metadata.provider.as_canonical_str() == provider_filter)
-        .map(|metadata| {
-            let provider = metadata.provider.as_canonical_str().to_string();
-            let model = metadata.model.as_serialized_str().to_string();
-            let key = model_key(&provider, &model);
-            let usage = usage.get(&key).cloned().unwrap_or_default();
-            let category = if recent_keys.contains(&key) {
-                ModelPickerCategory::Recent
-            } else if usage.count > 0 {
-                ModelPickerCategory::Frequent
-            } else {
-                ModelPickerCategory::Available
-            };
-            ModelPickerItem {
+    {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        let model = metadata.model.as_serialized_str().to_string();
+        let key = model_key(&provider, &model);
+        available_keys.insert(key.clone());
+        let usage = usage.get(&key).cloned().unwrap_or_default();
+        let category = category_for_usage(&key, Some(&usage), &recent_keys);
+        items_by_key
+            .entry(key.clone())
+            .and_modify(|item| {
+                item.name = metadata.name.clone();
+                item.is_current = current_key.as_deref() == Some(key.as_str());
+            })
+            .or_insert_with(|| ModelPickerItem {
                 provider,
                 model,
                 name: metadata.name.clone(),
@@ -1101,10 +1164,28 @@ fn build_model_picker_items_for_provider(
                 usage_count: usage.count,
                 last_used_at: usage.last_used_at,
                 is_current: current_key.as_deref() == Some(key.as_str()),
-            }
-        })
-        .collect::<Vec<_>>();
+            });
+    }
 
+    if let Some(key) = current_key.as_ref()
+        && available_keys.contains(key)
+        && let Some(metadata) = catalog.get(key)
+        && metadata.provider.as_canonical_str() == provider_filter
+    {
+        items_by_key
+            .entry(key.clone())
+            .or_insert_with(|| ModelPickerItem {
+                provider: metadata.provider.as_canonical_str().to_string(),
+                model: metadata.model.as_serialized_str().to_string(),
+                name: metadata.name.clone(),
+                category: ModelPickerCategory::Recent,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: true,
+            });
+    }
+
+    let mut items = items_by_key.into_values().collect::<Vec<_>>();
     items.sort_by(|left, right| {
         model_category_order(left.category)
             .cmp(&model_category_order(right.category))
@@ -1280,6 +1361,35 @@ mod tests {
     }
 
     #[test]
+    fn provider_picker_includes_used_providers_without_current_api_key() {
+        let sessions = vec![
+            session_summary_with_model("session-1", "Codex", "codex", "gpt-5.4", 100),
+            session_summary_with_model(
+                "session-2",
+                "Zai",
+                "zai-coding-plan",
+                "zai-coding-plan-glm-5-1",
+                90,
+            ),
+        ];
+        let available = vec![model_metadata(ModelId::Gpt5, "GPT-5")];
+        let items = build_provider_picker_items(&sessions, &available, Some(("codex", "gpt-5.4")));
+        let providers = items
+            .iter()
+            .map(|item| item.provider.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(providers.contains(&"codex"));
+        assert!(providers.contains(&"zai-coding-plan"));
+        assert!(providers.contains(&"openai"));
+        assert!(
+            items
+                .iter()
+                .any(|item| item.provider == "codex" && item.is_current)
+        );
+    }
+
+    #[test]
     fn model_picker_filters_models_to_selected_provider() {
         let sessions = vec![
             session_summary_with_model("session-1", "Recent", "codex", "gpt-5.4", 100),
@@ -1315,6 +1425,40 @@ mod tests {
         assert!(items[0].is_current);
         assert_eq!(items[1].model, "gpt-5.4-mini");
         assert_eq!(items[1].category, ModelPickerCategory::Available);
+    }
+
+    #[test]
+    fn model_picker_includes_used_models_without_current_api_key() {
+        let sessions = vec![session_summary_with_model(
+            "session-1",
+            "Codex",
+            "codex",
+            "gpt-5.4",
+            100,
+        )];
+        let available = vec![model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4")];
+        let items = build_model_picker_items_for_provider(&sessions, &available, None, "codex");
+
+        assert_eq!(items[0].provider, "codex");
+        assert_eq!(items[0].model, "gpt-5.4");
+        assert_eq!(items[0].name, "GPT-5.4");
+        assert_eq!(items[0].category, ModelPickerCategory::Recent);
+    }
+
+    #[test]
+    fn model_picker_excludes_used_models_without_available_metadata() {
+        let sessions = vec![session_summary_with_model(
+            "session-1",
+            "Old OpenAI",
+            "openai",
+            "gpt-5-2",
+            100,
+        )];
+        let available = vec![model_metadata(ModelId::Gpt5_4, "GPT-5.4")];
+        let items = build_model_picker_items_for_provider(&sessions, &available, None, "openai");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].model, "gpt-5-4");
     }
 
     fn session_summary_with_messages(

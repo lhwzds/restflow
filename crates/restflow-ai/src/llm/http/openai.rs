@@ -57,6 +57,8 @@ struct OpenAIRequest {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -131,6 +133,29 @@ struct OpenAIUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
     total_tokens: u32,
+}
+
+fn uses_max_completion_tokens(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized == "gpt-5" || normalized.starts_with("gpt-5-") || normalized.starts_with("gpt-5.")
+}
+
+fn token_limit_fields(model: &str, max_tokens: Option<u32>) -> (Option<u32>, Option<u32>) {
+    if uses_max_completion_tokens(model) {
+        (None, max_tokens)
+    } else {
+        (max_tokens, None)
+    }
+}
+
+fn apply_token_limit(body: &mut Value, model: &str, max_tokens: Option<u32>) {
+    let (max_tokens, max_completion_tokens) = token_limit_fields(model, max_tokens);
+    if let Some(max_tokens) = max_tokens {
+        body["max_tokens"] = Value::from(max_tokens);
+    }
+    if let Some(max_completion_tokens) = max_completion_tokens {
+        body["max_completion_tokens"] = Value::from(max_completion_tokens);
+    }
 }
 
 // Streaming types
@@ -238,12 +263,15 @@ impl LlmClient for OpenAIClient {
             )
         };
 
+        let (max_tokens, max_completion_tokens) =
+            token_limit_fields(&self.model, request.max_tokens);
         let body = OpenAIRequest {
             model: self.model.clone(),
             messages,
             tools,
             temperature: request.temperature,
-            max_tokens: request.max_tokens,
+            max_tokens,
+            max_completion_tokens,
         };
 
         let response = self
@@ -370,15 +398,15 @@ impl LlmClient for OpenAIClient {
                 )
             };
 
-            let body = serde_json::json!({
+            let mut body = serde_json::json!({
                 "model": model,
                 "messages": messages,
                 "tools": tools,
                 "temperature": request.temperature,
-                "max_tokens": request.max_tokens,
                 "stream": true,
                 "stream_options": { "include_usage": true }
             });
+            apply_token_limit(&mut body, &model, request.max_tokens);
 
             let response = match client
                 .post(format!("{}/chat/completions", base_url))
@@ -566,5 +594,60 @@ mod tests {
         assert_eq!(map("tool_calls"), FinishReason::ToolCalls);
         assert_eq!(map("length"), FinishReason::MaxTokens);
         assert_eq!(map("unknown"), FinishReason::Error);
+    }
+
+    #[test]
+    fn gpt5_models_use_max_completion_tokens() {
+        let (max_tokens, max_completion_tokens) = token_limit_fields("gpt-5-2", Some(128));
+
+        assert_eq!(max_tokens, None);
+        assert_eq!(max_completion_tokens, Some(128));
+    }
+
+    #[test]
+    fn gpt5_api_names_use_max_completion_tokens() {
+        let (max_tokens, max_completion_tokens) = token_limit_fields("gpt-5.2", Some(128));
+
+        assert_eq!(max_tokens, None);
+        assert_eq!(max_completion_tokens, Some(128));
+    }
+
+    #[test]
+    fn legacy_models_use_max_tokens() {
+        let (max_tokens, max_completion_tokens) = token_limit_fields("gpt-4o", Some(128));
+
+        assert_eq!(max_tokens, Some(128));
+        assert_eq!(max_completion_tokens, None);
+    }
+
+    #[test]
+    fn openai_request_serializes_only_supported_token_limit_field() {
+        let (max_tokens, max_completion_tokens) = token_limit_fields("gpt-5-2", Some(128));
+        let request = OpenAIRequest {
+            model: "gpt-5-2".to_string(),
+            messages: Vec::new(),
+            tools: None,
+            temperature: None,
+            max_tokens,
+            max_completion_tokens,
+        };
+        let value = serde_json::to_value(request).unwrap();
+
+        assert_eq!(value["max_completion_tokens"], 128);
+        assert!(value.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn streaming_body_uses_max_completion_tokens_for_gpt5_models() {
+        let mut body = serde_json::json!({
+            "model": "gpt-5-2",
+            "messages": [],
+            "stream": true
+        });
+
+        apply_token_limit(&mut body, "gpt-5-2", Some(128));
+
+        assert_eq!(body["max_completion_tokens"], 128);
+        assert!(body.get("max_tokens").is_none());
     }
 }

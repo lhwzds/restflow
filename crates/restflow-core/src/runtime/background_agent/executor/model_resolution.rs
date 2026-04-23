@@ -105,12 +105,12 @@ impl AgentRuntimeExecutor {
             | ModelId::Gpt5Pro
             | ModelId::Gpt5_1
             | ModelId::Gpt5_2
-            | ModelId::Gpt5_4Codex
-            | ModelId::Gpt5_4MiniCodex
             | ModelId::Gpt5Codex
             | ModelId::Gpt5_1Codex
             | ModelId::Gpt5_2Codex
             | ModelId::CodexCli => 128_000,
+            ModelId::Gpt5_4 | ModelId::Gpt5_4Codex => 1_000_000,
+            ModelId::Gpt5_4Mini | ModelId::Gpt5_4Nano | ModelId::Gpt5_4MiniCodex => 400_000,
             ModelId::DeepseekChat | ModelId::DeepseekReasoner => 64_000,
             ModelId::Gemini25Pro
             | ModelId::Gemini25Flash

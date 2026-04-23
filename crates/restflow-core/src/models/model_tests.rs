@@ -6,6 +6,9 @@ use restflow_traits::ModelProvider;
 #[test]
 fn test_provider() {
     assert_eq!(ModelId::Gpt5.provider(), Provider::OpenAI);
+    assert_eq!(ModelId::Gpt5_4.provider(), Provider::OpenAI);
+    assert_eq!(ModelId::Gpt5_4Mini.provider(), Provider::OpenAI);
+    assert_eq!(ModelId::Gpt5_4Nano.provider(), Provider::OpenAI);
     assert_eq!(ModelId::ClaudeSonnet4_5.provider(), Provider::Anthropic);
     assert_eq!(ModelId::DeepseekChat.provider(), Provider::DeepSeek);
     assert_eq!(ModelId::Gemini25Pro.provider(), Provider::Google);
@@ -46,6 +49,9 @@ fn test_supports_temperature() {
     assert!(!ModelId::Gpt5Mini.supports_temperature());
     assert!(!ModelId::Gpt5_1.supports_temperature());
     assert!(!ModelId::Gpt5_2.supports_temperature());
+    assert!(!ModelId::Gpt5_4.supports_temperature());
+    assert!(!ModelId::Gpt5_4Mini.supports_temperature());
+    assert!(!ModelId::Gpt5_4Nano.supports_temperature());
     assert!(!ModelId::Gpt5Codex.supports_temperature());
     assert!(!ModelId::Gpt5_4Codex.supports_temperature());
     assert!(!ModelId::Gpt5_4MiniCodex.supports_temperature());
@@ -89,6 +95,9 @@ fn test_is_gemini_cli() {
 #[test]
 fn test_as_str() {
     assert_eq!(ModelId::Gpt5.as_str(), "gpt-5");
+    assert_eq!(ModelId::Gpt5_4.as_str(), "gpt-5.4");
+    assert_eq!(ModelId::Gpt5_4Mini.as_str(), "gpt-5.4-mini");
+    assert_eq!(ModelId::Gpt5_4Nano.as_str(), "gpt-5.4-nano");
     assert_eq!(ModelId::Gpt5_1.as_str(), "gpt-5.1");
     assert_eq!(ModelId::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
     assert_eq!(ModelId::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
@@ -126,6 +135,19 @@ fn test_as_str() {
 
 #[test]
 fn test_from_api_name() {
+    assert_eq!(
+        ModelId::from_api_name("gpt-5.4"),
+        Some(ModelId::Gpt5_4Codex)
+    );
+    assert_eq!(ModelId::from_api_name("gpt-5-4"), Some(ModelId::Gpt5_4));
+    assert_eq!(
+        ModelId::from_api_name("gpt-5.4-mini"),
+        Some(ModelId::Gpt5_4MiniCodex)
+    );
+    assert_eq!(
+        ModelId::from_api_name("gpt-5.4-nano"),
+        Some(ModelId::Gpt5_4Nano)
+    );
     assert_eq!(
         ModelId::from_api_name("gpt-5.4-codex"),
         Some(ModelId::Gpt5_4Codex)
@@ -179,6 +201,18 @@ fn test_from_api_name() {
         Some(ModelId::SiliconFlowAuto)
     );
     assert_eq!(ModelId::from_api_name("nonexistent"), None);
+}
+
+#[test]
+fn test_provider_qualified_gpt_5_4_disambiguates_openai_and_codex() {
+    assert_eq!(
+        ModelId::for_provider_and_model(Provider::OpenAI, "gpt-5.4"),
+        Some(ModelId::Gpt5_4)
+    );
+    assert_eq!(
+        ModelId::for_provider_and_model(Provider::Codex, "gpt-5.4"),
+        Some(ModelId::Gpt5_4Codex)
+    );
 }
 
 #[test]
@@ -260,6 +294,9 @@ fn test_remap_provider() {
 #[test]
 fn test_display_name() {
     assert_eq!(ModelId::Gpt5.display_name(), "GPT-5");
+    assert_eq!(ModelId::Gpt5_4.display_name(), "GPT-5.4");
+    assert_eq!(ModelId::Gpt5_4Mini.display_name(), "GPT-5.4 Mini");
+    assert_eq!(ModelId::Gpt5_4Nano.display_name(), "GPT-5.4 Nano");
     assert_eq!(ModelId::Gpt5_2.display_name(), "GPT-5.2");
     assert_eq!(ModelId::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
     assert_eq!(ModelId::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
@@ -284,8 +321,11 @@ fn test_display_name() {
 #[test]
 fn test_all_models() {
     let models = ModelId::all();
-    assert_eq!(models.len(), 63);
+    assert_eq!(models.len(), 66);
     assert!(models.contains(&ModelId::Gpt5));
+    assert!(models.contains(&ModelId::Gpt5_4));
+    assert!(models.contains(&ModelId::Gpt5_4Mini));
+    assert!(models.contains(&ModelId::Gpt5_4Nano));
     assert!(models.contains(&ModelId::Gpt5_1));
     assert!(models.contains(&ModelId::ClaudeOpus4_6));
     assert!(models.contains(&ModelId::ClaudeSonnet4_5));
@@ -351,6 +391,12 @@ fn test_provider_as_llm_provider() {
 #[test]
 fn test_build_model_specs_contains_codex_cli() {
     let specs = ModelId::build_model_specs();
+    assert!(specs.iter().any(|spec| spec.name == "gpt-5-4"
+        && spec.client_model == "gpt-5.4"
+        && spec.client_kind == restflow_models::ClientKind::Http));
+    assert!(specs.iter().any(|spec| spec.name == "gpt-5-4-mini"
+        && spec.client_model == "gpt-5.4-mini"
+        && spec.client_kind == restflow_models::ClientKind::Http));
     assert!(specs.iter().any(|spec| spec.name == "gpt-5.4"
         && spec.client_model == "gpt-5.4"
         && spec.client_kind == restflow_models::ClientKind::CodexCli));
@@ -431,6 +477,15 @@ fn test_same_provider_fallback() {
 
     // OpenAI chain
     assert_eq!(
+        ModelId::Gpt5_4.same_provider_fallback(),
+        Some(ModelId::Gpt5_4Mini)
+    );
+    assert_eq!(
+        ModelId::Gpt5_4Mini.same_provider_fallback(),
+        Some(ModelId::Gpt5_4Nano)
+    );
+    assert_eq!(ModelId::Gpt5_4Nano.same_provider_fallback(), None);
+    assert_eq!(
         ModelId::Gpt5Pro.same_provider_fallback(),
         Some(ModelId::Gpt5)
     );
@@ -495,6 +550,15 @@ fn test_openrouter_equivalent() {
     );
     assert_eq!(ModelId::Gpt5.openrouter_equivalent(), Some(ModelId::OrGpt5));
     assert_eq!(
+        ModelId::Gpt5_4.openrouter_equivalent(),
+        Some(ModelId::OrGpt5)
+    );
+    assert_eq!(
+        ModelId::Gpt5_4Mini.openrouter_equivalent(),
+        Some(ModelId::OrGpt5)
+    );
+    assert_eq!(ModelId::Gpt5_4Nano.openrouter_equivalent(), None);
+    assert_eq!(
         ModelId::DeepseekChat.openrouter_equivalent(),
         Some(ModelId::OrDeepseekV3_2)
     );
@@ -546,6 +610,8 @@ fn test_openrouter_equivalent() {
 fn test_canonical_id() {
     // Test canonical ID generation
     assert_eq!(ModelId::Gpt5.canonical_id(), "openai:gpt-5");
+    assert_eq!(ModelId::Gpt5_4.canonical_id(), "openai:gpt-5-4");
+    assert_eq!(ModelId::Gpt5_4Mini.canonical_id(), "openai:gpt-5-4-mini");
     assert_eq!(
         ModelId::ClaudeSonnet4_5.canonical_id(),
         "anthropic:claude-sonnet-4-5"
@@ -570,6 +636,14 @@ fn test_from_canonical_id() {
     assert_eq!(
         ModelId::from_canonical_id("openai:gpt-5"),
         Some(ModelId::Gpt5)
+    );
+    assert_eq!(
+        ModelId::from_canonical_id("openai:gpt-5.4"),
+        Some(ModelId::Gpt5_4)
+    );
+    assert_eq!(
+        ModelId::from_canonical_id("openai:gpt-5-4"),
+        Some(ModelId::Gpt5_4)
     );
     assert_eq!(
         ModelId::from_canonical_id("anthropic:claude-sonnet-4-5"),
@@ -603,13 +677,13 @@ fn test_from_canonical_id() {
         ModelId::from_canonical_id("openai:gpt-5.3-codex"),
         Some(ModelId::CodexCli)
     );
-    assert_eq!(
-        ModelId::from_canonical_id("openai:gpt-5.4"),
-        Some(ModelId::Gpt5_4Codex)
-    );
 
     // Test legacy model-only strings (fallback)
     assert_eq!(ModelId::from_canonical_id("gpt-5"), Some(ModelId::Gpt5));
+    assert_eq!(
+        ModelId::from_canonical_id("gpt-5.4"),
+        Some(ModelId::Gpt5_4Codex)
+    );
     assert_eq!(
         ModelId::from_canonical_id("claude-sonnet-4-5"),
         Some(ModelId::ClaudeSonnet4_5)
@@ -850,7 +924,7 @@ fn test_flagship_model() {
         Provider::Anthropic.flagship_model(),
         ModelId::ClaudeSonnet4_5
     );
-    assert_eq!(Provider::OpenAI.flagship_model(), ModelId::Gpt5);
+    assert_eq!(Provider::OpenAI.flagship_model(), ModelId::Gpt5_4);
     assert_eq!(Provider::DeepSeek.flagship_model(), ModelId::DeepseekChat);
     assert_eq!(Provider::Google.flagship_model(), ModelId::Gemini3Pro);
     assert_eq!(Provider::MiniMax.flagship_model(), ModelId::MiniMaxM27);
@@ -894,10 +968,12 @@ fn test_catalog_lookup_round_trips_model_ids() {
             .unwrap_or_else(|| panic!("missing descriptor for {model:?}"));
         assert_eq!(descriptor.id, *model);
         assert_eq!(descriptor.provider, model.provider());
-        assert_eq!(
-            catalog::lookup_by_name(model.as_serialized_str()),
-            Some(*model)
-        );
+        if !matches!(*model, ModelId::Gpt5_4Codex | ModelId::Gpt5_4MiniCodex) {
+            assert_eq!(
+                catalog::lookup_by_name(model.as_serialized_str()),
+                Some(*model)
+            );
+        }
         let resolved = catalog::lookup_for_provider(model.provider(), model.as_str())
             .unwrap_or_else(|| {
                 panic!(

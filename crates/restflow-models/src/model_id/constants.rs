@@ -9,6 +9,9 @@ impl ModelId {
     pub const Gpt5Pro: Self = Self("gpt-5-pro");
     pub const Gpt5_1: Self = Self("gpt-5-1");
     pub const Gpt5_2: Self = Self("gpt-5-2");
+    pub const Gpt5_4: Self = Self("gpt-5-4");
+    pub const Gpt5_4Mini: Self = Self("gpt-5-4-mini");
+    pub const Gpt5_4Nano: Self = Self("gpt-5-4-nano");
     pub const ClaudeOpus4_6: Self = Self("claude-opus-4-6");
     pub const ClaudeSonnet4_5: Self = Self("claude-sonnet-4-5");
     pub const ClaudeHaiku4_5: Self = Self("claude-haiku-4-5");

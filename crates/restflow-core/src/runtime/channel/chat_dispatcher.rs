@@ -467,7 +467,7 @@ impl ChatSessionManager {
             .agent
             .model
             .map(|m| m.as_serialized_str().to_string())
-            .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string()))
+            .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()))
     }
 
     fn maybe_rebind_to_forced_default(&self, session: &mut ChatSession) -> Result<()> {

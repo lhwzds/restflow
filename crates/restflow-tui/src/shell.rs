@@ -112,9 +112,9 @@ impl ShellRenderer {
             self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
-            let inserted = self
-                .scrollback
-                .insert_pending(&mut self.stdout, viewport.top, size.0)?;
+            let inserted =
+                self.scrollback
+                    .insert_pending(&mut self.stdout, viewport.top, size.0)?;
             if inserted {
                 self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             }
@@ -843,13 +843,14 @@ fn build_model_picker_lines(
     }
 
     let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
-    let rows_per_model = 2usize;
-    let visible_models = (visible_capacity / rows_per_model).max(1);
     let selected_index = (*selected).min(state.model_items.len().saturating_sub(1));
-    let start = selected_index
-        .saturating_sub(visible_models / 2)
-        .min(state.model_items.len().saturating_sub(visible_models));
-    let end = (start + visible_models).min(state.model_items.len());
+    let (start, end) = picker_window_by_rows(
+        &state.model_items,
+        selected_index,
+        visible_capacity,
+        2,
+        |item| item.category,
+    );
 
     let mut previous_category = None;
     for (index, item) in state.model_items[start..end].iter().enumerate() {
@@ -895,10 +896,14 @@ fn build_model_picker_lines(
     }
 
     if end < state.model_items.len() {
-        lines.push(styled_line(
-            format!("  ... {} more", state.model_items.len() - end),
-            muted_style(),
-        ));
+        push_if_space(
+            &mut lines,
+            max_rows,
+            styled_line(
+                format!("  ... {} more", state.model_items.len() - end),
+                muted_style(),
+            ),
+        );
     }
     lines.truncate(max_rows as usize);
     Some(lines)
@@ -923,12 +928,15 @@ fn build_provider_picker_lines(
         return Some(lines);
     }
 
-    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
     let selected_index = (*selected).min(state.provider_items.len().saturating_sub(1));
-    let start = selected_index
-        .saturating_sub(visible_capacity / 2)
-        .min(state.provider_items.len().saturating_sub(visible_capacity));
-    let end = (start + visible_capacity).min(state.provider_items.len());
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let (start, end) = picker_window_by_rows(
+        &state.provider_items,
+        selected_index,
+        visible_capacity,
+        1,
+        |item| item.category,
+    );
     let mut previous_category = None;
 
     for (index, item) in state.provider_items[start..end].iter().enumerate() {
@@ -969,13 +977,71 @@ fn build_provider_picker_lines(
     }
 
     if end < state.provider_items.len() {
-        lines.push(styled_line(
-            format!("  ... {} more", state.provider_items.len() - end),
-            muted_style(),
-        ));
+        push_if_space(
+            &mut lines,
+            max_rows,
+            styled_line(
+                format!("  ... {} more", state.provider_items.len() - end),
+                muted_style(),
+            ),
+        );
     }
     lines.truncate(max_rows as usize);
     Some(lines)
+}
+
+fn push_if_space(lines: &mut Vec<Line<'static>>, max_rows: u16, line: Line<'static>) {
+    if lines.len() < max_rows as usize {
+        lines.push(line);
+    }
+}
+
+fn picker_window_by_rows<T>(
+    items: &[T],
+    selected: usize,
+    row_capacity: usize,
+    rows_per_item: usize,
+    category: impl Fn(&T) -> crate::state::ModelPickerCategory + Copy,
+) -> (usize, usize) {
+    if items.is_empty() {
+        return (0, 0);
+    }
+
+    let selected = selected.min(items.len().saturating_sub(1));
+    let mut start = selected;
+    let mut end = selected + 1;
+
+    while start > 0
+        && picker_window_row_count(&items[start - 1..end], rows_per_item, category) <= row_capacity
+    {
+        start -= 1;
+    }
+
+    while end < items.len()
+        && picker_window_row_count(&items[start..end + 1], rows_per_item, category) <= row_capacity
+    {
+        end += 1;
+    }
+
+    (start, end)
+}
+
+fn picker_window_row_count<T>(
+    items: &[T],
+    rows_per_item: usize,
+    category: impl Fn(&T) -> crate::state::ModelPickerCategory,
+) -> usize {
+    let mut rows = 0usize;
+    let mut previous_category = None;
+    for item in items {
+        let item_category = category(item);
+        if previous_category != Some(item_category) {
+            rows += 1;
+            previous_category = Some(item_category);
+        }
+        rows += rows_per_item;
+    }
+    rows
 }
 
 fn provider_category_label(category: crate::state::ModelPickerCategory) -> &'static str {
@@ -1704,7 +1770,7 @@ mod tests {
             "gpt-5.4".to_string(),
         )));
 
-        assert_eq!(footer_status_line(&state), "codex · gpt-5.4");
+        assert_eq!(footer_status_line(&state), "openai · gpt-5.4");
     }
 
     #[test]
@@ -2418,6 +2484,30 @@ mod tests {
     }
 
     #[test]
+    fn provider_picker_scrolls_to_selected_provider() {
+        let mut state = AppState::empty();
+        state.provider_items = (0..10)
+            .map(|index| ProviderPickerItem {
+                provider: format!("provider-{index}"),
+                label: format!("provider-{index}"),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+            })
+            .collect();
+        state.open_provider_picker();
+        for _ in 0..9 {
+            state.move_overlay_selection(1);
+        }
+
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("provider-9"));
+        assert!(!text.contains("provider-0"));
+    }
+
+    #[test]
     fn model_picker_lists_provider_models() {
         let mut state = AppState::empty();
         state.model_items = vec![
@@ -2449,6 +2539,32 @@ mod tests {
         assert!(text.contains("codex · GPT-5.4"));
         assert!(text.contains("current"));
         assert!(text.contains("model: gpt-5.4"));
+    }
+
+    #[test]
+    fn model_picker_scrolls_to_selected_model() {
+        let mut state = AppState::empty();
+        state.model_items = (0..8)
+            .map(|index| ModelPickerItem {
+                provider: "codex".to_string(),
+                model: format!("model-{index}"),
+                name: format!("Model {index}"),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+            })
+            .collect();
+        state.open_model_picker("codex");
+        for _ in 0..7 {
+            state.move_overlay_selection(1);
+        }
+
+        let lines = build_transient_lines(&state, 80, 8);
+        let text = line_texts(&lines).join("\n");
+        assert!(text.contains("Model 7"));
+        assert!(text.contains("model: model-7"));
+        assert!(!text.contains("Model 0"));
     }
 
     #[test]

@@ -25,7 +25,7 @@ pub const ALL_PROVIDER_META: &[ProviderMeta] = &[
         runtime_provider: LlmProvider::OpenAI,
         api_key_env: Some("OPENAI_API_KEY"),
         api_key_env_aliases: &[],
-        default_model_id: ModelId::Gpt5,
+        default_model_id: ModelId::Gpt5_4,
         models_dev_provider_ids: &["openai"],
     },
     ProviderMeta {

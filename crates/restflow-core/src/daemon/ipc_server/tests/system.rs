@@ -110,7 +110,17 @@ async fn process_get_available_models_returns_openai_catalog_when_secret_exists(
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::Gpt5)
+                    .any(|model| model.model == crate::models::ModelId::Gpt5_4)
+            );
+            assert!(
+                !models
+                    .iter()
+                    .any(|model| model.model == crate::models::ModelId::Gpt5_1)
+            );
+            assert!(
+                !models
+                    .iter()
+                    .any(|model| model.model == crate::models::ModelId::Gpt5_2)
             );
             assert!(
                 !models
@@ -122,6 +132,12 @@ async fn process_get_available_models_returns_openai_catalog_when_secret_exists(
                 !models
                     .iter()
                     .any(|model| model.model == crate::models::ModelId::OpenCodeCli)
+            );
+            assert!(
+                models
+                    .iter()
+                    .any(|model| model.provider == crate::models::Provider::Codex
+                        && model.model == crate::models::ModelId::Gpt5_4Codex)
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -169,7 +185,7 @@ async fn process_get_available_models_returns_minimax_m27_catalog_when_secret_ex
 }
 
 #[tokio::test]
-async fn process_get_available_models_ignores_auth_profiles_without_provider_secret() {
+async fn process_get_available_models_returns_codex_catalog_without_secret() {
     let (core, _temp) = create_test_core().await;
     let manager = build_auth_manager(&core).await.expect("auth manager");
     manager
@@ -200,9 +216,10 @@ async fn process_get_available_models_ignores_auth_profiles_without_provider_sec
             let models: Vec<crate::models::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
             assert!(
-                !models
+                models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::Codex)
+                    .any(|model| model.provider == crate::models::Provider::Codex
+                        && model.model == crate::models::ModelId::Gpt5_4Codex)
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -242,6 +259,7 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
             assert_eq!(
                 providers,
                 std::collections::HashSet::from([
+                    crate::models::Provider::Codex,
                     crate::models::Provider::OpenAI,
                     crate::models::Provider::MiniMaxCodingPlan,
                     crate::models::Provider::ZaiCodingPlan,

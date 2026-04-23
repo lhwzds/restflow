@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use chrono::Utc;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{
-    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, RunSummary,
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider,
+    RunSummary,
 };
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
@@ -92,7 +93,7 @@ impl PendingSessionState {
             .agent
             .model
             .map(|model| model.as_serialized_str().to_string())
-            .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string());
+            .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string());
         Self::new(agent.id.clone(), agent.name.clone(), model)
     }
 
@@ -115,12 +116,21 @@ impl PendingSessionState {
     }
 
     pub fn model_label(&self) -> String {
+        let model = display_model_for_provider(&self.provider, &self.model);
         if self.provider.trim().is_empty() {
-            self.model.clone()
+            model
         } else {
-            format!("{} · {}", self.provider, self.model)
+            format!("{} · {}", self.provider, model)
         }
     }
+}
+
+fn display_model_for_provider(provider: &str, model: &str) -> String {
+    Provider::from_canonical_str(provider.trim())
+        .and_then(|provider| ModelId::for_provider_and_model(provider, model))
+        .or_else(|| ModelId::from_serialized_str(model))
+        .map(|model_id| model_id.as_str().to_string())
+        .unwrap_or_else(|| model.to_string())
 }
 
 fn model_display_name(model: &str) -> String {
@@ -473,7 +483,7 @@ impl AppState {
                         self.default_agent_name
                             .clone()
                             .unwrap_or_else(|| "Agent".to_string()),
-                        ModelId::Gpt5.as_serialized_str().to_string(),
+                        ModelId::Gpt5_4.as_serialized_str().to_string(),
                     )
                 })
             });

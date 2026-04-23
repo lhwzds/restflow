@@ -1176,7 +1176,7 @@ mod tests {
         assert!(state.composer.draft().is_empty());
         let pending = state.pending_session.as_ref().expect("pending session");
         assert_eq!(pending.agent_id, "agent-1");
-        assert_eq!(pending.model, "gpt-5.4");
+        assert_eq!(pending.model, "gpt-5-4");
         assert_eq!(state.status, "Started new chat");
     }
 

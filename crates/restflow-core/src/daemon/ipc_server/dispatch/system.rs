@@ -5,16 +5,29 @@ use crate::models::{
 };
 
 fn is_catalog_model(model: ModelId) -> bool {
-    !model.is_opencode_cli() && !model.is_gemini_cli()
+    !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
+}
+
+fn is_legacy_openai_model(model: ModelId) -> bool {
+    matches!(
+        model,
+        ModelId::Gpt5
+            | ModelId::Gpt5Mini
+            | ModelId::Gpt5Nano
+            | ModelId::Gpt5Pro
+            | ModelId::Gpt5_1
+            | ModelId::Gpt5_2
+    )
 }
 
 fn available_providers(core: &Arc<AppCore>) -> Vec<Provider> {
     let mut providers = Vec::new();
     for provider in Provider::all().iter().copied() {
-        let available = provider_allows_secret_env(provider)
-            && provider
-                .api_key_env_candidates()
-                .any(|key| secret_or_env_exists(&core.storage.secrets, key));
+        let available = provider == Provider::Codex
+            || provider_allows_secret_env(provider)
+                && provider
+                    .api_key_env_candidates()
+                    .any(|key| secret_or_env_exists(&core.storage.secrets, key));
 
         if available {
             providers.push(provider);

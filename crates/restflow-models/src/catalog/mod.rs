@@ -200,6 +200,8 @@ pub fn lookup_by_name(name: &str) -> Option<ModelId> {
                     descriptor.id.as_serialized_str(),
                     descriptor.id,
                 );
+            }
+            for descriptor in all_descriptors() {
                 register_lookup_key(&mut lookup, descriptor.api_name, descriptor.id);
                 for alias in descriptor.aliases {
                     register_lookup_key(&mut lookup, alias, descriptor.id);
