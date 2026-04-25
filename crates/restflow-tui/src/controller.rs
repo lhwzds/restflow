@@ -1,5 +1,4 @@
 use anyhow::{Result, bail};
-use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
@@ -7,7 +6,6 @@ use restflow_core::models::{
     ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
 };
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
 use super::daemon_client::TuiDaemonClient;
 use super::event_loop::AppEvent;
@@ -478,32 +476,34 @@ impl ShellController {
             SlashCommand::TeamState { team_run_id } => {
                 self.load_team_actions(&team_run_id, false).await
             }
-            SlashCommand::TeamStart { saved_team } => {
-                let output = self
+            SlashCommand::TeamStart {
+                saved_team,
+                assignment,
+            } => {
+                let Some(assignment) = assignment.filter(|value| !value.trim().is_empty()) else {
+                    return Ok(vec![ShellAction::StatusUpdated(
+                        "Usage: /team start <saved_team> <assignment>".to_string(),
+                    )]);
+                };
+                let snapshot = self
                     .client
-                    .execute_runtime_tool(
-                        "manage_teams",
-                        json!({
-                            "operation": "start_team",
-                            "team": saved_team,
-                        }),
-                    )
+                    .start_team_from_template(&saved_team, vec![assignment])
                     .await?;
-                if !output.success {
-                    bail!(
-                        output
-                            .error
-                            .unwrap_or_else(|| "manage_teams failed".to_string())
-                    );
-                }
-                let team_state = serde_json::from_value::<TeamState>(output.result["team"].clone())
-                    .ok()
+                let team_state = snapshot
+                    .team
                     .ok_or_else(|| anyhow::anyhow!("start_team did not return team state"))?;
                 let team_run_id = team_state.team_run_id.clone();
                 let mut actions = vec![ShellAction::MessageAppended(ShellMessage::TeamNotice {
                     content: format!("Started team {team_run_id}"),
                 })];
-                actions.extend(self.load_team_actions(&team_run_id, false).await?);
+                actions.push(ShellAction::TeamSnapshotLoaded {
+                    team_state: Some(team_state),
+                    messages: snapshot.messages,
+                    assignments: snapshot.assignments,
+                    approvals: snapshot.approvals,
+                    status: format!("Started team {team_run_id}"),
+                    open_overlay: false,
+                });
                 Ok(actions)
             }
             SlashCommand::Approve { approval_id } => {
@@ -557,7 +557,9 @@ impl ShellController {
 
     async fn team_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
         let mut items = Vec::new();
+        let mut active_team_ids = HashSet::new();
         if let Some(team) = state.current_team_state.as_ref() {
+            active_team_ids.insert(team.team_run_id.clone());
             items.push(TeamPickerItem::Current {
                 team_run_id: team.team_run_id.clone(),
                 status: format!("{:?}", team.status),
@@ -565,31 +567,32 @@ impl ShellController {
             });
         }
 
-        if let Ok(output) = self
-            .client
-            .execute_runtime_tool("spawn_subagent_batch", json!({ "operation": "list_teams" }))
-            .await
-            && output.success
-            && let Some(teams) = output
-                .result
-                .get("teams")
-                .and_then(serde_json::Value::as_array)
-        {
-            for team in teams {
-                let Some(name) = team.get("team").and_then(serde_json::Value::as_str) else {
+        if let Ok(response) = self.client.list_teams().await {
+            for team in response.active {
+                if !active_team_ids.insert(team.team_run_id.clone()) {
                     continue;
-                };
-                items.push(TeamPickerItem::Saved {
-                    name: name.to_string(),
-                    member_groups: team
-                        .get("member_groups")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or_default() as usize,
-                    total_instances: team
-                        .get("total_instances")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or_default() as usize,
+                }
+                items.push(TeamPickerItem::Current {
+                    team_run_id: team.team_run_id,
+                    status: format!("{:?}", team.status),
+                    members: team.members.len(),
                 });
+            }
+
+            for team in response.saved {
+                if let Some(name) = team.get("team").and_then(serde_json::Value::as_str) {
+                    items.push(TeamPickerItem::Saved {
+                        name: name.to_string(),
+                        member_groups: team
+                            .get("member_groups")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or_default() as usize,
+                        total_instances: team
+                            .get("total_instances")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or_default() as usize,
+                    });
+                }
             }
         }
 
@@ -683,10 +686,24 @@ impl ShellController {
                 status: "Model selected for new chat.".to_string(),
             }]);
         };
-        match self.client.update_session_model(session_id, &model).await {
+        let available = self
+            .client
+            .list_available_models()
+            .await
+            .unwrap_or_default();
+        let Some(item) = resolve_model_picker_item(&available, &model) else {
+            return Ok(vec![ShellAction::StatusUpdated(format!(
+                "Unknown or unavailable model: {model}"
+            ))]);
+        };
+        match self
+            .client
+            .switch_session_model(session_id, &item.provider, &item.model)
+            .await
+        {
             Ok(session) => Ok(vec![ShellAction::ModelSwitched {
                 session: Box::new(session),
-                status: format!("Switched model to {model}"),
+                status: format!("Switched model to {}", item.model),
             }]),
             Err(error) => Ok(vec![ShellAction::StatusUpdated(format!(
                 "Failed to switch model: {error}"
@@ -800,25 +817,9 @@ impl ShellController {
         if approval_id.trim().is_empty() {
             bail!("Usage: /approve <approval_id>");
         }
-        let output = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "resolve_team_approval",
-                    "team_run_id": team_run_id,
-                    "approval_id": approval_id,
-                    "approved": true,
-                }),
-            )
+        self.client
+            .resolve_team_approval(&team_run_id, approval_id, true, None)
             .await?;
-        if !output.success {
-            bail!(
-                output
-                    .error
-                    .unwrap_or_else(|| "approval failed".to_string())
-            );
-        }
 
         let mut actions = self.load_team_actions(&team_run_id, false).await?;
         actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
@@ -844,22 +845,9 @@ impl ShellController {
         if approval_id.trim().is_empty() {
             bail!("Usage: /reject <approval_id> [reason]");
         }
-        let output = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "resolve_team_approval",
-                    "team_run_id": team_run_id,
-                    "approval_id": approval_id,
-                    "approved": false,
-                    "reason": reason,
-                }),
-            )
+        self.client
+            .resolve_team_approval(&team_run_id, approval_id, false, reason)
             .await?;
-        if !output.success {
-            bail!(output.error.unwrap_or_else(|| "reject failed".to_string()));
-        }
 
         let mut actions = self.load_team_actions(&team_run_id, false).await?;
         actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
@@ -876,63 +864,13 @@ impl ShellController {
         team_run_id: &str,
         open_overlay: bool,
     ) -> Result<Vec<ShellAction>> {
-        let state_result = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "get_team_state",
-                    "team_run_id": team_run_id,
-                }),
-            )
-            .await?;
-        if !state_result.success {
-            bail!(
-                "{}",
-                state_result
-                    .error
-                    .unwrap_or_else(|| "get_team_state failed".to_string())
-            );
-        }
-        let team_state = serde_json::from_value(state_result.result["team"].clone()).ok();
-
-        let messages_result = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "list_team_messages",
-                    "team_run_id": team_run_id,
-                }),
-            )
-            .await?;
-        let messages: Vec<TeamMessage> = if messages_result.success {
-            serde_json::from_value(messages_result.result["messages"].clone()).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-
-        let assignments_result = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "list_team_assignments",
-                    "team_run_id": team_run_id,
-                }),
-            )
-            .await?;
-        let assignments: Vec<TeamAssignment> = if assignments_result.success {
-            serde_json::from_value(assignments_result.result["assignments"].clone())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let snapshot = self.client.get_team_snapshot(team_run_id).await?;
 
         Ok(vec![ShellAction::TeamSnapshotLoaded {
-            team_state,
-            messages,
-            assignments,
+            team_state: snapshot.team,
+            messages: snapshot.messages,
+            assignments: snapshot.assignments,
+            approvals: snapshot.approvals,
             status: format!("Loaded team {team_run_id}"),
             open_overlay,
         }])

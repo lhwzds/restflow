@@ -12,7 +12,7 @@ use restflow_core::models::{
 };
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
+use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
 
 const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
 const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
@@ -95,6 +95,7 @@ pub enum ShellAction {
         team_state: Option<TeamState>,
         messages: Vec<TeamMessage>,
         assignments: Vec<TeamAssignment>,
+        approvals: Vec<PendingTeamApproval>,
         status: String,
         open_overlay: bool,
     },
@@ -305,9 +306,17 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             team_state,
             messages,
             assignments,
+            approvals,
             status,
             open_overlay,
-        } => state.apply_team_snapshot(team_state, messages, assignments, status, open_overlay),
+        } => state.apply_team_snapshot(
+            team_state,
+            messages,
+            assignments,
+            approvals,
+            status,
+            open_overlay,
+        ),
         ShellAction::MessageAppended(message) => state.push_message(message),
         ShellAction::StatusUpdated(status) => state.status = status,
         ShellAction::DaemonStarted {
@@ -1183,7 +1192,7 @@ mod tests {
         assert!(state.composer.draft().is_empty());
         let pending = state.pending_session.as_ref().expect("pending session");
         assert_eq!(pending.agent_id, "agent-1");
-        assert_eq!(pending.model, "gpt-5-4");
+        assert_eq!(pending.model, "gpt-5.4");
         assert_eq!(state.status, "Started new chat");
     }
 

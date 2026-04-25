@@ -48,6 +48,7 @@ pub enum SlashCommand {
     },
     TeamStart {
         saved_team: String,
+        assignment: Option<String>,
     },
     Approve {
         approval_id: String,
@@ -182,10 +183,12 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
                 "start" => {
                     let saved_team = parts.next().unwrap_or_default();
                     if saved_team.is_empty() {
-                        bail!("Usage: /team start <saved_team>");
+                        bail!("Usage: /team start <saved_team> [assignment]");
                     }
+                    let assignment = parts.collect::<Vec<_>>().join(" ");
                     Ok(SlashCommand::TeamStart {
                         saved_team: saved_team.to_string(),
+                        assignment: (!assignment.trim().is_empty()).then_some(assignment),
                     })
                 }
                 _ => bail!("Unsupported /team action"),
@@ -355,6 +358,14 @@ mod tests {
             parse_slash_command("/team start saved-team").expect("parse"),
             SlashCommand::TeamStart {
                 saved_team: "saved-team".to_string(),
+                assignment: None,
+            }
+        );
+        assert_eq!(
+            parse_slash_command("/team start saved-team review this").expect("parse"),
+            SlashCommand::TeamStart {
+                saved_team: "saved-team".to_string(),
+                assignment: Some("review this".to_string()),
             }
         );
     }

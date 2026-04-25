@@ -1770,7 +1770,7 @@ mod tests {
             "gpt-5.4".to_string(),
         )));
 
-        assert_eq!(footer_status_line(&state), "openai · gpt-5.4");
+        assert_eq!(footer_status_line(&state), "codex · gpt-5.4");
     }
 
     #[test]

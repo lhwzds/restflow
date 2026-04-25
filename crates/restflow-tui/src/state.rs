@@ -8,9 +8,7 @@ use restflow_core::models::{
 };
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{
-    PendingTeamApproval, TeamAssignment, TeamMessage, TeamMessageKind, TeamState,
-};
+use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
 
 use super::composer::ComposerState;
 use super::transcript::{
@@ -1096,6 +1094,7 @@ impl AppState {
         team_state: Option<TeamState>,
         messages: Vec<TeamMessage>,
         assignments: Vec<TeamAssignment>,
+        approvals: Vec<PendingTeamApproval>,
         status: impl Into<String>,
         open_overlay: bool,
     ) {
@@ -1106,7 +1105,10 @@ impl AppState {
         for message in &team_messages {
             self.record_team_message(message);
         }
-        self.rebuild_pending_approvals();
+        self.current_team_approvals = approvals
+            .into_iter()
+            .filter(|approval| approval.status == restflow_traits::TeamApprovalStatus::Pending)
+            .collect();
         self.status = status.into();
         if open_overlay {
             self.open_team_overlay();
@@ -1183,31 +1185,6 @@ impl AppState {
 
     pub fn apply_task_event(&mut self, event: TaskStreamEvent) {
         self.push_message(message_from_task_event(&event));
-    }
-
-    pub fn rebuild_pending_approvals(&mut self) {
-        self.current_team_approvals = self
-            .current_team_messages
-            .iter()
-            .filter(|message| message.kind == TeamMessageKind::ApprovalRequest)
-            .map(|message| PendingTeamApproval {
-                team_run_id: message.team_run_id.clone(),
-                approval_id: message
-                    .content
-                    .split_whitespace()
-                    .last()
-                    .unwrap_or_default()
-                    .trim_matches(|ch| ch == '(' || ch == ')')
-                    .to_string(),
-                member_id: message.from_member_id.clone(),
-                tool_name: "unknown".to_string(),
-                content: message.content.clone(),
-                status: restflow_traits::TeamApprovalStatus::Pending,
-                requested_at: message.created_at,
-                resolved_at: None,
-                resolution_reason: None,
-            })
-            .collect();
     }
 
     #[allow(dead_code)]

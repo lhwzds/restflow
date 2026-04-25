@@ -1,25 +1,46 @@
 use anyhow::{Result, bail};
-use restflow_contracts::ToolExecutionResult;
-use restflow_contracts::request::ChildRunListQuery;
+use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
 use restflow_core::daemon::ChatSessionEvent;
 use restflow_core::daemon::{
     DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available,
     start_daemon_with_config, stop_daemon,
 };
 use restflow_core::models::{
-    ChatSession, ChatSessionSummary, ChatSessionUpdate, ExecutionContainerKind,
-    ExecutionContainerRef, ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Task,
+    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
+    ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Task,
 };
 use restflow_core::paths;
 use restflow_core::storage::agent::{
     DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
 };
+use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
+use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 
 use super::event_loop::AppEvent;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TeamListResponse {
+    #[serde(default)]
+    pub saved: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub active: Vec<TeamState>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TeamSnapshotResponse {
+    #[serde(default)]
+    pub team: Option<TeamState>,
+    #[serde(default)]
+    pub messages: Vec<TeamMessage>,
+    #[serde(default)]
+    pub assignments: Vec<TeamAssignment>,
+    #[serde(default)]
+    pub approvals: Vec<PendingTeamApproval>,
+}
 
 #[derive(Clone)]
 pub struct TuiDaemonClient {
@@ -183,17 +204,22 @@ impl TuiDaemonClient {
         client.get_session(session_id.to_string()).await
     }
 
-    pub async fn update_session_model(&self, session_id: &str, model: &str) -> Result<ChatSession> {
+    pub async fn switch_session_model(
+        &self,
+        session_id: &str,
+        provider: &str,
+        model: &str,
+    ) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client
-            .update_session(
-                session_id.to_string(),
-                ChatSessionUpdate {
-                    agent_id: None,
-                    model: Some(model.to_string()),
-                    name: None,
+            .request_typed(IpcRequest::SwitchSessionModel {
+                session_id: session_id.to_string(),
+                model_ref: WireModelRef {
+                    provider: provider.to_string(),
+                    model: model.to_string(),
                 },
-            )
+                reason: Some("tui model picker".to_string()),
+            })
             .await
     }
 
@@ -251,13 +277,55 @@ impl TuiDaemonClient {
             .await
     }
 
-    pub async fn execute_runtime_tool(
-        &self,
-        name: &str,
-        input: serde_json::Value,
-    ) -> Result<ToolExecutionResult> {
+    pub async fn list_teams(&self) -> Result<TeamListResponse> {
         let mut client = self.connect().await?;
-        client.execute_tool(name.to_string(), input).await
+        client
+            .request_typed(IpcRequest::ListTeams {
+                include_saved: true,
+                include_active: true,
+            })
+            .await
+    }
+
+    pub async fn get_team_snapshot(&self, team_run_id: &str) -> Result<TeamSnapshotResponse> {
+        let mut client = self.connect().await?;
+        client
+            .request_typed(IpcRequest::GetTeamSnapshot {
+                team_run_id: team_run_id.to_string(),
+            })
+            .await
+    }
+
+    pub async fn start_team_from_template(
+        &self,
+        team: &str,
+        assignments: Vec<String>,
+    ) -> Result<TeamSnapshotResponse> {
+        let mut client = self.connect().await?;
+        client
+            .request_typed(IpcRequest::StartTeam {
+                team: team.to_string(),
+                assignments,
+            })
+            .await
+    }
+
+    pub async fn resolve_team_approval(
+        &self,
+        team_run_id: &str,
+        approval_id: &str,
+        approved: bool,
+        reason: Option<String>,
+    ) -> Result<serde_json::Value> {
+        let mut client = self.connect().await?;
+        client
+            .request_typed(IpcRequest::ResolveTeamApproval {
+                team_run_id: team_run_id.to_string(),
+                approval_id: approval_id.to_string(),
+                approved,
+                reason,
+            })
+            .await
     }
 
     pub fn spawn_session_events(
