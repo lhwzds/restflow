@@ -256,7 +256,7 @@ mod tests {
         // can race on reads.
         unsafe {
             std::env::set_var(RESTFLOW_DIR_ENV, &state_dir);
-            std::env::remove_var(MASTER_KEY_ENV);
+            std::env::set_var(MASTER_KEY_ENV, "11".repeat(32));
         }
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (

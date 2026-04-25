@@ -1066,6 +1066,14 @@ mod tests {
             }
             Self { key, original }
         }
+
+        fn set_value(key: &'static str, value: &str) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, original }
+        }
     }
 
     impl Drop for EnvGuard {
@@ -1108,6 +1116,7 @@ mod tests {
         let state_dir = temp.path().join("state");
         std::fs::create_dir_all(&state_dir).expect("state dir");
         let _restflow_dir = EnvGuard::set_path("RESTFLOW_DIR", &state_dir);
+        let _master_key = EnvGuard::set_value("RESTFLOW_MASTER_KEY", &"11".repeat(32));
         Arc::new(
             AppCore::new(db_path.to_str().expect("db path utf8"))
                 .await
