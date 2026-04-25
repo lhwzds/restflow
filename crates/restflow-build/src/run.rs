@@ -103,4 +103,62 @@ mod tests {
         unsafe { std::env::remove_var("RESTFLOW_BUILD_CARGO") };
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_skill_binary_executes_published_artifact_layout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = crate::test_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let skill_dir = temp.path().join("skills").join("regex-finder");
+        std::fs::create_dir_all(&skill_dir).expect("create skill dir");
+        let binary_path = skill_dir.join("regex-finder");
+        std::fs::write(
+            &binary_path,
+            "#!/bin/sh\nprintf '{\"ok\":true,\"action\":\"match\",\"data\":{\"matched\":true},\"error\":null}'\n",
+        )
+        .expect("write binary");
+        let mut permissions = std::fs::metadata(&binary_path)
+            .expect("metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&binary_path, permissions).expect("chmod");
+        std::fs::write(
+            skill_dir.join("artifact.json"),
+            r#"{
+                "schema_version": 1,
+                "kind": "skill_binary",
+                "id": "regex-finder",
+                "name": "Regex Finder",
+                "version": "0.1.2",
+                "target": "aarch64-macos",
+                "entry_binary": "regex-finder",
+                "protocol": {
+                    "transport": "stdio-json",
+                    "input": "single-json-value",
+                    "output": "single-json-value"
+                },
+                "download": {
+                    "repo": "lhwzds/restflow-skills",
+                    "tag": "regex-finder@0.1.2",
+                    "asset": "regex-finder-aarch64-macos.tar.gz"
+                }
+            }"#,
+        )
+        .expect("write artifact");
+
+        let result = run_skill_binary(&RunBinaryOptions {
+            skill_id: "regex-finder".to_string(),
+            stdin_json: Some(r#"{"action":"match"}"#.to_string()),
+        })
+        .expect("run skill");
+
+        assert!(result.success);
+        assert!(result.stdout.contains(r#""matched":true"#));
+
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
+    }
 }

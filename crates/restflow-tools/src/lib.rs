@@ -47,11 +47,12 @@ pub use impls::{EditTool, MultiEditTool};
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool,
     BinarySkillRunTool, BinarySkillUpdateTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool,
-    JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool, ProcessTool,
-    PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool, ReplyTool,
-    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool,
-    SkillTool, SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool,
-    WebFetchTool, WebSearchTool, WorkItemTool,
+    InstalledBinarySkillTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool,
+    ProcessTool, PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool,
+    ReplyTool, RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool,
+    SessionTool, SkillTool, SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool,
+    WebFetchTool, WebSearchTool, WorkItemTool, binary_skill_tool_name,
+    discover_installed_binary_skill_tools, discover_installed_binary_skill_tools_from,
 };
 
 // Re-export tool_registry inline migrated tools

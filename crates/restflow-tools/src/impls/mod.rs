@@ -111,7 +111,8 @@ pub use multiedit::MultiEditTool;
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use binary_skill::{
     BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
-    BinarySkillUpdateTool,
+    BinarySkillUpdateTool, InstalledBinarySkillTool, binary_skill_tool_name,
+    discover_installed_binary_skill_tools, discover_installed_binary_skill_tools_from,
 };
 pub use browser::BrowserTool;
 pub use discord::DiscordTool;

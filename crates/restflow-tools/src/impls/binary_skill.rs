@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use restflow_build::{
-    BuildBinaryOptions, BuildProfile, CreateSkillProjectOptions, RunBinaryOptions,
-    UpdateSkillProjectOptions, build_skill_binary, create_skill_project, read_skill_project,
-    run_skill_binary, update_skill_project,
+    ArtifactKind, BuildBinaryOptions, BuildProfile, CreateSkillProjectOptions, RunBinaryOptions,
+    SkillArtifactMetadata, UpdateSkillProjectOptions, build_skill_binary, create_skill_project,
+    list_installed_skill_artifacts, read_skill_project, run_skill_binary, skill_root_dir,
+    update_skill_project,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::Result;
@@ -57,6 +59,83 @@ struct BinarySkillUpdateInput {
     main_rs: Option<String>,
     #[serde(default)]
     skill_markdown: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct InstalledBinarySkillTool {
+    tool_name: String,
+    skill_id: String,
+    description: String,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: Option<String>,
+    task_id: Option<String>,
+}
+
+impl InstalledBinarySkillTool {
+    pub fn new(metadata: SkillArtifactMetadata) -> Self {
+        let tool_name = binary_skill_tool_name(&metadata.id);
+        let description = format!(
+            "Run installed binary skill '{}' (id: {}). Input is passed to the binary as one JSON value on stdin.",
+            metadata.name, metadata.id
+        );
+        Self {
+            tool_name,
+            skill_id: metadata.id,
+            description,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
+        }
+    }
+
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
+        self
+    }
+}
+
+pub fn binary_skill_tool_name(id: &str) -> String {
+    let suffix = id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string();
+    if suffix.is_empty() {
+        "skill_binary".to_string()
+    } else {
+        format!("skill_{suffix}")
+    }
+}
+
+pub fn discover_installed_binary_skill_tools() -> anyhow::Result<Vec<InstalledBinarySkillTool>> {
+    discover_installed_binary_skill_tools_from(skill_root_dir()?)
+}
+
+pub fn discover_installed_binary_skill_tools_from(
+    root_dir: PathBuf,
+) -> anyhow::Result<Vec<InstalledBinarySkillTool>> {
+    let artifacts = list_installed_skill_artifacts(&root_dir)?;
+    Ok(artifacts
+        .into_iter()
+        .filter_map(|(_, metadata)| {
+            (metadata.kind == ArtifactKind::SkillBinary)
+                .then(|| InstalledBinarySkillTool::new(metadata))
+        })
+        .collect())
 }
 
 #[derive(Clone)]
@@ -254,6 +333,74 @@ async fn check_build_security(
         task_id,
     )
     .await
+}
+
+#[async_trait]
+impl Tool for InstalledBinarySkillTool {
+    fn name(&self) -> &str {
+        &self.tool_name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "JSON payload passed directly to the installed binary skill."
+        })
+    }
+
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+        if let Some(message) = check_build_security(
+            self.security_gate.as_deref(),
+            self.name(),
+            "run",
+            &self.skill_id,
+            self.agent_id.as_deref(),
+            self.task_id.as_deref(),
+        )
+        .await?
+        {
+            return Ok(ToolOutput::non_retryable_error(
+                message,
+                ToolErrorCategory::Auth,
+            ));
+        }
+
+        let stdin_json = Some(serde_json::to_string(&input)?);
+        match run_skill_binary(&RunBinaryOptions {
+            skill_id: self.skill_id.clone(),
+            stdin_json,
+        }) {
+            Ok(result) => {
+                let parsed_stdout = serde_json::from_str::<Value>(&result.stdout)
+                    .unwrap_or_else(|_| json!({ "stdout": result.stdout }));
+                if result.success {
+                    Ok(ToolOutput::success(json!({
+                        "skill_id": self.skill_id.clone(),
+                        "binary_path": result.binary_path,
+                        "stdout": parsed_stdout,
+                        "stderr": result.stderr,
+                        "exit_code": result.exit_code,
+                    })))
+                } else {
+                    Ok(ToolOutput::non_retryable_error(
+                        format!(
+                            "binary skill '{}' exited with code {}. stderr: {} stdout: {}",
+                            self.skill_id, result.exit_code, result.stderr, parsed_stdout
+                        ),
+                        ToolErrorCategory::Execution,
+                    ))
+                }
+            }
+            Err(error) => Ok(ToolOutput::non_retryable_error(
+                error.to_string(),
+                ToolErrorCategory::Execution,
+            )),
+        }
+    }
 }
 
 #[async_trait]
@@ -609,6 +756,76 @@ mod tests {
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn installed_binary_skill_tool_name_is_openai_safe() {
+        assert_eq!(binary_skill_tool_name("regex-finder"), "skill_regex_finder");
+        assert_eq!(binary_skill_tool_name("CDP Browser"), "skill_cdp_browser");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn discovered_installed_binary_skill_runs_through_tool_registry() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = env_lock().lock().await;
+        let temp = tempfile::tempdir().expect("tempdir");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let skill_dir = temp.path().join("skills").join("regex-finder");
+        std::fs::create_dir_all(&skill_dir).expect("create skill dir");
+        let binary_path = skill_dir.join("regex-finder");
+        std::fs::write(
+            &binary_path,
+            "#!/bin/sh\nprintf '{\"ok\":true,\"action\":\"match\",\"data\":{\"matched\":true},\"error\":null}'\n",
+        )
+        .expect("write binary");
+        let mut permissions = std::fs::metadata(&binary_path)
+            .expect("metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&binary_path, permissions).expect("chmod");
+        std::fs::write(
+            skill_dir.join("artifact.json"),
+            r#"{
+                "schema_version": 1,
+                "kind": "skill_binary",
+                "id": "regex-finder",
+                "name": "Regex Finder",
+                "version": "0.1.2",
+                "target": "aarch64-macos",
+                "entry_binary": "regex-finder",
+                "protocol": {
+                    "transport": "stdio-json",
+                    "input": "single-json-value",
+                    "output": "single-json-value"
+                }
+            }"#,
+        )
+        .expect("write artifact");
+
+        let tools = discover_installed_binary_skill_tools().expect("discover tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name(), "skill_regex_finder");
+
+        let mut registry = ToolRegistry::new();
+        registry.register(tools.into_iter().next().expect("tool"));
+        let output = registry
+            .execute(
+                "skill_regex_finder",
+                json!({"action":"match","input":{"pattern":"\\d+","text":"abc 123"}}),
+            )
+            .await
+            .expect("execute discovered skill");
+
+        assert!(output.success);
+        assert_eq!(
+            output.result["stdout"]["data"]["matched"],
+            serde_json::Value::Bool(true)
+        );
+
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }
 
     #[tokio::test]
