@@ -13,8 +13,8 @@ use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
-    AgentNode, Deliverable, ExecutionTimeline, ExecutionTraceQuery, Hook, RunListQuery, RunSummary,
-    SharedEntry, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
+    AgentNode, ExecutionTimeline, ExecutionTraceQuery, Hook, RunListQuery, RunSummary, Task,
+    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
@@ -486,32 +486,6 @@ impl CommandExecutor for DirectExecutor {
         _input: serde_json::Value,
     ) -> Result<restflow_contracts::ToolExecutionResult> {
         bail!("Runtime tool execution requires daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn set_kv_store(
-        &self,
-        _key: &str,
-        _value: &str,
-        _visibility: &str,
-    ) -> Result<SharedEntry> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn delete_kv_store(&self, _key: &str) -> Result<bool> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    // Deliverable operations - require daemon
-    async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>> {
-        bail!("Deliverable operations require daemon mode. Use 'restflow daemon start' first.")
     }
 }
 

@@ -224,12 +224,6 @@ async fn run() -> Result<()> {
             Some(Commands::Team { command }) => {
                 commands::team::run(exec, command, cli.format).await
             }
-            Some(Commands::Shared { command }) => {
-                commands::shared::run(exec, command, cli.format).await
-            }
-            Some(Commands::Deliverable { command }) => {
-                commands::deliverable::run(exec, command, cli.format).await
-            }
             Some(Commands::Trigger { command }) => {
                 commands::trigger::run(exec, command, cli.format).await
             }

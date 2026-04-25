@@ -66,7 +66,7 @@ export type TaskSpec = {
    */
   resource_limits: ResourceLimits | null
   /**
-   * Upstream task IDs that must provide deliverables before execution
+   * Upstream task IDs that must provide artifacts before execution
    */
   prerequisites: Array<string>
   /**

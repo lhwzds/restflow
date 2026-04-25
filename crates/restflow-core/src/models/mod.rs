@@ -6,7 +6,6 @@ pub mod background_agent;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
-pub mod deliverable;
 pub mod execution_console;
 pub mod execution_trace;
 pub(crate) mod execution_trace_builders;
@@ -14,8 +13,8 @@ pub mod hook;
 pub mod memory;
 pub mod model_ref;
 mod provider_policy;
+pub mod run_artifact;
 pub mod security;
-pub mod shared_space;
 pub mod skill;
 pub mod skill_folder;
 pub mod skill_marketplace;
@@ -50,7 +49,6 @@ pub use background_agent::{
 };
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
-pub use deliverable::{Deliverable, DeliverableType};
 pub use execution_console::{
     ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
     ExecutionThread, RunKind, RunListQuery, RunSummary,
@@ -67,6 +65,7 @@ pub(crate) use provider_policy::{
     secret_provider_resolution_order,
 };
 pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
+pub use run_artifact::{RunArtifact, RunArtifactKind};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec};
@@ -97,7 +96,6 @@ pub use security::{
     AgentSecurityConfig, ApprovalStatus, AskMode, CommandPattern, PendingApproval, SecurityAction,
     SecurityCheckResult, SecurityMode, SecurityPolicy, ToolAction, ToolRule,
 };
-pub use shared_space::{SharedEntry, Visibility};
 pub use skill::{Skill, SkillStatus};
 pub use skill_folder::{SkillGating, SkillReference, SkillScript};
 pub use skill_marketplace::{

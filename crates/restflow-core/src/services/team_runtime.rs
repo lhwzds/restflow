@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::storage::TeamRuntimeStorage;
 use async_trait::async_trait;
 use restflow_ai::agent::SubagentTracker;
-use restflow_traits::store::KvStore;
 use restflow_traits::{
     AssignTeamTaskRequest, ContractRunSpawnRequest, PendingTeamApproval,
     ResolveTeamApprovalRequest, SendTeamMessageRequest, StartTeamRequest, SubagentManager,
@@ -11,31 +11,21 @@ use restflow_traits::{
     TeamMailbox, TeamMemberSpec, TeamMemberState, TeamMemberStatus, TeamMessage, TeamMessageKind,
     TeamRole, TeamState, TeamStatus, ToolError,
 };
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
-
-const TEAM_STATE_PREFIX: &str = "team_runtime:state";
-const TEAM_MESSAGE_PREFIX: &str = "team_runtime:message";
-const TEAM_ASSIGNMENT_PREFIX: &str = "team_runtime:assignment";
-const TEAM_APPROVAL_PREFIX: &str = "team_runtime:approval";
-const TEAM_VISIBILITY: &str = "shared";
-const TEAM_CONTENT_TYPE: &str = "application/json";
 
 pub struct TeamRuntimeService {
-    kv_store: Arc<dyn KvStore>,
+    storage: TeamRuntimeStorage,
     subagent_manager: Arc<dyn SubagentManager>,
     subagent_tracker: Arc<SubagentTracker>,
 }
 
 impl TeamRuntimeService {
     pub fn new(
-        kv_store: Arc<dyn KvStore>,
+        storage: TeamRuntimeStorage,
         subagent_manager: Arc<dyn SubagentManager>,
         subagent_tracker: Arc<SubagentTracker>,
     ) -> Self {
         Self {
-            kv_store,
+            storage,
             subagent_manager,
             subagent_tracker,
         }
@@ -43,82 +33,6 @@ impl TeamRuntimeService {
 
     fn now_ms() -> i64 {
         chrono::Utc::now().timestamp_millis()
-    }
-
-    fn state_key(team_run_id: &str) -> String {
-        format!("{TEAM_STATE_PREFIX}:{team_run_id}")
-    }
-
-    fn message_key(team_run_id: &str, message_id: &str) -> String {
-        format!("{TEAM_MESSAGE_PREFIX}:{team_run_id}:{message_id}")
-    }
-
-    fn assignment_key(team_run_id: &str, assignment_id: &str) -> String {
-        format!("{TEAM_ASSIGNMENT_PREFIX}:{team_run_id}:{assignment_id}")
-    }
-
-    fn approval_key(team_run_id: &str, approval_id: &str) -> String {
-        format!("{TEAM_APPROVAL_PREFIX}:{team_run_id}:{approval_id}")
-    }
-
-    fn write_json<T: Serialize>(
-        &self,
-        key: &str,
-        value: &T,
-        type_hint: &'static str,
-        tags: Vec<String>,
-    ) -> Result<(), ToolError> {
-        let content = serde_json::to_string(value).map_err(|error| {
-            ToolError::Tool(format!("Failed to serialize {type_hint}: {error}"))
-        })?;
-        self.kv_store
-            .set_entry(
-                key,
-                &content,
-                Some(TEAM_VISIBILITY),
-                Some(TEAM_CONTENT_TYPE),
-                Some(type_hint),
-                Some(tags),
-                None,
-            )
-            .map(|_| ())
-    }
-
-    fn read_json<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, ToolError> {
-        let payload = self.kv_store.get_entry(key)?;
-        if !payload
-            .get("found")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            return Ok(None);
-        }
-        let raw = payload
-            .get("value")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::Tool(format!("Stored payload is invalid for key '{key}'")))?;
-        serde_json::from_str(raw)
-            .map(Some)
-            .map_err(|error| ToolError::Tool(format!("Failed to decode '{key}': {error}")))
-    }
-
-    fn list_by_prefix<T: DeserializeOwned>(&self, prefix: &str) -> Result<Vec<T>, ToolError> {
-        let payload = self.kv_store.list_entries(Some(prefix))?;
-        let entries = payload
-            .get("entries")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let mut results = Vec::new();
-        for entry in entries {
-            let Some(key) = entry.get("key").and_then(Value::as_str) else {
-                continue;
-            };
-            if let Some(value) = self.read_json::<T>(key)? {
-                results.push(value);
-            }
-        }
-        Ok(results)
     }
 
     fn build_leader_state(leader_member_id: &str) -> TeamMemberState {
@@ -297,12 +211,9 @@ impl TeamRuntimeService {
         }
 
         for assignment in assignment_map.values() {
-            self.write_json(
-                &Self::assignment_key(&assignment.team_run_id, &assignment.assignment_id),
-                assignment,
-                "team_runtime_assignment",
-                vec!["team_runtime".to_string(), "assignment".to_string()],
-            )?;
+            self.storage.save_assignment(assignment).map_err(|error| {
+                ToolError::Tool(format!("Failed to persist assignment: {error}"))
+            })?;
         }
 
         state.pending_message_count = approvals.len();
@@ -334,19 +245,16 @@ impl TeamRuntimeService {
     }
 
     fn persist_state(&self, state: &TeamState) -> Result<(), ToolError> {
-        self.write_json(
-            &Self::state_key(&state.team_run_id),
-            state,
-            "team_runtime_state",
-            vec!["team_runtime".to_string(), "state".to_string()],
-        )
+        self.storage
+            .save_state(state)
+            .map_err(|error| ToolError::Tool(format!("Failed to persist team state: {error}")))
     }
 
     fn pending_approvals(&self, team_run_id: &str) -> Result<Vec<PendingTeamApproval>, ToolError> {
         Ok(self
-            .list_by_prefix::<PendingTeamApproval>(&format!(
-                "{TEAM_APPROVAL_PREFIX}:{team_run_id}"
-            ))?
+            .storage
+            .list_approvals(team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to list team approvals: {error}")))?
             .into_iter()
             .filter(|approval| approval.status == TeamApprovalStatus::Pending)
             .collect())
@@ -417,12 +325,9 @@ impl TeamRuntimeService {
         member.status = TeamMemberStatus::Running;
         state.updated_at = now;
 
-        self.write_json(
-            &Self::assignment_key(&state.team_run_id, &assignment.assignment_id),
-            &assignment,
-            "team_runtime_assignment",
-            vec!["team_runtime".to_string(), "assignment".to_string()],
-        )?;
+        self.storage
+            .save_assignment(&assignment)
+            .map_err(|error| ToolError::Tool(format!("Failed to persist assignment: {error}")))?;
         self.persist_state(state)?;
         let _ = self
             .send_team_message(SendTeamMessageRequest {
@@ -440,10 +345,9 @@ impl TeamRuntimeService {
 #[async_trait]
 impl TeamMailbox for TeamRuntimeService {
     async fn list_team_messages(&self, team_run_id: &str) -> Result<Vec<TeamMessage>, ToolError> {
-        let mut messages =
-            self.list_by_prefix::<TeamMessage>(&format!("{TEAM_MESSAGE_PREFIX}:{team_run_id}"))?;
-        messages.sort_by_key(|message| message.created_at);
-        Ok(messages)
+        self.storage
+            .list_messages(team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to list team messages: {error}")))
     }
 
     async fn send_team_message(
@@ -451,7 +355,9 @@ impl TeamMailbox for TeamRuntimeService {
         request: SendTeamMessageRequest,
     ) -> Result<TeamMessage, ToolError> {
         let mut state = self
-            .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
+            .storage
+            .get_state(&request.team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to load team state: {error}")))?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
             })?;
@@ -464,12 +370,9 @@ impl TeamMailbox for TeamRuntimeService {
             content: request.content.clone(),
             created_at: Self::now_ms(),
         };
-        self.write_json(
-            &Self::message_key(&message.team_run_id, &message.message_id),
-            &message,
-            "team_runtime_message",
-            vec!["team_runtime".to_string(), "message".to_string()],
-        )?;
+        self.storage
+            .save_message(&message)
+            .map_err(|error| ToolError::Tool(format!("Failed to persist team message: {error}")))?;
 
         if let Some(target_member_id) = request.to_member_id
             && let Some(target) = state
@@ -537,19 +440,41 @@ impl TeamCoordinator for TeamRuntimeService {
 
     async fn get_team_state(&self, team_run_id: &str) -> Result<TeamState, ToolError> {
         let state = self
-            .read_json::<TeamState>(&Self::state_key(team_run_id))?
+            .storage
+            .get_state(team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to load team state: {error}")))?
             .ok_or_else(|| ToolError::Tool(format!("Unknown team run '{team_run_id}'.")))?;
         self.refresh_state(state).await
+    }
+
+    async fn list_team_states(&self) -> Result<Vec<TeamState>, ToolError> {
+        let states = self
+            .storage
+            .list_states()
+            .map_err(|error| ToolError::Tool(format!("Failed to list team states: {error}")))?;
+        let mut refreshed = Vec::with_capacity(states.len());
+        for state in states {
+            refreshed.push(self.refresh_state(state).await?);
+        }
+        Ok(refreshed)
     }
 
     async fn list_team_assignments(
         &self,
         team_run_id: &str,
     ) -> Result<Vec<TeamAssignment>, ToolError> {
-        let mut assignments = self
-            .list_by_prefix::<TeamAssignment>(&format!("{TEAM_ASSIGNMENT_PREFIX}:{team_run_id}"))?;
-        assignments.sort_by_key(|assignment| assignment.created_at);
-        Ok(assignments)
+        self.storage
+            .list_assignments(team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to list assignments: {error}")))
+    }
+
+    async fn list_team_approvals(
+        &self,
+        team_run_id: &str,
+    ) -> Result<Vec<PendingTeamApproval>, ToolError> {
+        self.storage
+            .list_approvals(team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to list approvals: {error}")))
     }
 
     async fn assign_team_task(
@@ -557,7 +482,9 @@ impl TeamCoordinator for TeamRuntimeService {
         request: AssignTeamTaskRequest,
     ) -> Result<TeamAssignment, ToolError> {
         let mut state = self
-            .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
+            .storage
+            .get_state(&request.team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to load team state: {error}")))?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
             })?;
@@ -573,7 +500,9 @@ impl TeamCoordinator for TeamRuntimeService {
         request: TeamApprovalRequest,
     ) -> Result<PendingTeamApproval, ToolError> {
         let mut state = self
-            .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
+            .storage
+            .get_state(&request.team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to load team state: {error}")))?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
             })?;
@@ -588,12 +517,9 @@ impl TeamCoordinator for TeamRuntimeService {
             resolved_at: None,
             resolution_reason: None,
         };
-        self.write_json(
-            &Self::approval_key(&request.team_run_id, &request.approval_id),
-            &approval,
-            "team_runtime_approval",
-            vec!["team_runtime".to_string(), "approval".to_string()],
-        )?;
+        self.storage
+            .save_approval(&approval)
+            .map_err(|error| ToolError::Tool(format!("Failed to persist approval: {error}")))?;
         let _ = self
             .send_team_message(SendTeamMessageRequest {
                 team_run_id: request.team_run_id.clone(),
@@ -616,15 +542,16 @@ impl TeamCoordinator for TeamRuntimeService {
         request: ResolveTeamApprovalRequest,
     ) -> Result<PendingTeamApproval, ToolError> {
         let mut approval = self
-            .read_json::<PendingTeamApproval>(&Self::approval_key(
-                &request.team_run_id,
-                &request.approval_id,
-            ))?
+            .storage
+            .get_approval(&request.team_run_id, &request.approval_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to load approval: {error}")))?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Unknown approval '{}'.", request.approval_id))
             })?;
         let mut state = self
-            .read_json::<TeamState>(&Self::state_key(&request.team_run_id))?
+            .storage
+            .get_state(&request.team_run_id)
+            .map_err(|error| ToolError::Tool(format!("Failed to load team state: {error}")))?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Unknown team run '{}'.", request.team_run_id))
             })?;
@@ -636,12 +563,9 @@ impl TeamCoordinator for TeamRuntimeService {
         };
         approval.resolved_at = Some(Self::now_ms());
         approval.resolution_reason = request.reason.clone();
-        self.write_json(
-            &Self::approval_key(&request.team_run_id, &request.approval_id),
-            &approval,
-            "team_runtime_approval",
-            vec!["team_runtime".to_string(), "approval".to_string()],
-        )?;
+        self.storage
+            .save_approval(&approval)
+            .map_err(|error| ToolError::Tool(format!("Failed to persist approval: {error}")))?;
 
         if let Some(member) = state
             .members
@@ -700,69 +624,8 @@ impl TeamCoordinator for TeamRuntimeService {
 mod tests {
     use super::*;
     use restflow_traits::SpawnHandle;
-    use serde_json::json;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
+    use tempfile::tempdir;
     use tokio::sync::mpsc;
-
-    #[derive(Default)]
-    struct MockKvStore {
-        entries: Mutex<HashMap<String, String>>,
-    }
-
-    impl KvStore for MockKvStore {
-        fn get_entry(&self, key: &str) -> Result<Value, ToolError> {
-            let entries = self
-                .entries
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(value) = entries.get(key) {
-                Ok(json!({"found": true, "key": key, "value": value }))
-            } else {
-                Ok(json!({"found": false, "key": key }))
-            }
-        }
-
-        fn set_entry(
-            &self,
-            key: &str,
-            content: &str,
-            _visibility: Option<&str>,
-            _content_type: Option<&str>,
-            _type_hint: Option<&str>,
-            _tags: Option<Vec<String>>,
-            _accessor_id: Option<&str>,
-        ) -> Result<Value, ToolError> {
-            let mut entries = self
-                .entries
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            entries.insert(key.to_string(), content.to_string());
-            Ok(json!({"success": true, "key": key }))
-        }
-
-        fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> Result<Value, ToolError> {
-            let mut entries = self
-                .entries
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            Ok(json!({"deleted": entries.remove(key).is_some()}))
-        }
-
-        fn list_entries(&self, namespace: Option<&str>) -> Result<Value, ToolError> {
-            let entries = self
-                .entries
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let prefix = namespace.unwrap_or_default().to_string();
-            let rows = entries
-                .keys()
-                .filter(|key| key.starts_with(&prefix))
-                .map(|key| json!({"key": key}))
-                .collect::<Vec<_>>();
-            Ok(json!({"entries": rows}))
-        }
-    }
 
     struct MockSubagentManager;
 
@@ -822,8 +685,13 @@ mod tests {
 
     fn make_service() -> TeamRuntimeService {
         let (tx, rx) = mpsc::channel(8);
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("team-runtime.db");
+        let db = Arc::new(redb::Database::create(db_path).expect("db should be created"));
+        let storage = TeamRuntimeStorage::new(db).expect("storage should be created");
+        std::mem::forget(dir);
         TeamRuntimeService::new(
-            Arc::new(MockKvStore::default()),
+            storage,
             Arc::new(MockSubagentManager),
             Arc::new(SubagentTracker::new(tx, rx)),
         )

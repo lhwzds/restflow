@@ -19,8 +19,9 @@ use crate::services::background_agent_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,
-    DeliverableStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
-    SkillStorage, Storage, TerminalSessionStorage, TriggerStorage, WorkItemStorage,
+    ExecutionTraceStorage, MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage,
+    TeamRuntimeStorage, TeamTemplateStorage, TerminalSessionStorage, TriggerStorage,
+    WorkItemStorage,
 };
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -50,14 +51,15 @@ struct AssessmentContext {
     chat_sessions: crate::storage::ChatSessionStorage,
     channel_session_bindings: ChannelSessionBindingStorage,
     execution_traces: ExecutionTraceStorage,
-    kv_store: KvStoreStorage,
+    team_templates: TeamTemplateStorage,
     work_items: WorkItemStorage,
     config: ConfigStorage,
     agents: AgentStorage,
     background_agents: BackgroundAgentStorage,
     triggers: TriggerStorage,
     terminal_sessions: TerminalSessionStorage,
-    deliverables: DeliverableStorage,
+    run_artifacts: RunArtifactStorage,
+    team_runtime: TeamRuntimeStorage,
 }
 
 impl AssessmentContext {
@@ -74,14 +76,15 @@ impl AssessmentContext {
             chat_sessions: storage.chat_sessions.clone(),
             channel_session_bindings: storage.channel_session_bindings.clone(),
             execution_traces: storage.execution_traces.clone(),
-            kv_store: storage.kv_store.clone(),
+            team_templates: storage.team_templates.clone(),
             work_items: storage.work_items.clone(),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
             background_agents: storage.background_agents.clone(),
             triggers: storage.triggers.clone(),
             terminal_sessions: storage.terminal_sessions.clone(),
-            deliverables: storage.deliverables.clone(),
+            run_artifacts: storage.run_artifacts.clone(),
+            team_runtime: storage.team_runtime.clone(),
         }
     }
 }
@@ -475,7 +478,7 @@ async fn validate_agent_async(
         context.chat_sessions.clone(),
         context.channel_session_bindings.clone(),
         context.execution_traces.clone(),
-        context.kv_store.clone(),
+        context.team_templates.clone(),
         context.work_items.clone(),
         context.secrets.clone(),
         context.config.clone(),
@@ -483,7 +486,8 @@ async fn validate_agent_async(
         context.background_agents.clone(),
         context.triggers.clone(),
         context.terminal_sessions.clone(),
-        context.deliverables.clone(),
+        context.run_artifacts.clone(),
+        context.team_runtime.clone(),
         None,
         None,
         None,

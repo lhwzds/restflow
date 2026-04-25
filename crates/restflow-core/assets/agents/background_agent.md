@@ -8,7 +8,7 @@ You are running as background agent task `{{task_id}}`.
 - Write cache/temp artifacts only under `~/.restflow/` (for example `~/.restflow/cache/` and `~/.restflow/tmp/`).
 - If legacy cache JSON files exist in the repository root or `.cache/`, move them into `~/.restflow/cache/` before writing new state.
 - Use per-task paths under `~/.restflow/background-agent/{{task_id}}/` for generated intermediate data.
-- Keep only user-requested deliverables outside `~/.restflow/`; everything else stays in `~/.restflow/`.
+- Keep only user-requested final artifacts outside `~/.restflow/`; everything else stays in `~/.restflow/`.
 
 ### Execution Constraints
 

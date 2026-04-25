@@ -18,8 +18,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentStore, KvStore, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASK_OPERATIONS_CSV,
-    MANAGE_TASKS_TOOL_NAME, TaskStore,
+    BackgroundAgentStore, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASK_OPERATIONS_CSV,
+    MANAGE_TASKS_TOOL_NAME, TaskStore, TeamTemplateStore,
 };
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::TaskAction;
@@ -27,7 +27,7 @@ use types::TaskAction;
 #[derive(Clone)]
 pub struct TaskTool {
     store: Arc<dyn BackgroundAgentStore>,
-    kv_store: Option<Arc<dyn KvStore>>,
+    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
@@ -41,7 +41,7 @@ impl TaskTool {
     pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
         Self {
             store,
-            kv_store: None,
+            team_template_store: None,
             assessor: None,
             allow_write: false,
         }
@@ -50,7 +50,7 @@ impl TaskTool {
     pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
         Self {
             store,
-            kv_store: None,
+            team_template_store: None,
             assessor: None,
             allow_write: false,
         }
@@ -66,8 +66,8 @@ impl TaskTool {
         self
     }
 
-    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
-        self.kv_store = Some(kv_store);
+    pub fn with_team_template_store(mut self, store: Arc<dyn TeamTemplateStore>) -> Self {
+        self.team_template_store = Some(store);
         self
     }
 
@@ -76,13 +76,13 @@ impl TaskTool {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_deliverables, list_traces, read_trace, list_teams, get_team. To modify tasks, the user must grant write permissions.".to_string(),
+                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_artifacts, list_traces, read_trace, list_teams, get_team. To modify tasks, the user must grant write permissions.".to_string(),
             ))
         }
     }
 
-    fn team_store(&self) -> Result<Arc<dyn KvStore>> {
-        self.kv_store.clone().ok_or_else(|| {
+    fn team_store(&self) -> Result<Arc<dyn TeamTemplateStore>> {
+        self.team_template_store.clone().ok_or_else(|| {
             ToolError::Tool(
                 "Team storage is unavailable in this runtime. Use 'workers' directly.".to_string(),
             )
@@ -121,8 +121,8 @@ impl BackgroundAgentTool {
         self
     }
 
-    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
-        self.0 = self.0.with_kv_store(kv_store);
+    pub fn with_team_template_store(mut self, store: Arc<dyn TeamTemplateStore>) -> Self {
+        self.0 = self.0.with_team_template_store(store);
         self
     }
 }
@@ -390,9 +390,7 @@ impl Tool for TaskTool {
             TaskAction::ListMessages { id, limit } => {
                 handlers_read::execute_list_messages(self, id, limit)
             }
-            TaskAction::ListDeliverables { id } => {
-                handlers_read::execute_list_deliverables(self, id)
-            }
+            TaskAction::ListArtifacts { id } => handlers_read::execute_list_artifacts(self, id),
             TaskAction::ListTraces { id, limit } => {
                 handlers_read::execute_list_traces(self, id, limit)
             }

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
-use restflow_traits::store::KvStore;
+use restflow_traits::store::TeamTemplateStore;
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
@@ -28,7 +28,7 @@ pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation};
 /// spawn_subagent_batch tool for shared agent execution engine.
 pub struct SpawnSubagentBatchTool {
     manager: Arc<dyn SubagentManager>,
-    kv_store: Option<Arc<dyn KvStore>>,
+    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 }
 
@@ -36,13 +36,13 @@ impl SpawnSubagentBatchTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self {
             manager,
-            kv_store: None,
+            team_template_store: None,
             assessor: None,
         }
     }
 
-    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
-        self.kv_store = Some(kv_store);
+    pub fn with_team_template_store(mut self, store: Arc<dyn TeamTemplateStore>) -> Self {
+        self.team_template_store = Some(store);
         self
     }
 

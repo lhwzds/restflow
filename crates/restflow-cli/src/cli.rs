@@ -183,18 +183,6 @@ pub enum Commands {
         command: TeamCommands,
     },
 
-    /// Shared space key-value store
-    Shared {
-        #[command(subcommand)]
-        command: SharedCommands,
-    },
-
-    /// Deliverable management
-    Deliverable {
-        #[command(subcommand)]
-        command: DeliverableCommands,
-    },
-
     /// Trigger management
     Trigger {
         #[command(subcommand)]
@@ -1458,51 +1446,6 @@ pub enum TaskCommands {
 
         /// Message content
         message: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum SharedCommands {
-    /// List shared space entries
-    List {
-        /// Namespace prefix filter
-        #[arg(short, long)]
-        namespace: Option<String>,
-    },
-
-    /// Get a shared space entry
-    Get {
-        /// Key (format: namespace:name)
-        key: String,
-    },
-
-    /// Set a shared space entry
-    Set {
-        /// Key (format: namespace:name)
-        key: String,
-
-        /// Value
-        value: String,
-
-        /// Visibility: public, shared, private
-        #[arg(long, default_value = "shared")]
-        visibility: String,
-    },
-
-    /// Delete a shared space entry
-    Delete {
-        /// Key (format: namespace:name)
-        key: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum DeliverableCommands {
-    /// List deliverables for a task
-    List {
-        /// Task ID
-        #[arg(short = 't', long = "task")]
-        task_id: String,
     },
 }
 

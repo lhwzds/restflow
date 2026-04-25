@@ -61,7 +61,17 @@ impl SkillFolderLoader {
             .max_depth(2)
             .follow_links(false)
         {
-            let entry = entry?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(err) => {
+                    failed += 1;
+                    warn!(
+                        error = %err,
+                        "Skipping inaccessible skill folder entry"
+                    );
+                    continue;
+                }
+            };
             if !entry.file_type().is_dir() {
                 continue;
             }
@@ -491,6 +501,35 @@ mod tests {
         let (skills, failed) = loader.scan().unwrap();
         assert!(skills.is_empty());
         assert_eq!(failed, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_scan_skips_inaccessible_entries_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let valid = temp.path().join("valid");
+        let blocked = temp.path().join("blocked");
+        std::fs::create_dir_all(&valid).unwrap();
+        std::fs::create_dir_all(&blocked).unwrap();
+        std::fs::write(valid.join("SKILL.md"), "---\nname: Valid\n---\n\n# Valid").unwrap();
+        std::fs::write(
+            blocked.join("SKILL.md"),
+            "---\nname: Blocked\n---\n\n# Blocked",
+        )
+        .unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let result = loader.scan();
+
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (skills, failed) = result.unwrap();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "valid");
+        assert!(failed >= 1);
     }
 
     #[test]

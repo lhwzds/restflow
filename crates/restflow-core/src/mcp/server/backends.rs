@@ -250,11 +250,11 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+    async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
         let resolved_id = resolve_task_id(&self.core.storage.background_agents, task_id)?;
         self.core
             .storage
-            .deliverables
+            .run_artifacts
             .list_by_task(&resolved_id)
             .map_err(|e| e.to_string())
     }
@@ -658,22 +658,13 @@ impl McpBackend for IpcBackend {
         .await
     }
 
-    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
-        let result = self
-            .execute_runtime_tool(
-                "manage_tasks",
-                serde_json::json!({
-                    "operation": "list_deliverables",
-                    "id": task_id,
-                }),
-            )
-            .await?;
-        if !result.success {
-            return Err(result
-                .error
-                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
-        }
-        serde_json::from_value(result.result).map_err(|e| e.to_string())
+    async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
+        self.request_typed(IpcRequest::ListRunArtifacts {
+            run_id: None,
+            task_id: Some(task_id.to_string()),
+            team_run_id: None,
+        })
+        .await
     }
 
     async fn list_execution_sessions(

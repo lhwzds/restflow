@@ -6,10 +6,7 @@ use serde_json::{Value, json};
 
 use crate::{Result, ToolError};
 use restflow_traits::TeamTemplateDocument;
-use restflow_traits::store::KvStore;
-
-const TEAM_CONTENT_TYPE: &str = "application/json";
-const TEAM_VISIBILITY: &str = "shared";
+use restflow_traits::store::{TeamTemplateEntry, TeamTemplateStore};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TeamTemplateScope {
@@ -26,16 +23,6 @@ impl TeamTemplateScope {
             version,
         }
     }
-
-    pub fn key_prefix(self) -> String {
-        format!("{}:", self.namespace)
-    }
-
-    pub fn team_name_from_entry(self, entry: &Value) -> Option<String> {
-        let key = entry.get("key")?.as_str()?;
-        let prefix = self.key_prefix();
-        key.strip_prefix(&prefix).map(str::to_string)
-    }
 }
 
 pub(crate) struct TeamWriteResult<TMember> {
@@ -50,15 +37,10 @@ pub(crate) fn validate_team_name(name: &str) -> Result<String> {
     }
     if trimmed.contains(':') {
         return Err(ToolError::Tool(
-            "Team name must not contain ':'".to_string(),
+            "Team name must not contain ':'.".to_string(),
         ));
     }
     Ok(trimmed.to_string())
-}
-
-pub(crate) fn team_key(namespace: &str, team_name: &str) -> Result<String> {
-    let normalized = validate_team_name(team_name)?;
-    Ok(format!("{namespace}:{normalized}"))
 }
 
 pub(crate) fn is_not_found_error(error: &ToolError) -> bool {
@@ -67,32 +49,20 @@ pub(crate) fn is_not_found_error(error: &ToolError) -> bool {
 }
 
 pub(crate) fn read_team_raw(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     namespace: &str,
     team_name: &str,
 ) -> Result<Option<String>> {
-    let key = team_key(namespace, team_name)?;
-    let payload = match store.get_entry(&key) {
-        Ok(payload) => payload,
-        Err(error) if is_not_found_error(&error) => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    if !payload
-        .get("found")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return Ok(None);
+    let team = validate_team_name(team_name)?;
+    match store.get_template(namespace, &team) {
+        Ok(entry) => Ok(entry.map(|entry| entry.content)),
+        Err(error) if is_not_found_error(&error) => Ok(None),
+        Err(error) => Err(error),
     }
-    let raw = payload
-        .get("value")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::Tool("Stored team payload is invalid.".to_string()))?;
-    Ok(Some(raw.to_string()))
 }
 
 pub(crate) fn load_team_document<TMember>(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     namespace: &str,
     team_name: &str,
 ) -> Result<TeamTemplateDocument<TMember>>
@@ -106,7 +76,7 @@ where
 }
 
 pub(crate) fn load_scoped_team_document<TMember>(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     scope: TeamTemplateScope,
     team_name: &str,
 ) -> Result<TeamTemplateDocument<TMember>>
@@ -117,7 +87,7 @@ where
 }
 
 pub(crate) fn save_team_document<TMember>(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     namespace: &str,
     type_hint: &str,
     version: u32,
@@ -134,7 +104,6 @@ where
         ));
     }
     let normalized = validate_team_name(team_name)?;
-    let key = team_key(namespace, &normalized)?;
     let now = chrono::Utc::now().timestamp_millis();
     let existing = read_team_raw(store, namespace, &normalized)?;
     let created_at = existing
@@ -152,20 +121,16 @@ where
     let serialized = serde_json::to_string(&document).map_err(|error| {
         ToolError::Tool(format!("Failed to serialize team '{normalized}': {error}"))
     })?;
-    let storage = store.set_entry(
-        &key,
-        &serialized,
-        Some(TEAM_VISIBILITY),
-        Some(TEAM_CONTENT_TYPE),
-        Some(type_hint),
-        tags,
-        None,
-    )?;
-    Ok(TeamWriteResult { document, storage })
+    let storage =
+        store.save_template(namespace, &normalized, &serialized, Some(type_hint), tags)?;
+    Ok(TeamWriteResult {
+        document,
+        storage: serde_json::to_value(storage)?,
+    })
 }
 
 pub(crate) fn save_scoped_team_document<TMember>(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     scope: TeamTemplateScope,
     team_name: &str,
     members: Vec<TMember>,
@@ -185,37 +150,35 @@ where
     )
 }
 
-pub(crate) fn list_team_entries(store: &dyn KvStore, namespace: &str) -> Result<Vec<Value>> {
-    let payload = store.list_entries(Some(namespace))?;
-    Ok(payload
-        .get("entries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default())
+pub(crate) fn list_team_entries(
+    store: &dyn TeamTemplateStore,
+    namespace: &str,
+) -> Result<Vec<TeamTemplateEntry>> {
+    store.list_templates(namespace)
 }
 
 pub(crate) fn list_scoped_team_entries(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     scope: TeamTemplateScope,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<TeamTemplateEntry>> {
     list_team_entries(store, scope.namespace)
 }
 
 pub(crate) fn delete_team_document(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     namespace: &str,
     team_name: &str,
 ) -> Result<Value> {
-    let key = team_key(namespace, team_name)?;
-    let deleted = store.delete_entry(&key, None)?;
+    let normalized = validate_team_name(team_name)?;
+    let deleted = store.delete_template(namespace, &normalized)?;
     Ok(json!({
-        "team": validate_team_name(team_name)?,
-        "result": deleted
+        "team": normalized,
+        "result": { "deleted": deleted }
     }))
 }
 
 pub(crate) fn delete_scoped_team_document(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     scope: TeamTemplateScope,
     team_name: &str,
 ) -> Result<Value> {
@@ -229,79 +192,88 @@ mod tests {
     use std::sync::Mutex;
 
     #[derive(Default)]
-    struct MockKvStore {
+    struct MockTeamTemplateStore {
         entries: Mutex<HashMap<String, String>>,
     }
 
-    impl KvStore for MockKvStore {
-        fn get_entry(&self, key: &str) -> Result<Value> {
+    impl TeamTemplateStore for MockTeamTemplateStore {
+        fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>> {
+            let key = format!("{namespace}:{team}");
             let entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(value) = entries.get(key) {
-                Ok(json!({
-                    "found": true,
-                    "key": key,
-                    "value": value
-                }))
-            } else {
-                Ok(json!({
-                    "found": false,
-                    "key": key
-                }))
-            }
+            Ok(entries.get(&key).map(|content| TeamTemplateEntry {
+                namespace: namespace.to_string(),
+                team: team.to_string(),
+                content: content.clone(),
+                type_hint: None,
+                tags: Vec::new(),
+                created_at: 1,
+                updated_at: 2,
+            }))
         }
 
-        fn set_entry(
+        fn save_template(
             &self,
-            key: &str,
+            namespace: &str,
+            team: &str,
             content: &str,
-            _visibility: Option<&str>,
-            _content_type: Option<&str>,
-            _type_hint: Option<&str>,
-            _tags: Option<Vec<String>>,
-            _accessor_id: Option<&str>,
-        ) -> Result<Value> {
+            type_hint: Option<&str>,
+            tags: Option<Vec<String>>,
+        ) -> Result<TeamTemplateEntry> {
+            let key = format!("{namespace}:{team}");
             let mut entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            entries.insert(key.to_string(), content.to_string());
-            Ok(json!({ "success": true, "key": key }))
+            entries.insert(key, content.to_string());
+            Ok(TeamTemplateEntry {
+                namespace: namespace.to_string(),
+                team: team.to_string(),
+                content: content.to_string(),
+                type_hint: type_hint.map(str::to_string),
+                tags: tags.unwrap_or_default(),
+                created_at: 1,
+                updated_at: 2,
+            })
         }
 
-        fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> Result<Value> {
+        fn delete_template(&self, namespace: &str, team: &str) -> Result<bool> {
+            let key = format!("{namespace}:{team}");
             let mut entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            Ok(json!({ "deleted": entries.remove(key).is_some() }))
+            Ok(entries.remove(&key).is_some())
         }
 
-        fn list_entries(&self, namespace: Option<&str>) -> Result<Value> {
+        fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>> {
             let entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let prefix = namespace.map(|value| format!("{value}:"));
-            let rows = entries
-                .keys()
-                .filter(|key| {
-                    prefix
-                        .as_ref()
-                        .map(|value| key.starts_with(value))
-                        .unwrap_or(true)
+            let prefix = format!("{namespace}:");
+            Ok(entries
+                .iter()
+                .filter_map(|(key, content)| {
+                    Some(TeamTemplateEntry {
+                        namespace: namespace.to_string(),
+                        team: key.strip_prefix(&prefix)?.to_string(),
+                        content: content.clone(),
+                        type_hint: None,
+                        tags: Vec::new(),
+                        created_at: 1,
+                        updated_at: 2,
+                    })
                 })
-                .map(|key| json!({ "key": key }))
-                .collect::<Vec<_>>();
-            Ok(json!({ "entries": rows }))
+                .collect())
         }
     }
 
     #[test]
     fn test_save_and_load_team_document() {
-        let store = MockKvStore::default();
+        let store = MockTeamTemplateStore::default();
         let saved = save_team_document(
             &store,
             "demo_team",
@@ -321,7 +293,7 @@ mod tests {
 
     #[test]
     fn scoped_helpers_round_trip_document() {
-        let store = MockKvStore::default();
+        let store = MockTeamTemplateStore::default();
         let scope = TeamTemplateScope::new("subagent_team", "subagent_team", 3);
 
         let saved = save_scoped_team_document(
@@ -342,13 +314,14 @@ mod tests {
     }
 
     #[test]
-    fn scope_extracts_team_name_from_storage_entry() {
+    fn lists_scoped_team_entries() {
+        let store = MockTeamTemplateStore::default();
         let scope = TeamTemplateScope::new("background_agent_team", "background_agent_team", 2);
-        let entry = json!({"key": "background_agent_team:nightly"});
+        save_scoped_team_document(&store, scope, "nightly", vec![json!({"count": 1})], None)
+            .unwrap();
 
-        assert_eq!(
-            scope.team_name_from_entry(&entry),
-            Some("nightly".to_string())
-        );
+        let entries = list_scoped_team_entries(&store, scope).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].team, "nightly");
     }
 }

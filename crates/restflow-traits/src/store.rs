@@ -38,7 +38,7 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "progress",
     "send_message",
     "list_messages",
-    "list_deliverables",
+    "list_artifacts",
     "list_traces",
     "read_trace",
     "pause",
@@ -49,11 +49,11 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
 
 pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = MANAGE_TASK_OPERATIONS;
 
-pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, stop, run";
+pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_artifacts, list_traces, read_trace, pause, resume, stop, run";
 
 pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = MANAGE_TASK_OPERATIONS_CSV;
 
-pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
 pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = MANAGE_TASKS_TOOL_DESCRIPTION;
 pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
@@ -470,9 +470,9 @@ mod tests {
             panic!("not expected")
         }
 
-        fn list_background_agent_deliverables(
+        fn list_background_agent_artifacts(
             &self,
-            _request: BackgroundAgentDeliverableListRequest,
+            _request: BackgroundAgentArtifactListRequest,
         ) -> Result<Value> {
             panic!("not expected")
         }
@@ -541,7 +541,7 @@ mod tests {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskDeliverableListRequest {
+pub struct TaskArtifactListRequest {
     pub id: String,
 }
 
@@ -561,7 +561,7 @@ pub struct TaskTraceReadRequest {
 }
 
 #[doc(hidden)]
-pub type BackgroundAgentDeliverableListRequest = TaskDeliverableListRequest;
+pub type BackgroundAgentArtifactListRequest = TaskArtifactListRequest;
 #[doc(hidden)]
 pub type BackgroundAgentTraceListRequest = TaskTraceListRequest;
 #[doc(hidden)]
@@ -589,9 +589,9 @@ pub trait BackgroundAgentStore: Send + Sync {
         &self,
         request: BackgroundAgentMessageListRequest,
     ) -> Result<Value>;
-    fn list_background_agent_deliverables(
+    fn list_background_agent_artifacts(
         &self,
-        request: BackgroundAgentDeliverableListRequest,
+        request: BackgroundAgentArtifactListRequest,
     ) -> Result<Value>;
     fn list_background_agent_traces(
         &self,
@@ -640,8 +640,8 @@ pub trait TaskStore: BackgroundAgentStore + Send + Sync {
         self.list_background_agent_messages(request)
     }
 
-    fn list_task_deliverables(&self, request: TaskDeliverableListRequest) -> Result<Value> {
-        self.list_background_agent_deliverables(request)
+    fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value> {
+        self.list_background_agent_artifacts(request)
     }
 
     fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
@@ -657,9 +657,9 @@ impl<T: ?Sized> TaskStore for T where T: BackgroundAgentStore + Send + Sync {}
 
 pub mod compat {
     pub use super::{
-        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-        BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
+        BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
+        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+        BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest,
         BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
         BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
         BackgroundAgentUpdateRequest, MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
@@ -788,23 +788,6 @@ pub trait AuthProfileStore: Send + Sync {
     fn add_profile(&self, request: AuthProfileCreateRequest) -> Result<Value>;
     fn remove_profile(&self, id: &str) -> Result<Value>;
     fn test_profile(&self, request: AuthProfileTestRequest) -> Result<Value>;
-}
-
-// ── DeliverableStore ─────────────────────────────────────────────────
-
-pub trait DeliverableStore: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
-    fn save_deliverable(
-        &self,
-        task_id: &str,
-        execution_id: &str,
-        deliverable_type: &str,
-        title: &str,
-        content: &str,
-        file_path: Option<&str>,
-        content_type: Option<&str>,
-        metadata: Option<Value>,
-    ) -> Result<Value>;
 }
 
 // ── WorkItemProvider ─────────────────────────────────────────────────
@@ -982,24 +965,32 @@ pub trait UnifiedMemorySearch: Send + Sync {
     ) -> Result<Value>;
 }
 
-// ── KvStore ─────────────────────────────────────────────────────────
+// ── TeamTemplateStore ────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-pub trait KvStore: Send + Sync {
-    fn get_entry(&self, key: &str) -> Result<Value>;
-    #[allow(clippy::too_many_arguments)]
-    fn set_entry(
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TeamTemplateEntry {
+    pub namespace: String,
+    pub team: String,
+    pub content: String,
+    pub type_hint: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+pub trait TeamTemplateStore: Send + Sync {
+    fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>>;
+    fn save_template(
         &self,
-        key: &str,
+        namespace: &str,
+        team: &str,
         content: &str,
-        visibility: Option<&str>,
-        content_type: Option<&str>,
         type_hint: Option<&str>,
         tags: Option<Vec<String>>,
-        accessor_id: Option<&str>,
-    ) -> Result<Value>;
-    fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> Result<Value>;
-    fn list_entries(&self, namespace: Option<&str>) -> Result<Value>;
+    ) -> Result<TeamTemplateEntry>;
+    fn delete_template(&self, namespace: &str, team: &str) -> Result<bool>;
+    fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>>;
 }
 
 // ── MarketplaceStore ────────────────────────────────────────────────

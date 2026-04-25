@@ -14,11 +14,12 @@ use std::sync::{Mutex, OnceLock};
 use tracing::{debug, warn};
 
 use self::assembly::{
-    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_kv_store, build_runtime_assessor,
-    build_task_store_runtime_components, populate_known_tools_from_registry,
-    register_bash_execution_tool, register_binary_skill_tools, register_file_execution_tool,
-    register_http_execution_tool, register_management_tools, register_python_execution_tools,
-    register_send_email_execution_tool, register_subagent_management_tools,
+    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_runtime_assessor,
+    build_task_store_runtime_components, build_team_template_store,
+    populate_known_tools_from_registry, register_bash_execution_tool, register_binary_skill_tools,
+    register_file_execution_tool, register_http_execution_tool, register_management_tools,
+    register_python_execution_tools, register_send_email_execution_tool,
+    register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
@@ -124,13 +125,11 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "switch_model",
         "skill",
         "memory_search",
-        "kv_store",
         "manage_secrets",
         "manage_config",
         "manage_sessions",
         "manage_memory",
         "manage_auth_profiles",
-        "save_deliverable",
         "edit",
         "multiedit",
         "patch",
@@ -221,13 +220,12 @@ pub fn registry_from_allowlist_with_security_gate(
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
     let wants_guarded_assessor =
         wants_manage_agents || wants_manage_task_tools || wants_spawn_subagent;
-    let wants_shared_kv_store =
-        wants_manage_task_tools || wants_spawn_subagent || wants_named_tool(tool_names, "kv_store");
+    let wants_team_template_store = wants_manage_task_tools || wants_spawn_subagent;
 
     let shared_assessor =
         storage.and_then(|value| wants_guarded_assessor.then(|| build_runtime_assessor(value)));
-    let shared_kv_store = storage.and_then(|value| {
-        wants_shared_kv_store.then(|| build_kv_store(value.kv_store.clone(), None))
+    let shared_team_template_store = storage.and_then(|value| {
+        wants_team_template_store.then(|| build_team_template_store(value.team_templates.clone()))
     });
     let agent_crud_components = storage.and_then(|value| {
         wants_manage_agents.then(|| {
@@ -243,9 +241,9 @@ pub fn registry_from_allowlist_with_security_gate(
         wants_manage_task_tools.then(|| {
             build_task_store_runtime_components(
                 value,
-                shared_kv_store
+                shared_team_template_store
                     .clone()
-                    .expect("shared kv store should exist for task tools"),
+                    .expect("team template store should exist for task tools"),
                 shared_assessor.clone(),
             )
         })
@@ -511,13 +509,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(engine)))
                 });
             }
-            "kv_store" => {
-                if let Some(kv_store) = &shared_kv_store {
-                    builder = builder.with_kv_store(kv_store.clone());
-                } else {
-                    debug!(tool_name = "kv_store", "Storage missing, skipping");
-                }
-            }
             "work_items" => {
                 with_storage!(storage, "work_items", builder, |s| {
                     builder.with_work_items(Arc::new(DbWorkItemAdapter::new(s.work_items.clone())))
@@ -570,14 +561,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     });
                 }
             }
-            "save_deliverable" => {
-                with_storage!(storage, "save_deliverable", builder, |s| {
-                    builder.with_deliverable(Arc::new(DeliverableStoreAdapter::new(
-                        s.deliverables.clone(),
-                    )))
-                });
-            }
-
             // --- Search tools ---
             "glob" => {
                 builder = builder.with_glob_and_base_dir(workspace_root.map(Path::to_path_buf));
@@ -677,7 +660,7 @@ pub fn registry_from_allowlist_with_security_gate(
                     .map(|components| components.store.clone()),
                 task_components
                     .as_ref()
-                    .map(|components| components.kv_store.clone()),
+                    .map(|components| components.team_template_store.clone()),
                 shared_assessor.clone(),
                 wants_manage_tasks_alias,
             );
@@ -708,7 +691,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 &mut registry,
                 manager.clone(),
                 if wants_spawn_subagent {
-                    shared_kv_store.clone()
+                    shared_team_template_store.clone()
                 } else {
                     None
                 },

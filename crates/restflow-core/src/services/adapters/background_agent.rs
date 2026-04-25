@@ -7,16 +7,16 @@ use crate::models::{
 };
 use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::session::SessionService;
-use crate::storage::{AgentStorage, BackgroundAgentStorage, DeliverableStorage};
+use crate::storage::{AgentStorage, BackgroundAgentStorage, RunArtifactStorage};
 use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{
-    BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
+    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
+    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
 use restflow_traits::{
     DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
@@ -31,7 +31,7 @@ pub struct TaskStoreAdapter {
     storage: BackgroundAgentStorage,
     #[allow(dead_code)]
     agent_storage: AgentStorage,
-    deliverable_storage: DeliverableStorage,
+    run_artifact_storage: RunArtifactStorage,
     command_service: TaskCommandService,
 }
 
@@ -41,7 +41,7 @@ impl TaskStoreAdapter {
     pub fn new(
         storage: BackgroundAgentStorage,
         agent_storage: AgentStorage,
-        deliverable_storage: DeliverableStorage,
+        run_artifact_storage: RunArtifactStorage,
         session_service: SessionService,
     ) -> Self {
         let command_service = TaskCommandService::new(
@@ -53,7 +53,7 @@ impl TaskStoreAdapter {
         Self {
             storage,
             agent_storage,
-            deliverable_storage,
+            run_artifact_storage,
             command_service,
         }
     }
@@ -395,12 +395,12 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(messages)?)
     }
 
-    fn list_background_agent_deliverables(
+    fn list_background_agent_artifacts(
         &self,
-        request: BackgroundAgentDeliverableListRequest,
+        request: BackgroundAgentArtifactListRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let items = self.deliverable_storage.list_by_task(&resolved_id)?;
+        let items = self.run_artifact_storage.list_by_task(&resolved_id)?;
         Ok(serde_json::to_value(items)?)
     }
 
@@ -778,7 +778,7 @@ mod tests {
             bg_storage.clone(),
             Some(memory_storage),
         );
-        let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
+        let run_artifact_storage = crate::storage::RunArtifactStorage::new(db).unwrap();
 
         let prompts_dir = temp_dir.path().join("state").join("agents");
         std::fs::create_dir_all(&prompts_dir).unwrap();
@@ -803,7 +803,7 @@ mod tests {
             TaskStoreAdapter::new(
                 bg_storage,
                 agent_storage,
-                deliverable_storage,
+                run_artifact_storage,
                 session_service,
             )
             .with_assessor(assessor),
@@ -1296,15 +1296,15 @@ mod tests {
     }
 
     #[test]
-    fn test_list_background_agent_deliverables_resolves_prefix() {
+    fn test_list_background_agent_artifacts_resolves_prefix() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter
             .create_background_agent(BackgroundAgentCreateRequest {
-                name: "Deliverables".to_string(),
+                name: "Artifacts".to_string(),
                 agent_id,
                 chat_session_id: None,
-                input: Some("deliverables task".to_string()),
+                input: Some("artifacts task".to_string()),
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
@@ -1320,7 +1320,7 @@ mod tests {
         let prefix = &id[..8];
 
         let value = adapter
-            .list_background_agent_deliverables(BackgroundAgentDeliverableListRequest {
+            .list_background_agent_artifacts(BackgroundAgentArtifactListRequest {
                 id: prefix.to_string(),
             })
             .unwrap();

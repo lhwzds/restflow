@@ -65,7 +65,6 @@ pub mod patch;
 pub mod process;
 pub mod python_backend;
 pub mod reply;
-pub mod save_deliverable;
 pub mod secrets;
 pub mod session;
 pub mod skill;
@@ -77,7 +76,6 @@ pub mod web_search;
 pub mod work_item;
 
 // Migrated from restflow-core (tool_registry inline tools)
-pub mod kv_store;
 pub mod manage_ops;
 pub mod manage_teams;
 pub mod marketplace;
@@ -136,7 +134,6 @@ pub use patch::PatchTool;
 pub use process::ProcessTool;
 pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};
 pub use reply::ReplyTool;
-pub use save_deliverable::SaveDeliverableTool;
 pub use secrets::{SecretGetPolicy, SecretsTool};
 pub use session::SessionTool;
 pub use skill::SkillTool;
@@ -148,7 +145,6 @@ pub use web_search::WebSearchTool;
 pub use work_item::WorkItemTool;
 
 // Re-export tool_registry inline migrated tools
-pub use kv_store::KvStoreTool;
 pub use manage_ops::ManageOpsTool;
 pub use manage_teams::ManageTeamsTool;
 pub use marketplace::MarketplaceTool;

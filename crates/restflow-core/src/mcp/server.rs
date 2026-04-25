@@ -7,12 +7,12 @@ use crate::AppCore;
 use crate::auth::build_runtime_api_keys;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
-    ChatSession, ChatSessionSummary, Deliverable, ExecutionContainerKind, ExecutionContainerRef,
+    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource, Hook,
     HookAction, HookEvent, HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult,
-    MemorySource, MemoryStats, ModelId, RunListQuery, RunSummary, SearchMode, Skill, SkillStatus,
-    Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec,
-    TaskStatus, ValidationError,
+    MemorySource, MemoryStats, ModelId, RunArtifact, RunListQuery, RunSummary, SearchMode, Skill,
+    SkillStatus, Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress,
+    TaskSpec, TaskStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -154,7 +154,7 @@ pub trait McpBackend: Send + Sync {
     async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
         self.list_background_agent_messages(id, limit).await
     }
-    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
+    async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String>;
     async fn list_execution_sessions(&self, query: RunListQuery)
     -> Result<Vec<RunSummary>, String>;
 
@@ -246,7 +246,7 @@ fn create_runtime_tool_registry_for_core(
         core.storage.chat_sessions.clone(),
         core.storage.channel_session_bindings.clone(),
         core.storage.execution_traces.clone(),
-        core.storage.kv_store.clone(),
+        core.storage.team_templates.clone(),
         core.storage.work_items.clone(),
         core.storage.secrets.clone(),
         core.storage.config.clone(),
@@ -254,7 +254,8 @@ fn create_runtime_tool_registry_for_core(
         core.storage.background_agents.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
-        core.storage.deliverables.clone(),
+        core.storage.run_artifacts.clone(),
+        core.storage.team_runtime.clone(),
         None,
         None,
         None,

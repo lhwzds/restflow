@@ -146,10 +146,10 @@ mod tests {
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
-        AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, Hook,
-        ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret,
-        SharedEntry, Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress,
-        TaskSpec, WorkItem, WorkItemPatch, WorkItemSpec,
+        AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, Hook, ItemQuery,
+        MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill,
+        Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec, WorkItem,
+        WorkItemPatch, WorkItemSpec,
     };
     use restflow_core::storage::SystemConfig;
     use restflow_core::storage::agent::StoredAgent;
@@ -420,26 +420,6 @@ mod tests {
                 retryable: None,
                 retry_after_ms: None,
             })
-        }
-        async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
-            unreachable!()
-        }
-        async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {
-            unreachable!()
-        }
-        async fn set_kv_store(
-            &self,
-            _key: &str,
-            _value: &str,
-            _visibility: &str,
-        ) -> Result<SharedEntry> {
-            unreachable!()
-        }
-        async fn delete_kv_store(&self, _key: &str) -> Result<bool> {
-            unreachable!()
-        }
-        async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>> {
-            unreachable!()
         }
     }
 

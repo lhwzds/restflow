@@ -7,7 +7,7 @@ use crate::impls::team_template::{
 };
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::TeamTemplateDocument;
-use restflow_traits::store::KvStore;
+use restflow_traits::store::TeamTemplateStore;
 
 use super::SpawnSubagentBatchTool;
 use super::types::{BatchSubagentSpec, StoredBatchSubagentSpec};
@@ -16,8 +16,8 @@ use super::validate::total_instances;
 const SUBAGENT_TEAM_SCOPE: TeamTemplateScope =
     TeamTemplateScope::new("subagent_team", "subagent_team", 1);
 
-pub(super) fn team_store(tool: &SpawnSubagentBatchTool) -> Result<Arc<dyn KvStore>> {
-    tool.kv_store.clone().ok_or_else(|| {
+pub(super) fn team_store(tool: &SpawnSubagentBatchTool) -> Result<Arc<dyn TeamTemplateStore>> {
+    tool.team_template_store.clone().ok_or_else(|| {
         ToolError::Tool(
             "Team storage is unavailable in this runtime. Provide specs directly.".to_string(),
         )
@@ -148,13 +148,12 @@ pub(super) fn list_teams(tool: &SpawnSubagentBatchTool) -> Result<ToolOutput> {
 
     let teams = entries
         .iter()
-        .filter_map(|entry| {
-            let team = SUBAGENT_TEAM_SCOPE.team_name_from_entry(entry)?;
-            Some(json!({
-                "team": team,
-                "updated_at": entry.get("updated_at").cloned().unwrap_or(Value::Null),
-                "tags": entry.get("tags").cloned().unwrap_or(Value::Null),
-            }))
+        .map(|entry| {
+            json!({
+                "team": entry.team,
+                "updated_at": entry.updated_at,
+                "tags": entry.tags,
+            })
         })
         .collect::<Vec<_>>();
 

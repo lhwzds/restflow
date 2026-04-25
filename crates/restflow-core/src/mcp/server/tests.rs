@@ -1219,7 +1219,7 @@ impl McpBackend for MockBackend {
         Ok(Vec::new())
     }
 
-    async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>, String> {
+    async fn list_artifacts(&self, _task_id: &str) -> Result<Vec<RunArtifact>, String> {
         Ok(Vec::new())
     }
 
@@ -1348,7 +1348,7 @@ impl McpBackend for MockBackend {
                 .unwrap_or_default();
             let result = match operation {
                 "list" => json!([]),
-                "list_deliverables" => json!([]),
+                "list_artifacts" => json!([]),
                 "convert_session" | "promote_to_background" => {
                     let session_id = input
                         .get("session_id")
@@ -1570,8 +1570,8 @@ impl McpBackend for LegacyBackgroundAgentBackend {
         self.inner.get_background_agent(id).await
     }
 
-    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
-        self.inner.list_deliverables(task_id).await
+    async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
+        self.inner.list_artifacts(task_id).await
     }
 
     async fn list_execution_sessions(
@@ -1827,17 +1827,17 @@ async fn test_manage_background_agents_list_operation() {
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_deliverables_operation() {
+async fn test_manage_background_agents_list_artifacts_operation() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("list_deliverables");
+    let mut params = base_manage_background_params("list_artifacts");
     params.id = Some("task-1".to_string());
 
     let json = server
         .handle_manage_background_agents(params)
         .await
         .unwrap();
-    let deliverables: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
-    assert!(deliverables.is_empty());
+    let artifacts: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert!(artifacts.is_empty());
 }
 
 #[tokio::test]
@@ -2225,7 +2225,7 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
+async fn test_mcp_manage_background_agents_list_artifacts_accepts_prefix() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let create = call_tool_through_mcp(
@@ -2233,7 +2233,7 @@ async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
         "manage_background_agents",
         serde_json::json!({
             "operation": "create",
-            "name": "deliverable-prefix-contract",
+            "name": "artifact-prefix-contract",
             "agent_id": "default",
             "input": "deliver later",
             "schedule": {
@@ -2261,14 +2261,14 @@ async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
         server,
         "manage_background_agents",
         serde_json::json!({
-            "operation": "list_deliverables",
+            "operation": "list_artifacts",
             "id": prefix
         }),
     )
     .await;
     assert!(!list.is_error.unwrap_or(false));
     let value: serde_json::Value =
-        serde_json::from_str(call_tool_text(&list)).expect("deliverables response json");
+        serde_json::from_str(call_tool_text(&list)).expect("artifacts response json");
     assert!(value.is_array());
 }
 

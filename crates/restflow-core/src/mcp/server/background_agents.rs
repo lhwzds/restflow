@@ -27,7 +27,7 @@ impl RestFlowMcpServer {
             | "progress"
             | "send_message"
             | "list_messages"
-            | "list_deliverables"
+            | "list_artifacts"
             | "run_batch"
             | "save_team"
             | "list_teams"

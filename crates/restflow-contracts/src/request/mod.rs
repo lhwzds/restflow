@@ -427,6 +427,41 @@ pub enum IpcRequest {
         task_id: String,
     },
     SubscribeSessionEvents,
+    ListTeams {
+        #[serde(default)]
+        include_saved: bool,
+        #[serde(default)]
+        include_active: bool,
+    },
+    GetTeamSnapshot {
+        team_run_id: String,
+    },
+    StartTeam {
+        team: String,
+        #[serde(default)]
+        assignments: Vec<String>,
+    },
+    ResolveTeamApproval {
+        team_run_id: String,
+        approval_id: String,
+        approved: bool,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    ListRunArtifacts {
+        #[serde(default)]
+        run_id: Option<String>,
+        #[serde(default)]
+        task_id: Option<String>,
+        #[serde(default)]
+        team_run_id: Option<String>,
+    },
+    SwitchSessionModel {
+        session_id: String,
+        model_ref: WireModelRef,
+        #[serde(default)]
+        reason: Option<String>,
+    },
 
     GetSystemInfo,
     GetAvailableModels,

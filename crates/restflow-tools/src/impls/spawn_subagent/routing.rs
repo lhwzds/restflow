@@ -149,8 +149,8 @@ pub(super) async fn execute(
         }
 
         let mut batch_tool = SpawnSubagentBatchTool::new(tool.manager.clone());
-        if let Some(kv_store) = tool.kv_store.clone() {
-            batch_tool = batch_tool.with_kv_store(kv_store);
+        if let Some(store) = tool.team_template_store.clone() {
+            batch_tool = batch_tool.with_team_template_store(store);
         }
         if let Some(assessor) = tool.assessor.clone() {
             batch_tool = batch_tool.with_assessor(assessor);

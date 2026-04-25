@@ -804,8 +804,9 @@ impl AgentRuntimeExecutor {
             match result {
                 Ok((mut exec_result, final_model)) => {
                     exec_result.metrics.final_model = Some(final_model);
-                    self.persist_deliverable_if_needed(
+                    self.persist_artifact_if_needed(
                         background_task_id,
+                        &base_telemetry_context.trace.run_id,
                         agent_id,
                         &exec_result.output,
                     )?;

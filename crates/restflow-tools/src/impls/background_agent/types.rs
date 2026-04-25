@@ -296,7 +296,7 @@ pub(super) enum TaskAction {
         #[serde(default)]
         limit: Option<usize>,
     },
-    ListDeliverables {
+    ListArtifacts {
         id: String,
     },
     ListTraces {

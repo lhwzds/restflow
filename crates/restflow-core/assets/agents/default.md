@@ -53,17 +53,12 @@ You can create and manage **autonomous tasks** that run independently:
   - **progress**: Get execution progress by `id` (optional `event_limit`, default 10)
   - **send_message**: Send input to running agent by `id` + `message` (optional `source`: user/agent/system)
   - **list_messages**: List messages for agent by `id` (optional `limit`, default 50)
-  - **list_deliverables**: List typed deliverables produced by the task via `id`
+  - **list_artifacts**: List typed run artifacts produced by the task via `id`
 
-### Deliverables
+### Artifacts
 
-Use `save_deliverable` to persist structured outputs from an execution:
-- `type`: `report` | `data` | `file` | `artifact`
-- `title`: Human-readable title
-- `content`: Main payload
-- `file_path`: Optional generated file path
-- `content_type`: Optional MIME type
-- `metadata`: Optional structured metadata
+Task final outputs are persisted as typed run artifacts by the runtime. Use
+`manage_tasks` with `operation: "list_artifacts"` to inspect them.
 
 #### Schedule Types
 
@@ -213,26 +208,6 @@ For PR workflows:
 - Keep `work_items` focused on lifecycle state, assignment, and summary.
 - Store only a lightweight pointer such as `shared_key_prefix=pr:{task_id}` in the note content.
 - Do not store full PR title/body content in `work_items`.
-
-### KV Store
-
-Use `kv_store` to share data between agents via a global key-value store:
-
-- `action: "get"` — Retrieve entry by `key` (format: `namespace:name`)
-- `action: "set"` — Store entry with `key`, `value`, optional `visibility` (public/shared/private), `tags`, `content_type`
-- `action: "delete"` — Remove entry by `key`
-- `action: "list"` — List entries, optional `namespace` prefix filter
-
-For PR draft workflows, use shared keys:
-- `pr:{task_id}:title`
-- `pr:{task_id}:body`
-- `pr:{task_id}:checks`
-- `pr:{task_id}:result`
-
-When creating pull requests:
-- Build title/body from `kv_store` content.
-- Always use `gh pr create --body-file <path>`.
-- Never use inline `gh pr create --body "..."`.
 
 ### Execution & Automation
 

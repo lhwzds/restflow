@@ -77,11 +77,6 @@ pub async fn get_skill_reference(
         return Ok(Some(reference_skill.content));
     }
 
-    let kv_store_key = format!("skill-ref:{}:{}", skill_id, ref_id);
-    if let Some(content) = core.storage.kv_store.quick_get(&kv_store_key, None)? {
-        return Ok(Some(content));
-    }
-
     if !reference.path.trim().is_empty() {
         let path = resolve_reference_path(&skill, &reference.path);
         if let Ok(content) = tokio::fs::read_to_string(path).await {

@@ -8,12 +8,12 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
-use restflow_traits::store::KvStore;
+use restflow_traits::store::{TeamTemplateEntry, TeamTemplateStore};
 use restflow_traits::{
     SpawnHandle, SubagentCompletion, SubagentManager, SubagentState,
     normalize_legacy_approval_replay,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -59,77 +59,82 @@ impl SubagentDefLookup for MockDefLookup {
 }
 
 #[derive(Default)]
-struct MockKvStore {
+struct MockTeamTemplateStore {
     entries: Mutex<HashMap<String, String>>,
 }
 
-impl KvStore for MockKvStore {
-    fn get_entry(&self, key: &str) -> Result<Value> {
+impl TeamTemplateStore for MockTeamTemplateStore {
+    fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>> {
+        let key = format!("{namespace}:{team}");
         let entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(value) = entries.get(key) {
-            Ok(json!({
-                "found": true,
-                "key": key,
-                "value": value
-            }))
-        } else {
-            Ok(json!({
-                "found": false,
-                "key": key
-            }))
-        }
+        Ok(entries.get(&key).map(|content| TeamTemplateEntry {
+            namespace: namespace.to_string(),
+            team: team.to_string(),
+            content: content.clone(),
+            type_hint: None,
+            tags: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+        }))
     }
 
-    fn set_entry(
+    fn save_template(
         &self,
-        key: &str,
+        namespace: &str,
+        team: &str,
         content: &str,
-        _visibility: Option<&str>,
-        _content_type: Option<&str>,
-        _type_hint: Option<&str>,
-        _tags: Option<Vec<String>>,
-        _accessor_id: Option<&str>,
-    ) -> Result<Value> {
+        type_hint: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> Result<TeamTemplateEntry> {
+        let key = format!("{namespace}:{team}");
         let mut entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         entries.insert(key.to_string(), content.to_string());
-        Ok(json!({"success": true, "key": key}))
+        Ok(TeamTemplateEntry {
+            namespace: namespace.to_string(),
+            team: team.to_string(),
+            content: content.to_string(),
+            type_hint: type_hint.map(str::to_string),
+            tags: tags.unwrap_or_default(),
+            created_at: 1,
+            updated_at: 2,
+        })
     }
 
-    fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> Result<Value> {
+    fn delete_template(&self, namespace: &str, team: &str) -> Result<bool> {
+        let key = format!("{namespace}:{team}");
         let mut entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let deleted = entries.remove(key).is_some();
-        Ok(json!({"deleted": deleted, "key": key}))
+        Ok(entries.remove(&key).is_some())
     }
 
-    fn list_entries(&self, namespace: Option<&str>) -> Result<Value> {
+    fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>> {
         let entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = namespace.map(|value| format!("{value}:"));
-        let list = entries
-            .keys()
-            .filter(|key| {
-                prefix
-                    .as_ref()
-                    .map(|value| key.starts_with(value))
-                    .unwrap_or(true)
+        let prefix = format!("{namespace}:");
+        Ok(entries
+            .iter()
+            .filter_map(|(key, content)| {
+                Some(TeamTemplateEntry {
+                    namespace: namespace.to_string(),
+                    team: key.strip_prefix(&prefix)?.to_string(),
+                    content: content.clone(),
+                    type_hint: None,
+                    tags: Vec::new(),
+                    created_at: 1,
+                    updated_at: 2,
+                })
             })
-            .map(|key| json!({"key": key}))
-            .collect::<Vec<_>>();
-        Ok(json!({
-            "count": list.len(),
-            "entries": list
-        }))
+            .collect())
     }
 }
 
@@ -351,8 +356,9 @@ async fn test_spawn_batch_rejects_tasks_count_mismatch() {
 #[tokio::test]
 async fn test_spawn_batch_rejects_team_and_specs_combined() {
     let manager = make_test_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+    let team_template_store: Arc<dyn TeamTemplateStore> =
+        Arc::new(MockTeamTemplateStore::default());
+    let tool = SpawnSubagentBatchTool::new(manager).with_team_template_store(team_template_store);
 
     let result = tool
         .execute(json!({
@@ -449,8 +455,9 @@ async fn test_spawn_batch_save_as_team_persists_team() {
         vec![("coder", "Coder")],
         vec![MockStep::text("done-1"), MockStep::text("done-2")],
     );
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+    let team_template_store: Arc<dyn TeamTemplateStore> =
+        Arc::new(MockTeamTemplateStore::default());
+    let tool = SpawnSubagentBatchTool::new(manager).with_team_template_store(team_template_store);
 
     let spawn_output = tool
         .execute(json!({
@@ -530,8 +537,9 @@ async fn test_team_lifecycle_and_spawn_from_team() {
         vec![("coder", "Coder")],
         vec![MockStep::text("done-1"), MockStep::text("done-2")],
     );
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+    let team_template_store: Arc<dyn TeamTemplateStore> =
+        Arc::new(MockTeamTemplateStore::default());
+    let tool = SpawnSubagentBatchTool::new(manager).with_team_template_store(team_template_store);
 
     let save_output = tool
         .execute(json!({
@@ -586,8 +594,9 @@ async fn test_team_lifecycle_and_spawn_from_team() {
 #[tokio::test]
 async fn test_save_team_rejects_unknown_agent_reference() {
     let manager = make_test_manager(vec![("coder", "Coder")], vec![]);
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+    let team_template_store: Arc<dyn TeamTemplateStore> =
+        Arc::new(MockTeamTemplateStore::default());
+    let tool = SpawnSubagentBatchTool::new(manager).with_team_template_store(team_template_store);
 
     let result = tool
         .execute(json!({
@@ -606,10 +615,11 @@ async fn test_save_team_rejects_unknown_agent_reference() {
 #[tokio::test]
 async fn test_get_team_rejects_legacy_specs_payload() {
     let manager = make_test_manager(vec![("coder", "Coder")], vec![]);
-    let kv_store = Arc::new(MockKvStore::default());
-    kv_store
-        .set_entry(
-            "subagent_team:LegacyTeam",
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    team_template_store
+        .save_template(
+            "subagent_team",
+            "LegacyTeam",
             &json!({
                 "version": 1,
                 "name": "LegacyTeam",
@@ -625,13 +635,10 @@ async fn test_get_team_rejects_legacy_specs_payload() {
             .to_string(),
             None,
             None,
-            None,
-            None,
-            None,
         )
         .expect("store legacy team");
-    let kv_store: Arc<dyn KvStore> = kv_store;
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+    let team_template_store: Arc<dyn TeamTemplateStore> = team_template_store;
+    let tool = SpawnSubagentBatchTool::new(manager).with_team_template_store(team_template_store);
 
     let error = tool
         .execute(json!({"operation": "get_team", "team": "LegacyTeam"}))

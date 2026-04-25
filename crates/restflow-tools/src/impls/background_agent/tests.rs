@@ -5,12 +5,12 @@ use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
 };
 use restflow_traits::store::{
-    BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, TaskStore,
+    BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
+    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
+    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, TaskStore, TeamTemplateEntry, TeamTemplateStore,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ struct ConfirmationCreateStore {
     create_calls: Mutex<usize>,
 }
 #[derive(Default)]
-struct MockKvStore {
+struct MockTeamTemplateStore {
     entries: Mutex<HashMap<String, String>>,
 }
 
@@ -142,9 +142,9 @@ fn writable_tool() -> TaskTool {
         .with_assessor(Arc::new(MockAssessor))
 }
 
-fn writable_team_tool(kv_store: Arc<dyn KvStore>) -> TaskTool {
+fn writable_team_tool(team_template_store: Arc<dyn TeamTemplateStore>) -> TaskTool {
     TaskTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
+        .with_team_template_store(team_template_store)
         .with_write(true)
         .with_assessor(Arc::new(MockAssessor))
 }
@@ -188,70 +188,78 @@ fn task_tool_schema_is_openai_function_compatible() {
     assert!(schema.get("enum").is_none());
 }
 
-impl KvStore for MockKvStore {
-    fn get_entry(&self, key: &str) -> Result<Value> {
+impl TeamTemplateStore for MockTeamTemplateStore {
+    fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>> {
+        let key = format!("{namespace}:{team}");
         let entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(value) = entries.get(key) {
-            Ok(json!({
-                "found": true,
-                "key": key,
-                "value": value
-            }))
-        } else {
-            Err(ToolError::Tool(format!("entry not found: {}", key)))
-        }
+        Ok(entries.get(&key).map(|content| TeamTemplateEntry {
+            namespace: namespace.to_string(),
+            team: team.to_string(),
+            content: content.clone(),
+            type_hint: None,
+            tags: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+        }))
     }
 
-    fn set_entry(
+    fn save_template(
         &self,
-        key: &str,
+        namespace: &str,
+        team: &str,
         content: &str,
-        _visibility: Option<&str>,
-        _content_type: Option<&str>,
-        _type_hint: Option<&str>,
-        _tags: Option<Vec<String>>,
-        _accessor_id: Option<&str>,
-    ) -> Result<Value> {
+        type_hint: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> Result<TeamTemplateEntry> {
+        let key = format!("{namespace}:{team}");
         let mut entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         entries.insert(key.to_string(), content.to_string());
-        Ok(json!({ "success": true, "key": key }))
+        Ok(TeamTemplateEntry {
+            namespace: namespace.to_string(),
+            team: team.to_string(),
+            content: content.to_string(),
+            type_hint: type_hint.map(str::to_string),
+            tags: tags.unwrap_or_default(),
+            created_at: 1,
+            updated_at: 2,
+        })
     }
 
-    fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> Result<Value> {
+    fn delete_template(&self, namespace: &str, team: &str) -> Result<bool> {
+        let key = format!("{namespace}:{team}");
         let mut entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let deleted = entries.remove(key).is_some();
-        Ok(json!({ "deleted": deleted, "key": key }))
+        Ok(entries.remove(&key).is_some())
     }
 
-    fn list_entries(&self, namespace: Option<&str>) -> Result<Value> {
+    fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>> {
         let entries = self
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = namespace.map(|value| format!("{value}:"));
-        let list = entries
+        let prefix = format!("{namespace}:");
+        Ok(entries
             .iter()
-            .filter(|(key, _)| {
-                prefix
-                    .as_ref()
-                    .map(|value| key.starts_with(value))
-                    .unwrap_or(true)
+            .filter_map(|(key, content)| {
+                Some(TeamTemplateEntry {
+                    namespace: namespace.to_string(),
+                    team: key.strip_prefix(&prefix)?.to_string(),
+                    content: content.clone(),
+                    type_hint: None,
+                    tags: Vec::new(),
+                    created_at: 1,
+                    updated_at: 2,
+                })
             })
-            .map(|(key, value)| json!({ "key": key, "value": value }))
-            .collect::<Vec<_>>();
-        Ok(json!({
-            "count": list.len(),
-            "entries": list
-        }))
+            .collect())
     }
 }
 
@@ -401,9 +409,9 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn list_background_agent_deliverables(
+    fn list_background_agent_artifacts(
         &self,
-        request: BackgroundAgentDeliverableListRequest,
+        request: BackgroundAgentArtifactListRequest,
     ) -> Result<Value> {
         Ok(json!([{
             "id": "d-1",
@@ -513,9 +521,9 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         panic!("not expected")
     }
 
-    fn list_background_agent_deliverables(
+    fn list_background_agent_artifacts(
         &self,
-        _request: BackgroundAgentDeliverableListRequest,
+        _request: BackgroundAgentArtifactListRequest,
     ) -> Result<Value> {
         panic!("not expected")
     }
@@ -619,9 +627,9 @@ impl BackgroundAgentStore for FailingListStore {
         }]))
     }
 
-    fn list_background_agent_deliverables(
+    fn list_background_agent_artifacts(
         &self,
-        request: BackgroundAgentDeliverableListRequest,
+        request: BackgroundAgentArtifactListRequest,
     ) -> Result<Value> {
         Ok(json!([{
             "id": "d-1",
@@ -942,11 +950,11 @@ async fn test_progress_operation() {
 }
 
 #[tokio::test]
-async fn test_list_deliverables_operation() {
+async fn test_list_artifacts_operation() {
     let tool = BackgroundAgentTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
-            "operation": "list_deliverables",
+            "operation": "list_artifacts",
             "id": "task-1"
         }))
         .await
@@ -1103,8 +1111,8 @@ async fn test_run_batch_replays_per_task_confirmation() {
 
 #[tokio::test]
 async fn test_team_management_round_trip() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    let tool = writable_team_tool(team_template_store);
 
     let save = tool
         .execute(json!({
@@ -1182,8 +1190,8 @@ async fn test_team_management_round_trip() {
 
 #[tokio::test]
 async fn test_run_batch_from_saved_team() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    let tool = writable_team_tool(team_template_store);
 
     tool.execute(json!({
         "operation": "save_team",
@@ -1210,8 +1218,8 @@ async fn test_run_batch_from_saved_team() {
 
 #[tokio::test]
 async fn test_run_batch_save_as_team_strips_runtime_inputs() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    let tool = writable_team_tool(team_template_store);
 
     let saved = tool
         .execute(json!({
@@ -1243,8 +1251,8 @@ async fn test_run_batch_save_as_team_strips_runtime_inputs() {
 
 #[tokio::test]
 async fn test_run_batch_rejects_workers_and_team_combined() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    let tool = writable_team_tool(team_template_store);
 
     let result = tool
         .execute(json!({
@@ -1268,8 +1276,8 @@ async fn test_run_batch_rejects_workers_and_team_combined() {
 
 #[tokio::test]
 async fn test_save_team_rejects_runtime_input_fields() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    let tool = writable_team_tool(team_template_store);
 
     let result = tool
         .execute(json!({
@@ -1292,10 +1300,11 @@ async fn test_save_team_rejects_runtime_input_fields() {
 
 #[tokio::test]
 async fn test_get_team_rejects_legacy_worker_payload() {
-    let kv_store = Arc::new(MockKvStore::default());
-    kv_store
-        .set_entry(
-            "background_agent_team:LegacyTeam",
+    let team_template_store = Arc::new(MockTeamTemplateStore::default());
+    team_template_store
+        .save_template(
+            "background_agent_team",
+            "LegacyTeam",
             &json!({
                 "version": 1,
                 "name": "LegacyTeam",
@@ -1311,13 +1320,10 @@ async fn test_get_team_rejects_legacy_worker_payload() {
             .to_string(),
             None,
             None,
-            None,
-            None,
-            None,
         )
         .expect("store legacy team");
     let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
+        .with_team_template_store(team_template_store)
         .with_write(true)
         .with_assessor(Arc::new(MockAssessor));
 

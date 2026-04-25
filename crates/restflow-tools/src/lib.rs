@@ -49,16 +49,16 @@ pub use impls::{
     BinarySkillRunTool, BinarySkillUpdateTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool,
     InstalledBinarySkillTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool,
     ProcessTool, PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool,
-    ReplyTool, RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool,
-    SessionTool, SkillTool, SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool,
-    WebFetchTool, WebSearchTool, WorkItemTool, binary_skill_tool_name,
-    discover_installed_binary_skill_tools, discover_installed_binary_skill_tools_from,
+    ReplyTool, RunPythonTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
+    SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool,
+    WebSearchTool, WorkItemTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
+    discover_installed_binary_skill_tools_from,
 };
 
 // Re-export tool_registry inline migrated tools
 pub use impls::{
-    KvStoreTool, ManageOpsTool, ManageTeamsTool, MarketplaceTool, SecurityQueryTool, TerminalTool,
-    TriggerTool, UnifiedMemorySearchTool,
+    ManageOpsTool, ManageTeamsTool, MarketplaceTool, SecurityQueryTool, TerminalTool, TriggerTool,
+    UnifiedMemorySearchTool,
 };
 
 // Re-export search tools

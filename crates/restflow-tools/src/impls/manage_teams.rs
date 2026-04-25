@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::impls::spawn_subagent_batch::types::StoredBatchSubagentSpec;
 use crate::impls::team_template::load_scoped_team_document;
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_traits::store::KvStore;
+use restflow_traits::store::TeamTemplateStore;
 use restflow_traits::{
     AssignTeamTaskRequest, MANAGE_TEAMS_TOOL_DESCRIPTION, MANAGE_TEAMS_TOOL_NAME,
     ResolveTeamApprovalRequest, SendTeamMessageRequest, StartTeamRequest, TeamCoordinator,
@@ -20,10 +20,12 @@ const SUBAGENT_TEAM_TEMPLATE_SCOPE: crate::impls::team_template::TeamTemplateSco
 #[serde(rename_all = "snake_case")]
 enum ManageTeamsOperation {
     StartTeam,
+    ListTeamStates,
     GetTeamState,
     ListTeamMessages,
     SendTeamMessage,
     ListTeamAssignments,
+    ListTeamApprovals,
     AssignTeamTask,
     ResolveTeamApproval,
 }
@@ -74,20 +76,23 @@ struct ManageTeamsParams {
 
 pub struct ManageTeamsTool {
     coordinator: Arc<dyn TeamCoordinator>,
-    kv_store: Arc<dyn KvStore>,
+    team_template_store: Arc<dyn TeamTemplateStore>,
 }
 
 impl ManageTeamsTool {
-    pub fn new(coordinator: Arc<dyn TeamCoordinator>, kv_store: Arc<dyn KvStore>) -> Self {
+    pub fn new(
+        coordinator: Arc<dyn TeamCoordinator>,
+        team_template_store: Arc<dyn TeamTemplateStore>,
+    ) -> Self {
         Self {
             coordinator,
-            kv_store,
+            team_template_store,
         }
     }
 
     fn load_template_members(&self, team_name: &str) -> Result<Vec<TeamMemberSpec>> {
         let document: TeamTemplateDocument<StoredBatchSubagentSpec> = load_scoped_team_document(
-            self.kv_store.as_ref(),
+            self.team_template_store.as_ref(),
             SUBAGENT_TEAM_TEMPLATE_SCOPE,
             team_name,
         )?;
@@ -168,10 +173,12 @@ impl ManageTeamsTool {
                     "type": "string",
                     "enum": [
                         "start_team",
+                        "list_team_states",
                         "get_team_state",
                         "list_team_messages",
                         "send_team_message",
                         "list_team_assignments",
+                        "list_team_approvals",
                         "assign_team_task",
                         "resolve_team_approval"
                     ]
@@ -255,6 +262,13 @@ impl Tool for ManageTeamsTool {
                     "team": state
                 })))
             }
+            ManageTeamsOperation::ListTeamStates => {
+                let teams = self.coordinator.list_team_states().await?;
+                Ok(ToolOutput::success(json!({
+                    "operation": "list_team_states",
+                    "teams": teams
+                })))
+            }
             ManageTeamsOperation::ListTeamMessages => {
                 let team_run_id = params.team_run_id.ok_or_else(|| {
                     ToolError::Tool("list_team_messages requires 'team_run_id'.".to_string())
@@ -298,6 +312,16 @@ impl Tool for ManageTeamsTool {
                 Ok(ToolOutput::success(json!({
                     "operation": "list_team_assignments",
                     "assignments": assignments
+                })))
+            }
+            ManageTeamsOperation::ListTeamApprovals => {
+                let team_run_id = params.team_run_id.ok_or_else(|| {
+                    ToolError::Tool("list_team_approvals requires 'team_run_id'.".to_string())
+                })?;
+                let approvals = self.coordinator.list_team_approvals(&team_run_id).await?;
+                Ok(ToolOutput::success(json!({
+                    "operation": "list_team_approvals",
+                    "approvals": approvals
                 })))
             }
             ManageTeamsOperation::AssignTeamTask => {
@@ -354,6 +378,7 @@ impl Tool for ManageTeamsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_traits::store::{TeamTemplateEntry, TeamTemplateStore};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -421,6 +446,18 @@ mod tests {
             })
         }
 
+        async fn list_team_states(&self) -> Result<Vec<restflow_traits::TeamState>> {
+            Ok(vec![restflow_traits::TeamState {
+                team_run_id: "team-1".to_string(),
+                leader_member_id: "leader".to_string(),
+                members: vec![],
+                status: restflow_traits::TeamStatus::Running,
+                pending_message_count: 0,
+                pending_assignment_count: 0,
+                updated_at: 1,
+            }])
+        }
+
         async fn list_team_assignments(
             &self,
             team_run_id: &str,
@@ -433,6 +470,23 @@ mod tests {
                 status: restflow_traits::TeamAssignmentStatus::InProgress,
                 created_at: 1,
                 updated_at: 1,
+            }])
+        }
+
+        async fn list_team_approvals(
+            &self,
+            team_run_id: &str,
+        ) -> Result<Vec<restflow_traits::PendingTeamApproval>> {
+            Ok(vec![restflow_traits::PendingTeamApproval {
+                team_run_id: team_run_id.to_string(),
+                approval_id: "approval-1".to_string(),
+                member_id: "member-1".to_string(),
+                tool_name: "manage_tasks".to_string(),
+                content: "{}".to_string(),
+                status: restflow_traits::TeamApprovalStatus::Pending,
+                requested_at: 1,
+                resolved_at: None,
+                resolution_reason: None,
             }])
         }
 
@@ -491,63 +545,88 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct MockKvStore {
+    struct MockTeamTemplateStore {
         entries: Mutex<HashMap<String, String>>,
     }
 
-    impl KvStore for MockKvStore {
-        fn get_entry(&self, key: &str) -> Result<Value> {
+    impl TeamTemplateStore for MockTeamTemplateStore {
+        fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>> {
+            let key = format!("{namespace}:{team}");
             let entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(value) = entries.get(key) {
-                Ok(json!({ "found": true, "key": key, "value": value }))
-            } else {
-                Ok(json!({ "found": false, "key": key }))
-            }
+            Ok(entries.get(&key).map(|content| TeamTemplateEntry {
+                namespace: namespace.to_string(),
+                team: team.to_string(),
+                content: content.clone(),
+                type_hint: None,
+                tags: Vec::new(),
+                created_at: 1,
+                updated_at: 2,
+            }))
         }
 
-        fn set_entry(
+        fn save_template(
             &self,
-            key: &str,
+            namespace: &str,
+            team: &str,
             content: &str,
-            _visibility: Option<&str>,
-            _content_type: Option<&str>,
-            _type_hint: Option<&str>,
-            _tags: Option<Vec<String>>,
-            _accessor_id: Option<&str>,
-        ) -> Result<Value> {
+            type_hint: Option<&str>,
+            tags: Option<Vec<String>>,
+        ) -> Result<TeamTemplateEntry> {
+            let key = format!("{namespace}:{team}");
             let mut entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             entries.insert(key.to_string(), content.to_string());
-            Ok(json!({"success": true, "key": key}))
+            Ok(TeamTemplateEntry {
+                namespace: namespace.to_string(),
+                team: team.to_string(),
+                content: content.to_string(),
+                type_hint: type_hint.map(str::to_string),
+                tags: tags.unwrap_or_default(),
+                created_at: 1,
+                updated_at: 2,
+            })
         }
 
-        fn delete_entry(&self, _key: &str, _accessor_id: Option<&str>) -> Result<Value> {
-            Ok(json!({"deleted": true}))
+        fn delete_template(&self, namespace: &str, team: &str) -> Result<bool> {
+            let key = format!("{namespace}:{team}");
+            let mut entries = self
+                .entries
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            Ok(entries.remove(&key).is_some())
         }
 
-        fn list_entries(&self, namespace: Option<&str>) -> Result<Value> {
+        fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>> {
             let entries = self
                 .entries
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let prefix = namespace.unwrap_or_default().to_string();
-            let list = entries
-                .keys()
-                .filter(|key| key.starts_with(&prefix))
-                .map(|key| json!({ "key": key }))
-                .collect::<Vec<_>>();
-            Ok(json!({ "entries": list }))
+            let prefix = format!("{namespace}:");
+            Ok(entries
+                .iter()
+                .filter_map(|(key, content)| {
+                    Some(TeamTemplateEntry {
+                        namespace: namespace.to_string(),
+                        team: key.strip_prefix(&prefix)?.to_string(),
+                        content: content.clone(),
+                        type_hint: None,
+                        tags: Vec::new(),
+                        created_at: 1,
+                        updated_at: 2,
+                    })
+                })
+                .collect())
         }
     }
 
     #[tokio::test]
     async fn start_team_from_saved_template_expands_members() {
-        let store = Arc::new(MockKvStore::default());
+        let store = Arc::new(MockTeamTemplateStore::default());
         let document = TeamTemplateDocument {
             version: 1,
             name: "TeamOne".to_string(),
@@ -566,12 +645,10 @@ mod tests {
             updated_at: 1,
         };
         store
-            .set_entry(
-                "subagent_team:TeamOne",
+            .save_template(
+                "subagent_team",
+                "TeamOne",
                 &serde_json::to_string(&document).unwrap(),
-                None,
-                None,
-                None,
                 None,
                 None,
             )

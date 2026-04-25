@@ -35,7 +35,7 @@ Use this skill for long-running or scheduled work executed by tasks.
 
 3. Track health and progress.
 - Query `operation: progress` for recent events.
-- Use `operation: list_deliverables` for outputs.
+- Use `operation: list_artifacts` for typed run outputs.
 - Use `operation: list_messages` to inspect runtime conversation if needed.
 
 4. Operate safely.

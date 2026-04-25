@@ -17,7 +17,7 @@ use crate::{
     auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
     models::{
         AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
-        DurabilityMode, MemoryConfig, SharedEntry, Skill, SteerMessage, Visibility,
+        DurabilityMode, MemoryConfig, RunArtifact, RunArtifactKind, Skill, SteerMessage,
     },
     process::ProcessRegistry,
     prompt_files,
@@ -297,39 +297,32 @@ impl AgentRuntimeExecutor {
         .map_err(|error| anyhow!(error.to_string()))
     }
 
-    fn save_task_deliverable(&self, task_id: &str, agent_id: &str, output: &str) -> Result<()> {
+    fn save_task_artifact(
+        &self,
+        task_id: &str,
+        run_id: &str,
+        agent_id: &str,
+        output: &str,
+    ) -> Result<()> {
         let now = Utc::now().timestamp_millis();
-        let key = format!("deliverable:{task_id}");
-        let payload = serde_json::json!({
-            "agent_id": agent_id,
-            "parts": [
-                {
-                    "type": "text",
-                    "content": output,
-                }
-            ],
-            "completed_at": Utc::now().to_rfc3339(),
-        });
-        let payload = serde_json::to_string(&payload)?;
-        let created_at = self
-            .storage
-            .kv_store
-            .get_unchecked(&key)?
-            .map(|entry| entry.created_at)
-            .unwrap_or(now);
-        let entry = SharedEntry {
-            key,
-            value: payload,
-            visibility: Visibility::Shared,
-            owner: Some(agent_id.to_string()),
-            content_type: Some("application/json".to_string()),
-            type_hint: Some("deliverable".to_string()),
-            tags: vec!["deliverable".to_string()],
-            created_at,
-            updated_at: now,
-            last_modified_by: Some(agent_id.to_string()),
+        let artifact = RunArtifact {
+            id: uuid::Uuid::new_v4().to_string(),
+            run_id: run_id.to_string(),
+            task_id: Some(task_id.to_string()),
+            team_run_id: None,
+            kind: RunArtifactKind::FinalOutput,
+            title: "Task final output".to_string(),
+            content: Some(output.to_string()),
+            content_ref: None,
+            content_type: Some("text/plain".to_string()),
+            size_bytes: output.len(),
+            created_at: now,
+            metadata: Some(std::collections::BTreeMap::from([(
+                "agent_id".to_string(),
+                agent_id.to_string(),
+            )])),
         };
-        self.storage.kv_store.set(&entry)
+        self.storage.run_artifacts.save(&artifact)
     }
 
     fn validate_prerequisites(&self, prerequisites: &[String]) -> Result<()> {
@@ -339,20 +332,12 @@ impl AgentRuntimeExecutor {
 
         let mut failed = Vec::new();
         for task_id in prerequisites {
-            let key = format!("deliverable:{task_id}");
-            match self.storage.kv_store.quick_get(&key, None) {
-                Ok(Some(raw)) => match serde_json::from_str::<serde_json::Value>(&raw) {
-                    Ok(value) => {
-                        let parts = value.get("parts").and_then(|part| part.as_array());
-                        if parts.is_none_or(|items| items.is_empty()) {
-                            failed.push(format!("{task_id} (empty deliverable)"));
-                        }
-                    }
-                    Err(_) => failed.push(format!("{task_id} (invalid JSON)")),
-                },
-                Ok(None) => failed.push(format!("{task_id} (not found)")),
-                Err(error) => failed.push(format!("{task_id} ({error})")),
+            let artifacts = self.storage.run_artifacts.list_by_task(task_id)?;
+            if artifacts.iter().any(RunArtifact::has_payload) {
+                continue;
             }
+
+            failed.push(format!("{task_id} (not found)"));
         }
 
         if failed.is_empty() {
@@ -362,14 +347,15 @@ impl AgentRuntimeExecutor {
         }
     }
 
-    fn persist_deliverable_if_needed(
+    fn persist_artifact_if_needed(
         &self,
         background_task_id: Option<&str>,
+        run_id: &str,
         agent_id: &str,
         output: &str,
     ) -> Result<()> {
         if let Some(task_id) = background_task_id {
-            self.save_task_deliverable(task_id, agent_id, output)?;
+            self.save_task_artifact(task_id, run_id, agent_id, output)?;
         }
         Ok(())
     }

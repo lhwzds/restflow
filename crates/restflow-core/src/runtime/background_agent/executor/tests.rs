@@ -1,8 +1,6 @@
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use crate::models::{
-    AgentNode, MemoryConfig, SharedEntry, Skill, SkillPreflightPolicyMode, Visibility,
-};
+use crate::models::{AgentNode, MemoryConfig, Skill, SkillPreflightPolicyMode};
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_traits::store::ReplySender;
@@ -56,23 +54,6 @@ fn create_preflight_blocking_skill(id: &str) -> Skill {
     );
     skill.suggested_tools = vec!["missing_tool_for_test".to_string()];
     skill
-}
-
-fn insert_shared_entry(storage: &Storage, key: &str, value: &str) {
-    let now = Utc::now().timestamp_millis();
-    let entry = SharedEntry {
-        key: key.to_string(),
-        value: value.to_string(),
-        visibility: Visibility::Public,
-        owner: None,
-        content_type: Some("application/json".to_string()),
-        type_hint: Some("deliverable".to_string()),
-        tags: vec!["deliverable".to_string()],
-        created_at: now,
-        updated_at: now,
-        last_modified_by: Some("test".to_string()),
-    };
-    storage.kv_store.set(&entry).unwrap();
 }
 
 #[test]
@@ -583,21 +564,30 @@ async fn test_resolve_api_key_requires_matching_zai_coding_plan_secret() {
 }
 
 #[test]
-fn test_validate_prerequisites_passes_with_valid_deliverables() {
+fn test_validate_prerequisites_passes_with_valid_artifacts() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    insert_shared_entry(
-        &storage,
-        "deliverable:task-a",
-        r#"{"parts":[{"type":"text","content":"ok"}]}"#,
-    );
-    insert_shared_entry(
-        &storage,
-        "deliverable:task-b",
-        r#"{"parts":[{"type":"text","content":"done"}]}"#,
-    );
+    executor
+        .save_task_artifact("task-a", "run-a", "agent-1", "ok")
+        .expect("first artifact should save");
+    executor
+        .save_task_artifact("task-b", "run-b", "agent-1", "done")
+        .expect("second artifact should save");
 
     let prerequisites = vec!["task-a".to_string(), "task-b".to_string()];
+    let result = executor.validate_prerequisites(&prerequisites);
+    assert!(result.is_ok(), "validation should pass: {:?}", result.err());
+}
+
+#[test]
+fn test_validate_prerequisites_prefers_run_artifacts() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = create_test_executor(storage.clone());
+    executor
+        .save_task_artifact("task-artifact", "run-1", "agent-1", "final answer")
+        .expect("save artifact should succeed");
+
+    let prerequisites = vec!["task-artifact".to_string()];
     let result = executor.validate_prerequisites(&prerequisites);
     assert!(result.is_ok(), "validation should pass: {:?}", result.err());
 }
@@ -615,56 +605,29 @@ fn test_validate_prerequisites_fails_when_missing() {
 }
 
 #[test]
-fn test_validate_prerequisites_fails_on_empty_parts() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    insert_shared_entry(&storage, "deliverable:task-empty", r#"{"parts":[]}"#);
-    let prerequisites = vec!["task-empty".to_string()];
-
-    let err = executor
-        .validate_prerequisites(&prerequisites)
-        .expect_err("validation should fail");
-    assert!(err.to_string().contains("task-empty (empty deliverable)"));
-}
-
-#[test]
-fn test_validate_prerequisites_fails_on_invalid_json() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    insert_shared_entry(&storage, "deliverable:task-invalid", "not-json");
-    let prerequisites = vec!["task-invalid".to_string()];
-
-    let err = executor
-        .validate_prerequisites(&prerequisites)
-        .expect_err("validation should fail");
-    assert!(err.to_string().contains("task-invalid (invalid JSON)"));
-}
-
-#[test]
-fn test_save_task_deliverable_persists_structured_payload() {
+fn test_save_task_artifact_persists_structured_payload() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
 
     executor
-        .save_task_deliverable("task-save", "agent-1", "final answer")
-        .expect("save deliverable should succeed");
+        .save_task_artifact("task-save", "run-save", "agent-1", "final answer")
+        .expect("save artifact should succeed");
 
-    let entry = storage
-        .kv_store
-        .get_unchecked("deliverable:task-save")
-        .expect("kv store read should succeed")
-        .expect("deliverable entry should exist");
-    assert_eq!(entry.type_hint.as_deref(), Some("deliverable"));
-    assert_eq!(entry.owner.as_deref(), Some("agent-1"));
-
-    let payload: serde_json::Value =
-        serde_json::from_str(&entry.value).expect("payload should be valid json");
-    assert_eq!(payload["agent_id"].as_str(), Some("agent-1"));
-    let parts = payload["parts"]
-        .as_array()
-        .expect("parts should be an array");
-    assert_eq!(parts.len(), 1);
-    assert_eq!(parts[0]["content"].as_str(), Some("final answer"));
+    let artifacts = storage
+        .run_artifacts
+        .list_by_task("task-save")
+        .expect("artifact list should succeed");
+    assert_eq!(artifacts.len(), 1);
+    assert_eq!(artifacts[0].run_id, "run-save");
+    assert_eq!(artifacts[0].content.as_deref(), Some("final answer"));
+    assert_eq!(
+        artifacts[0]
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("agent_id"))
+            .map(String::as_str),
+        Some("agent-1")
+    );
 }
 
 #[test]

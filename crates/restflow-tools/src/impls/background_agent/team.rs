@@ -7,7 +7,7 @@ use crate::impls::team_template::{
     load_scoped_team_document, save_scoped_team_document,
 };
 use restflow_traits::TeamTemplateDocument;
-use restflow_traits::store::KvStore;
+use restflow_traits::store::TeamTemplateStore;
 
 use super::types::{BackgroundBatchWorkerSpec, StoredBackgroundBatchWorkerSpec};
 
@@ -69,7 +69,7 @@ fn runtime_worker_from_stored(
 }
 
 pub(super) fn save_team_workers(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     team_name: &str,
     workers: &[BackgroundBatchWorkerSpec],
     strict_runtime_inputs: bool,
@@ -103,7 +103,7 @@ pub(super) fn save_team_workers(
 }
 
 pub(super) fn load_team_workers(
-    store: &dyn KvStore,
+    store: &dyn TeamTemplateStore,
     team_name: &str,
 ) -> Result<Vec<BackgroundBatchWorkerSpec>> {
     let team: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
@@ -115,11 +115,11 @@ pub(super) fn load_team_workers(
         .collect())
 }
 
-pub(super) fn delete_team(store: &dyn KvStore, team_name: &str) -> Result<Value> {
+pub(super) fn delete_team(store: &dyn TeamTemplateStore, team_name: &str) -> Result<Value> {
     delete_scoped_team_document(store, BACKGROUND_AGENT_TEAM_SCOPE, team_name)
 }
 
-pub(super) fn get_team(store: &dyn KvStore, team_name: &str) -> Result<Value> {
+pub(super) fn get_team(store: &dyn TeamTemplateStore, team_name: &str) -> Result<Value> {
     let document: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
         load_scoped_team_document(store, BACKGROUND_AGENT_TEAM_SCOPE, team_name)?;
     let members = document
@@ -139,12 +139,10 @@ pub(super) fn get_team(store: &dyn KvStore, team_name: &str) -> Result<Value> {
     }))
 }
 
-pub(super) fn list_teams(store: &dyn KvStore) -> Result<Value> {
+pub(super) fn list_teams(store: &dyn TeamTemplateStore) -> Result<Value> {
     let mut teams = Vec::new();
     for item in list_scoped_team_entries(store, BACKGROUND_AGENT_TEAM_SCOPE)? {
-        let Some(team_name) = BACKGROUND_AGENT_TEAM_SCOPE.team_name_from_entry(&item) else {
-            continue;
-        };
+        let team_name = item.team.clone();
         let (member_groups, total_instances, updated_at) =
             load_scoped_team_document::<StoredBackgroundBatchWorkerSpec>(
                 store,

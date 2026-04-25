@@ -1100,9 +1100,14 @@ mod tests {
         }
     }
 
+    #[allow(clippy::await_holding_lock)]
     async fn test_core() -> Arc<AppCore> {
+        let _restflow_dir_lock = crate::paths::restflow_dir_env_lock();
         let temp = tempdir().expect("tempdir");
         let db_path = temp.path().join("daemon-http-test.db");
+        let state_dir = temp.path().join("state");
+        std::fs::create_dir_all(&state_dir).expect("state dir");
+        let _restflow_dir = EnvGuard::set_path("RESTFLOW_DIR", &state_dir);
         Arc::new(
             AppCore::new(db_path.to_str().expect("db path utf8"))
                 .await

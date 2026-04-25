@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use crate::services::adapters::{AgentStoreAdapter, KvStoreAdapter, TaskStoreAdapter};
+use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter, TeamTemplateStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
 use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, DeliverableStorage, KvStoreStorage, SecretStorage,
-    SkillStorage,
+    AgentStorage, BackgroundAgentStorage, RunArtifactStorage, SecretStorage, SkillStorage,
+    TeamTemplateStorage,
 };
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
@@ -19,7 +19,7 @@ use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
-use restflow_traits::store::{AgentStore, KvStore, TaskStore};
+use restflow_traits::store::{AgentStore, TaskStore, TeamTemplateStore};
 
 pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 8] = [
     ("http", "http_request"),
@@ -39,7 +39,7 @@ pub(crate) struct AgentCrudComponents {
 
 pub(crate) struct TaskStoreComponents {
     pub store: Arc<dyn TaskStore>,
-    pub kv_store: Arc<dyn KvStore>,
+    pub team_template_store: Arc<dyn TeamTemplateStore>,
 }
 
 pub(crate) fn register_bash_execution_tool(
@@ -68,7 +68,7 @@ pub(crate) fn register_file_execution_tool(
     agent_id: &str,
     task_id: &str,
 ) -> ToolRegistryBuilder {
-    if let Some(gate) = security_gate {
+    if let Some(gate) = security_gate.clone() {
         let tool = config
             .into_file_tool_with_tracker(builder.tracker())
             .with_security(gate, agent_id, task_id);
@@ -199,11 +199,10 @@ pub(crate) fn build_runtime_assessor(storage: &Storage) -> Arc<dyn AgentOperatio
     Arc::new(OperationAssessorAdapter::from_storage(storage))
 }
 
-pub(crate) fn build_kv_store(
-    kv_store_storage: KvStoreStorage,
-    accessor_id: Option<String>,
-) -> Arc<dyn KvStore> {
-    Arc::new(KvStoreAdapter::new(kv_store_storage, accessor_id))
+pub(crate) fn build_team_template_store(
+    team_template_storage: TeamTemplateStorage,
+) -> Arc<dyn TeamTemplateStore> {
+    Arc::new(TeamTemplateStoreAdapter::new(team_template_storage))
 }
 
 pub(crate) fn build_agent_crud_components(
@@ -226,15 +225,15 @@ pub(crate) fn build_agent_crud_components(
 pub(crate) fn build_task_store_components(
     background_agent_storage: BackgroundAgentStorage,
     agent_storage: AgentStorage,
-    deliverable_storage: DeliverableStorage,
+    run_artifact_storage: RunArtifactStorage,
     session_service: SessionService,
-    kv_store: Arc<dyn KvStore>,
+    team_template_store: Arc<dyn TeamTemplateStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     let mut store = TaskStoreAdapter::new(
         background_agent_storage,
         agent_storage,
-        deliverable_storage,
+        run_artifact_storage,
         session_service,
     );
     if let Some(assessor) = assessor {
@@ -243,7 +242,7 @@ pub(crate) fn build_task_store_components(
 
     TaskStoreComponents {
         store: Arc::new(store),
-        kv_store,
+        team_template_store,
     }
 }
 
@@ -251,7 +250,7 @@ pub(crate) fn register_management_tools(
     mut builder: ToolRegistryBuilder,
     agent_store: Option<Arc<dyn AgentStore>>,
     task_store: Option<Arc<dyn TaskStore>>,
-    kv_store: Option<Arc<dyn KvStore>>,
+    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
     register_legacy_alias: bool,
 ) -> ToolRegistryBuilder {
@@ -263,18 +262,26 @@ pub(crate) fn register_management_tools(
         };
     }
 
-    if let (Some(task_store), Some(kv_store)) = (task_store, kv_store) {
+    if let (Some(task_store), Some(team_template_store)) = (task_store, team_template_store) {
         builder = if let Some(assessor) = assessor.clone() {
-            builder.with_task_and_kv_and_assessor(task_store.clone(), kv_store.clone(), assessor)
+            builder.with_task_and_team_templates_and_assessor(
+                task_store.clone(),
+                team_template_store.clone(),
+                assessor,
+            )
         } else {
-            builder.with_task_and_kv(task_store.clone(), kv_store.clone())
+            builder.with_task_and_team_templates(task_store.clone(), team_template_store.clone())
         };
 
         if register_legacy_alias {
             builder = if let Some(assessor) = assessor {
-                builder.with_legacy_task_alias_and_kv_and_assessor(task_store, kv_store, assessor)
+                builder.with_legacy_task_alias_and_team_templates_and_assessor(
+                    task_store,
+                    team_template_store,
+                    assessor,
+                )
             } else {
-                builder.with_legacy_task_alias_and_kv(task_store, kv_store)
+                builder.with_legacy_task_alias_and_team_templates(task_store, team_template_store)
             };
         };
     }
@@ -285,12 +292,12 @@ pub(crate) fn register_management_tools(
 pub(crate) fn register_subagent_management_tools(
     registry: &mut ToolRegistry,
     manager: Arc<dyn SubagentManager>,
-    kv_store: Option<Arc<dyn KvStore>>,
+    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) {
     let mut spawn_tool = SpawnSubagentTool::new(manager.clone());
-    if let Some(kv_store) = kv_store {
-        spawn_tool = spawn_tool.with_kv_store(kv_store);
+    if let Some(team_template_store) = team_template_store {
+        spawn_tool = spawn_tool.with_team_template_store(team_template_store);
     }
     if let Some(assessor) = assessor {
         spawn_tool = spawn_tool.with_assessor(assessor);
@@ -303,15 +310,15 @@ pub(crate) fn register_subagent_management_tools(
 
 pub(crate) fn build_task_store_runtime_components(
     storage: &Storage,
-    kv_store: Arc<dyn KvStore>,
+    team_template_store: Arc<dyn TeamTemplateStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     build_task_store_components(
         storage.background_agents.clone(),
         storage.agents.clone(),
-        storage.deliverables.clone(),
+        storage.run_artifacts.clone(),
         SessionService::from_storage(storage),
-        kv_store,
+        team_template_store,
         assessor,
     )
 }

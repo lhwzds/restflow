@@ -9,15 +9,16 @@ pub mod background_agent;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
-pub mod deliverable;
 pub mod execution_trace;
 pub mod hook;
-pub mod kv_store;
 pub mod memory;
 pub mod provider_health_snapshot;
+pub mod run_artifact;
 pub mod session;
 pub mod skill;
 pub mod structured_execution_log;
+pub mod team_runtime;
+pub mod team_template;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
 pub mod trigger;
@@ -43,15 +44,16 @@ pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
-pub use deliverable::DeliverableStorage;
 pub use execution_trace::ExecutionTraceStorage;
 pub use hook::HookStorage;
-pub use kv_store::KvStoreStorage;
 pub use memory::MemoryStorage;
 pub use provider_health_snapshot::ProviderHealthSnapshotStorage;
+pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
 pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
+pub use team_runtime::TeamRuntimeStorage;
+pub use team_template::TeamTemplateStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
@@ -70,13 +72,13 @@ pub struct Storage {
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
-    pub kv_store: KvStoreStorage,
+    pub team_templates: TeamTemplateStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub channel_session_bindings: ChannelSessionBindingStorage,
     pub sessions: SessionStorage,
-    pub deliverables: DeliverableStorage,
+    pub run_artifacts: RunArtifactStorage,
     pub hooks: HookStorage,
     pub work_items: WorkItemStorage,
     pub checkpoints: CheckpointStorage,
@@ -89,6 +91,7 @@ pub struct Storage {
     pub provider_health_snapshots: ProviderHealthSnapshotStorage,
     /// Structured execution log projection storage.
     pub structured_execution_logs: StructuredExecutionLogStorage,
+    pub team_runtime: TeamRuntimeStorage,
     /// Backward-compatible alias storage.
     pub audit: AuditStorage,
 }
@@ -111,8 +114,7 @@ impl Storage {
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
-        let kv_store_raw = restflow_storage::KvStoreStorage::new(db.clone())?;
-        let kv_store = KvStoreStorage::new(kv_store_raw);
+        let team_templates = TeamTemplateStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let index = if path == ":memory:" {
             Some(Arc::new(MemoryIndex::in_memory()?))
@@ -135,7 +137,7 @@ impl Storage {
             channel_session_bindings.clone(),
             ExecutionTraceStorage::new(db.clone())?,
         );
-        let deliverables = DeliverableStorage::new(db.clone())?;
+        let run_artifacts = RunArtifactStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let work_items = WorkItemStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
@@ -144,6 +146,7 @@ impl Storage {
         let telemetry_metric_samples = TelemetryMetricSampleStorage::new(db.clone())?;
         let provider_health_snapshots = ProviderHealthSnapshotStorage::new(db.clone())?;
         let structured_execution_logs = StructuredExecutionLogStorage::new(db.clone())?;
+        let team_runtime = TeamRuntimeStorage::new(db.clone())?;
         let audit = AuditStorage::new(db.clone())?;
 
         Ok(Self {
@@ -155,13 +158,13 @@ impl Storage {
             secrets,
             daemon_state,
             skills,
-            kv_store,
+            team_templates,
             terminal_sessions,
             memory,
             chat_sessions,
             channel_session_bindings,
             sessions,
-            deliverables,
+            run_artifacts,
             hooks,
             work_items,
             checkpoints,
@@ -170,6 +173,7 @@ impl Storage {
             telemetry_metric_samples,
             provider_health_snapshots,
             structured_execution_logs,
+            team_runtime,
             audit,
         })
     }

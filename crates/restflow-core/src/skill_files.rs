@@ -37,14 +37,6 @@ const DEFAULT_SKILLS: &[(&str, &str)] = &[
         "pr-context-gatherer",
         include_str!("../assets/skills/pr-context-gatherer/SKILL.md"),
     ),
-    (
-        "pr-shared-space-validation",
-        include_str!("../assets/skills/pr-shared-space-validation/SKILL.md"),
-    ),
-    (
-        "pr-submit-from-shared-space",
-        include_str!("../assets/skills/pr-submit-from-shared-space/SKILL.md"),
-    ),
 ];
 
 /// Ensure default skill files exist under ~/.restflow/skills/.
@@ -110,35 +102,6 @@ mod tests {
                 .join(SKILL_FILE_NAME);
             assert!(path.exists(), "skill {} should exist", skill_id);
         }
-
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
-    }
-
-    #[test]
-    fn creates_new_kv_store_pr_skills() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, temp.path()) };
-
-        ensure_default_skill_files().unwrap();
-
-        let validation_path = temp
-            .path()
-            .join("skills")
-            .join("pr-shared-space-validation")
-            .join(SKILL_FILE_NAME);
-        let submit_path = temp
-            .path()
-            .join("skills")
-            .join("pr-submit-from-shared-space")
-            .join(SKILL_FILE_NAME);
-        assert!(validation_path.exists());
-        assert!(submit_path.exists());
-        assert!(
-            std::fs::read_to_string(submit_path)
-                .unwrap()
-                .contains("--body-file")
-        );
 
         unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
     }
@@ -222,19 +185,6 @@ mod tests {
             );
             assert!(content.contains("name:"), "skill {} missing name", skill_id);
         }
-    }
-
-    #[test]
-    fn validates_kv_store_pr_key_schema() {
-        fn is_valid_key(task_id: &str, key: &str) -> bool {
-            let prefix = format!("pr:{task_id}:");
-            key.starts_with(&prefix)
-        }
-
-        assert!(is_valid_key("task-123", "pr:task-123:title"));
-        assert!(is_valid_key("task-123", "pr:task-123:body"));
-        assert!(!is_valid_key("task-123", "pr:task-456:title"));
-        assert!(!is_valid_key("task-123", "workspace:task-123:title"));
     }
 
     #[test]

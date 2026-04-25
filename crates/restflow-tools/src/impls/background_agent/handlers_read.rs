@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::store::{
-    TaskDeliverableListRequest, TaskMessageListRequest, TaskProgressRequest, TaskStore,
+    TaskArtifactListRequest, TaskMessageListRequest, TaskProgressRequest, TaskStore,
     TaskTraceListRequest, TaskTraceReadRequest,
 };
 
@@ -39,14 +39,12 @@ pub(super) fn execute_list_messages(
     Ok(ToolOutput::success(result))
 }
 
-pub(super) fn execute_list_deliverables(tool: &TaskTool, id: String) -> Result<ToolOutput> {
+pub(super) fn execute_list_artifacts(tool: &TaskTool, id: String) -> Result<ToolOutput> {
     let result =
-        TaskStore::list_task_deliverables(tool.store.as_ref(), TaskDeliverableListRequest { id })
+        TaskStore::list_task_artifacts(tool.store.as_ref(), TaskArtifactListRequest { id })
             .map_err(|e| {
-            ToolError::Tool(format!(
-                "Failed to list deliverables background agent: {e}."
-            ))
-        })?;
+                ToolError::Tool(format!("Failed to list artifacts background agent: {e}."))
+            })?;
     Ok(ToolOutput::success(result))
 }
 

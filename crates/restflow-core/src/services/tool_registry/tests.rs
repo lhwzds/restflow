@@ -196,7 +196,7 @@ fn setup_storage() -> (
     ChatSessionStorage,
     ChannelSessionBindingStorage,
     ExecutionTraceStorage,
-    KvStoreStorage,
+    TeamTemplateStorage,
     WorkItemStorage,
     SecretStorage,
     ConfigStorage,
@@ -204,7 +204,8 @@ fn setup_storage() -> (
     BackgroundAgentStorage,
     TriggerStorage,
     TerminalSessionStorage,
-    crate::storage::DeliverableStorage,
+    crate::storage::RunArtifactStorage,
+    crate::storage::TeamRuntimeStorage,
     tempfile::TempDir,
 ) {
     let temp_dir = tempdir().unwrap();
@@ -225,8 +226,7 @@ fn setup_storage() -> (
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
     let channel_session_binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
     let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
-    let kv_store_storage =
-        KvStoreStorage::new(restflow_storage::KvStoreStorage::new(db.clone()).unwrap());
+    let team_template_storage = TeamTemplateStorage::new(db.clone()).unwrap();
     let work_item_storage = WorkItemStorage::new(db.clone()).unwrap();
     let secret_storage = SecretStorage::with_config(
         db.clone(),
@@ -240,7 +240,8 @@ fn setup_storage() -> (
     let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
     let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
     let terminal_storage = TerminalSessionStorage::new(db.clone()).unwrap();
-    let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
+    let run_artifact_storage = crate::storage::RunArtifactStorage::new(db.clone()).unwrap();
+    let team_runtime_storage = crate::storage::TeamRuntimeStorage::new(db).unwrap();
 
     unsafe {
         std::env::remove_var("RESTFLOW_DIR");
@@ -256,7 +257,7 @@ fn setup_storage() -> (
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -264,7 +265,8 @@ fn setup_storage() -> (
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         temp_dir,
     )
 }
@@ -393,7 +395,7 @@ fn test_create_tool_registry() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -401,7 +403,8 @@ fn test_create_tool_registry() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
@@ -410,7 +413,7 @@ fn test_create_tool_registry() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -418,7 +421,8 @@ fn test_create_tool_registry() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -440,7 +444,6 @@ fn test_create_tool_registry() {
     assert!(registry.has("task_list"));
     assert!(registry.has("skill"));
     assert!(registry.has("memory_search"));
-    assert!(registry.has("kv_store"));
     assert!(registry.has("process"));
     assert!(registry.has("reply"));
     assert!(registry.has("switch_model"));
@@ -462,7 +465,7 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_sessions"));
     assert!(registry.has("manage_memory"));
     assert!(registry.has("manage_auth_profiles"));
-    assert!(registry.has("save_deliverable"));
+    assert!(!registry.has("save_artifact"));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -473,7 +476,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -481,7 +484,8 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
@@ -490,7 +494,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -498,7 +502,8 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -532,7 +537,7 @@ async fn test_manage_ops_session_summary_response_schema() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -540,7 +545,8 @@ async fn test_manage_ops_session_summary_response_schema() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -555,7 +561,7 @@ async fn test_manage_ops_session_summary_response_schema() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -563,7 +569,8 @@ async fn test_manage_ops_session_summary_response_schema() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -708,7 +715,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -716,7 +723,8 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -726,7 +734,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -734,7 +742,8 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -775,7 +784,7 @@ fn test_skill_provider_list_empty() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -783,7 +792,8 @@ fn test_skill_provider_list_empty() {
         _background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
     let provider = SkillStorageProvider::new(storage);
@@ -800,7 +810,7 @@ fn test_skill_provider_with_data() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -808,7 +818,8 @@ fn test_skill_provider_with_data() {
         _background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -855,7 +866,7 @@ fn test_agent_store_adapter_crud_flow() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         secret_storage,
         _config_storage,
@@ -863,7 +874,8 @@ fn test_agent_store_adapter_crud_flow() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1001,7 +1013,7 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         secret_storage,
         _config_storage,
@@ -1009,7 +1021,8 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1063,7 +1076,7 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         secret_storage,
         _config_storage,
@@ -1071,7 +1084,8 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1142,7 +1156,7 @@ fn test_task_store_adapter_background_agent_flow() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -1150,7 +1164,8 @@ fn test_task_store_adapter_background_agent_flow() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1163,7 +1178,7 @@ fn test_task_store_adapter_background_agent_flow() {
     let adapter = BackgroundAgentStoreAdapter::new(
         background_agent_storage.clone(),
         agent_storage.clone(),
-        deliverable_storage,
+        run_artifact_storage,
         SessionService::new(
             crate::storage::SessionStorage::new(
                 chat_storage,
@@ -1376,7 +1391,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1384,7 +1399,8 @@ async fn test_marketplace_tool_list_and_uninstall() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1403,7 +1419,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1411,7 +1427,8 @@ async fn test_marketplace_tool_list_and_uninstall() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -1447,7 +1464,7 @@ async fn test_trigger_tool_create_list_disable() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1455,7 +1472,8 @@ async fn test_trigger_tool_create_list_disable() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1465,7 +1483,7 @@ async fn test_trigger_tool_create_list_disable() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1473,7 +1491,8 @@ async fn test_trigger_tool_create_list_disable() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -1524,7 +1543,7 @@ async fn test_terminal_tool_create_send_read_close() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1532,7 +1551,8 @@ async fn test_terminal_tool_create_send_read_close() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1542,7 +1562,7 @@ async fn test_terminal_tool_create_send_read_close() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1550,7 +1570,8 @@ async fn test_terminal_tool_create_send_read_close() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -1621,7 +1642,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1629,7 +1650,8 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1639,7 +1661,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1647,7 +1669,8 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -1686,7 +1709,7 @@ async fn test_db_memory_store_adapter_crud() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
+        _team_template_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -1694,7 +1717,8 @@ async fn test_db_memory_store_adapter_crud() {
         _background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
+        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1779,7 +1803,7 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1787,7 +1811,8 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1797,7 +1822,7 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1805,7 +1830,8 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -1831,7 +1857,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         storage.chat_sessions.clone(),
         storage.channel_session_bindings.clone(),
         storage.execution_traces.clone(),
-        storage.kv_store.clone(),
+        storage.team_templates.clone(),
         storage.work_items.clone(),
         storage.secrets.clone(),
         storage.config.clone(),
@@ -1839,7 +1865,8 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         storage.background_agents.clone(),
         storage.triggers.clone(),
         storage.terminal_sessions.clone(),
-        storage.deliverables.clone(),
+        storage.run_artifacts.clone(),
+        storage.team_runtime.clone(),
         None,
         None,
         None,
@@ -1963,7 +1990,7 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1971,7 +1998,8 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1981,7 +2009,7 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1989,7 +2017,8 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         Some("agent-1".to_string()),
         Some(Arc::new(DenyProcessSecurityGate)),
@@ -2028,7 +2057,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -2036,7 +2065,8 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2049,7 +2079,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage.clone(),
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage.clone(),
@@ -2057,7 +2087,8 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -2187,7 +2218,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -2195,7 +2226,8 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2205,7 +2237,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage.clone(),
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage.clone(),
@@ -2213,7 +2245,8 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,
@@ -2278,7 +2311,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -2286,7 +2319,8 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2296,7 +2330,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage.clone(),
-        kv_store_storage,
+        team_template_storage,
         work_item_storage,
         secret_storage.clone(),
         config_storage.clone(),
@@ -2304,7 +2338,8 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
+        team_runtime_storage,
         None,
         None,
         None,

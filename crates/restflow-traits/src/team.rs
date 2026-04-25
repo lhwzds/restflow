@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 
 pub const MANAGE_TEAMS_TOOL_NAME: &str = "manage_teams";
-pub const MANAGE_TEAMS_TOOL_DESCRIPTION: &str = "Manage runtime teams. Operations: start_team, get_team_state, list_team_messages, send_team_message, list_team_assignments, assign_team_task, resolve_team_approval.";
+pub const MANAGE_TEAMS_TOOL_DESCRIPTION: &str = "Manage runtime teams. Operations: start_team, list_team_states, get_team_state, list_team_messages, send_team_message, list_team_assignments, list_team_approvals, assign_team_task, resolve_team_approval.";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -227,7 +227,9 @@ pub trait TeamMailbox: Send + Sync {
 pub trait TeamCoordinator: TeamMailbox + Send + Sync {
     async fn start_team(&self, request: StartTeamRequest) -> Result<TeamState>;
     async fn get_team_state(&self, team_run_id: &str) -> Result<TeamState>;
+    async fn list_team_states(&self) -> Result<Vec<TeamState>>;
     async fn list_team_assignments(&self, team_run_id: &str) -> Result<Vec<TeamAssignment>>;
+    async fn list_team_approvals(&self, team_run_id: &str) -> Result<Vec<PendingTeamApproval>>;
     async fn assign_team_task(&self, request: AssignTeamTaskRequest) -> Result<TeamAssignment>;
     async fn record_pending_approval(
         &self,
