@@ -10,7 +10,7 @@ use crate::services::background_agent_command::{
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::ApprovalHandledResponse;
-use restflow_traits::store::{BackgroundAgentControlRequest, BackgroundAgentDeleteRequest};
+use restflow_traits::store::{TaskControlRequest, TaskConvertSessionRequest, TaskDeleteRequest};
 
 fn resolve_task_id(
     core: &Arc<AppCore>,
@@ -122,7 +122,7 @@ impl IpcServer {
 
     pub(super) async fn handle_create_task_from_session(
         core: &Arc<AppCore>,
-        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+        request: TaskConvertSessionRequest,
     ) -> IpcResponse {
         match command_service(core)
             .convert_session(request, TaskExecutionMode::Direct)
@@ -154,7 +154,7 @@ impl IpcServer {
     }
 
     pub(super) async fn handle_delete_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
-        let request = BackgroundAgentDeleteRequest {
+        let request = TaskDeleteRequest {
             id,
             preview: false,
             approval_id: None,
@@ -178,7 +178,7 @@ impl IpcServer {
             Ok(value) => value,
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
-        let request = BackgroundAgentControlRequest {
+        let request = TaskControlRequest {
             id,
             action,
             preview: false,
