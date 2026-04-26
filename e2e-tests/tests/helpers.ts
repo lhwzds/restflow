@@ -231,13 +231,13 @@ function readTaskDeleted(value: unknown): boolean {
 
 async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
   const preview = await executeManageTasksDirect({
-    action: 'delete',
+    operation: 'delete',
     id: taskId,
     preview: true,
   })
   const approvalId = readApprovalId(preview)
   const result = await executeManageTasksDirect({
-    action: 'delete',
+    operation: 'delete',
     id: taskId,
     approval_id: approvalId,
   })
