@@ -183,35 +183,35 @@ pub trait AgentOperationAssessor: Send + Sync {
 
     async fn assess_background_agent_create(
         &self,
-        request: crate::store::BackgroundAgentCreateRequest,
+        request: TaskCreateRequest,
     ) -> Result<OperationAssessment, ToolError> {
         self.assess_task_create(request).await
     }
 
     async fn assess_background_agent_convert_session(
         &self,
-        request: crate::store::BackgroundAgentConvertSessionRequest,
+        request: TaskConvertSessionRequest,
     ) -> Result<OperationAssessment, ToolError> {
         self.assess_task_convert_session(request).await
     }
 
     async fn assess_background_agent_update(
         &self,
-        request: crate::store::BackgroundAgentUpdateRequest,
+        request: TaskUpdateRequest,
     ) -> Result<OperationAssessment, ToolError> {
         self.assess_task_update(request).await
     }
 
     async fn assess_background_agent_delete(
         &self,
-        request: crate::store::BackgroundAgentDeleteRequest,
+        request: TaskDeleteRequest,
     ) -> Result<OperationAssessment, ToolError> {
         self.assess_task_delete(request).await
     }
 
     async fn assess_background_agent_control(
         &self,
-        request: crate::store::BackgroundAgentControlRequest,
+        request: TaskControlRequest,
     ) -> Result<OperationAssessment, ToolError> {
         self.assess_task_control(request).await
     }
