@@ -133,7 +133,7 @@ Example — notify on task failure:
 
 #### Confirmation Workflow
 
-- `manage_agents`, `manage_tasks` (legacy alias: `manage_background_agents`), and `spawn_subagent` support `preview`.
+- `manage_agents`, `manage_tasks`, and `spawn_subagent` support `preview`.
 - Always use `preview: true` before create, update, convert, run, or batch-spawn actions.
 - If the preview returns `requires_confirmation: true`, ask the user before retrying with `approval_id`.
 - If the preview returns blockers, explain the blockers and stop.

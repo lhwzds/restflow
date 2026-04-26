@@ -3,7 +3,6 @@ use std::sync::Arc;
 use crate::impls::TaskTool;
 use crate::impls::agent_crud::AgentCrudTool;
 use crate::impls::auth_profile::AuthProfileTool;
-use crate::impls::background_agent::BackgroundAgentTool;
 use crate::impls::config::ConfigTool;
 use crate::impls::diagnostics::DiagnosticsTool;
 use crate::impls::manage_ops::ManageOpsTool;
@@ -48,14 +47,6 @@ fn build_task_tool(
         tool = tool.with_assessor(assessor);
     }
     tool.with_write(true)
-}
-
-fn build_legacy_task_alias_tool(
-    store: Arc<dyn TaskStore>,
-    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
-    assessor: Option<Arc<dyn AgentOperationAssessor>>,
-) -> BackgroundAgentTool {
-    BackgroundAgentTool::from_task_tool(build_task_tool(store, team_template_store, assessor))
 }
 
 impl ToolRegistryBuilder {
@@ -190,12 +181,6 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_legacy_task_alias(mut self, store: Arc<dyn TaskStore>) -> Self {
-        self.registry
-            .register(build_legacy_task_alias_tool(store, None, None));
-        self
-    }
-
     pub fn with_task_and_team_templates(
         mut self,
         store: Arc<dyn TaskStore>,
@@ -206,19 +191,6 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_legacy_task_alias_and_team_templates(
-        mut self,
-        store: Arc<dyn TaskStore>,
-        team_template_store: Arc<dyn TeamTemplateStore>,
-    ) -> Self {
-        self.registry.register(build_legacy_task_alias_tool(
-            store,
-            Some(team_template_store),
-            None,
-        ));
-        self
-    }
-
     pub fn with_task_and_team_templates_and_assessor(
         mut self,
         store: Arc<dyn TaskStore>,
@@ -226,20 +198,6 @@ impl ToolRegistryBuilder {
         assessor: Arc<dyn AgentOperationAssessor>,
     ) -> Self {
         self.registry.register(build_task_tool(
-            store,
-            Some(team_template_store),
-            Some(assessor),
-        ));
-        self
-    }
-
-    pub fn with_legacy_task_alias_and_team_templates_and_assessor(
-        mut self,
-        store: Arc<dyn TaskStore>,
-        team_template_store: Arc<dyn TeamTemplateStore>,
-        assessor: Arc<dyn AgentOperationAssessor>,
-    ) -> Self {
-        self.registry.register(build_legacy_task_alias_tool(
             store,
             Some(team_template_store),
             Some(assessor),

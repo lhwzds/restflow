@@ -340,7 +340,7 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
         tools_list
             .iter()
             .all(|tool| tool["name"].as_str() != Some("manage_background_agents")),
-        "manage_background_agents alias must stay callable but hidden from tools/list"
+        "manage_background_agents alias must not be exposed over MCP"
     );
 
     let save_team_initial = post_json_rpc(
@@ -450,7 +450,7 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
             "id": 51,
             "method": "tools/call",
             "params": {
-                "name": "manage_background_agents",
+                "name": "manage_tasks",
                 "arguments": {
                     "operation": "get_team",
                     "team": "daemon-bg-team"

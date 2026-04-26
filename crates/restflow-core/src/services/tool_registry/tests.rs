@@ -455,7 +455,6 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_config"));
     assert!(registry.has("manage_agents"));
     assert!(registry.has("manage_tasks"));
-    assert!(registry.has("manage_background_agents"));
     assert!(registry.has("manage_marketplace"));
     assert!(registry.has("manage_triggers"));
     assert!(registry.has("manage_terminal"));
@@ -759,7 +758,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
                 "agent": {
                     "tools": [
                         "manage_tasks",
-                        "manage_background_agents",
                         "manage_terminal",
                         "security_query"
                     ]
@@ -897,13 +895,9 @@ fn test_agent_store_adapter_crud_flow() {
     skill_storage.create(&trace_skill).unwrap();
 
     let known_tools = Arc::new(RwLock::new(
-        [
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-            "manage_agents".to_string(),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>(),
+        ["manage_tasks".to_string(), "manage_agents".to_string()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage,
@@ -922,10 +916,7 @@ fn test_agent_store_adapter_crud_flow() {
         codex_cli_reasoning_effort: None,
         codex_cli_execution_mode: None,
         api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
-        tools: Some(vec![
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-        ]),
+        tools: Some(vec!["manage_tasks".to_string()]),
         skills: Some(vec!["ops-skill".to_string()]),
         skill_variables: None,
         skill_preflight_policy_mode: None,
@@ -965,7 +956,6 @@ fn test_agent_store_adapter_crud_flow() {
                 prompt: Some("Updated prompt".to_string()),
                 tools: Some(vec![
                     "manage_tasks".to_string(),
-                    "manage_background_agents".to_string(),
                     "manage_agents".to_string(),
                 ]),
                 skills: Some(vec!["ops-skill".to_string(), "trace-skill".to_string()]),
@@ -1027,12 +1017,9 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        [
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>(),
+        ["manage_tasks".to_string()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage,
@@ -1090,12 +1077,9 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        [
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>(),
+        ["manage_tasks".to_string()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage.clone(),
@@ -1889,7 +1873,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "run_python".to_string(),
         "manage_agents".to_string(),
         "manage_tasks".to_string(),
-        "manage_background_agents".to_string(),
         "spawn_subagent".to_string(),
         "wait_subagents".to_string(),
         "list_subagents".to_string(),
@@ -1914,7 +1897,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "python",
         "manage_agents",
         "manage_tasks",
-        "manage_background_agents",
         "spawn_subagent",
         "wait_subagents",
         "list_subagents",

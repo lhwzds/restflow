@@ -21,7 +21,7 @@ use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{AgentStore, TaskStore, TeamTemplateStore};
 
-pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 8] = [
+pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
     ("http", "http_request"),
     ("email", "send_email"),
     ("telegram", "telegram_send"),
@@ -29,7 +29,6 @@ pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 8] = [
     ("slack", "slack_send"),
     ("use_skill", "skill"),
     ("python", "run_python"),
-    ("manage_background_agents", "manage_tasks"),
 ];
 
 pub(crate) struct AgentCrudComponents {
@@ -252,7 +251,6 @@ pub(crate) fn register_management_tools(
     task_store: Option<Arc<dyn TaskStore>>,
     team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
-    register_legacy_alias: bool,
 ) -> ToolRegistryBuilder {
     if let Some(agent_store) = agent_store {
         builder = if let Some(assessor) = assessor.clone() {
@@ -271,18 +269,6 @@ pub(crate) fn register_management_tools(
             )
         } else {
             builder.with_task_and_team_templates(task_store.clone(), team_template_store.clone())
-        };
-
-        if register_legacy_alias {
-            builder = if let Some(assessor) = assessor {
-                builder.with_legacy_task_alias_and_team_templates_and_assessor(
-                    task_store,
-                    team_template_store,
-                    assessor,
-                )
-            } else {
-                builder.with_legacy_task_alias_and_team_templates(task_store, team_template_store)
-            };
         };
     }
 

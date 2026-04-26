@@ -9,8 +9,8 @@ use restflow_traits::store::{
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
-    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, TaskStore, TeamTemplateEntry, TeamTemplateStore,
+    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, MANAGE_TASK_OPERATIONS_CSV,
+    TaskStore, TeamTemplateEntry, TeamTemplateStore,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -168,12 +168,6 @@ fn background_agent_constructor_preserves_status_through_bridge() {
 fn task_tool_uses_manage_tasks_name() {
     let tool = TaskTool::new(Arc::new(MockStore));
     assert_eq!(Tool::name(&tool), "manage_tasks");
-}
-
-#[test]
-fn background_agent_tool_keeps_legacy_name() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
-    assert_eq!(Tool::name(&tool), "manage_background_agents");
 }
 
 #[test]
@@ -659,14 +653,14 @@ impl BackgroundAgentStore for FailingListStore {
 
 #[tokio::test]
 async fn test_list_tasks() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
     assert!(output.success);
 }
 
 #[tokio::test]
 async fn test_write_guard() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let result = tool
         .execute(json!({
             "operation": "create",
@@ -688,7 +682,7 @@ async fn test_write_guard() {
 
 #[tokio::test]
 async fn test_invalid_input_message() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "id": "task-1"
@@ -700,7 +694,7 @@ async fn test_invalid_input_message() {
         output
             .error
             .expect("expected error")
-            .contains(MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV)
+            .contains(MANAGE_TASK_OPERATIONS_CSV)
     );
 }
 
@@ -805,7 +799,7 @@ async fn test_delete_accepts_approval_id_for_replay() {
 
 #[tokio::test]
 async fn test_create_rejects_invalid_durability_mode_payload() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let output = tool
         .execute(json!({
             "operation": "create",
@@ -912,7 +906,7 @@ async fn test_convert_session_defaults_run_now_to_false() {
 
 #[tokio::test]
 async fn test_promote_to_background_requires_session_id() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let err = tool
         .execute(json!({
             "operation": "promote_to_background"
@@ -927,7 +921,7 @@ async fn test_promote_to_background_requires_session_id() {
 
 #[tokio::test]
 async fn test_list_store_error_is_wrapped() {
-    let tool = BackgroundAgentTool::new(Arc::new(FailingListStore));
+    let tool = TaskTool::new(Arc::new(FailingListStore));
     let result = tool.execute(json!({ "operation": "list" })).await;
     let err = result.expect_err("expected wrapped store error");
     let err_text = err.to_string();
@@ -937,7 +931,7 @@ async fn test_list_store_error_is_wrapped() {
 
 #[tokio::test]
 async fn test_progress_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "progress",
@@ -951,7 +945,7 @@ async fn test_progress_operation() {
 
 #[tokio::test]
 async fn test_list_artifacts_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "list_artifacts",
@@ -964,7 +958,7 @@ async fn test_list_artifacts_operation() {
 
 #[tokio::test]
 async fn test_list_traces_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "list_traces",
@@ -979,7 +973,7 @@ async fn test_list_traces_operation() {
 
 #[tokio::test]
 async fn test_read_trace_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "read_trace",
@@ -1000,7 +994,7 @@ async fn test_read_trace_operation() {
 
 #[tokio::test]
 async fn test_stop_uses_control_not_delete() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let output = tool
         .execute(json!({
             "operation": "stop",
@@ -1023,7 +1017,7 @@ async fn test_stop_uses_control_not_delete() {
 
 #[tokio::test]
 async fn test_start_uses_control_with_start_action() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let output = tool
         .execute(json!({
             "operation": "start",
@@ -1322,7 +1316,7 @@ async fn test_get_team_rejects_legacy_worker_payload() {
             None,
         )
         .expect("store legacy team");
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
+    let tool = TaskTool::new(Arc::new(MockStore))
         .with_team_template_store(team_template_store)
         .with_write(true)
         .with_assessor(Arc::new(MockAssessor));

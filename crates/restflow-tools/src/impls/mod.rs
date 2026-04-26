@@ -30,10 +30,6 @@ pub mod task {
         TaskTool, legacy_tool_description, tool_description, tool_parameters_schema,
     };
 
-    pub mod legacy {
-        pub use super::super::background_agent::BackgroundAgentTool;
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -44,13 +40,6 @@ pub mod task {
                 tool_parameters_schema(),
                 super::super::background_agent::tool_parameters_schema()
             );
-        }
-
-        #[test]
-        fn task_module_exposes_legacy_background_agent_tool_through_legacy_namespace() {
-            let _: fn(
-                std::sync::Arc<dyn restflow_traits::store::BackgroundAgentStore>,
-            ) -> legacy::BackgroundAgentTool = legacy::BackgroundAgentTool::new;
         }
     }
 }
@@ -170,6 +159,3 @@ pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
 pub use use_skill::UseSkillTool;
 pub use wait_subagents::WaitSubagentsTool;
-
-// Legacy compatibility exports.
-pub use background_agent::BackgroundAgentTool;

@@ -2,9 +2,7 @@ use crate::AppCore;
 use crate::daemon::{IpcRequest, IpcResponse, IpcServer, StreamFrame};
 use crate::mcp::RestFlowMcpServer;
 use crate::models::storage_mode::StorageMode;
-use crate::models::{
-    BackgroundAgentConversionResult, GatingCheckResult, Skill, SkillManifest, SkillVersion,
-};
+use crate::models::{GatingCheckResult, Skill, SkillManifest, SkillVersion, TaskConversionResult};
 use crate::registry::{
     GatingChecker, GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery,
     SkillSearchResult, SkillSortOrder,
@@ -196,8 +194,8 @@ fn build_http_router(
         .route("/api/request", post(api_request))
         .route("/api/stream", post(api_stream))
         .route(
-            "/api/background-agents/convert-session",
-            post(api_convert_session_to_background_agent),
+            "/api/tasks/convert-session",
+            post(api_convert_session_to_task),
         )
         .route("/api/marketplace/search", post(api_marketplace_search))
         .route("/api/marketplace/skill", post(api_marketplace_get_skill))
@@ -381,10 +379,10 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
     }
 }
 
-async fn api_convert_session_to_background_agent(
+async fn api_convert_session_to_task(
     State(state): State<DaemonHttpState>,
     Json(request): Json<restflow_contracts::request::TaskFromSessionRequest>,
-) -> std::result::Result<Json<BackgroundAgentConversionResult>, (StatusCode, Json<ErrorPayload>)> {
+) -> std::result::Result<Json<TaskConversionResult>, (StatusCode, Json<ErrorPayload>)> {
     let store_request = crate::boundary::background_agent::contract_convert_request_to_store(
         request,
     )
@@ -1277,7 +1275,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/background-agents/convert-session")
+                    .uri("/api/tasks/convert-session")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&serde_json::json!({
@@ -1296,7 +1294,7 @@ mod tests {
         let body = body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let result: crate::models::BackgroundAgentConversionResult =
+        let result: crate::models::TaskConversionResult =
             serde_json::from_slice(&body).expect("conversion outcome");
         assert_eq!(result.source_session_id, session.id);
         assert_eq!(result.task.chat_session_id, session.id);

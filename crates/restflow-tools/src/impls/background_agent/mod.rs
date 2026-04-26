@@ -18,8 +18,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentStore, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASK_OPERATIONS_CSV,
-    MANAGE_TASKS_TOOL_NAME, TaskStore, TeamTemplateStore,
+    BackgroundAgentStore, MANAGE_TASK_OPERATIONS_CSV, MANAGE_TASKS_TOOL_NAME, TaskStore,
+    TeamTemplateStore,
 };
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::TaskAction;
@@ -31,11 +31,6 @@ pub struct TaskTool {
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
-
-#[derive(Clone)]
-/// Legacy compatibility wrapper that preserves the historical
-/// `manage_background_agents` tool surface while delegating to `TaskTool`.
-pub struct BackgroundAgentTool(TaskTool);
 
 impl TaskTool {
     pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
@@ -95,35 +90,6 @@ impl TaskTool {
                 "Task capability assessment is unavailable in this runtime.".to_string(),
             )
         })
-    }
-}
-
-impl BackgroundAgentTool {
-    pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
-        Self(TaskTool::new(store))
-    }
-
-    pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
-        Self(TaskTool::from_task_store(store))
-    }
-
-    pub fn from_task_tool(tool: TaskTool) -> Self {
-        Self(tool)
-    }
-
-    pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
-        self.0 = self.0.with_assessor(assessor);
-        self
-    }
-
-    pub fn with_write(mut self, allow_write: bool) -> Self {
-        self.0 = self.0.with_write(allow_write);
-        self
-    }
-
-    pub fn with_team_template_store(mut self, store: Arc<dyn TeamTemplateStore>) -> Self {
-        self.0 = self.0.with_team_template_store(store);
-        self
     }
 }
 
@@ -399,24 +365,5 @@ impl Tool for TaskTool {
                 line_limit,
             } => handlers_read::execute_read_trace(self, trace_id, line_limit),
         }
-    }
-}
-
-#[async_trait]
-impl Tool for BackgroundAgentTool {
-    fn name(&self) -> &str {
-        MANAGE_BACKGROUND_AGENTS_TOOL_NAME
-    }
-
-    fn description(&self) -> &str {
-        legacy_tool_description()
-    }
-
-    fn parameters_schema(&self) -> Value {
-        schema::parameters_schema()
-    }
-
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        self.0.execute(input).await
     }
 }

@@ -47,31 +47,14 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "run",
 ];
 
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = MANAGE_TASK_OPERATIONS;
-
 pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_artifacts, list_traces, read_trace, pause, resume, stop, run";
-
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = MANAGE_TASK_OPERATIONS_CSV;
 
 pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = MANAGE_TASKS_TOOL_DESCRIPTION;
 pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_NAME: &str = "manage_background_agents";
-
-pub fn canonical_task_tool_name(tool_name: &str) -> Option<&'static str> {
-    match tool_name {
-        MANAGE_TASKS_TOOL_NAME | MANAGE_BACKGROUND_AGENTS_TOOL_NAME => Some(MANAGE_TASKS_TOOL_NAME),
-        _ => None,
-    }
-}
 
 pub fn is_task_management_tool_name(tool_name: &str) -> bool {
-    canonical_task_tool_name(tool_name).is_some()
-}
-
-pub fn is_legacy_task_tool_name(tool_name: &str) -> bool {
-    tool_name == MANAGE_BACKGROUND_AGENTS_TOOL_NAME
+    tool_name == MANAGE_TASKS_TOOL_NAME
 }
 
 // ── MemoryStore ──────────────────────────────────────────────────────
@@ -379,21 +362,9 @@ mod tests {
     }
 
     #[test]
-    fn task_management_tool_names_resolve_to_canonical_name() {
-        assert_eq!(
-            canonical_task_tool_name(MANAGE_TASKS_TOOL_NAME),
-            Some(MANAGE_TASKS_TOOL_NAME)
-        );
-        assert_eq!(
-            canonical_task_tool_name(MANAGE_BACKGROUND_AGENTS_TOOL_NAME),
-            Some(MANAGE_TASKS_TOOL_NAME)
-        );
+    fn task_management_tool_name_accepts_only_canonical_name() {
         assert!(is_task_management_tool_name(MANAGE_TASKS_TOOL_NAME));
-        assert!(is_task_management_tool_name(
-            MANAGE_BACKGROUND_AGENTS_TOOL_NAME
-        ));
-        assert!(is_legacy_task_tool_name(MANAGE_BACKGROUND_AGENTS_TOOL_NAME));
-        assert!(!is_legacy_task_tool_name(MANAGE_TASKS_TOOL_NAME));
+        assert!(!is_task_management_tool_name("manage_background_agents"));
         assert!(!is_task_management_tool_name("manage_agents"));
     }
 
@@ -662,7 +633,7 @@ pub mod compat {
         BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest,
         BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
         BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
-        BackgroundAgentUpdateRequest, MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
+        BackgroundAgentUpdateRequest,
     };
 }
 

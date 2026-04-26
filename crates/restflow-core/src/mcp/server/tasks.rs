@@ -243,14 +243,6 @@ impl RestFlowMcpServer {
         }
         Ok(tool_result.result)
     }
-
-    #[cfg(test)]
-    pub(crate) async fn handle_manage_background_agents(
-        &self,
-        params: ManageBackgroundAgentsParams,
-    ) -> Result<String, String> {
-        self.handle_manage_tasks(params).await
-    }
 }
 
 fn strip_null_fields(value: &mut Value) {

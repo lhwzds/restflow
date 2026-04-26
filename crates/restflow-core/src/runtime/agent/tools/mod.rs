@@ -30,8 +30,7 @@ use restflow_traits::SubagentManager;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
-    DiagnosticsProvider, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASKS_TOOL_NAME,
-    is_legacy_task_tool_name, is_task_management_tool_name,
+    DiagnosticsProvider, MANAGE_TASKS_TOOL_NAME, is_task_management_tool_name,
 };
 
 // Re-export tool types from restflow-tools
@@ -213,8 +212,7 @@ pub fn registry_from_allowlist_with_security_gate(
 
     let wants_manage_agents = wants_named_tool(tool_names, "manage_agents");
     let wants_manage_tasks = wants_named_tool(tool_names, MANAGE_TASKS_TOOL_NAME);
-    let wants_manage_tasks_alias = tool_names.iter().any(|name| is_legacy_task_tool_name(name));
-    let wants_manage_task_tools = wants_manage_tasks || wants_manage_tasks_alias;
+    let wants_manage_task_tools = wants_manage_tasks;
     let wants_spawn_subagent = tool_names.iter().any(|name| name == "spawn_subagent");
     let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
@@ -662,7 +660,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     .as_ref()
                     .map(|components| components.team_template_store.clone()),
                 shared_assessor.clone(),
-                wants_manage_tasks_alias,
             );
         } else {
             if wants_manage_agents {
@@ -670,12 +667,6 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             if wants_manage_tasks {
                 debug!(tool_name = "manage_tasks", "Storage missing, skipping");
-            }
-            if wants_manage_tasks_alias {
-                debug!(
-                    tool_name = MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
-                    "Storage missing, skipping"
-                );
             }
         }
     }
@@ -827,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn test_manage_background_agents_alias_registered_with_storage() {
+    fn test_manage_background_agents_alias_is_not_registered() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-tools-alias.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -837,8 +828,8 @@ mod tests {
         let registry =
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
                 .unwrap();
-        assert!(registry.has("manage_tasks"));
-        assert!(registry.has("manage_background_agents"));
+        assert!(!registry.has("manage_tasks"));
+        assert!(!registry.has("manage_background_agents"));
     }
 
     #[test]
@@ -1130,59 +1121,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manage_background_agents_alias_executes_task_runtime_path() {
-        let dir = tempdir().expect("temp dir should be created");
-        let db_path = dir.path().join("registry-bg-runtime-alias.db");
-        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-            .expect("storage should be created");
-        let prompts_dir = dir.path().join("agents");
-        std::fs::create_dir_all(&prompts_dir).expect("prompts dir should be created");
-
-        let previous_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
-        let agent_id = storage
-            .agents
-            .create_agent("Runtime Owner".to_string(), AgentNode::default())
-            .expect("agent should be created")
-            .id;
-        unsafe {
-            match previous_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-            }
-        }
-
-        let names = vec!["manage_background_agents".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
-                .expect("registry should be built");
-        assert!(
-            registry.has("manage_tasks"),
-            "canonical task tool should be registered for alias ingress"
-        );
-        let output = registry
-            .get("manage_background_agents")
-            .expect("manage_background_agents alias should be registered")
-            .execute(json!({
-                "operation": "create",
-                "name": "Runtime Alias Preview Task",
-                "agent_id": agent_id,
-                "input": "Run checks",
-                "schedule": {
-                    "type": "interval",
-                    "interval_ms": 60000,
-                    "start_at": null
-                },
-                "preview": true
-            }))
-            .await
-            .expect("alias should execute through task runtime path");
-
-        assert!(output.success);
-        assert_eq!(output.result["status"], "preview");
-    }
-
-    #[tokio::test]
     async fn test_manage_agents_runtime_registry_injects_shared_assessor_and_aliases() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-agent-runtime.db");
@@ -1219,7 +1157,7 @@ mod tests {
                 "operation": "create",
                 "name": "Runtime Preview Agent",
                 "agent": {
-                    "tools": ["http", "email", "python", "manage_background_agents"]
+                    "tools": ["http", "email", "python", "manage_tasks"]
                 },
                 "preview": true
             }))

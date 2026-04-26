@@ -1,10 +1,10 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    AgentNode, ApiKeyConfig, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
-    ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId, RunKind, RunListQuery,
-    RunSummary, Skill, SkillReference, Task, TaskControlAction, TaskMessage, TaskMessageSource,
-    TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
+    AgentNode, ApiKeyConfig, BackgroundAgentStatus, ChannelSessionBinding, ChatSession,
+    ChatSessionSource, ModelId, RunKind, RunListQuery, RunSummary, Skill, SkillReference, Task,
+    TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSchedule,
+    TaskSpec, TaskStatus,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -1114,14 +1114,11 @@ impl McpBackend for MockBackend {
         }
     }
 
-    async fn list_background_agents(
-        &self,
-        _status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
+    async fn list_tasks(&self, _status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
         Ok(Vec::new())
     }
 
-    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
+    async fn create_task(&self, spec: TaskSpec) -> Result<Task, String> {
         let mut task = Task::new(
             "mock-task".to_string(),
             spec.name,
@@ -1155,11 +1152,11 @@ impl McpBackend for MockBackend {
         Ok(task)
     }
 
-    async fn update_background_agent(&self, _id: &str, _patch: TaskPatch) -> Result<Task, String> {
+    async fn update_task(&self, _id: &str, _patch: TaskPatch) -> Result<Task, String> {
         Err("not implemented in mock backend".to_string())
     }
 
-    async fn delete_background_agent(
+    async fn delete_task(
         &self,
         request: restflow_traits::store::TaskDeleteRequest,
     ) -> Result<restflow_traits::TaskCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String>
@@ -1172,11 +1169,7 @@ impl McpBackend for MockBackend {
         })
     }
 
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
         let mut task = Task::new(
             id.to_string(),
             "Mock Controlled Task".to_string(),
@@ -1194,7 +1187,7 @@ impl McpBackend for MockBackend {
         Ok(task)
     }
 
-    async fn get_background_agent_progress(
+    async fn get_task_progress(
         &self,
         _id: &str,
         _event_limit: usize,
@@ -1202,7 +1195,7 @@ impl McpBackend for MockBackend {
         Err("not implemented in mock backend".to_string())
     }
 
-    async fn send_background_agent_message(
+    async fn send_task_message(
         &self,
         _id: &str,
         _message: String,
@@ -1211,7 +1204,7 @@ impl McpBackend for MockBackend {
         Err("not implemented in mock backend".to_string())
     }
 
-    async fn list_background_agent_messages(
+    async fn list_task_messages(
         &self,
         _id: &str,
         _limit: usize,
@@ -1278,7 +1271,7 @@ impl McpBackend for MockBackend {
         Ok(vec![event])
     }
 
-    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
+    async fn get_task(&self, id: &str) -> Result<Task, String> {
         let mut task = Task::new(
             id.to_string(),
             "Mock Task".to_string(),
@@ -1341,7 +1334,7 @@ impl McpBackend for MockBackend {
         name: &str,
         input: Value,
     ) -> Result<RuntimeToolResult, String> {
-        if name == "manage_tasks" || name == "manage_background_agents" {
+        if name == "manage_tasks" {
             let operation = input
                 .get("operation")
                 .and_then(Value::as_str)
@@ -1429,325 +1422,6 @@ impl McpBackend for MockBackend {
     }
 }
 
-struct LegacyBackgroundAgentBackend {
-    inner: MockBackend,
-}
-
-impl LegacyBackgroundAgentBackend {
-    fn new() -> Self {
-        Self {
-            inner: MockBackend::new(),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl McpBackend for LegacyBackgroundAgentBackend {
-    async fn list_skills(&self) -> Result<Vec<Skill>, String> {
-        self.inner.list_skills().await
-    }
-
-    async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
-        self.inner.get_skill(id).await
-    }
-
-    async fn get_skill_reference(
-        &self,
-        skill_id: &str,
-        ref_id: &str,
-    ) -> Result<Option<String>, String> {
-        self.inner.get_skill_reference(skill_id, ref_id).await
-    }
-
-    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
-        self.inner.create_skill(skill).await
-    }
-
-    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
-        self.inner.update_skill(skill).await
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<(), String> {
-        self.inner.delete_skill(id).await
-    }
-
-    async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {
-        self.inner.list_agents().await
-    }
-
-    async fn get_agent(&self, id: &str) -> Result<StoredAgent, String> {
-        self.inner.get_agent(id).await
-    }
-
-    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
-        self.inner.search_memory(query).await
-    }
-
-    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String> {
-        self.inner.store_memory(chunk).await
-    }
-
-    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
-        self.inner.get_memory_stats(agent_id).await
-    }
-
-    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
-        self.inner.list_sessions().await
-    }
-
-    async fn list_sessions_by_agent(
-        &self,
-        agent_id: &str,
-    ) -> Result<Vec<ChatSessionSummary>, String> {
-        self.inner.list_sessions_by_agent(agent_id).await
-    }
-
-    async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
-        self.inner.get_session(id).await
-    }
-
-    async fn list_background_agents(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
-        self.inner.list_background_agents(status).await
-    }
-
-    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
-        self.inner.create_background_agent(spec).await
-    }
-
-    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        self.inner.update_background_agent(id, patch).await
-    }
-
-    async fn delete_background_agent(
-        &self,
-        request: restflow_traits::store::TaskDeleteRequest,
-    ) -> Result<restflow_traits::TaskCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String>
-    {
-        self.inner.delete_background_agent(request).await
-    }
-
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
-        self.inner.control_background_agent(id, action).await
-    }
-
-    async fn get_background_agent_progress(
-        &self,
-        id: &str,
-        event_limit: usize,
-    ) -> Result<TaskProgress, String> {
-        self.inner
-            .get_background_agent_progress(id, event_limit)
-            .await
-    }
-
-    async fn send_background_agent_message(
-        &self,
-        id: &str,
-        message: String,
-        source: TaskMessageSource,
-    ) -> Result<TaskMessage, String> {
-        self.inner
-            .send_background_agent_message(id, message, source)
-            .await
-    }
-
-    async fn list_background_agent_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
-        self.inner.list_background_agent_messages(id, limit).await
-    }
-
-    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
-        self.inner.get_background_agent(id).await
-    }
-
-    async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
-        self.inner.list_artifacts(task_id).await
-    }
-
-    async fn list_execution_sessions(
-        &self,
-        query: RunListQuery,
-    ) -> Result<Vec<RunSummary>, String> {
-        self.inner.list_execution_sessions(query).await
-    }
-
-    async fn query_execution_traces(
-        &self,
-        query: crate::models::ExecutionTraceQuery,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        self.inner.query_execution_traces(query).await
-    }
-
-    async fn query_execution_run_traces(
-        &self,
-        run_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        self.inner.query_execution_run_traces(run_id, limit).await
-    }
-
-    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
-        self.inner.list_hooks().await
-    }
-
-    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
-        self.inner.create_hook(hook).await
-    }
-
-    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
-        self.inner.update_hook(id, hook).await
-    }
-
-    async fn delete_hook(&self, id: &str) -> Result<bool, String> {
-        self.inner.delete_hook(id).await
-    }
-
-    async fn test_hook(&self, id: &str) -> Result<(), String> {
-        self.inner.test_hook(id).await
-    }
-
-    async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
-        self.inner.list_runtime_tools().await
-    }
-
-    async fn execute_runtime_tool(
-        &self,
-        name: &str,
-        input: Value,
-    ) -> Result<RuntimeToolResult, String> {
-        self.inner.execute_runtime_tool(name, input).await
-    }
-
-    async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
-        self.inner.get_api_defaults().await
-    }
-}
-
-#[tokio::test]
-async fn test_task_methods_remain_compatible_with_legacy_backend_implementations() {
-    let backend = LegacyBackgroundAgentBackend::new();
-
-    let created = backend
-        .create_task(BackgroundAgentSpec {
-            name: "Compat Task".to_string(),
-            agent_id: "mock-agent".to_string(),
-            chat_session_id: Some("session-123".to_string()),
-            description: Some("Legacy backend path".to_string()),
-            input: Some("ping".to_string()),
-            input_template: None,
-            schedule: BackgroundAgentSchedule::default(),
-            notification: None,
-            execution_mode: None,
-            timeout_secs: Some(30),
-            memory: None,
-            durability_mode: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(created.id, "mock-task");
-    assert_eq!(created.chat_session_id, "session-123");
-
-    let fetched = backend.get_task("task-compat").await.unwrap();
-    assert_eq!(fetched.id, "task-compat");
-
-    let deleted = backend
-        .delete_task(restflow_traits::store::TaskDeleteRequest {
-            id: "task-delete".to_string(),
-            preview: false,
-            approval_id: None,
-        })
-        .await
-        .unwrap();
-    match deleted {
-        restflow_traits::TaskCommandOutcome::Executed { result } => {
-            assert_eq!(result.id, "task-delete");
-            assert!(result.deleted);
-        }
-        other => panic!("unexpected delete outcome: {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_legacy_background_agent_aliases_remain_compatible_with_task_only_backends() {
-    let backend = MockBackend::new();
-
-    let listed = backend.list_background_agents(None).await.unwrap();
-    assert!(listed.is_empty());
-
-    let created = backend
-        .create_background_agent(BackgroundAgentSpec {
-            name: "Legacy Alias Task".to_string(),
-            agent_id: "mock-agent".to_string(),
-            chat_session_id: Some("session-legacy".to_string()),
-            description: Some("Task-only backend path".to_string()),
-            input: Some("pong".to_string()),
-            input_template: None,
-            schedule: BackgroundAgentSchedule::default(),
-            notification: None,
-            execution_mode: None,
-            timeout_secs: Some(30),
-            memory: None,
-            durability_mode: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(created.id, "mock-task");
-    assert_eq!(created.chat_session_id, "session-legacy");
-
-    let fetched = backend.get_background_agent("legacy-task").await.unwrap();
-    assert_eq!(fetched.id, "legacy-task");
-}
-
-#[tokio::test]
-async fn test_canonical_task_methods_work_for_legacy_background_agent_backend() {
-    let backend = LegacyBackgroundAgentBackend::new();
-
-    let listed = backend.list_tasks(None).await.unwrap();
-    assert!(listed.is_empty());
-
-    let created = backend
-        .create_task(BackgroundAgentSpec {
-            name: "Canonical Task".to_string(),
-            agent_id: "mock-agent".to_string(),
-            chat_session_id: Some("session-canonical".to_string()),
-            description: Some("Legacy implementation path".to_string()),
-            input: Some("ping".to_string()),
-            input_template: None,
-            schedule: BackgroundAgentSchedule::default(),
-            notification: None,
-            execution_mode: None,
-            timeout_secs: Some(30),
-            memory: None,
-            durability_mode: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(created.id, "mock-task");
-    assert_eq!(created.chat_session_id, "session-canonical");
-
-    let fetched = backend.get_task("canonical-task").await.unwrap();
-    assert_eq!(fetched.id, "canonical-task");
-}
-
 #[tokio::test]
 async fn test_mock_backend_list_skills() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
@@ -1774,9 +1448,9 @@ async fn test_mock_backend_session_filter() {
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_operation() {
+async fn test_manage_tasks_list_operation() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let params = ManageBackgroundAgentsParams {
+    let params = ManageTasksParams {
         operation: "list".to_string(),
         session_id: None,
         id: None,
@@ -1818,72 +1492,57 @@ async fn test_manage_background_agents_list_operation() {
         approval_id: None,
     };
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let tasks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
     assert!(tasks.is_empty());
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_artifacts_operation() {
+async fn test_manage_tasks_list_artifacts_operation() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("list_artifacts");
+    let mut params = base_manage_tasks_params("list_artifacts");
     params.id = Some("task-1".to_string());
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let artifacts: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
     assert!(artifacts.is_empty());
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_progress_uses_api_default_event_limit() {
+async fn test_manage_tasks_progress_uses_api_default_event_limit() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("progress");
+    let mut params = base_manage_tasks_params("progress");
     params.id = Some("task-1".to_string());
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
     assert_eq!(value["event_limit"], serde_json::json!(10));
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_messages_uses_api_default_limit() {
+async fn test_manage_tasks_list_messages_uses_api_default_limit() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("list_messages");
+    let mut params = base_manage_tasks_params("list_messages");
     params.id = Some("task-1".to_string());
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
     assert_eq!(value["limit"], serde_json::json!(50));
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_convert_session_operation() {
+async fn test_manage_tasks_convert_session_operation() {
     let backend = Arc::new(MockBackend::new());
     let session_id = backend.session.id.clone();
     let server = RestFlowMcpServer::with_backend(backend);
-    let mut params = base_manage_background_params("convert_session");
+    let mut params = base_manage_tasks_params("convert_session");
     params.session_id = Some(session_id.clone());
     params.input = Some("Continue in background".to_string());
     params.run_now = Some(false);
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["status"], "executed");
     assert_eq!(value["result"]["source_session_id"], session_id);
@@ -1892,19 +1551,16 @@ async fn test_manage_background_agents_convert_session_operation() {
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_convert_session_defaults_run_now_to_false() {
+async fn test_manage_tasks_convert_session_defaults_run_now_to_false() {
     let backend = Arc::new(MockBackend::new());
     let session_id = backend.session.id.clone();
     let server = RestFlowMcpServer::with_backend(backend);
-    let mut params = base_manage_background_params("convert_session");
+    let mut params = base_manage_tasks_params("convert_session");
     params.session_id = Some(session_id.clone());
     params.input = Some("Continue in background".to_string());
     params.run_now = None;
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["status"], "executed");
     assert_eq!(value["result"]["source_session_id"], session_id);
@@ -1913,19 +1569,16 @@ async fn test_manage_background_agents_convert_session_defaults_run_now_to_false
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_promote_to_background_operation() {
+async fn test_manage_tasks_promote_to_background_operation() {
     let backend = Arc::new(MockBackend::new());
     let session_id = backend.session.id.clone();
     let server = RestFlowMcpServer::with_backend(backend);
-    let mut params = base_manage_background_params("promote_to_background");
+    let mut params = base_manage_tasks_params("promote_to_background");
     params.session_id = Some(session_id.clone());
     params.input = Some("Promote this chat".to_string());
     params.run_now = Some(true);
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["status"], "executed");
     assert_eq!(value["result"]["source_session_id"], session_id);
@@ -1934,19 +1587,16 @@ async fn test_manage_background_agents_promote_to_background_operation() {
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_promote_to_background_defaults_run_now_to_false() {
+async fn test_manage_tasks_promote_to_background_defaults_run_now_to_false() {
     let backend = Arc::new(MockBackend::new());
     let session_id = backend.session.id.clone();
     let server = RestFlowMcpServer::with_backend(backend);
-    let mut params = base_manage_background_params("promote_to_background");
+    let mut params = base_manage_tasks_params("promote_to_background");
     params.session_id = Some(session_id.clone());
     params.input = Some("Promote this chat".to_string());
     params.run_now = None;
 
-    let json = server
-        .handle_manage_background_agents(params)
-        .await
-        .unwrap();
+    let json = server.handle_manage_tasks(params).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["status"], "executed");
     assert_eq!(value["result"]["source_session_id"], session_id);
@@ -1955,12 +1605,12 @@ async fn test_manage_background_agents_promote_to_background_defaults_run_now_to
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_save_team_and_get_team_round_trip() {
+async fn test_mcp_manage_tasks_save_team_and_get_team_round_trip() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let save = call_tool_through_mcp(
         server.clone(),
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "save_team",
             "team": "bg-review-team",
@@ -1980,7 +1630,7 @@ async fn test_mcp_manage_background_agents_save_team_and_get_team_round_trip() {
 
     let get = call_tool_through_mcp(
         server,
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "get_team",
             "team": "bg-review-team"
@@ -2005,12 +1655,12 @@ async fn test_mcp_manage_background_agents_save_team_and_get_team_round_trip() {
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_run_batch_accepts_runtime_inputs() {
+async fn test_mcp_manage_tasks_run_batch_accepts_runtime_inputs() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let save = call_tool_through_mcp(
         server.clone(),
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "save_team",
             "team": "bg-runtime-inputs-team",
@@ -2027,7 +1677,7 @@ async fn test_mcp_manage_background_agents_run_batch_accepts_runtime_inputs() {
 
     let run = call_tool_through_mcp(
         server,
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "run_batch",
             "team": "bg-runtime-inputs-team",
@@ -2045,12 +1695,12 @@ async fn test_mcp_manage_background_agents_run_batch_accepts_runtime_inputs() {
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
+async fn test_mcp_manage_tasks_stop_uses_stop_semantics() {
     let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let create = call_tool_through_mcp(
         server.clone(),
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "create",
             "name": "stop-contract",
@@ -2078,7 +1728,7 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
 
     let stop = call_tool_through_mcp(
         server,
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "stop",
             "id": task_id
@@ -2101,12 +1751,12 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_start_returns_active_status() {
+async fn test_mcp_manage_tasks_start_returns_active_status() {
     let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let create = call_tool_through_mcp(
         server.clone(),
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "create",
             "name": "start-contract",
@@ -2134,7 +1784,7 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
 
     let stop = call_tool_through_mcp(
         server.clone(),
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "stop",
             "id": task_id
@@ -2145,7 +1795,7 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
 
     let start = call_tool_through_mcp(
         server,
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "start",
             "id": task_id
@@ -2169,11 +1819,11 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefix() {
+async fn test_mcp_manage_tasks_delete_returns_canonical_id_for_prefix() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let create = server
-        .handle_manage_background_agents(ManageBackgroundAgentsParams {
+        .handle_manage_tasks(ManageTasksParams {
             operation: "create".to_string(),
             name: Some("delete-prefix-contract".to_string()),
             agent_id: Some("default".to_string()),
@@ -2184,7 +1834,7 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
                     start_at: None,
                 }
             )),
-            ..ManageBackgroundAgentsParams::default()
+            ..ManageTasksParams::default()
         })
         .await
         .expect("create response");
@@ -2196,11 +1846,11 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
     let prefix = &task_id[..8];
 
     let delete_preview = server
-        .handle_manage_background_agents(ManageBackgroundAgentsParams {
+        .handle_manage_tasks(ManageTasksParams {
             operation: "delete".to_string(),
             id: Some(prefix.to_string()),
             preview: Some(true),
-            ..ManageBackgroundAgentsParams::default()
+            ..ManageTasksParams::default()
         })
         .await
         .expect("delete preview response");
@@ -2211,11 +1861,11 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
         .expect("delete preview should return approval id");
 
     let delete = server
-        .handle_manage_background_agents(ManageBackgroundAgentsParams {
+        .handle_manage_tasks(ManageTasksParams {
             operation: "delete".to_string(),
             id: Some(prefix.to_string()),
             approval_id: Some(token.to_string()),
-            ..ManageBackgroundAgentsParams::default()
+            ..ManageTasksParams::default()
         })
         .await
         .expect("delete response");
@@ -2225,12 +1875,12 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_list_artifacts_accepts_prefix() {
+async fn test_mcp_manage_tasks_list_artifacts_accepts_prefix() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
     let create = call_tool_through_mcp(
         server.clone(),
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "create",
             "name": "artifact-prefix-contract",
@@ -2259,7 +1909,7 @@ async fn test_mcp_manage_background_agents_list_artifacts_accepts_prefix() {
 
     let list = call_tool_through_mcp(
         server,
-        "manage_background_agents",
+        "manage_tasks",
         serde_json::json!({
             "operation": "list_artifacts",
             "id": prefix
@@ -2279,13 +1929,13 @@ fn test_parse_trace_category_rejects_unknown_value() {
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_traces_keeps_backward_compatible_array_shape() {
+async fn test_manage_tasks_list_traces_keeps_backward_compatible_array_shape() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("list_traces");
+    let mut params = base_manage_tasks_params("list_traces");
     params.id = Some("task-1".to_string());
 
     let json = server
-        .handle_manage_background_agents(params)
+        .handle_manage_tasks(params)
         .await
         .expect("list_traces should succeed");
     let value: serde_json::Value =
@@ -2294,9 +1944,9 @@ async fn test_manage_background_agents_list_traces_keeps_backward_compatible_arr
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_traces_supports_stats_payload() {
+async fn test_manage_tasks_list_traces_supports_stats_payload() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("list_traces");
+    let mut params = base_manage_tasks_params("list_traces");
     params.id = Some("task-1".to_string());
     params.include_stats = Some(true);
     params.category = Some("tool".to_string());
@@ -2304,7 +1954,7 @@ async fn test_manage_background_agents_list_traces_supports_stats_payload() {
     params.limit = Some(5);
 
     let json = server
-        .handle_manage_background_agents(params)
+        .handle_manage_tasks(params)
         .await
         .expect("list_traces with stats should succeed");
     let value: serde_json::Value =
@@ -2315,29 +1965,29 @@ async fn test_manage_background_agents_list_traces_supports_stats_payload() {
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_list_traces_validates_time_range() {
+async fn test_manage_tasks_list_traces_validates_time_range() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("list_traces");
+    let mut params = base_manage_tasks_params("list_traces");
     params.id = Some("task-1".to_string());
     params.from_time_ms = Some(200);
     params.to_time_ms = Some(100);
 
     let err = server
-        .handle_manage_background_agents(params)
+        .handle_manage_tasks(params)
         .await
         .expect_err("invalid time range should fail");
     assert!(err.contains("Invalid time range"));
 }
 
 #[tokio::test]
-async fn test_manage_background_agents_read_trace_prefers_run_scoped_backend_for_run_ids() {
+async fn test_manage_tasks_read_trace_prefers_run_scoped_backend_for_run_ids() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_background_params("read_trace");
+    let mut params = base_manage_tasks_params("read_trace");
     params.trace_id = Some("run-123".to_string());
     params.line_limit = Some(5);
 
     let json = server
-        .handle_manage_background_agents(params)
+        .handle_manage_tasks(params)
         .await
         .expect("read_trace should succeed");
     let value: serde_json::Value =
@@ -2844,7 +2494,7 @@ async fn test_standalone_runtime_spawn_subagent_returns_actionable_error() {
 }
 
 #[tokio::test]
-async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
+async fn test_mcp_manage_tasks_stress_path_emits_latency_summary() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
     let artifacts_dir = stress_artifacts_dir();
     std::fs::create_dir_all(&artifacts_dir).expect("failed to create stress artifacts dir");
@@ -2866,10 +2516,10 @@ async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         tools
             .iter()
             .all(|tool| tool.name != "manage_background_agents"),
-        "manage_background_agents compatibility alias must not be listed by default"
+        "manage_background_agents must not be listed by default"
     );
 
-    let mut create_params = base_manage_background_params("create");
+    let mut create_params = base_manage_tasks_params("create");
     create_params.name = Some("mcp-stress-task".to_string());
     create_params.agent_id = Some("default".to_string());
     create_params.description = Some("stress path create/run/control/progress/list".to_string());
@@ -2879,7 +2529,7 @@ async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         "run_at": chrono::Utc::now().timestamp_millis()
     }));
     let created_json = server
-        .handle_manage_background_agents(create_params)
+        .handle_manage_tasks(create_params)
         .await
         .expect("create operation should succeed");
     let created: serde_json::Value =
@@ -2889,18 +2539,18 @@ async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         .expect("created task id should be present")
         .to_string();
 
-    let mut run_params = base_manage_background_params("run");
+    let mut run_params = base_manage_tasks_params("run");
     run_params.id = Some(task_id.clone());
     server
-        .handle_manage_background_agents(run_params)
+        .handle_manage_tasks(run_params)
         .await
         .expect("run operation should succeed");
 
-    let mut progress_params = base_manage_background_params("progress");
+    let mut progress_params = base_manage_tasks_params("progress");
     progress_params.id = Some(task_id.clone());
     progress_params.event_limit = Some(20);
     let progress_json = server
-        .handle_manage_background_agents(progress_params)
+        .handle_manage_tasks(progress_params)
         .await
         .expect("progress operation should succeed");
     let progress: serde_json::Value =
@@ -2921,20 +2571,20 @@ async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         join_set.spawn(async move {
             let mut latencies_ms = Vec::with_capacity(loops_per_worker * 2);
             for _ in 0..loops_per_worker {
-                let list_params = base_manage_background_params("list");
+                let list_params = base_manage_tasks_params("list");
                 let started = Instant::now();
                 let _ = server
-                    .handle_manage_background_agents(list_params)
+                    .handle_manage_tasks(list_params)
                     .await
                     .expect("list operation should succeed");
                 latencies_ms.push(started.elapsed().as_micros() as u64 / 1_000);
 
-                let mut progress_params = base_manage_background_params("progress");
+                let mut progress_params = base_manage_tasks_params("progress");
                 progress_params.id = Some(task_id.clone());
                 progress_params.event_limit = Some(20);
                 let started = Instant::now();
                 let _ = server
-                    .handle_manage_background_agents(progress_params)
+                    .handle_manage_tasks(progress_params)
                     .await
                     .expect("progress operation should succeed");
                 latencies_ms.push(started.elapsed().as_micros() as u64 / 1_000);
@@ -2991,8 +2641,8 @@ fn stress_artifacts_dir() -> std::path::PathBuf {
         .unwrap_or_else(|_| std::path::PathBuf::from("target/stress-artifacts"))
 }
 
-fn base_manage_background_params(operation: &str) -> ManageBackgroundAgentsParams {
-    ManageBackgroundAgentsParams {
+fn base_manage_tasks_params(operation: &str) -> ManageTasksParams {
+    ManageTasksParams {
         operation: operation.to_string(),
         session_id: None,
         id: None,

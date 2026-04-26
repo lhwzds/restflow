@@ -316,65 +316,6 @@ impl McpBackend for CoreBackend {
             .ok_or_else(|| format!("Task {} not found", resolved_id))
     }
 
-    async fn list_background_agents(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
-        self.list_tasks(status).await
-    }
-
-    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
-        self.create_task(spec).await
-    }
-
-    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        self.update_task(id, patch).await
-    }
-
-    async fn delete_background_agent(
-        &self,
-        request: TaskDeleteRequest,
-    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        self.delete_task(request).await
-    }
-
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
-        self.control_task(id, action).await
-    }
-
-    async fn get_background_agent_progress(
-        &self,
-        id: &str,
-        event_limit: usize,
-    ) -> Result<TaskProgress, String> {
-        self.get_task_progress(id, event_limit).await
-    }
-
-    async fn send_background_agent_message(
-        &self,
-        id: &str,
-        message: String,
-        source: TaskMessageSource,
-    ) -> Result<TaskMessage, String> {
-        self.send_task_message(id, message, source).await
-    }
-
-    async fn list_background_agent_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
-        self.list_task_messages(id, limit).await
-    }
-
-    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
-        self.get_task(id).await
-    }
-
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
         HookCapabilityService::from_storage(self.core.storage.as_ref())
             .list()
@@ -411,7 +352,6 @@ impl McpBackend for CoreBackend {
         Ok(registry
             .schemas()
             .into_iter()
-            .filter(|schema| schema.name != "manage_background_agents")
             .map(|schema| RuntimeToolDefinition {
                 name: schema.name,
                 description: schema.description,
@@ -579,7 +519,7 @@ impl McpBackend for IpcBackend {
     async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
         let mut client = self.client.lock().await;
         client
-            .list_background_agents(status.map(|value| value.as_str().to_string()))
+            .list_tasks(status.map(|value| value.as_str().to_string()))
             .await
             .map_err(|e| e.to_string())
     }
@@ -717,65 +657,6 @@ impl McpBackend for IpcBackend {
             .ok_or_else(|| format!("Task {} not found", id))
     }
 
-    async fn list_background_agents(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
-        self.list_tasks(status).await
-    }
-
-    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
-        self.create_task(spec).await
-    }
-
-    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        self.update_task(id, patch).await
-    }
-
-    async fn delete_background_agent(
-        &self,
-        request: TaskDeleteRequest,
-    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        self.delete_task(request).await
-    }
-
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
-        self.control_task(id, action).await
-    }
-
-    async fn get_background_agent_progress(
-        &self,
-        id: &str,
-        event_limit: usize,
-    ) -> Result<TaskProgress, String> {
-        self.get_task_progress(id, event_limit).await
-    }
-
-    async fn send_background_agent_message(
-        &self,
-        id: &str,
-        message: String,
-        source: TaskMessageSource,
-    ) -> Result<TaskMessage, String> {
-        self.send_task_message(id, message, source).await
-    }
-
-    async fn list_background_agent_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
-        self.list_task_messages(id, limit).await
-    }
-
-    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
-        self.get_task(id).await
-    }
-
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
         self.request_typed(IpcRequest::ListHooks).await
     }
@@ -814,10 +695,7 @@ impl McpBackend for IpcBackend {
             .get_available_tool_definitions()
             .await
             .map_err(|e: anyhow::Error| e.to_string())?;
-        Ok(tools
-            .into_iter()
-            .filter(|tool| tool.name != "manage_background_agents")
-            .collect())
+        Ok(tools.into_iter().collect())
     }
 
     async fn execute_runtime_tool(

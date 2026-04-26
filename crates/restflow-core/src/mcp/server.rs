@@ -53,8 +53,6 @@ use tokio::sync::Mutex;
 mod agents;
 #[path = "server/backends.rs"]
 mod backends;
-#[path = "server/background_agents.rs"]
-mod background_agents;
 #[path = "server/hooks.rs"]
 mod hooks;
 #[path = "server/memory.rs"]
@@ -65,6 +63,8 @@ mod runtime_tools;
 mod sessions;
 #[path = "server/skills.rs"]
 mod skills;
+#[path = "server/tasks.rs"]
+mod tasks;
 #[path = "server/types.rs"]
 mod types;
 
@@ -114,46 +114,23 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<Vec<ChatSessionSummary>, String>;
     async fn get_session(&self, id: &str) -> Result<ChatSession, String>;
 
-    // Implement either the canonical task methods or the legacy
-    // background-agent aliases. The defaults bridge both directions so
-    // task-only and background-agent-only backends remain source-compatible.
-    async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
-        self.list_background_agents(status).await
-    }
-    async fn create_task(&self, spec: TaskSpec) -> Result<Task, String> {
-        self.create_background_agent(spec).await
-    }
-    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        self.update_background_agent(id, patch).await
-    }
+    async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String>;
+    async fn create_task(&self, spec: TaskSpec) -> Result<Task, String>;
+    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String>;
     async fn delete_task(
         &self,
         request: TaskDeleteRequest,
-    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        self.delete_background_agent(request).await
-    }
-    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
-        self.control_background_agent(id, action).await
-    }
-    async fn get_task_progress(
-        &self,
-        id: &str,
-        event_limit: usize,
-    ) -> Result<TaskProgress, String> {
-        self.get_background_agent_progress(id, event_limit).await
-    }
+    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String>;
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String>;
+    async fn get_task_progress(&self, id: &str, event_limit: usize)
+    -> Result<TaskProgress, String>;
     async fn send_task_message(
         &self,
         id: &str,
         message: String,
         source: TaskMessageSource,
-    ) -> Result<TaskMessage, String> {
-        self.send_background_agent_message(id, message, source)
-            .await
-    }
-    async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
-        self.list_background_agent_messages(id, limit).await
-    }
+    ) -> Result<TaskMessage, String>;
+    async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String>;
     async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String>;
     async fn list_execution_sessions(&self, query: RunListQuery)
     -> Result<Vec<RunSummary>, String>;
@@ -167,60 +144,7 @@ pub trait McpBackend: Send + Sync {
         run_id: &str,
         limit: usize,
     ) -> Result<Vec<ExecutionTraceEvent>, String>;
-    async fn get_task(&self, id: &str) -> Result<Task, String> {
-        self.get_background_agent(id).await
-    }
-
-    async fn list_background_agents(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
-        self.list_tasks(status).await
-    }
-    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
-        self.create_task(spec).await
-    }
-    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        self.update_task(id, patch).await
-    }
-    async fn delete_background_agent(
-        &self,
-        request: TaskDeleteRequest,
-    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        self.delete_task(request).await
-    }
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
-        self.control_task(id, action).await
-    }
-    async fn get_background_agent_progress(
-        &self,
-        id: &str,
-        event_limit: usize,
-    ) -> Result<TaskProgress, String> {
-        self.get_task_progress(id, event_limit).await
-    }
-    async fn send_background_agent_message(
-        &self,
-        id: &str,
-        message: String,
-        source: TaskMessageSource,
-    ) -> Result<TaskMessage, String> {
-        self.send_task_message(id, message, source).await
-    }
-    async fn list_background_agent_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
-        self.list_task_messages(id, limit).await
-    }
-    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
-        self.get_task(id).await
-    }
+    async fn get_task(&self, id: &str) -> Result<Task, String>;
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
@@ -1114,7 +1038,7 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_chat_session_get(params).await
             }
-            "manage_tasks" | "manage_background_agents" => {
+            "manage_tasks" => {
                 let mut raw_params = Value::Object(request.arguments.unwrap_or_default());
                 normalize_legacy_approval_replay(&mut raw_params);
                 let params: ManageTasksParams =

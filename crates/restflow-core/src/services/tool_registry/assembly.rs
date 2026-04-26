@@ -214,7 +214,6 @@ pub fn create_tool_registry_with_assessor(
         Some(task_store_components.store.clone()),
         Some(task_store_components.team_template_store.clone()),
         assessor.clone(),
-        true,
     );
 
     let mut registry = builder
