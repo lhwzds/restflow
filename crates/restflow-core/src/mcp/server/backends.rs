@@ -602,7 +602,6 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::ListRunArtifacts {
             run_id: None,
             task_id: Some(task_id.to_string()),
-            team_run_id: None,
         })
         .await
     }

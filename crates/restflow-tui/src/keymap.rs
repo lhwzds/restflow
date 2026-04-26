@@ -6,7 +6,6 @@ pub enum Action {
     CloseOverlay,
     OpenSessions,
     OpenRuns,
-    OpenApprovals,
     OpenTeam,
     OpenHelp,
     Redraw,
@@ -25,7 +24,6 @@ pub enum Action {
     Newline,
     Submit,
     OverlaySelect,
-    RejectSelected,
     DeleteSelected,
     Noop,
 }
@@ -67,11 +65,6 @@ pub fn map_event(event: Event) -> Action {
             ..
         }) if modifiers.contains(KeyModifiers::CONTROL) => Action::OpenRuns,
         Event::Key(KeyEvent {
-            code: KeyCode::Char('a'),
-            modifiers,
-            ..
-        }) if modifiers.contains(KeyModifiers::CONTROL) => Action::OpenApprovals,
-        Event::Key(KeyEvent {
             code: KeyCode::Char('g'),
             modifiers,
             ..
@@ -91,11 +84,6 @@ pub fn map_event(event: Event) -> Action {
             modifiers,
             ..
         }) if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT => Action::OpenHelp,
-        Event::Key(KeyEvent {
-            code: KeyCode::Char('r'),
-            modifiers,
-            ..
-        }) if modifiers.is_empty() => Action::RejectSelected,
         Event::Key(KeyEvent {
             code: KeyCode::Up, ..
         }) => Action::NavUp,

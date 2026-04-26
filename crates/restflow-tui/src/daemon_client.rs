@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use restflow_contracts::ToolExecutionResult;
 use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
 use restflow_core::daemon::ChatSessionEvent;
 use restflow_core::daemon::{
@@ -13,7 +14,6 @@ use restflow_core::paths;
 use restflow_core::storage::agent::{
     DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
 };
-use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -26,20 +26,6 @@ use super::event_loop::AppEvent;
 pub struct TeamListResponse {
     #[serde(default)]
     pub saved: Vec<serde_json::Value>,
-    #[serde(default)]
-    pub active: Vec<TeamState>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TeamSnapshotResponse {
-    #[serde(default)]
-    pub team: Option<TeamState>,
-    #[serde(default)]
-    pub messages: Vec<TeamMessage>,
-    #[serde(default)]
-    pub assignments: Vec<TeamAssignment>,
-    #[serde(default)]
-    pub approvals: Vec<PendingTeamApproval>,
 }
 
 #[derive(Clone)]
@@ -282,16 +268,6 @@ impl TuiDaemonClient {
         client
             .request_typed(IpcRequest::ListTeams {
                 include_saved: true,
-                include_active: true,
-            })
-            .await
-    }
-
-    pub async fn get_team_snapshot(&self, team_run_id: &str) -> Result<TeamSnapshotResponse> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::GetTeamSnapshot {
-                team_run_id: team_run_id.to_string(),
             })
             .await
     }
@@ -299,31 +275,20 @@ impl TuiDaemonClient {
     pub async fn start_team_from_template(
         &self,
         team: &str,
-        assignments: Vec<String>,
-    ) -> Result<TeamSnapshotResponse> {
+        assignment: String,
+        approval_id: Option<String>,
+    ) -> Result<ToolExecutionResult> {
         let mut client = self.connect().await?;
         client
-            .request_typed(IpcRequest::StartTeam {
-                team: team.to_string(),
-                assignments,
-            })
-            .await
-    }
-
-    pub async fn resolve_team_approval(
-        &self,
-        team_run_id: &str,
-        approval_id: &str,
-        approved: bool,
-        reason: Option<String>,
-    ) -> Result<serde_json::Value> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::ResolveTeamApproval {
-                team_run_id: team_run_id.to_string(),
-                approval_id: approval_id.to_string(),
-                approved,
-                reason,
+            .request_typed(IpcRequest::ExecuteTool {
+                name: "spawn_subagent_batch".to_string(),
+                input: serde_json::json!({
+                    "operation": "spawn",
+                    "team": team,
+                    "task": assignment,
+                    "approval_id": approval_id,
+                    "wait": false,
+                }),
             })
             .await
     }

@@ -179,7 +179,6 @@ fn create_runtime_tool_registry_for_core(
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         core.storage.run_artifacts.clone(),
-        core.storage.team_runtime.clone(),
         None,
         None,
         None,

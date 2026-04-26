@@ -71,8 +71,7 @@ use self::config::{
     load_registry_defaults, load_subagent_config,
 };
 use self::subagent_backend::{
-    build_direct_service_subagent_manager, build_service_subagent_manager,
-    build_service_subagent_runtime_bundle,
+    build_service_subagent_manager, build_service_subagent_runtime_bundle,
 };
 
 pub use self::assembly::{create_tool_registry, create_tool_registry_with_assessor};

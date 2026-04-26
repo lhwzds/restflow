@@ -28,7 +28,6 @@ pub mod skill;
 pub mod steer;
 pub mod store;
 pub mod subagent;
-pub mod team;
 pub mod text;
 pub mod tool;
 pub mod toolset;
@@ -86,13 +85,6 @@ pub use store::{
 // Shared orchestration contracts
 pub use batch_template::{RuntimeTaskPayload, TeamTemplateDocument};
 pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan};
-pub use team::{
-    AssignTeamTaskRequest, MANAGE_TEAMS_TOOL_DESCRIPTION, MANAGE_TEAMS_TOOL_NAME,
-    PendingTeamApproval, ResolveTeamApprovalRequest, SendTeamMessageRequest, StartTeamRequest,
-    TeamApprovalRequest, TeamApprovalStatus, TeamAssignment, TeamAssignmentStatus, TeamCoordinator,
-    TeamExecutionContext, TeamMailbox, TeamMemberSpec, TeamMemberState, TeamMemberStatus,
-    TeamMessage, TeamMessageKind, TeamRole, TeamState, TeamStatus,
-};
 
 // Sub-agent types
 pub use subagent::{

@@ -5,7 +5,6 @@ export type RunArtifact = {
   id: string
   run_id: string
   task_id?: string | null
-  team_run_id?: string | null
   kind: RunArtifactKind
   title: string
   content?: string | null

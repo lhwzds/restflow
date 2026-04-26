@@ -23,7 +23,6 @@ impl RunArtifactStorage {
             &artifact.id,
             &artifact.run_id,
             artifact.task_id.as_deref(),
-            artifact.team_run_id.as_deref(),
             &json_bytes,
         )
     }
@@ -41,10 +40,6 @@ impl RunArtifactStorage {
 
     pub fn list_by_task(&self, task_id: &str) -> Result<Vec<RunArtifact>> {
         self.decode_sorted(self.inner.list_by_task_raw(task_id)?)
-    }
-
-    pub fn list_by_team(&self, team_run_id: &str) -> Result<Vec<RunArtifact>> {
-        self.decode_sorted(self.inner.list_by_team_raw(team_run_id)?)
     }
 
     fn decode_sorted(&self, raw: Vec<(String, Vec<u8>)>) -> Result<Vec<RunArtifact>> {
@@ -68,7 +63,6 @@ mod tests {
             id: id.to_string(),
             run_id: run_id.to_string(),
             task_id: task_id.map(ToOwned::to_owned),
-            team_run_id: None,
             kind: RunArtifactKind::FinalOutput,
             title: "Final output".to_string(),
             content: Some("done".to_string()),

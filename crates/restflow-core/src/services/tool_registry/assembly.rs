@@ -1,6 +1,5 @@
 use super::*;
 use crate::services::session::SessionService;
-use crate::services::team_runtime::TeamRuntimeService;
 use restflow_tools::FileConfig;
 use restflow_traits::AgentOperationAssessor;
 
@@ -28,7 +27,6 @@ pub fn create_tool_registry(
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     run_artifact_storage: crate::storage::RunArtifactStorage,
-    team_runtime_storage: crate::storage::TeamRuntimeStorage,
     _accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
@@ -48,7 +46,6 @@ pub fn create_tool_registry(
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _accessor_id,
         agent_id,
         security_gate,
@@ -72,7 +69,6 @@ pub fn create_tool_registry_with_assessor(
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     run_artifact_storage: crate::storage::RunArtifactStorage,
-    team_runtime_storage: crate::storage::TeamRuntimeStorage,
     _accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
@@ -280,18 +276,6 @@ pub fn create_tool_registry_with_assessor(
         Some(team_template_store.clone()),
         assessor.clone(),
     );
-    let team_runtime = Arc::new(TeamRuntimeService::new(
-        team_runtime_storage,
-        Arc::new(build_direct_service_subagent_manager(
-            &subagent_runtime_bundle,
-        )),
-        subagent_runtime_bundle.tracker.clone(),
-    ));
-    registry.register(restflow_tools::ManageTeamsTool::new(
-        team_runtime,
-        team_template_store.clone(),
-    ));
-
     // Populate known_tools for AgentStoreAdapter validation
     populate_known_tools_from_registry(
         &agent_crud_components.known_tools,

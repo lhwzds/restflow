@@ -6,7 +6,6 @@ use crate::impls::auth_profile::AuthProfileTool;
 use crate::impls::config::ConfigTool;
 use crate::impls::diagnostics::DiagnosticsTool;
 use crate::impls::manage_ops::ManageOpsTool;
-use crate::impls::manage_teams::ManageTeamsTool;
 use crate::impls::marketplace::MarketplaceTool;
 use crate::impls::memory_mgmt::MemoryManagementTool;
 use crate::impls::memory_store::{
@@ -22,7 +21,6 @@ use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
 use restflow_traits::AgentOperationAssessor;
-use restflow_traits::TeamCoordinator;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore,
@@ -109,16 +107,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_ops(mut self, provider: Arc<dyn OpsProvider>) -> Self {
         self.registry.register(ManageOpsTool::new(provider));
-        self
-    }
-
-    pub fn with_manage_teams(
-        mut self,
-        coordinator: Arc<dyn TeamCoordinator>,
-        team_template_store: Arc<dyn TeamTemplateStore>,
-    ) -> Self {
-        self.registry
-            .register(ManageTeamsTool::new(coordinator, team_template_store));
         self
     }
 

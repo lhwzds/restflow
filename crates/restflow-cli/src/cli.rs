@@ -176,7 +176,7 @@ pub enum Commands {
         command: TaskCommands,
     },
 
-    /// Team runtime management
+    /// Team template execution
     Team {
         #[command(subcommand)]
         command: TeamCommands,
@@ -585,66 +585,31 @@ pub enum HookCommands {
 
 #[derive(Subcommand)]
 pub enum TeamCommands {
-    /// Start one runtime team from a saved template or explicit members
+    /// Spawn subagents from a saved template or explicit members
     Start {
         /// Saved subagent team template name
-        #[arg(long)]
+        #[arg(long, conflicts_with = "member")]
         team: Option<String>,
 
         /// Explicit worker agent IDs (repeatable)
-        #[arg(long = "member")]
+        #[arg(long = "member", conflicts_with = "team")]
         member: Vec<String>,
 
         /// Initial assignment (repeatable)
-        #[arg(long = "assignment")]
+        #[arg(long = "assignment", conflicts_with = "task")]
         assignment: Vec<String>,
 
         /// Single initial assignment convenience alias
-        #[arg(long)]
+        #[arg(long, conflicts_with = "assignment")]
         task: Option<String>,
-    },
 
-    /// Inspect team runtime state
-    State { team_run_id: String },
-
-    /// List durable team mailbox messages
-    Messages { team_run_id: String },
-
-    /// Send one team mailbox message
-    Send {
-        team_run_id: String,
-        #[arg(long, default_value = "leader")]
-        from: String,
+        /// Validate the team start without spawning subagents
         #[arg(long)]
-        to: Option<String>,
-        #[arg(long)]
-        message: String,
-    },
+        preview: bool,
 
-    /// List runtime assignments
-    Assignments { team_run_id: String },
-
-    /// Assign one task to one team member
-    Assign {
-        team_run_id: String,
-        #[arg(long)]
-        member: String,
-        #[arg(long)]
-        task: String,
-    },
-
-    /// Approve one pending team approval
-    Approve {
-        team_run_id: String,
-        approval_id: String,
-    },
-
-    /// Reject one pending team approval
-    Reject {
-        team_run_id: String,
-        approval_id: String,
-        #[arg(long)]
-        reason: Option<String>,
+        /// Approval ID returned by a previous preview or guarded start
+        #[arg(long = "approval-id")]
+        approval_id: Option<String>,
     },
 }
 

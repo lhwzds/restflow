@@ -91,7 +91,6 @@ impl ShellController {
             ShellEffect::ListSessionsInline => self.session_picker_actions().await,
             ShellEffect::ListTeamsInline => self.team_picker_actions(state).await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
-            ShellEffect::ListApprovalsInline => Ok(self.list_approvals_inline_actions(state)),
             ShellEffect::ClearScreen => Ok(Vec::new()),
         }
     }
@@ -116,15 +115,7 @@ impl ShellController {
             Vec::new()
         };
 
-        let mut actions = vec![ShellAction::StateRefreshed { sessions, runs }];
-
-        if let Some(team_run_id) = state
-            .current_team_state
-            .as_ref()
-            .map(|team| team.team_run_id.clone())
-        {
-            actions.extend(self.load_team_actions(&team_run_id, false).await?);
-        }
+        let actions = vec![ShellAction::StateRefreshed { sessions, runs }];
 
         Ok(actions)
     }
@@ -267,9 +258,6 @@ impl ShellController {
                     return Ok(Vec::new());
                 };
                 match item {
-                    TeamPickerItem::Current { team_run_id, .. } => {
-                        self.load_team_actions(&team_run_id, true).await
-                    }
                     TeamPickerItem::Saved { name, .. } => Ok(vec![ShellAction::CommandPicked {
                         text: format!("/team start {name} "),
                     }]),
@@ -320,8 +308,7 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            Some(OverlayState::ApprovalPicker { .. }) => Ok(Vec::new()),
-            Some(OverlayState::TeamView { .. }) | Some(OverlayState::Help) | None => Ok(Vec::new()),
+            Some(OverlayState::Help) | None => Ok(Vec::new()),
         }
     }
 
@@ -443,7 +430,6 @@ impl ShellController {
                 }
             }
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
-            SlashCommand::ListApprovals => Ok(self.list_approvals_inline_actions(state)),
             SlashCommand::ListTeams => self.team_picker_actions(state).await,
             SlashCommand::SwitchModel { model } => self.switch_model_actions(state, model).await,
             SlashCommand::TaskControl { action, task_id } => {
@@ -473,49 +459,49 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            SlashCommand::TeamState { team_run_id } => {
-                self.load_team_actions(&team_run_id, false).await
-            }
             SlashCommand::TeamStart {
                 saved_team,
                 assignment,
-            } => {
-                let Some(assignment) = assignment.filter(|value| !value.trim().is_empty()) else {
-                    return Ok(vec![ShellAction::StatusUpdated(
-                        "Usage: /team start <saved_team> <assignment>".to_string(),
-                    )]);
-                };
-                let snapshot = self
-                    .client
-                    .start_team_from_template(&saved_team, vec![assignment])
-                    .await?;
-                let team_state = snapshot
-                    .team
-                    .ok_or_else(|| anyhow::anyhow!("start_team did not return team state"))?;
-                let team_run_id = team_state.team_run_id.clone();
-                let mut actions = vec![ShellAction::MessageAppended(ShellMessage::TeamNotice {
-                    content: format!("Started team {team_run_id}"),
-                })];
-                actions.push(ShellAction::TeamSnapshotLoaded {
-                    team_state: Some(team_state),
-                    messages: snapshot.messages,
-                    assignments: snapshot.assignments,
-                    approvals: snapshot.approvals,
-                    status: format!("Started team {team_run_id}"),
-                    open_overlay: false,
-                });
-                Ok(actions)
-            }
-            SlashCommand::Approve { approval_id } => {
-                self.approve_named_approval_actions(state, &approval_id)
-                    .await
-            }
-            SlashCommand::Reject {
                 approval_id,
-                reason,
             } => {
-                self.reject_named_approval_actions(state, &approval_id, reason)
-                    .await
+                let result = self
+                    .client
+                    .start_team_from_template(&saved_team, assignment, approval_id)
+                    .await?;
+                if !result.success {
+                    bail!(
+                        "{}",
+                        result
+                            .error
+                            .unwrap_or_else(|| "spawn_subagent_batch execution failed".to_string())
+                    );
+                }
+                let spawned_count = result
+                    .result
+                    .get("spawned_count")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                let task_ids = result
+                    .result
+                    .get("task_ids")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .filter(|ids| !ids.is_empty())
+                    .unwrap_or_else(|| "No task ids returned".to_string());
+                let content = format!(
+                    "Started team template {saved_team}: {spawned_count} task(s)\n{task_ids}"
+                );
+                Ok(vec![
+                    ShellAction::MessageAppended(ShellMessage::TeamNotice {
+                        content: content.clone(),
+                    }),
+                    ShellAction::StatusUpdated(format!("Started {spawned_count} team task(s)")),
+                ])
             }
         }
     }
@@ -555,30 +541,10 @@ impl ShellController {
         Ok(vec![ShellAction::TaskPickerLoaded { tasks, status }])
     }
 
-    async fn team_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
+    async fn team_picker_actions(&self, _state: &AppState) -> Result<Vec<ShellAction>> {
         let mut items = Vec::new();
-        let mut active_team_ids = HashSet::new();
-        if let Some(team) = state.current_team_state.as_ref() {
-            active_team_ids.insert(team.team_run_id.clone());
-            items.push(TeamPickerItem::Current {
-                team_run_id: team.team_run_id.clone(),
-                status: format!("{:?}", team.status),
-                members: team.members.len(),
-            });
-        }
 
         if let Ok(response) = self.client.list_teams().await {
-            for team in response.active {
-                if !active_team_ids.insert(team.team_run_id.clone()) {
-                    continue;
-                }
-                items.push(TeamPickerItem::Current {
-                    team_run_id: team.team_run_id,
-                    status: format!("{:?}", team.status),
-                    members: team.members.len(),
-                });
-            }
-
             for team in response.saved {
                 if let Some(name) = team.get("team").and_then(serde_json::Value::as_str) {
                     items.push(TeamPickerItem::Saved {
@@ -782,98 +748,6 @@ impl ShellController {
                 content: lines.join("\n"),
             },
         )])
-    }
-
-    fn list_approvals_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {
-        if state.current_team_approvals.is_empty() {
-            return vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: "No pending approvals.".to_string(),
-            })];
-        }
-
-        let mut lines = vec!["Approvals".to_string()];
-        for approval in &state.current_team_approvals {
-            lines.push(format!(
-                "- {} · {} · #{}",
-                approval.member_id, approval.content, approval.approval_id
-            ));
-        }
-        lines.push("Use /approve <approval_id> or /reject <approval_id> [reason]".to_string());
-        vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-            content: lines.join("\n"),
-        })]
-    }
-
-    async fn approve_named_approval_actions(
-        &self,
-        state: &AppState,
-        approval_id: &str,
-    ) -> Result<Vec<ShellAction>> {
-        let team_run_id = state
-            .current_team_state
-            .as_ref()
-            .map(|team| team.team_run_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No active team context for approval"))?;
-        if approval_id.trim().is_empty() {
-            bail!("Usage: /approve <approval_id>");
-        }
-        self.client
-            .resolve_team_approval(&team_run_id, approval_id, true, None)
-            .await?;
-
-        let mut actions = self.load_team_actions(&team_run_id, false).await?;
-        actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
-            content: format!("Approval {approval_id} approved"),
-        }));
-        actions.push(ShellAction::StatusUpdated(format!(
-            "Approved {approval_id}"
-        )));
-        Ok(actions)
-    }
-
-    async fn reject_named_approval_actions(
-        &self,
-        state: &AppState,
-        approval_id: &str,
-        reason: Option<String>,
-    ) -> Result<Vec<ShellAction>> {
-        let team_run_id = state
-            .current_team_state
-            .as_ref()
-            .map(|team| team.team_run_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No active team context for rejection"))?;
-        if approval_id.trim().is_empty() {
-            bail!("Usage: /reject <approval_id> [reason]");
-        }
-        self.client
-            .resolve_team_approval(&team_run_id, approval_id, false, reason)
-            .await?;
-
-        let mut actions = self.load_team_actions(&team_run_id, false).await?;
-        actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
-            content: format!("Approval {approval_id} rejected"),
-        }));
-        actions.push(ShellAction::StatusUpdated(format!(
-            "Rejected {approval_id}"
-        )));
-        Ok(actions)
-    }
-
-    async fn load_team_actions(
-        &self,
-        team_run_id: &str,
-        open_overlay: bool,
-    ) -> Result<Vec<ShellAction>> {
-        let snapshot = self.client.get_team_snapshot(team_run_id).await?;
-
-        Ok(vec![ShellAction::TeamSnapshotLoaded {
-            team_state: snapshot.team,
-            messages: snapshot.messages,
-            assignments: snapshot.assignments,
-            approvals: snapshot.approvals,
-            status: format!("Loaded team {team_run_id}"),
-            open_overlay,
-        }])
     }
 }
 
@@ -1199,8 +1073,7 @@ Use /daemon when the daemon is offline.\n\
 Enter sends the current draft.\n\
 Ctrl-J inserts a newline.\n\
 Ctrl-P resumes a previous session.\n\
-Ctrl-A lists pending approvals.\n\
-Ctrl-G shows current team state.\n\
+Ctrl-G opens saved team templates.\n\
 Ctrl-L clears and redraws the screen.\n\
 Ctrl-C exits.\n\n\
 Slash commands:\n\

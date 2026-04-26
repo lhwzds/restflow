@@ -2,8 +2,6 @@
 mod agents;
 #[path = "dispatch/auth.rs"]
 mod auth;
-#[path = "dispatch/tasks.rs"]
-mod tasks;
 #[path = "dispatch/config.rs"]
 mod config;
 #[path = "dispatch/hooks.rs"]
@@ -24,6 +22,8 @@ mod sessions;
 mod skills;
 #[path = "dispatch/system.rs"]
 mod system;
+#[path = "dispatch/tasks.rs"]
+mod tasks;
 #[path = "dispatch/team.rs"]
 mod team;
 #[path = "dispatch/terminals.rs"]
@@ -454,40 +454,12 @@ impl IpcServer {
             IpcRequest::SubscribeSessionEvents => {
                 Self::handle_subscribe_session_events_unsupported().await
             }
-            IpcRequest::ListTeams {
-                include_saved,
-                include_active,
-            } => {
-                Self::handle_list_teams(core, runtime_tool_registry, include_saved, include_active)
-                    .await
+            IpcRequest::ListTeams { include_saved } => {
+                Self::handle_list_teams(core, runtime_tool_registry, include_saved).await
             }
-            IpcRequest::GetTeamSnapshot { team_run_id } => {
-                Self::handle_get_team_snapshot(core, runtime_tool_registry, team_run_id).await
+            IpcRequest::ListRunArtifacts { run_id, task_id } => {
+                Self::handle_list_run_artifacts(core, run_id, task_id).await
             }
-            IpcRequest::StartTeam { team, assignments } => {
-                Self::handle_start_team(core, runtime_tool_registry, team, assignments).await
-            }
-            IpcRequest::ResolveTeamApproval {
-                team_run_id,
-                approval_id,
-                approved,
-                reason,
-            } => {
-                Self::handle_resolve_team_approval(
-                    core,
-                    runtime_tool_registry,
-                    team_run_id,
-                    approval_id,
-                    approved,
-                    reason,
-                )
-                .await
-            }
-            IpcRequest::ListRunArtifacts {
-                run_id,
-                task_id,
-                team_run_id,
-            } => Self::handle_list_run_artifacts(core, run_id, task_id, team_run_id).await,
             IpcRequest::SwitchSessionModel {
                 session_id,
                 model_ref,
@@ -516,5 +488,4 @@ impl IpcServer {
             IpcRequest::Shutdown => Self::handle_shutdown().await,
         }
     }
-
 }

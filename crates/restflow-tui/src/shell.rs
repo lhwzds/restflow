@@ -774,22 +774,6 @@ fn build_team_picker_lines(
             Style::default().add_modifier(Modifier::BOLD)
         };
         let line = match item {
-            crate::state::TeamPickerItem::Current {
-                team_run_id,
-                status,
-                members,
-            } => Line::from(vec![
-                Span::styled(
-                    marker,
-                    if is_selected {
-                        tool_title_style()
-                    } else {
-                        muted_style()
-                    },
-                ),
-                Span::styled(format!("Current team {team_run_id}"), title_style),
-                Span::styled(format!(" · {status} · {members} members"), muted_style()),
-            ]),
             crate::state::TeamPickerItem::Saved {
                 name,
                 member_groups,
@@ -2429,26 +2413,18 @@ mod tests {
     }
 
     #[test]
-    fn team_picker_lists_current_and_saved_teams() {
+    fn team_picker_lists_saved_teams() {
         let mut state = AppState::empty();
-        state.team_items = vec![
-            TeamPickerItem::Current {
-                team_run_id: "team-run-1".to_string(),
-                status: "Running".to_string(),
-                members: 2,
-            },
-            TeamPickerItem::Saved {
-                name: "reviewers".to_string(),
-                member_groups: 1,
-                total_instances: 3,
-            },
-        ];
+        state.team_items = vec![TeamPickerItem::Saved {
+            name: "reviewers".to_string(),
+            member_groups: 1,
+            total_instances: 3,
+        }];
         state.open_team_picker();
 
         let lines = build_transient_lines(&state, 80, 8);
         let text = line_texts(&lines).join("\n");
         assert!(text.contains("Teams"));
-        assert!(text.contains("Current team team-run-1"));
         assert!(text.contains("Saved team reviewers"));
     }
 

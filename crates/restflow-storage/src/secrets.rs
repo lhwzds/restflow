@@ -82,11 +82,16 @@ impl SecretStorage {
     }
 
     pub fn with_config(db: Arc<Database>, config: SecretStorageConfig) -> Result<Self> {
+        let master_key = load_master_key(&config)?;
+        Self::with_master_key(db, master_key)
+    }
+
+    /// Create storage with an explicit master key.
+    pub fn with_master_key(db: Arc<Database>, master_key: [u8; 32]) -> Result<Self> {
         let write_txn = db.begin_write()?;
         write_txn.open_table(SECRETS_TABLE)?;
         write_txn.commit()?;
 
-        let master_key = load_master_key(&config)?;
         let encryptor = Arc::new(SecretEncryptor::new(&master_key)?);
 
         Ok(Self { db, encryptor })

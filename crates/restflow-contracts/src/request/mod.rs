@@ -430,31 +430,12 @@ pub enum IpcRequest {
     ListTeams {
         #[serde(default)]
         include_saved: bool,
-        #[serde(default)]
-        include_active: bool,
-    },
-    GetTeamSnapshot {
-        team_run_id: String,
-    },
-    StartTeam {
-        team: String,
-        #[serde(default)]
-        assignments: Vec<String>,
-    },
-    ResolveTeamApproval {
-        team_run_id: String,
-        approval_id: String,
-        approved: bool,
-        #[serde(default)]
-        reason: Option<String>,
     },
     ListRunArtifacts {
         #[serde(default)]
         run_id: Option<String>,
         #[serde(default)]
         task_id: Option<String>,
-        #[serde(default)]
-        team_run_id: Option<String>,
     },
     SwitchSessionModel {
         session_id: String,
@@ -595,14 +576,6 @@ pub struct RunSpawnRequest {
     pub trace_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_scope_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_member_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub leader_member_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1766,10 +1739,6 @@ mod tests {
             parent_run_id: Some("run-1".to_string()),
             trace_session_id: Some("session-1".to_string()),
             trace_scope_id: Some("scope-1".to_string()),
-            team_run_id: None,
-            team_member_id: None,
-            leader_member_id: None,
-            team_role: None,
         };
 
         assert_roundtrip(&request);

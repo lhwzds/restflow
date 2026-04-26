@@ -11,8 +11,6 @@ const RUN_ARTIFACT_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("run_artifact_run_index");
 const RUN_ARTIFACT_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("run_artifact_task_index");
-const RUN_ARTIFACT_TEAM_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("run_artifact_team_index");
 
 #[derive(Clone)]
 pub struct RunArtifactStorage {
@@ -25,7 +23,6 @@ impl RunArtifactStorage {
         write_txn.open_table(RUN_ARTIFACT_TABLE)?;
         write_txn.open_table(RUN_ARTIFACT_RUN_INDEX_TABLE)?;
         write_txn.open_table(RUN_ARTIFACT_TASK_INDEX_TABLE)?;
-        write_txn.open_table(RUN_ARTIFACT_TEAM_INDEX_TABLE)?;
         write_txn.commit()?;
 
         Ok(Self { db })
@@ -36,7 +33,6 @@ impl RunArtifactStorage {
         id: &str,
         run_id: &str,
         task_id: Option<&str>,
-        team_run_id: Option<&str>,
         data: &[u8],
     ) -> Result<()> {
         let write_txn = self.db.begin_write()?;
@@ -52,12 +48,6 @@ impl RunArtifactStorage {
                 let mut task_index = write_txn.open_table(RUN_ARTIFACT_TASK_INDEX_TABLE)?;
                 let task_key = format!("{task_id}:{id}");
                 task_index.insert(task_key.as_str(), id)?;
-            }
-
-            if let Some(team_run_id) = team_run_id {
-                let mut team_index = write_txn.open_table(RUN_ARTIFACT_TEAM_INDEX_TABLE)?;
-                let team_key = format!("{team_run_id}:{id}");
-                team_index.insert(team_key.as_str(), id)?;
             }
         }
         write_txn.commit()?;
@@ -76,10 +66,6 @@ impl RunArtifactStorage {
 
     pub fn list_by_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         self.list_by_index_raw(RUN_ARTIFACT_TASK_INDEX_TABLE, task_id)
-    }
-
-    pub fn list_by_team_raw(&self, team_run_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        self.list_by_index_raw(RUN_ARTIFACT_TEAM_INDEX_TABLE, team_run_id)
     }
 
     fn list_by_index_raw(
@@ -119,18 +105,11 @@ mod tests {
         let storage = RunArtifactStorage::new(db).expect("storage should be created");
 
         storage
-            .put_raw_with_indexes(
-                "artifact-1",
-                "run-1",
-                Some("task-1"),
-                Some("team-1"),
-                br#"{"title":"A"}"#,
-            )
+            .put_raw_with_indexes("artifact-1", "run-1", Some("task-1"), br#"{"title":"A"}"#)
             .expect("put should succeed");
 
         assert!(storage.get_raw("artifact-1").unwrap().is_some());
         assert_eq!(storage.list_by_run_raw("run-1").unwrap().len(), 1);
         assert_eq!(storage.list_by_task_raw("task-1").unwrap().len(), 1);
-        assert_eq!(storage.list_by_team_raw("team-1").unwrap().len(), 1);
     }
 }

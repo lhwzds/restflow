@@ -2,7 +2,6 @@ use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{ChatRole, ChatSession};
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::runtime::background_agent::StreamEventKind;
-use restflow_traits::{TeamMessage, TeamMessageKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -29,10 +28,6 @@ pub enum ShellMessage {
         result: String,
     },
     TaskNotice {
-        content: String,
-    },
-    ApprovalNotice {
-        approval_id: Option<String>,
         content: String,
     },
     TeamNotice {
@@ -160,7 +155,6 @@ impl ShellMessage {
             | Self::SystemMessage { .. } => MessageGroup::Conversation,
             Self::ToolCall { .. } | Self::ToolResult { .. } => MessageGroup::ToolActivity,
             Self::TaskNotice { .. }
-            | Self::ApprovalNotice { .. }
             | Self::TeamNotice { .. }
             | Self::InfoNotice { .. }
             | Self::ErrorNotice { .. } => MessageGroup::RuntimeNotice,
@@ -263,17 +257,6 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
             kind: TranscriptCellKind::Notice,
             title: "Task".to_string(),
             subtitle: None,
-            body: content.clone(),
-            group: message.group(),
-            is_active: false,
-        },
-        ShellMessage::ApprovalNotice {
-            approval_id,
-            content,
-        } => TranscriptCell {
-            kind: TranscriptCellKind::Notice,
-            title: "Approval".to_string(),
-            subtitle: approval_id.as_ref().map(|id| format!("#{id}")),
             body: content.clone(),
             group: message.group(),
             is_active: false,
@@ -421,42 +404,6 @@ pub fn message_from_task_event(event: &TaskStreamEvent) -> ShellMessage {
         }
     };
     ShellMessage::TaskNotice { content }
-}
-
-pub fn message_from_team_message(message: &TeamMessage) -> ShellMessage {
-    match message.kind {
-        TeamMessageKind::ApprovalRequest => ShellMessage::ApprovalNotice {
-            approval_id: extract_approval_id(&message.content),
-            content: format!(
-                "{} requested approval: {}",
-                message.from_member_id, message.content
-            ),
-        },
-        TeamMessageKind::ApprovalResolution => ShellMessage::TeamNotice {
-            content: format!(
-                "Approval resolved by {}: {}",
-                message.from_member_id, message.content
-            ),
-        },
-        TeamMessageKind::Assignment => ShellMessage::TeamNotice {
-            content: format!(
-                "Assignment from {} to {:?}: {}",
-                message.from_member_id, message.to_member_id, message.content
-            ),
-        },
-        TeamMessageKind::Note => ShellMessage::TeamNotice {
-            content: format!("{}: {}", message.from_member_id, message.content),
-        },
-    }
-}
-
-fn extract_approval_id(content: &str) -> Option<String> {
-    content
-        .split_whitespace()
-        .last()
-        .map(|segment| segment.trim_matches(|ch| ch == '(' || ch == ')'))
-        .filter(|segment| !segment.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

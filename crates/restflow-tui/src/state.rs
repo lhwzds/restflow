@@ -8,13 +8,12 @@ use restflow_core::models::{
 };
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
 
 use super::composer::ComposerState;
 use super::transcript::{
     ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
     message_from_session_event, message_from_stream_frame, message_from_task_event,
-    message_from_team_message, messages_from_session, transcript_cells,
+    messages_from_session, transcript_cells,
 };
 
 #[derive(Debug, Clone)]
@@ -36,11 +35,6 @@ pub struct TaskPickerItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamPickerItem {
-    Current {
-        team_run_id: String,
-        status: String,
-        members: usize,
-    },
     Saved {
         name: String,
         member_groups: usize,
@@ -211,15 +205,6 @@ impl SessionThreadState {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TeamOverlayTab {
-    Members,
-    Messages,
-    Assignments,
-    Approvals,
-}
-
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum OverlayState {
     CommandPicker { selected: usize },
@@ -231,8 +216,6 @@ pub enum OverlayState {
     ProviderPicker { selected: usize },
     ModelPicker { provider: String, selected: usize },
     RunPicker { selected: usize },
-    ApprovalPicker { selected: usize },
-    TeamView { tab: TeamOverlayTab, scroll: u16 },
     Help,
 }
 
@@ -249,10 +232,6 @@ pub struct AppState {
     pub default_agent_name: Option<String>,
     pub default_agent_id: Option<String>,
     pub thread: SessionThreadState,
-    pub current_team_state: Option<TeamState>,
-    pub current_team_messages: Vec<TeamMessage>,
-    pub current_team_assignments: Vec<TeamAssignment>,
-    pub current_team_approvals: Vec<PendingTeamApproval>,
     pub sessions: Vec<ChatSessionSummary>,
     pub tasks: Vec<TaskPickerItem>,
     pub team_items: Vec<TeamPickerItem>,
@@ -281,7 +260,6 @@ pub struct AppState {
     pub startup: Option<StartupState>,
     pending_session_delete_id: Option<String>,
     pending_initial_message: Option<String>,
-    seen_team_message_ids: HashSet<String>,
 }
 
 impl AppState {
@@ -290,10 +268,6 @@ impl AppState {
             default_agent_name: None,
             default_agent_id: None,
             thread: SessionThreadState::default(),
-            current_team_state: None,
-            current_team_messages: Vec::new(),
-            current_team_assignments: Vec::new(),
-            current_team_approvals: Vec::new(),
             sessions: Vec::new(),
             tasks: Vec::new(),
             team_items: Vec::new(),
@@ -319,7 +293,6 @@ impl AppState {
             startup: None,
             pending_session_delete_id: None,
             pending_initial_message: None,
-            seen_team_message_ids: HashSet::new(),
         }
     }
 
@@ -427,13 +400,8 @@ impl AppState {
     }
 
     pub fn set_current_session(&mut self, session: ChatSession) {
-        let session_changed = self.current_session_id() != Some(session.id.as_str());
         self.thread.set_session(session.clone());
         self.pending_session = None;
-        if session_changed {
-            self.clear_team_context();
-        }
-        self.seen_team_message_ids.clear();
         self.runtime_cells.clear();
         self.clear_active_response();
         self.reset_message_scroll();
@@ -450,7 +418,6 @@ impl AppState {
 
     pub fn clear_current_session(&mut self, notice: impl Into<String>) {
         self.thread.clear_session();
-        self.clear_team_context();
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
         self.clear_active_response();
@@ -487,7 +454,6 @@ impl AppState {
             });
 
         self.thread.clear_session();
-        self.clear_team_context();
         self.conversation_cells.clear();
         self.runtime_cells.clear();
         self.clear_active_response();
@@ -515,20 +481,6 @@ impl AppState {
     pub fn clear_overlay(&mut self) {
         self.overlay = None;
         self.pending_session_delete_id = None;
-    }
-
-    fn clear_team_context(&mut self) {
-        self.current_team_state = None;
-        self.current_team_messages.clear();
-        self.current_team_assignments.clear();
-        self.current_team_approvals.clear();
-        self.seen_team_message_ids.clear();
-        if matches!(
-            self.overlay,
-            Some(OverlayState::TeamView { .. }) | Some(OverlayState::ApprovalPicker { .. })
-        ) {
-            self.overlay = None;
-        }
     }
 
     #[allow(dead_code)]
@@ -576,19 +528,6 @@ impl AppState {
     }
 
     #[allow(dead_code)]
-    pub fn open_approval_picker(&mut self) {
-        self.overlay = Some(OverlayState::ApprovalPicker { selected: 0 });
-    }
-
-    #[allow(dead_code)]
-    pub fn open_team_overlay(&mut self) {
-        self.overlay = Some(OverlayState::TeamView {
-            tab: TeamOverlayTab::Members,
-            scroll: 0,
-        });
-    }
-
-    #[allow(dead_code)]
     pub fn open_help_overlay(&mut self) {
         self.overlay = Some(OverlayState::Help);
     }
@@ -608,14 +547,9 @@ impl AppState {
             | Some(OverlayState::TeamPicker { selected })
             | Some(OverlayState::ProviderPicker { selected })
             | Some(OverlayState::ModelPicker { selected, .. })
-            | Some(OverlayState::RunPicker { selected })
-            | Some(OverlayState::ApprovalPicker { selected }) => {
+            | Some(OverlayState::RunPicker { selected }) => {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
                 *selected = next as usize;
-            }
-            Some(OverlayState::TeamView { scroll, .. }) => {
-                let next = (*scroll as i16 + delta as i16).max(0) as u16;
-                *scroll = next;
             }
             Some(OverlayState::Help) | None => {}
         }
@@ -641,22 +575,6 @@ impl AppState {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn cycle_team_tab(&mut self, forward: bool) {
-        if let Some(OverlayState::TeamView { tab, .. }) = self.overlay.as_mut() {
-            *tab = match (*tab, forward) {
-                (TeamOverlayTab::Members, true) => TeamOverlayTab::Messages,
-                (TeamOverlayTab::Messages, true) => TeamOverlayTab::Assignments,
-                (TeamOverlayTab::Assignments, true) => TeamOverlayTab::Approvals,
-                (TeamOverlayTab::Approvals, true) => TeamOverlayTab::Members,
-                (TeamOverlayTab::Members, false) => TeamOverlayTab::Approvals,
-                (TeamOverlayTab::Messages, false) => TeamOverlayTab::Members,
-                (TeamOverlayTab::Assignments, false) => TeamOverlayTab::Messages,
-                (TeamOverlayTab::Approvals, false) => TeamOverlayTab::Assignments,
-            };
-        }
-    }
-
     pub fn overlay_item_len(&self) -> Option<usize> {
         match self.overlay.as_ref()? {
             OverlayState::CommandPicker { .. } => {
@@ -670,8 +588,7 @@ impl AppState {
             OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
             OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
-            OverlayState::ApprovalPicker { .. } => Some(self.current_team_approvals.len()),
-            OverlayState::TeamView { .. } | OverlayState::Help => None,
+            OverlayState::Help => None,
         }
     }
 
@@ -1080,41 +997,6 @@ impl AppState {
         self.message_scroll_from_bottom = 0;
     }
 
-    pub fn record_team_message(&mut self, message: &TeamMessage) {
-        if self
-            .seen_team_message_ids
-            .insert(message.message_id.clone())
-        {
-            self.push_message(message_from_team_message(message));
-        }
-    }
-
-    pub fn apply_team_snapshot(
-        &mut self,
-        team_state: Option<TeamState>,
-        messages: Vec<TeamMessage>,
-        assignments: Vec<TeamAssignment>,
-        approvals: Vec<PendingTeamApproval>,
-        status: impl Into<String>,
-        open_overlay: bool,
-    ) {
-        self.current_team_state = team_state;
-        self.current_team_messages = messages;
-        self.current_team_assignments = assignments;
-        let team_messages = self.current_team_messages.clone();
-        for message in &team_messages {
-            self.record_team_message(message);
-        }
-        self.current_team_approvals = approvals
-            .into_iter()
-            .filter(|approval| approval.status == restflow_traits::TeamApprovalStatus::Pending)
-            .collect();
-        self.status = status.into();
-        if open_overlay {
-            self.open_team_overlay();
-        }
-    }
-
     fn append_assistant_stream_chunk(&mut self, chunk: &str) {
         if chunk.is_empty() {
             return;
@@ -1311,7 +1193,6 @@ mod tests {
     use super::{AppState, OverlayState};
     use crate::transcript::{TranscriptCellKind, transcript_cells};
     use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-    use restflow_traits::{TeamMessage, TeamMessageKind};
 
     #[test]
     fn app_state_session_picker_uses_overlay() {
@@ -1480,25 +1361,6 @@ mod tests {
     }
 
     #[test]
-    fn team_messages_are_deduped_in_transcript() {
-        let mut state = AppState::empty();
-        let message = TeamMessage {
-            team_run_id: "team-1".to_string(),
-            message_id: "message-1".to_string(),
-            from_member_id: "leader".to_string(),
-            to_member_id: None,
-            kind: TeamMessageKind::Note,
-            content: "hello".to_string(),
-            created_at: 1,
-        };
-
-        state.record_team_message(&message);
-        state.record_team_message(&message);
-
-        assert_eq!(state.runtime_cells.len(), 1);
-    }
-
-    #[test]
     fn run_picker_uses_only_thread_runs() {
         let mut state = AppState::empty();
         state.thread.runs.push(restflow_core::models::RunSummary {
@@ -1608,34 +1470,6 @@ mod tests {
         assert_eq!(state.conversation_cells.len(), 0);
         assert_eq!(state.runtime_cells.len(), 1);
         assert_eq!(state.runtime_cells[0].cell.title, "Info");
-    }
-
-    #[test]
-    fn switching_session_clears_team_context() {
-        let mut state = AppState::empty();
-        let first =
-            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        let second =
-            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        state.set_current_session(first);
-        state.current_team_state = Some(restflow_traits::TeamState {
-            team_run_id: "team-1".to_string(),
-            leader_member_id: "leader".to_string(),
-            members: Vec::new(),
-            status: restflow_traits::TeamStatus::Running,
-            pending_message_count: 1,
-            pending_assignment_count: 0,
-            updated_at: 1,
-        });
-        state.open_team_overlay();
-
-        state.set_current_session(second);
-
-        assert!(state.current_team_state.is_none());
-        assert!(state.current_team_messages.is_empty());
-        assert!(state.current_team_assignments.is_empty());
-        assert!(state.current_team_approvals.is_empty());
-        assert!(state.overlay.is_none());
     }
 
     #[test]

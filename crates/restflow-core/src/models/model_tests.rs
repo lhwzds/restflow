@@ -297,12 +297,16 @@ fn test_display_name() {
     assert_eq!(ModelId::Gpt5_4.display_name(), "GPT-5.4");
     assert_eq!(ModelId::Gpt5_4Mini.display_name(), "GPT-5.4 Mini");
     assert_eq!(ModelId::Gpt5_4Nano.display_name(), "GPT-5.4 Nano");
+    assert_eq!(ModelId::Gpt5_5.display_name(), "GPT-5.5");
+    assert_eq!(ModelId::Gpt5_5Pro.display_name(), "GPT-5.5 Pro");
     assert_eq!(ModelId::Gpt5_2.display_name(), "GPT-5.2");
     assert_eq!(ModelId::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
     assert_eq!(ModelId::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
     assert_eq!(ModelId::Gpt5Codex.display_name(), "Codex GPT-5");
     assert_eq!(ModelId::Gpt5_4Codex.display_name(), "GPT-5.4");
     assert_eq!(ModelId::Gpt5_4MiniCodex.display_name(), "GPT-5.4 Mini");
+    assert_eq!(ModelId::Gpt5_5Codex.display_name(), "Codex GPT-5.5");
+    assert_eq!(ModelId::Gpt5_5ProCodex.display_name(), "Codex GPT-5.5 Pro");
     assert_eq!(ModelId::Gpt5_1Codex.display_name(), "Codex GPT-5.1");
     assert_eq!(ModelId::Gpt5_2Codex.display_name(), "Codex GPT-5.2");
     assert_eq!(ModelId::CodexCli.display_name(), "Codex GPT-5.3");
@@ -321,17 +325,21 @@ fn test_display_name() {
 #[test]
 fn test_all_models() {
     let models = ModelId::all();
-    assert_eq!(models.len(), 66);
+    assert_eq!(models.len(), 72);
     assert!(models.contains(&ModelId::Gpt5));
     assert!(models.contains(&ModelId::Gpt5_4));
     assert!(models.contains(&ModelId::Gpt5_4Mini));
     assert!(models.contains(&ModelId::Gpt5_4Nano));
+    assert!(models.contains(&ModelId::Gpt5_5));
+    assert!(models.contains(&ModelId::Gpt5_5Pro));
     assert!(models.contains(&ModelId::Gpt5_1));
     assert!(models.contains(&ModelId::ClaudeOpus4_6));
     assert!(models.contains(&ModelId::ClaudeSonnet4_5));
     assert!(models.contains(&ModelId::ClaudeHaiku4_5));
     assert!(models.contains(&ModelId::Gpt5_4Codex));
     assert!(models.contains(&ModelId::Gpt5_4MiniCodex));
+    assert!(models.contains(&ModelId::Gpt5_5Codex));
+    assert!(models.contains(&ModelId::Gpt5_5ProCodex));
     assert!(models.contains(&ModelId::Gpt5Codex));
     assert!(models.contains(&ModelId::Gpt5_1Codex));
     assert!(models.contains(&ModelId::Gpt5_2Codex));
@@ -924,8 +932,8 @@ fn test_flagship_model() {
         Provider::Anthropic.flagship_model(),
         ModelId::ClaudeSonnet4_5
     );
-    assert_eq!(Provider::OpenAI.flagship_model(), ModelId::Gpt5_4);
-    assert_eq!(Provider::DeepSeek.flagship_model(), ModelId::DeepseekChat);
+    assert_eq!(Provider::OpenAI.flagship_model(), ModelId::Gpt5_5);
+    assert_eq!(Provider::DeepSeek.flagship_model(), ModelId::DeepseekV4Pro);
     assert_eq!(Provider::Google.flagship_model(), ModelId::Gemini3Pro);
     assert_eq!(Provider::MiniMax.flagship_model(), ModelId::MiniMaxM27);
     assert_eq!(Provider::Zai.flagship_model(), ModelId::Glm5);
@@ -937,7 +945,7 @@ fn test_flagship_model() {
         Provider::MiniMaxCodingPlan.flagship_model(),
         ModelId::MiniMaxM27CodingPlan
     );
-    assert_eq!(Provider::Codex.flagship_model(), ModelId::Gpt5_4Codex);
+    assert_eq!(Provider::Codex.flagship_model(), ModelId::Gpt5_5Codex);
     assert_eq!(
         Provider::OpenRouter.flagship_model(),
         ModelId::OrClaudeOpus4_6

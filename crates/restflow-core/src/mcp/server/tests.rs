@@ -2460,7 +2460,7 @@ async fn test_standalone_runtime_tools_include_subagent_tools() {
             .any(|tool| tool.name == "spawn_subagent")
     );
     assert!(
-        !runtime_tools
+        runtime_tools
             .iter()
             .any(|tool| tool.name == "spawn_subagent_batch")
     );

@@ -309,7 +309,6 @@ impl AgentRuntimeExecutor {
             id: uuid::Uuid::new_v4().to_string(),
             run_id: run_id.to_string(),
             task_id: Some(task_id.to_string()),
-            team_run_id: None,
             kind: RunArtifactKind::FinalOutput,
             title: "Task final output".to_string(),
             content: Some(output.to_string()),

@@ -64,7 +64,6 @@ pub mod work_item;
 
 // Migrated from restflow-core (tool_registry inline tools)
 pub mod manage_ops;
-pub mod manage_teams;
 pub mod marketplace;
 pub mod security_query;
 pub mod terminal;
@@ -84,7 +83,7 @@ pub mod list_subagents;
 pub mod registry_builder;
 pub mod spawn;
 pub mod spawn_subagent;
-pub(crate) mod spawn_subagent_batch;
+pub mod spawn_subagent_batch;
 pub mod use_skill;
 pub mod wait_subagents;
 
@@ -133,7 +132,6 @@ pub use work_item::WorkItemTool;
 
 // Re-export tool_registry inline migrated tools
 pub use manage_ops::ManageOpsTool;
-pub use manage_teams::ManageTeamsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
 pub use terminal::TerminalTool;
@@ -155,5 +153,6 @@ pub use registry_builder::{
 };
 pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
+pub use spawn_subagent_batch::SpawnSubagentBatchTool;
 pub use use_skill::UseSkillTool;
 pub use wait_subagents::WaitSubagentsTool;

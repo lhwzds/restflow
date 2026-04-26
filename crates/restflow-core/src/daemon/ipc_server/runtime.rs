@@ -47,7 +47,6 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         core.storage.run_artifacts.clone(),
-        core.storage.team_runtime.clone(),
         None,
         None,
         None,

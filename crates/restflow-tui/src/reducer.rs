@@ -12,7 +12,6 @@ use restflow_core::models::{
 };
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
 
 const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
 const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
@@ -91,14 +90,6 @@ pub enum ShellAction {
         model_name: String,
         status: String,
     },
-    TeamSnapshotLoaded {
-        team_state: Option<TeamState>,
-        messages: Vec<TeamMessage>,
-        assignments: Vec<TeamAssignment>,
-        approvals: Vec<PendingTeamApproval>,
-        status: String,
-        open_overlay: bool,
-    },
     MessageAppended(ShellMessage),
     StatusUpdated(String),
     DaemonStarted {
@@ -140,7 +131,6 @@ pub enum ShellEffect {
     ListSessionsInline,
     ListTeamsInline,
     ListRunsInline,
-    ListApprovalsInline,
 }
 
 #[derive(Debug, Default)]
@@ -306,21 +296,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                         .to_string();
             }
         }
-        ShellAction::TeamSnapshotLoaded {
-            team_state,
-            messages,
-            assignments,
-            approvals,
-            status,
-            open_overlay,
-        } => state.apply_team_snapshot(
-            team_state,
-            messages,
-            assignments,
-            approvals,
-            status,
-            open_overlay,
-        ),
         ShellAction::MessageAppended(message) => state.push_message(message),
         ShellAction::StatusUpdated(status) => state.status = status,
         ShellAction::DaemonStarted {
@@ -435,7 +410,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
         Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
-        Action::OpenApprovals => output.effects.push(ShellEffect::ListApprovalsInline),
         Action::OpenTeam => output.effects.push(ShellEffect::ListTeamsInline),
         Action::OpenHelp => output
             .effects
@@ -558,9 +532,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
             if state.overlay.is_none() {
                 state.composer.insert_newline();
             }
-        }
-        Action::RejectSelected => {
-            state.composer.insert_char('r');
         }
         Action::OverlaySelect => {}
         Action::Submit => {

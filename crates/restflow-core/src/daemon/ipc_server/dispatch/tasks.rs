@@ -7,19 +7,16 @@ use crate::daemon::request_mapper::to_contract;
 use crate::services::background_agent_command::{
     TaskCommandError, TaskCommandService, TaskExecutionMode,
 };
-use crate::services::operation_assessment::assessment_summary;
 use crate::services::operation_assessment::OperationAssessorAdapter;
+use crate::services::operation_assessment::assessment_summary;
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::ApprovalHandledResponse;
-use restflow_traits::store::{TaskControlRequest, TaskConvertSessionRequest, TaskDeleteRequest};
 use restflow_traits::TaskCommandOutcome;
+use restflow_traits::store::{TaskControlRequest, TaskConvertSessionRequest, TaskDeleteRequest};
 use serde::Serialize;
 use serde_json::json;
 
-fn resolve_task_id(
-    core: &Arc<AppCore>,
-    id: &str,
-) -> std::result::Result<String, IpcResponse> {
+fn resolve_task_id(core: &Arc<AppCore>, id: &str) -> std::result::Result<String, IpcResponse> {
     match core
         .storage
         .background_agents
@@ -120,10 +117,7 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_get_task_history(
-        core: &Arc<AppCore>,
-        id: String,
-    ) -> IpcResponse {
+    pub(super) async fn handle_get_task_history(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,

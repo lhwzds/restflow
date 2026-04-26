@@ -12,8 +12,8 @@ use crate::storage::{
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
     BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, PythonTool,
-    RunPythonTool, SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
-    discover_installed_binary_skill_tools,
+    RunPythonTool, SpawnSubagentBatchTool, SpawnSubagentTool, ToolRegistryBuilder,
+    WaitSubagentsTool, discover_installed_binary_skill_tools,
 };
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
@@ -282,14 +282,18 @@ pub(crate) fn register_subagent_management_tools(
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) {
     let mut spawn_tool = SpawnSubagentTool::new(manager.clone());
+    let mut batch_tool = SpawnSubagentBatchTool::new(manager.clone());
     if let Some(team_template_store) = team_template_store {
-        spawn_tool = spawn_tool.with_team_template_store(team_template_store);
+        spawn_tool = spawn_tool.with_team_template_store(team_template_store.clone());
+        batch_tool = batch_tool.with_team_template_store(team_template_store);
     }
     if let Some(assessor) = assessor {
-        spawn_tool = spawn_tool.with_assessor(assessor);
+        spawn_tool = spawn_tool.with_assessor(assessor.clone());
+        batch_tool = batch_tool.with_assessor(assessor);
     }
 
     registry.register(spawn_tool);
+    registry.register(batch_tool);
     registry.register(WaitSubagentsTool::new(manager.clone()));
     registry.register(ListSubagentsTool::new(manager));
 }

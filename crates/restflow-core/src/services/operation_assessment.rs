@@ -20,8 +20,7 @@ use crate::storage::agent::StoredAgent;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,
     ExecutionTraceStorage, MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage,
-    TeamRuntimeStorage, TeamTemplateStorage, TerminalSessionStorage, TriggerStorage,
-    WorkItemStorage,
+    TeamTemplateStorage, TerminalSessionStorage, TriggerStorage, WorkItemStorage,
 };
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -59,7 +58,6 @@ struct AssessmentContext {
     triggers: TriggerStorage,
     terminal_sessions: TerminalSessionStorage,
     run_artifacts: RunArtifactStorage,
-    team_runtime: TeamRuntimeStorage,
 }
 
 impl AssessmentContext {
@@ -84,7 +82,6 @@ impl AssessmentContext {
             triggers: storage.triggers.clone(),
             terminal_sessions: storage.terminal_sessions.clone(),
             run_artifacts: storage.run_artifacts.clone(),
-            team_runtime: storage.team_runtime.clone(),
         }
     }
 }
@@ -424,7 +421,6 @@ async fn validate_agent_async(
         context.triggers.clone(),
         context.terminal_sessions.clone(),
         context.run_artifacts.clone(),
-        context.team_runtime.clone(),
         None,
         None,
         None,

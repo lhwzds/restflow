@@ -203,7 +203,6 @@ fn setup_storage() -> (
     TriggerStorage,
     TerminalSessionStorage,
     crate::storage::RunArtifactStorage,
-    crate::storage::TeamRuntimeStorage,
     tempfile::TempDir,
 ) {
     let temp_dir = tempdir().unwrap();
@@ -213,10 +212,8 @@ fn setup_storage() -> (
 
     let state_dir = temp_dir.path().join("state");
     std::fs::create_dir_all(&state_dir).unwrap();
-    let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
     unsafe {
         std::env::set_var("RESTFLOW_DIR", &state_dir);
-        std::env::remove_var("RESTFLOW_MASTER_KEY");
     }
 
     let skill_storage = SkillStorage::new(db.clone()).unwrap();
@@ -226,28 +223,16 @@ fn setup_storage() -> (
     let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
     let team_template_storage = TeamTemplateStorage::new(db.clone()).unwrap();
     let work_item_storage = WorkItemStorage::new(db.clone()).unwrap();
-    let secret_storage = SecretStorage::with_config(
-        db.clone(),
-        restflow_storage::SecretStorageConfig {
-            allow_insecure_file_permissions: true,
-        },
-    )
-    .unwrap();
+    let secret_storage = SecretStorage::with_master_key(db.clone(), [0x11; 32]).unwrap();
     let config_storage = ConfigStorage::new(db.clone()).unwrap();
     let agent_storage = AgentStorage::new(db.clone()).unwrap();
     let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
     let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
     let terminal_storage = TerminalSessionStorage::new(db.clone()).unwrap();
     let run_artifact_storage = crate::storage::RunArtifactStorage::new(db.clone()).unwrap();
-    let team_runtime_storage = crate::storage::TeamRuntimeStorage::new(db).unwrap();
 
     unsafe {
         std::env::remove_var("RESTFLOW_DIR");
-        if let Some(value) = previous_master_key {
-            std::env::set_var("RESTFLOW_MASTER_KEY", value);
-        } else {
-            std::env::remove_var("RESTFLOW_MASTER_KEY");
-        }
     }
     (
         skill_storage,
@@ -264,7 +249,6 @@ fn setup_storage() -> (
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         temp_dir,
     )
 }
@@ -402,7 +386,6 @@ fn test_create_tool_registry() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
@@ -420,7 +403,6 @@ fn test_create_tool_registry() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -482,7 +464,6 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
@@ -500,7 +481,6 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -543,7 +523,6 @@ async fn test_manage_ops_session_summary_response_schema() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -567,7 +546,6 @@ async fn test_manage_ops_session_summary_response_schema() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -721,7 +699,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -740,7 +717,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -789,7 +765,6 @@ fn test_skill_provider_list_empty() {
         _trigger_storage,
         _terminal_storage,
         _run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
     let provider = SkillStorageProvider::new(storage);
@@ -815,7 +790,6 @@ fn test_skill_provider_with_data() {
         _trigger_storage,
         _terminal_storage,
         _run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -871,7 +845,6 @@ fn test_agent_store_adapter_crud_flow() {
         _trigger_storage,
         _terminal_storage,
         _run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1010,7 +983,6 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         _trigger_storage,
         _terminal_storage,
         _run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1070,7 +1042,6 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         _trigger_storage,
         _terminal_storage,
         _run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1147,7 +1118,6 @@ fn test_task_store_adapter_task_flow() {
         _trigger_storage,
         _terminal_storage,
         run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1382,7 +1352,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1410,7 +1379,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -1455,7 +1423,6 @@ async fn test_trigger_tool_create_list_disable() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1474,7 +1441,6 @@ async fn test_trigger_tool_create_list_disable() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -1534,7 +1500,6 @@ async fn test_terminal_tool_create_send_read_close() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1553,7 +1518,6 @@ async fn test_terminal_tool_create_send_read_close() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -1633,7 +1597,6 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1652,7 +1615,6 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -1700,7 +1662,6 @@ async fn test_db_memory_store_adapter_crud() {
         _trigger_storage,
         _terminal_storage,
         _run_artifact_storage,
-        _team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1794,7 +1755,6 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1813,7 +1773,6 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -1848,7 +1807,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         storage.triggers.clone(),
         storage.terminal_sessions.clone(),
         storage.run_artifacts.clone(),
-        storage.team_runtime.clone(),
         None,
         None,
         None,
@@ -1979,7 +1937,6 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1998,7 +1955,6 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         Some("agent-1".to_string()),
         Some(Arc::new(DenyProcessSecurityGate)),
@@ -2046,7 +2002,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2068,7 +2023,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -2111,10 +2065,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             parent_run_id: Some("parent-run-1".to_string()),
             trace_session_id: Some("session-trace-1".to_string()),
             trace_scope_id: Some("scope-trace-1".to_string()),
-            team_run_id: None,
-            team_member_id: None,
-            leader_member_id: None,
-            team_role: None,
         })
         .expect("spawn subagent");
 
@@ -2207,7 +2157,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2226,7 +2175,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,
@@ -2264,10 +2212,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
             parent_run_id: None,
             trace_session_id: None,
             trace_scope_id: None,
-            team_run_id: None,
-            team_member_id: None,
-            leader_member_id: None,
-            team_role: None,
         })
         .expect("spawn temporary subagent");
 
@@ -2300,7 +2244,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2319,7 +2262,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         trigger_storage,
         terminal_storage,
         run_artifact_storage,
-        team_runtime_storage,
         None,
         None,
         None,

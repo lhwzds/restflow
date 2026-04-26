@@ -17,7 +17,6 @@ pub mod run_artifact;
 pub mod session;
 pub mod skill;
 pub mod structured_execution_log;
-pub mod team_runtime;
 pub mod team_template;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
@@ -52,7 +51,6 @@ pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
 pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
-pub use team_runtime::TeamRuntimeStorage;
 pub use team_template::TeamTemplateStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
@@ -91,7 +89,6 @@ pub struct Storage {
     pub provider_health_snapshots: ProviderHealthSnapshotStorage,
     /// Structured execution log projection storage.
     pub structured_execution_logs: StructuredExecutionLogStorage,
-    pub team_runtime: TeamRuntimeStorage,
     /// Backward-compatible alias storage.
     pub audit: AuditStorage,
 }
@@ -146,7 +143,6 @@ impl Storage {
         let telemetry_metric_samples = TelemetryMetricSampleStorage::new(db.clone())?;
         let provider_health_snapshots = ProviderHealthSnapshotStorage::new(db.clone())?;
         let structured_execution_logs = StructuredExecutionLogStorage::new(db.clone())?;
-        let team_runtime = TeamRuntimeStorage::new(db.clone())?;
         let audit = AuditStorage::new(db.clone())?;
 
         Ok(Self {
@@ -173,7 +169,6 @@ impl Storage {
             telemetry_metric_samples,
             provider_health_snapshots,
             structured_execution_logs,
-            team_runtime,
             audit,
         })
     }

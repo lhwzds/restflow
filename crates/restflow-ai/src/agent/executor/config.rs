@@ -10,8 +10,7 @@ use restflow_traits::{
     DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
     DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_ITERATIONS,
     DEFAULT_AGENT_MAX_TOOL_CONCURRENCY, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
-    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_TOOL_TIMEOUT_SECS, TeamCoordinator,
-    llm::LlmSwitcher,
+    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_TOOL_TIMEOUT_SECS, llm::LlmSwitcher,
 };
 use serde_json::Value;
 
@@ -97,8 +96,6 @@ pub struct AgentConfig {
     pub telemetry_sink: Option<Arc<dyn TelemetrySink>>,
     /// Optional telemetry context shared across emitted events.
     pub telemetry_context: Option<TelemetryContext>,
-    /// Optional durable team coordinator bridge for teammate runtime events.
-    pub team_coordinator: Option<Arc<dyn TeamCoordinator>>,
     /// Auto-approve security-gated tool calls (scheduled automation mode).
     pub yolo_mode: bool,
     /// Checkpoint persistence policy.
@@ -138,7 +135,6 @@ impl AgentConfig {
             model_switcher: None,
             telemetry_sink: None,
             telemetry_context: None,
-            team_coordinator: None,
             yolo_mode: false,
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
@@ -226,12 +222,6 @@ impl AgentConfig {
     /// Set telemetry sink.
     pub fn with_telemetry_sink(mut self, telemetry_sink: Arc<dyn TelemetrySink>) -> Self {
         self.telemetry_sink = Some(telemetry_sink);
-        self
-    }
-
-    /// Attach a durable team coordinator bridge.
-    pub fn with_team_coordinator(mut self, coordinator: Arc<dyn TeamCoordinator>) -> Self {
-        self.team_coordinator = Some(coordinator);
         self
     }
 

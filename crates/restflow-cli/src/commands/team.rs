@@ -27,7 +27,7 @@ fn emit_runtime_result(
         "{}",
         result
             .error
-            .unwrap_or_else(|| "manage_teams execution failed".to_string())
+            .unwrap_or_else(|| "spawn_subagent_batch execution failed".to_string())
     )
 }
 
@@ -42,96 +42,41 @@ pub async fn run(
             member,
             assignment,
             task,
+            preview,
+            approval_id,
         } => {
-            let members = if member.is_empty() {
+            let (task, tasks) = match (task, assignment.as_slice()) {
+                (Some(task), _) => (Some(task), None),
+                (None, [single]) => (Some(single.clone()), None),
+                (None, []) => (None, None),
+                (None, _) => (None, Some(assignment)),
+            };
+            let specs = if member.is_empty() {
                 None
             } else {
                 Some(
                     member
                         .into_iter()
-                        .map(|agent_id| json!({ "agent_id": agent_id }))
+                        .map(|agent| json!({ "agent": agent }))
                         .collect::<Vec<_>>(),
                 )
             };
             json!({
-                "operation": "start_team",
+                "operation": "spawn",
                 "team": team,
-                "members": members,
-                "assignments": assignment,
+                "specs": specs,
+                "tasks": tasks,
                 "task": task,
-            })
-        }
-        TeamCommands::State { team_run_id } => {
-            json!({
-                "operation": "get_team_state",
-                "team_run_id": team_run_id,
-            })
-        }
-        TeamCommands::Messages { team_run_id } => {
-            json!({
-                "operation": "list_team_messages",
-                "team_run_id": team_run_id,
-            })
-        }
-        TeamCommands::Send {
-            team_run_id,
-            from,
-            to,
-            message,
-        } => {
-            json!({
-                "operation": "send_team_message",
-                "team_run_id": team_run_id,
-                "from_member_id": from,
-                "to_member_id": to,
-                "content": message,
-            })
-        }
-        TeamCommands::Assignments { team_run_id } => {
-            json!({
-                "operation": "list_team_assignments",
-                "team_run_id": team_run_id,
-            })
-        }
-        TeamCommands::Assign {
-            team_run_id,
-            member,
-            task,
-        } => {
-            json!({
-                "operation": "assign_team_task",
-                "team_run_id": team_run_id,
-                "assignee_member_id": member,
-                "task": task,
-            })
-        }
-        TeamCommands::Approve {
-            team_run_id,
-            approval_id,
-        } => {
-            json!({
-                "operation": "resolve_team_approval",
-                "team_run_id": team_run_id,
+                "preview": preview,
                 "approval_id": approval_id,
-                "approved": true,
-            })
-        }
-        TeamCommands::Reject {
-            team_run_id,
-            approval_id,
-            reason,
-        } => {
-            json!({
-                "operation": "resolve_team_approval",
-                "team_run_id": team_run_id,
-                "approval_id": approval_id,
-                "approved": false,
-                "reason": reason,
+                "wait": false,
             })
         }
     };
 
-    let result = executor.execute_runtime_tool("manage_teams", input).await?;
+    let result = executor
+        .execute_runtime_tool("spawn_subagent_batch", input)
+        .await?;
     emit_runtime_result(result, format)
 }
 
@@ -424,7 +369,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn team_start_routes_through_manage_teams_tool() {
+    async fn team_start_routes_through_spawn_subagent_batch_tool() {
         let executor = Arc::new(RecordingExecutor::default());
         run(
             executor.clone(),
@@ -433,6 +378,8 @@ mod tests {
                 member: Vec::new(),
                 assignment: vec!["Investigate".to_string()],
                 task: None,
+                preview: false,
+                approval_id: None,
             },
             OutputFormat::Json,
         )
@@ -441,8 +388,35 @@ mod tests {
 
         let calls = executor.calls();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "manage_teams");
-        assert_eq!(calls[0].1["operation"], "start_team");
+        assert_eq!(calls[0].0, "spawn_subagent_batch");
+        assert_eq!(calls[0].1["operation"], "spawn");
         assert_eq!(calls[0].1["team"], "demo");
+        assert_eq!(calls[0].1["task"], "Investigate");
+        assert!(calls[0].1["tasks"].is_null());
+    }
+
+    #[tokio::test]
+    async fn team_start_routes_multiple_assignments_as_tasks() {
+        let executor = Arc::new(RecordingExecutor::default());
+        run(
+            executor.clone(),
+            TeamCommands::Start {
+                team: Some("demo".to_string()),
+                member: Vec::new(),
+                assignment: vec!["First".to_string(), "Second".to_string()],
+                task: None,
+                preview: true,
+                approval_id: Some("approval-1".to_string()),
+            },
+            OutputFormat::Json,
+        )
+        .await
+        .expect("team start should succeed");
+
+        let calls = executor.calls();
+        assert_eq!(calls[0].1["task"], serde_json::Value::Null);
+        assert_eq!(calls[0].1["tasks"], json!(["First", "Second"]));
+        assert_eq!(calls[0].1["preview"], true);
+        assert_eq!(calls[0].1["approval_id"], "approval-1");
     }
 }
