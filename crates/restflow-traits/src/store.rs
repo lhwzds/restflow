@@ -621,17 +621,6 @@ pub trait BackgroundAgentStore: TaskStore + Send + Sync {
 
 impl<T: ?Sized> BackgroundAgentStore for T where T: TaskStore + Send + Sync {}
 
-pub mod compat {
-    pub use super::{
-        BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
-        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-        BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest,
-        BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-        BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
-        BackgroundAgentUpdateRequest,
-    };
-}
-
 // ── SessionStore ─────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Deserialize)]

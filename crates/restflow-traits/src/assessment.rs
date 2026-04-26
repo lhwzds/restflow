@@ -136,10 +136,6 @@ pub enum TaskCommandOutcome<T> {
 #[doc(hidden)]
 pub type BackgroundAgentCommandOutcome<T> = TaskCommandOutcome<T>;
 
-pub mod compat {
-    pub use super::BackgroundAgentCommandOutcome;
-}
-
 #[async_trait]
 pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_agent_create(
@@ -249,7 +245,7 @@ pub trait AgentOperationAssessor: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::compat::{
+    use crate::store::{
         BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
         BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
     };
