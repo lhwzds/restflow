@@ -14,7 +14,8 @@ pub type IpcResponse = ResponseEnvelope<Value>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IpcStreamEvent {
-    BackgroundAgent(TaskStreamEvent),
+    #[serde(alias = "background_agent")]
+    Task(TaskStreamEvent),
     Session(ChatSessionEvent),
 }
 
@@ -104,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn test_background_agent_stream_frame_serialization() {
+    fn test_task_stream_frame_serialization() {
         let event = TaskStreamEvent::progress(
             "agent-42",
             "notification",
@@ -112,16 +113,47 @@ mod tests {
             Some("done".to_string()),
         );
         let frame = StreamFrame::Event {
-            event: IpcStreamEvent::BackgroundAgent(event.clone()),
+            event: IpcStreamEvent::Task(event.clone()),
         };
         let json = serde_json::to_string(&frame).unwrap();
+        assert!(json.contains("\"task\""));
         let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
 
         match parsed {
             StreamFrame::Event {
-                event: IpcStreamEvent::BackgroundAgent(parsed_event),
+                event: IpcStreamEvent::Task(parsed_event),
             } => {
                 assert_eq!(parsed_event.task_id, event.task_id);
+            }
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_task_stream_frame_accepts_legacy_background_agent_field() {
+        let json = serde_json::json!({
+            "stream_type": "Event",
+            "data": {
+                "event": {
+                    "background_agent": {
+                        "task_id": "task-legacy",
+                        "timestamp": 100,
+                        "kind": {
+                            "type": "progress",
+                            "phase": "working",
+                            "percent": 50
+                        }
+                    }
+                }
+            }
+        });
+        let parsed: StreamFrame = serde_json::from_value(json).unwrap();
+
+        match parsed {
+            StreamFrame::Event {
+                event: IpcStreamEvent::Task(event),
+            } => {
+                assert_eq!(event.task_id, "task-legacy");
             }
             _ => panic!("Wrong variant"),
         }

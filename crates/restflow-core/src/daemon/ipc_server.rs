@@ -568,7 +568,7 @@ impl IpcServer {
 
                 if tx
                     .send(StreamFrame::Event {
-                        event: IpcStreamEvent::BackgroundAgent(event),
+                        event: IpcStreamEvent::Task(event),
                     })
                     .is_err()
                 {
@@ -700,7 +700,7 @@ mod compatibility_tests {
             .unwrap();
         match frame {
             StreamFrame::Event {
-                event: IpcStreamEvent::BackgroundAgent(received),
+                event: IpcStreamEvent::Task(received),
             } => assert_eq!(received.task_id, event.task_id),
             other => panic!("unexpected stream frame: {other:?}"),
         }

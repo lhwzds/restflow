@@ -97,7 +97,7 @@ impl IpcClient {
             )? {
                 StreamFrame::Start { .. } => {}
                 StreamFrame::Event {
-                    event: IpcStreamEvent::BackgroundAgent(event),
+                    event: IpcStreamEvent::Task(event),
                 } => {
                     on_event(event)?;
                 }

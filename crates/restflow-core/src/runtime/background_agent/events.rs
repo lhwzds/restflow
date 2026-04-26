@@ -24,7 +24,7 @@ use specta::Type;
 use ts_rs::TS;
 
 /// Event name constant for background task streams.
-pub const TASK_STREAM_EVENT: &str = "background-agent:stream";
+pub const TASK_STREAM_EVENT: &str = "task:stream";
 
 /// Real-time streaming event for task execution.
 ///
@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn test_task_stream_event_constant() {
         // Verify the event name constant for frontend usage
-        assert_eq!(TASK_STREAM_EVENT, "background-agent:stream");
+        assert_eq!(TASK_STREAM_EVENT, "task:stream");
     }
 
     #[test]

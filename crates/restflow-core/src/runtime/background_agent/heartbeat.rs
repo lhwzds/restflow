@@ -31,7 +31,7 @@ use tokio::sync::mpsc;
 use ts_rs::TS;
 
 /// Event name for heartbeat and runner status streams.
-pub const HEARTBEAT_EVENT: &str = "background-agent:heartbeat";
+pub const HEARTBEAT_EVENT: &str = "task:heartbeat";
 
 /// Heartbeat event sent to connected daemon clients.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]

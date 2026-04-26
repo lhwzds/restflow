@@ -87,13 +87,11 @@ export async function getTaskEvents(taskId: string, limit?: number): Promise<Tas
 }
 
 export async function getTaskStreamEventName(): Promise<string> {
-  // Transport event names remain legacy until the daemon/browser stream channel is renamed.
-  return 'background-agent:stream'
+  return 'task:stream'
 }
 
 export async function getHeartbeatEventName(): Promise<string> {
-  // Transport event names remain legacy until the daemon/browser stream channel is renamed.
-  return 'background-agent:heartbeat'
+  return 'task:heartbeat'
 }
 
 export async function deleteTask(id: string): Promise<DeleteTaskResult> {
