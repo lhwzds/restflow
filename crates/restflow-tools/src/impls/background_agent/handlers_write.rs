@@ -30,7 +30,7 @@ pub(super) async fn execute_save_team(
     tool.write_guard()?;
     let assessor = tool.assessor()?;
     let assessment = assessor
-        .assess_background_agent_template(
+        .assess_task_template(
             "save_team",
             OperationAssessmentIntent::Save,
             workers

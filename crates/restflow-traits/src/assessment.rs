@@ -151,37 +151,27 @@ pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_task_create(
         &self,
         request: TaskCreateRequest,
-    ) -> Result<OperationAssessment, ToolError> {
-        self.assess_background_agent_create(request).await
-    }
+    ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_task_convert_session(
         &self,
         request: TaskConvertSessionRequest,
-    ) -> Result<OperationAssessment, ToolError> {
-        self.assess_background_agent_convert_session(request).await
-    }
+    ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_task_update(
         &self,
         request: TaskUpdateRequest,
-    ) -> Result<OperationAssessment, ToolError> {
-        self.assess_background_agent_update(request).await
-    }
+    ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_task_delete(
         &self,
         request: TaskDeleteRequest,
-    ) -> Result<OperationAssessment, ToolError> {
-        self.assess_background_agent_delete(request).await
-    }
+    ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_task_control(
         &self,
         request: TaskControlRequest,
-    ) -> Result<OperationAssessment, ToolError> {
-        self.assess_background_agent_control(request).await
-    }
+    ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_task_template(
         &self,
@@ -189,35 +179,42 @@ pub trait AgentOperationAssessor: Send + Sync {
         intent: OperationAssessmentIntent,
         agent_ids: Vec<String>,
         template_mode: bool,
-    ) -> Result<OperationAssessment, ToolError> {
-        self.assess_background_agent_template(operation, intent, agent_ids, template_mode)
-            .await
-    }
+    ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_create(
         &self,
         request: crate::store::BackgroundAgentCreateRequest,
-    ) -> Result<OperationAssessment, ToolError>;
+    ) -> Result<OperationAssessment, ToolError> {
+        self.assess_task_create(request).await
+    }
 
     async fn assess_background_agent_convert_session(
         &self,
         request: crate::store::BackgroundAgentConvertSessionRequest,
-    ) -> Result<OperationAssessment, ToolError>;
+    ) -> Result<OperationAssessment, ToolError> {
+        self.assess_task_convert_session(request).await
+    }
 
     async fn assess_background_agent_update(
         &self,
         request: crate::store::BackgroundAgentUpdateRequest,
-    ) -> Result<OperationAssessment, ToolError>;
+    ) -> Result<OperationAssessment, ToolError> {
+        self.assess_task_update(request).await
+    }
 
     async fn assess_background_agent_delete(
         &self,
         request: crate::store::BackgroundAgentDeleteRequest,
-    ) -> Result<OperationAssessment, ToolError>;
+    ) -> Result<OperationAssessment, ToolError> {
+        self.assess_task_delete(request).await
+    }
 
     async fn assess_background_agent_control(
         &self,
         request: crate::store::BackgroundAgentControlRequest,
-    ) -> Result<OperationAssessment, ToolError>;
+    ) -> Result<OperationAssessment, ToolError> {
+        self.assess_task_control(request).await
+    }
 
     async fn assess_background_agent_template(
         &self,
@@ -225,7 +222,10 @@ pub trait AgentOperationAssessor: Send + Sync {
         intent: OperationAssessmentIntent,
         agent_ids: Vec<String>,
         template_mode: bool,
-    ) -> Result<OperationAssessment, ToolError>;
+    ) -> Result<OperationAssessment, ToolError> {
+        self.assess_task_template(operation, intent, agent_ids, template_mode)
+            .await
+    }
 
     async fn assess_subagent_spawn(
         &self,
@@ -245,10 +245,6 @@ pub trait AgentOperationAssessor: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{
-        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
-    };
     use serde_json::json;
     use std::sync::{Arc, Mutex};
 
@@ -346,69 +342,69 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_create(
+        async fn assess_task_create(
             &self,
-            _request: BackgroundAgentCreateRequest,
+            _request: TaskCreateRequest,
         ) -> Result<OperationAssessment, ToolError> {
-            self.record("background_agent_create");
+            self.record("task_create");
             Ok(OperationAssessment::ok(
-                "background_agent_create",
+                "task_create",
                 OperationAssessmentIntent::Save,
             ))
         }
 
-        async fn assess_background_agent_convert_session(
+        async fn assess_task_convert_session(
             &self,
-            _request: BackgroundAgentConvertSessionRequest,
+            _request: TaskConvertSessionRequest,
         ) -> Result<OperationAssessment, ToolError> {
-            self.record("background_agent_convert_session");
+            self.record("task_convert_session");
             Ok(OperationAssessment::ok(
-                "background_agent_convert_session",
+                "task_convert_session",
                 OperationAssessmentIntent::Save,
             ))
         }
 
-        async fn assess_background_agent_update(
+        async fn assess_task_update(
             &self,
-            _request: BackgroundAgentUpdateRequest,
+            _request: TaskUpdateRequest,
         ) -> Result<OperationAssessment, ToolError> {
-            self.record("background_agent_update");
+            self.record("task_update");
             Ok(OperationAssessment::ok(
-                "background_agent_update",
+                "task_update",
                 OperationAssessmentIntent::Save,
             ))
         }
 
-        async fn assess_background_agent_delete(
+        async fn assess_task_delete(
             &self,
-            _request: BackgroundAgentDeleteRequest,
+            _request: TaskDeleteRequest,
         ) -> Result<OperationAssessment, ToolError> {
-            self.record("background_agent_delete");
+            self.record("task_delete");
             Ok(OperationAssessment::ok(
-                "background_agent_delete",
+                "task_delete",
                 OperationAssessmentIntent::Save,
             ))
         }
 
-        async fn assess_background_agent_control(
+        async fn assess_task_control(
             &self,
-            _request: BackgroundAgentControlRequest,
+            _request: TaskControlRequest,
         ) -> Result<OperationAssessment, ToolError> {
-            self.record("background_agent_control");
+            self.record("task_control");
             Ok(OperationAssessment::ok(
-                "background_agent_control",
+                "task_control",
                 OperationAssessmentIntent::Save,
             ))
         }
 
-        async fn assess_background_agent_template(
+        async fn assess_task_template(
             &self,
             operation: &str,
             intent: OperationAssessmentIntent,
             _agent_ids: Vec<String>,
             _template_mode: bool,
         ) -> Result<OperationAssessment, ToolError> {
-            self.record("background_agent_template");
+            self.record("task_template");
             Ok(OperationAssessment::ok(operation.to_string(), intent))
         }
 
@@ -440,11 +436,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_assessment_methods_forward_to_background_methods() {
+    async fn background_agent_assessment_methods_forward_to_task_methods() {
         let assessor = MockAssessor::new();
 
         let create = assessor
-            .assess_task_create(TaskCreateRequest {
+            .assess_background_agent_create(TaskCreateRequest {
                 name: "Task".to_string(),
                 agent_id: "agent-1".to_string(),
                 chat_session_id: None,
@@ -463,11 +459,11 @@ mod tests {
                 approval_id: None,
             })
             .await
-            .expect("task create assessment should forward");
-        assert_eq!(create.operation, "background_agent_create");
+            .expect("legacy create assessment should forward");
+        assert_eq!(create.operation, "task_create");
 
         let convert = assessor
-            .assess_task_convert_session(TaskConvertSessionRequest {
+            .assess_background_agent_convert_session(TaskConvertSessionRequest {
                 session_id: "session-1".to_string(),
                 name: None,
                 schedule: None,
@@ -482,38 +478,38 @@ mod tests {
                 approval_id: None,
             })
             .await
-            .expect("task convert assessment should forward");
-        assert_eq!(convert.operation, "background_agent_convert_session");
+            .expect("legacy convert assessment should forward");
+        assert_eq!(convert.operation, "task_convert_session");
 
         let control = assessor
-            .assess_task_control(TaskControlRequest {
+            .assess_background_agent_control(TaskControlRequest {
                 id: "task-1".to_string(),
                 action: "run_now".to_string(),
                 preview: false,
                 approval_id: None,
             })
             .await
-            .expect("task control assessment should forward");
-        assert_eq!(control.operation, "background_agent_control");
+            .expect("legacy control assessment should forward");
+        assert_eq!(control.operation, "task_control");
 
         let template = assessor
-            .assess_task_template(
+            .assess_background_agent_template(
                 "save_task_template",
                 OperationAssessmentIntent::Save,
                 vec!["agent-1".to_string()],
                 true,
             )
             .await
-            .expect("task template assessment should forward");
+            .expect("legacy template assessment should forward");
         assert_eq!(template.operation, "save_task_template");
 
         assert_eq!(
             assessor.calls(),
             vec![
-                "background_agent_create",
-                "background_agent_convert_session",
-                "background_agent_control",
-                "background_agent_template",
+                "task_create",
+                "task_convert_session",
+                "task_control",
+                "task_template",
             ]
         );
     }

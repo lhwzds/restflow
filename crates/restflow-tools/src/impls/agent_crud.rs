@@ -418,42 +418,42 @@ mod tests {
             unreachable!("unused in this test")
         }
 
-        async fn assess_background_agent_create(
+        async fn assess_task_create(
             &self,
             _request: restflow_traits::store::BackgroundAgentCreateRequest,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
         }
 
-        async fn assess_background_agent_convert_session(
+        async fn assess_task_convert_session(
             &self,
             _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
         }
 
-        async fn assess_background_agent_update(
+        async fn assess_task_update(
             &self,
             _request: restflow_traits::store::BackgroundAgentUpdateRequest,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
         }
 
-        async fn assess_background_agent_delete(
+        async fn assess_task_delete(
             &self,
             _request: restflow_traits::store::BackgroundAgentDeleteRequest,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
         }
 
-        async fn assess_background_agent_control(
+        async fn assess_task_control(
             &self,
             _request: restflow_traits::store::BackgroundAgentControlRequest,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
         }
 
-        async fn assess_background_agent_template(
+        async fn assess_task_template(
             &self,
             _operation: &str,
             _intent: OperationAssessmentIntent,

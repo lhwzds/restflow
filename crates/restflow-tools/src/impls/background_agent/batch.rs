@@ -270,7 +270,7 @@ pub(super) async fn execute_run_batch(
     let should_run_now = run_now.unwrap_or(false);
     let assessment = tool
         .assessor()?
-        .assess_background_agent_template(
+        .assess_task_template(
             "run_batch",
             if should_run_now {
                 OperationAssessmentIntent::Run

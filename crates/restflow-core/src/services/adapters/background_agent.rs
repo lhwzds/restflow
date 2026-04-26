@@ -506,7 +506,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_create(
+        async fn assess_task_create(
             &self,
             _request: BackgroundAgentCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -516,7 +516,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_convert_session(
+        async fn assess_task_convert_session(
             &self,
             _request: BackgroundAgentConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -526,7 +526,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_update(
+        async fn assess_task_update(
             &self,
             _request: BackgroundAgentUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -536,7 +536,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_delete(
+        async fn assess_task_delete(
             &self,
             _request: BackgroundAgentDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -547,7 +547,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_control(
+        async fn assess_task_control(
             &self,
             _request: BackgroundAgentControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -557,7 +557,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_template(
+        async fn assess_task_template(
             &self,
             operation: &str,
             intent: OperationAssessmentIntent,
@@ -616,7 +616,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_create(
+        async fn assess_task_create(
             &self,
             _request: BackgroundAgentCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -627,7 +627,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_convert_session(
+        async fn assess_task_convert_session(
             &self,
             _request: BackgroundAgentConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -638,7 +638,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_update(
+        async fn assess_task_update(
             &self,
             _request: BackgroundAgentUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -649,7 +649,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_delete(
+        async fn assess_task_delete(
             &self,
             _request: BackgroundAgentDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -660,7 +660,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_control(
+        async fn assess_task_control(
             &self,
             _request: BackgroundAgentControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
@@ -671,7 +671,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_template(
+        async fn assess_task_template(
             &self,
             operation: &str,
             intent: OperationAssessmentIntent,

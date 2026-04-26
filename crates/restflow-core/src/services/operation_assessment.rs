@@ -123,29 +123,11 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
-    async fn assess_background_agent_create(
-        &self,
-        request: restflow_traits::store::BackgroundAgentCreateRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_create_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
     async fn assess_task_create(
         &self,
         request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_task_create_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_background_agent_convert_session(
-        &self,
-        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_convert_session_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -159,29 +141,11 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
-    async fn assess_background_agent_update(
-        &self,
-        request: restflow_traits::store::BackgroundAgentUpdateRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_update_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
     async fn assess_task_update(
         &self,
         request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_task_update_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_background_agent_delete(
-        &self,
-        request: restflow_traits::store::BackgroundAgentDeleteRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_delete_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -195,15 +159,6 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
-    async fn assess_background_agent_control(
-        &self,
-        request: restflow_traits::store::BackgroundAgentControlRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_control_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
     async fn assess_task_control(
         &self,
         request: TaskControlRequest,
@@ -211,24 +166,6 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         assess_task_control_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_background_agent_template(
-        &self,
-        operation: &str,
-        intent: OperationAssessmentIntent,
-        agent_ids: Vec<String>,
-        template_mode: bool,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_template_with_context(
-            &self.context,
-            operation,
-            intent,
-            agent_ids,
-            template_mode,
-        )
-        .await
-        .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_task_template(
