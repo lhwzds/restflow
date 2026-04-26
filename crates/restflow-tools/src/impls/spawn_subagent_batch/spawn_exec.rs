@@ -7,7 +7,6 @@ use restflow_traits::{SubagentCompletion, SubagentResult, SubagentStatus};
 
 use super::SpawnSubagentBatchTool;
 use super::resolve::spawn_request_from_spec;
-use super::team::{load_team_specs, save_team_specs};
 use super::types::{
     BatchSubagentSpec, PreparedSpawnRequest, SpawnFailure, SpawnSubagentBatchParams, SpawnedTask,
 };
@@ -17,19 +16,10 @@ pub(super) fn specs_for_spawn(
     tool: &SpawnSubagentBatchTool,
     params: &SpawnSubagentBatchParams,
 ) -> Result<Vec<BatchSubagentSpec>> {
-    if params.team.is_some() && params.specs.is_some() {
-        return Err(ToolError::Tool(
-            "Use either 'team' or 'specs' for spawn, not both.".to_string(),
-        ));
-    }
-
-    let specs = if let Some(team_name) = params.team.as_deref() {
-        load_team_specs(tool, team_name)?
-    } else {
-        params.specs.clone().ok_or_else(|| {
-            ToolError::Tool("Spawn requires either 'team' or 'specs'.".to_string())
-        })?
-    };
+    let specs = params
+        .specs
+        .clone()
+        .ok_or_else(|| ToolError::Tool("Spawn requires non-empty 'specs'.".to_string()))?;
 
     if specs.is_empty() {
         return Err(ToolError::Tool("Specs must not be empty.".to_string()));
@@ -204,10 +194,6 @@ pub(super) async fn spawn_batch(
         ));
     }
 
-    if let Some(team_name) = params.save_as_team.as_deref() {
-        save_team_specs(tool, team_name, &specs)?;
-    }
-
     let mut spawned = Vec::with_capacity(prepared.len());
     let mut spawn_failure = None;
     for item in prepared {
@@ -249,8 +235,6 @@ pub(super) async fn spawn_batch(
             "spawned_count": spawned.len(),
             "running_before": running_now,
             "max_parallel": max_parallel,
-            "team": params.team,
-            "saved_team": params.save_as_team,
             "task_ids": task_ids,
             "tasks": tasks,
             "failed_spec_index": failure.spec_index,
@@ -274,8 +258,6 @@ pub(super) async fn spawn_batch(
             "spawned_count": spawned.len(),
             "running_before": running_now,
             "max_parallel": max_parallel,
-            "team": params.team,
-            "saved_team": params.save_as_team,
             "task_ids": spawned.iter().map(|task| task.task_id.clone()).collect::<Vec<_>>(),
             "tasks": tasks
         })));
@@ -290,8 +272,6 @@ pub(super) async fn spawn_batch(
         "operation": "spawn",
         "status": "completed",
         "spawned_count": spawned.len(),
-        "team": params.team,
-        "saved_team": params.save_as_team,
         "results": results
     })))
 }

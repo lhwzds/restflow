@@ -479,14 +479,6 @@ impl CommandExecutor for DirectExecutor {
             },
         )
     }
-
-    async fn execute_runtime_tool(
-        &self,
-        _name: &str,
-        _input: serde_json::Value,
-    ) -> Result<restflow_contracts::ToolExecutionResult> {
-        bail!("Runtime tool execution requires daemon mode. Use 'restflow daemon start' first.")
-    }
 }
 
 async fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Result<String> {

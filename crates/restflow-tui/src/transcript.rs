@@ -30,9 +30,6 @@ pub enum ShellMessage {
     TaskNotice {
         content: String,
     },
-    TeamNotice {
-        content: String,
-    },
     InfoNotice {
         content: String,
     },
@@ -154,10 +151,9 @@ impl ShellMessage {
             | Self::AssistantStream { .. }
             | Self::SystemMessage { .. } => MessageGroup::Conversation,
             Self::ToolCall { .. } | Self::ToolResult { .. } => MessageGroup::ToolActivity,
-            Self::TaskNotice { .. }
-            | Self::TeamNotice { .. }
-            | Self::InfoNotice { .. }
-            | Self::ErrorNotice { .. } => MessageGroup::RuntimeNotice,
+            Self::TaskNotice { .. } | Self::InfoNotice { .. } | Self::ErrorNotice { .. } => {
+                MessageGroup::RuntimeNotice
+            }
         }
     }
 }
@@ -256,14 +252,6 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
         ShellMessage::TaskNotice { content } => TranscriptCell {
             kind: TranscriptCellKind::Notice,
             title: "Task".to_string(),
-            subtitle: None,
-            body: content.clone(),
-            group: message.group(),
-            is_active: false,
-        },
-        ShellMessage::TeamNotice { content } => TranscriptCell {
-            kind: TranscriptCellKind::Notice,
-            title: "Team".to_string(),
             subtitle: None,
             body: content.clone(),
             group: message.group(),

@@ -631,14 +631,6 @@ mod tests {
         ) -> anyhow::Result<ExecutionTimeline> {
             panic!("unexpected executor call")
         }
-
-        async fn execute_runtime_tool(
-            &self,
-            _name: &str,
-            _input: serde_json::Value,
-        ) -> anyhow::Result<restflow_contracts::ToolExecutionResult> {
-            panic!("unexpected executor call")
-        }
     }
 
     #[test]

@@ -163,15 +163,9 @@ pub struct ManageTasksParams {
     /// Optional per-instance inputs for run_batch
     #[serde(default)]
     pub inputs: Option<Vec<String>>,
-    /// Optional batch/team name for run_batch/save_team/get_team/delete_team
-    #[serde(default)]
-    pub team: Option<String>,
-    /// Optional worker specs payload for run_batch/save_team
+    /// Optional worker specs payload for run_batch
     #[serde(default)]
     pub workers: Option<Value>,
-    /// Optional team name to persist during run_batch
-    #[serde(default)]
-    pub save_as_team: Option<String>,
     /// Optional task input template
     #[serde(default)]
     pub input_template: Option<String>,

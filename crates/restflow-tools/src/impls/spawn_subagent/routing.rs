@@ -69,10 +69,7 @@ fn build_inline_config(params: &SpawnSubagentParams) -> Option<ContractInlineAge
 }
 
 fn uses_batch_mode(params: &SpawnSubagentParams) -> bool {
-    params.workers.is_some()
-        || params.team.is_some()
-        || params.save_as_team.is_some()
-        || params.tasks.is_some()
+    params.workers.is_some() || params.tasks.is_some()
 }
 
 fn routes_to_batch_tool(params: &SpawnSubagentParams) -> bool {
@@ -102,30 +99,6 @@ fn build_contract_request(params: &SpawnSubagentParams, task: String) -> Contrac
     }
 }
 
-fn resolve_batch_team(params: &SpawnSubagentParams) -> Result<Option<String>> {
-    let team = normalize_optional_text(params.team.as_deref());
-    let save_as_team = normalize_optional_text(params.save_as_team.as_deref());
-
-    if params.operation == SpawnSubagentBatchOperation::SaveTeam {
-        return match (team, save_as_team) {
-            (Some(team_name), Some(alias)) if team_name != alias => Err(ToolError::Tool(
-                "When operation is 'save_team', 'team' and 'save_as_team' must match if both are provided.".to_string(),
-            )),
-            (Some(team_name), _) => Ok(Some(team_name)),
-            (None, Some(alias)) => Ok(Some(alias)),
-            (None, None) => Ok(None),
-        };
-    }
-
-    if params.operation != SpawnSubagentBatchOperation::Spawn && save_as_team.is_some() {
-        return Err(ToolError::Tool(
-            "'save_as_team' is only supported for 'spawn', or as an alias of 'team' when operation is 'save_team'.".to_string(),
-        ));
-    }
-
-    Ok(team)
-}
-
 pub(super) async fn execute(
     tool: &SpawnSubagentTool,
     params: SpawnSubagentParams,
@@ -140,14 +113,11 @@ pub(super) async fn execute(
             || params.inline_max_iterations.is_some()
         {
             return Err(ToolError::Tool(
-                "Batch mode uses 'workers'/'team'; do not combine with single-spawn fields like 'agent', top-level model/provider, or top-level inline settings.".to_string(),
+                "Batch mode uses 'workers'; do not combine with single-spawn fields like 'agent', top-level model/provider, or top-level inline settings.".to_string(),
             ));
         }
 
         let mut batch_tool = SpawnSubagentBatchTool::new(tool.manager.clone());
-        if let Some(store) = tool.team_template_store.clone() {
-            batch_tool = batch_tool.with_team_template_store(store);
-        }
         if let Some(assessor) = tool.assessor.clone() {
             batch_tool = batch_tool.with_assessor(assessor);
         }
@@ -155,23 +125,15 @@ pub(super) async fn execute(
         let operation = params.operation.clone();
         let task = normalize_optional_text(params.task.as_deref());
         let tasks = params.tasks.clone();
-        let team = resolve_batch_team(&params)?;
-        let save_as_team = if operation == SpawnSubagentBatchOperation::Spawn {
-            normalize_optional_text(params.save_as_team.as_deref())
-        } else {
-            None
-        };
 
         return batch_tool
             .execute(json!({
                 "operation": operation,
-                "team": team,
                 "specs": params.workers,
                 "task": task,
                 "tasks": tasks,
                 "wait": params.wait,
                 "timeout_secs": params.timeout_secs,
-                "save_as_team": save_as_team,
                 "parent_run_id": params.parent_run_id,
                 "trace_session_id": params.trace_session_id,
                 "trace_scope_id": params.trace_scope_id,

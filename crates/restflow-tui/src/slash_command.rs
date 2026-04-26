@@ -31,7 +31,6 @@ pub enum SlashCommand {
         provider: String,
     },
     ListRuns,
-    ListTeams,
     TaskControl {
         action: TaskControlAction,
         task_id: String,
@@ -41,11 +40,6 @@ pub enum SlashCommand {
     },
     OpenRun {
         run_id: String,
-    },
-    TeamStart {
-        saved_team: String,
-        assignment: String,
-        approval_id: Option<String>,
     },
 }
 
@@ -86,11 +80,6 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         command: "/task",
         args: "",
         description: "Select a task action",
-    },
-    SlashCommandSpec {
-        command: "/team",
-        args: "",
-        description: "Open team actions",
     },
 ];
 
@@ -153,45 +142,6 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
             Ok(SlashCommand::OpenRun {
                 run_id: run_id.to_string(),
             })
-        }
-        "/team" => {
-            let action = parts.next().unwrap_or_default();
-            if action.is_empty() {
-                return Ok(SlashCommand::ListTeams);
-            }
-            match action {
-                "start" => {
-                    let saved_team = parts.next().unwrap_or_default();
-                    if saved_team.is_empty() {
-                        bail!("Usage: /team start <saved_team> <assignment> [--approval-id <id>]");
-                    }
-                    let mut assignment_parts = Vec::new();
-                    let mut approval_id = None;
-                    while let Some(part) = parts.next() {
-                        if part == "--approval-id" {
-                            let value = parts.next().unwrap_or_default();
-                            if value.is_empty() {
-                                bail!(
-                                    "Usage: /team start <saved_team> <assignment> [--approval-id <id>]"
-                                );
-                            }
-                            approval_id = Some(value.to_string());
-                        } else {
-                            assignment_parts.push(part);
-                        }
-                    }
-                    let assignment = assignment_parts.join(" ");
-                    if assignment.trim().is_empty() {
-                        bail!("Usage: /team start <saved_team> <assignment> [--approval-id <id>]");
-                    }
-                    Ok(SlashCommand::TeamStart {
-                        saved_team: saved_team.to_string(),
-                        assignment,
-                        approval_id,
-                    })
-                }
-                _ => bail!("Unsupported /team action"),
-            }
         }
         _ => bail!("Unknown command: {command}"),
     }
@@ -268,14 +218,6 @@ mod tests {
     }
 
     #[test]
-    fn bare_team_command_lists_teams() {
-        assert_eq!(
-            parse_slash_command("/team").expect("parse"),
-            SlashCommand::ListTeams
-        );
-    }
-
-    #[test]
     fn bare_task_command_lists_tasks() {
         assert_eq!(
             parse_slash_command("/task").expect("parse"),
@@ -305,28 +247,6 @@ mod tests {
             parse_slash_command("/model codex gpt-5.4").expect("parse"),
             SlashCommand::SwitchModel {
                 model: "codex:gpt-5.4".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn parses_team_start_commands() {
-        assert!(parse_slash_command("/team start saved-team").is_err());
-        assert_eq!(
-            parse_slash_command("/team start saved-team review this").expect("parse"),
-            SlashCommand::TeamStart {
-                saved_team: "saved-team".to_string(),
-                assignment: "review this".to_string(),
-                approval_id: None,
-            }
-        );
-        assert_eq!(
-            parse_slash_command("/team start saved-team review this --approval-id approval-1")
-                .expect("parse"),
-            SlashCommand::TeamStart {
-                saved_team: "saved-team".to_string(),
-                assignment: "review this".to_string(),
-                approval_id: Some("approval-1".to_string()),
             }
         );
     }
@@ -399,14 +319,12 @@ mod tests {
         assert!(specs.contains(&("/resume", "")));
         assert!(specs.contains(&("/model", "")));
         assert!(specs.contains(&("/task", "")));
-        assert!(specs.contains(&("/team", "")));
         assert!(!specs.contains(&("/session", "open <session_id>")));
         assert!(!specs.contains(&("/runs", "")));
         assert!(!specs.contains(&("/run", "open <run_id>")));
         assert!(!specs.contains(&("/task", "pause <id>")));
         assert!(!specs.contains(&("/task", "resume <id>")));
         assert!(!specs.contains(&("/task", "stop <id>")));
-        assert!(!specs.contains(&("/team", "start <saved_team>")));
         assert!(!specs.contains(&("/approve", "<approval_id>")));
         assert!(!specs.contains(&("/reject", "<approval_id> [reason]")));
     }

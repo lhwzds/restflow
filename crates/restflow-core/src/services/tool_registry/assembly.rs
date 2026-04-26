@@ -18,7 +18,6 @@ pub fn create_tool_registry(
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
     execution_trace_storage: ExecutionTraceStorage,
-    team_template_storage: TeamTemplateStorage,
     work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
@@ -37,7 +36,6 @@ pub fn create_tool_registry(
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        team_template_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -60,7 +58,6 @@ pub fn create_tool_registry_with_assessor(
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
     execution_trace_storage: ExecutionTraceStorage,
-    team_template_storage: TeamTemplateStorage,
     work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
@@ -111,7 +108,6 @@ pub fn create_tool_registry_with_assessor(
         secret_storage.clone(),
         background_agent_storage.clone(),
     );
-    let team_template_store = build_team_template_store(team_template_storage);
     let task_store_components = build_task_store_components(
         background_agent_storage.clone(),
         agent_storage.clone(),
@@ -126,7 +122,6 @@ pub fn create_tool_registry_with_assessor(
             background_agent_storage,
             Some(memory_storage.clone()),
         ),
-        team_template_store.clone(),
         assessor.clone(),
     );
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new_with_defaults(
@@ -208,7 +203,6 @@ pub fn create_tool_registry_with_assessor(
         builder,
         Some(agent_crud_components.store.clone()),
         Some(task_store_components.store.clone()),
-        Some(task_store_components.team_template_store.clone()),
         assessor.clone(),
     );
 
@@ -270,12 +264,7 @@ pub fn create_tool_registry_with_assessor(
     );
     let subagent_manager: Arc<dyn restflow_traits::SubagentManager> =
         Arc::new(build_service_subagent_manager(&subagent_runtime_bundle));
-    register_subagent_management_tools(
-        &mut registry,
-        subagent_manager,
-        Some(team_template_store.clone()),
-        assessor.clone(),
-    );
+    register_subagent_management_tools(&mut registry, subagent_manager, assessor.clone());
     // Populate known_tools for AgentStoreAdapter validation
     populate_known_tools_from_registry(
         &agent_crud_components.known_tools,

@@ -502,13 +502,4 @@ impl CommandExecutor for IpcExecutor {
         let mut client = self.client.lock().await;
         client.get_execution_run_timeline(run_id.to_string()).await
     }
-
-    async fn execute_runtime_tool(
-        &self,
-        name: &str,
-        input: serde_json::Value,
-    ) -> Result<restflow_contracts::ToolExecutionResult> {
-        let mut client = self.client.lock().await;
-        client.execute_tool(name.to_string(), input).await
-    }
 }

@@ -5,7 +5,6 @@ mod control;
 mod handlers_read;
 mod handlers_write;
 mod schema;
-mod team;
 mod types;
 
 #[cfg(test)]
@@ -17,16 +16,13 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::store::{
-    MANAGE_TASK_OPERATIONS_CSV, MANAGE_TASKS_TOOL_NAME, TaskStore, TeamTemplateStore,
-};
+use restflow_traits::store::{MANAGE_TASK_OPERATIONS_CSV, MANAGE_TASKS_TOOL_NAME, TaskStore};
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::TaskAction;
 
 #[derive(Clone)]
 pub struct TaskTool {
     store: Arc<dyn TaskStore>,
-    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
@@ -35,7 +31,6 @@ impl TaskTool {
     pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
         Self {
             store,
-            team_template_store: None,
             assessor: None,
             allow_write: false,
         }
@@ -55,27 +50,14 @@ impl TaskTool {
         self
     }
 
-    pub fn with_team_template_store(mut self, store: Arc<dyn TeamTemplateStore>) -> Self {
-        self.team_template_store = Some(store);
-        self
-    }
-
     fn write_guard(&self) -> Result<()> {
         if self.allow_write {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_artifacts, list_traces, read_trace, list_teams, get_team. To modify tasks, the user must grant write permissions.".to_string(),
+                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_artifacts, list_traces, read_trace. To modify tasks, the user must grant write permissions.".to_string(),
             ))
         }
-    }
-
-    fn team_store(&self) -> Result<Arc<dyn TeamTemplateStore>> {
-        self.team_template_store.clone().ok_or_else(|| {
-            ToolError::Tool(
-                "Team storage is unavailable in this runtime. Use 'workers' directly.".to_string(),
-            )
-        })
     }
 
     fn assessor(&self) -> Result<Arc<dyn AgentOperationAssessor>> {
@@ -129,8 +111,6 @@ impl Tool for TaskTool {
                 input,
                 inputs,
                 workers,
-                team,
-                save_as_team,
                 input_template,
                 chat_session_id,
                 schedule,
@@ -150,8 +130,6 @@ impl Tool for TaskTool {
                     input,
                     inputs,
                     workers,
-                    team,
-                    save_as_team,
                     input_template,
                     chat_session_id,
                     schedule,
@@ -166,19 +144,6 @@ impl Tool for TaskTool {
                 )
                 .await
             }
-            TaskAction::SaveTeam {
-                team,
-                workers,
-                preview,
-                approval_id,
-            } => handlers_write::execute_save_team(self, team, workers, preview, approval_id).await,
-            TaskAction::ListTeams => handlers_read::execute_list_teams(self),
-            TaskAction::GetTeam { team } => handlers_read::execute_get_team(self, team),
-            TaskAction::DeleteTeam {
-                team,
-                preview,
-                approval_id,
-            } => handlers_write::execute_delete_team(self, team, preview, approval_id).await,
             TaskAction::Create {
                 name,
                 agent_id,

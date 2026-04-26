@@ -17,7 +17,6 @@ pub mod run_artifact;
 pub mod session;
 pub mod skill;
 pub mod structured_execution_log;
-pub mod team_template;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
 pub mod trigger;
@@ -51,7 +50,6 @@ pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
 pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
-pub use team_template::TeamTemplateStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
@@ -70,7 +68,6 @@ pub struct Storage {
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
-    pub team_templates: TeamTemplateStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
@@ -111,7 +108,6 @@ impl Storage {
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
-        let team_templates = TeamTemplateStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let index = if path == ":memory:" {
             Some(Arc::new(MemoryIndex::in_memory()?))
@@ -154,7 +150,6 @@ impl Storage {
             secrets,
             daemon_state,
             skills,
-            team_templates,
             terminal_sessions,
             memory,
             chat_sessions,

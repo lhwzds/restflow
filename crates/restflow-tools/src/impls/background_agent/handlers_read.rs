@@ -1,5 +1,3 @@
-use serde_json::json;
-
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::store::{
     TaskArtifactListRequest, TaskMessageListRequest, TaskProgressRequest, TaskStore,
@@ -7,7 +5,6 @@ use restflow_traits::store::{
 };
 
 use super::TaskTool;
-use super::team::{get_team, list_teams};
 
 pub(super) fn execute_list(tool: &TaskTool, status: Option<String>) -> Result<ToolOutput> {
     let result = tool
@@ -71,28 +68,4 @@ pub(super) fn execute_read_trace(
     )
     .map_err(|e| ToolError::Tool(format!("Failed to read task trace: {e}.")))?;
     Ok(ToolOutput::success(result))
-}
-
-pub(super) fn execute_list_teams(tool: &TaskTool) -> Result<ToolOutput> {
-    let store = tool.team_store()?;
-    let payload = list_teams(store.as_ref())?;
-    Ok(ToolOutput::success(json!({
-        "operation": "list_teams",
-        "teams": payload
-    })))
-}
-
-pub(super) fn execute_get_team(tool: &TaskTool, team: String) -> Result<ToolOutput> {
-    let store = tool.team_store()?;
-    let payload = get_team(store.as_ref(), &team)?;
-    Ok(ToolOutput::success(json!({
-        "operation": "get_team",
-        "team": payload["team"].clone(),
-        "version": payload["version"].clone(),
-        "created_at": payload["created_at"].clone(),
-        "updated_at": payload["updated_at"].clone(),
-        "member_groups": payload["member_groups"].clone(),
-        "total_instances": payload["total_instances"].clone(),
-        "members": payload["members"].clone()
-    })))
 }

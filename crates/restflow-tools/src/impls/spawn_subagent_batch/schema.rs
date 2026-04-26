@@ -6,17 +6,13 @@ pub(super) fn parameters_schema() -> Value {
         "properties": {
             "operation": {
                 "type": "string",
-                "enum": ["spawn", "save_team", "list_teams", "get_team", "delete_team"],
+                "enum": ["spawn"],
                 "default": "spawn",
                 "description": "Operation to perform."
             },
-            "team": {
-                "type": "string",
-                "description": "Team name for save_team/get_team/delete_team, or spawn from saved team."
-            },
             "specs": {
                 "type": "array",
-                "description": "Batch member specs. Required for save_team, optional for spawn when team is provided.",
+                "description": "Batch member specs. Required for spawn.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -75,12 +71,12 @@ pub(super) fn parameters_schema() -> Value {
             },
             "task": {
                 "type": "string",
-                "description": "Transient default task for specs that do not define per-spec 'task' or 'tasks'. Saved teams never persist this field."
+                "description": "Default task for specs that do not define per-spec 'task' or 'tasks'."
             },
             "tasks": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Transient per-instance task list for this spawn. Tasks are assigned in spec order and are never persisted in saved teams."
+                "description": "Per-instance task list for this spawn. Tasks are assigned in spec order."
             },
             "wait": {
                 "type": "boolean",
@@ -91,10 +87,6 @@ pub(super) fn parameters_schema() -> Value {
                 "type": "integer",
                 "minimum": 0,
                 "description": "Wait timeout and fallback child-run timeout (seconds). Use 0 for no wait timeout."
-            },
-            "save_as_team": {
-                "type": "string",
-                "description": "Optionally save provided specs as a structural team during spawn. Prompt fields are not persisted."
             },
             "parent_run_id": {
                 "type": "string",

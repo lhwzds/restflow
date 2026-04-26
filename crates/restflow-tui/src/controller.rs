@@ -13,7 +13,7 @@ use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
 use super::state::{
     AppState, ModelPickerCategory, ModelPickerItem, OverlayState, ProviderPickerItem,
-    RunPickerItem, TaskPickerItem, TeamPickerItem,
+    RunPickerItem, TaskPickerItem,
 };
 use super::transcript::ShellMessage;
 
@@ -89,7 +89,6 @@ impl ShellController {
                 self.delete_session_actions(session_id).await
             }
             ShellEffect::ListSessionsInline => self.session_picker_actions().await,
-            ShellEffect::ListTeamsInline => self.team_picker_actions(state).await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
             ShellEffect::ClearScreen => Ok(Vec::new()),
         }
@@ -201,9 +200,6 @@ impl ShellController {
                 if matches!(spec.command, "/task") {
                     return self.task_picker_actions().await;
                 }
-                if matches!(spec.command, "/team") {
-                    return self.team_picker_actions(state).await;
-                }
                 if matches!(spec.command, "/model") {
                     return self.provider_picker_actions(state).await;
                 }
@@ -252,16 +248,6 @@ impl ShellController {
                 Ok(vec![ShellAction::SubmitText {
                     text: format!("/task {action} {task_id}"),
                 }])
-            }
-            Some(OverlayState::TeamPicker { .. }) => {
-                let Some(item) = state.selected_team_item() else {
-                    return Ok(Vec::new());
-                };
-                match item {
-                    TeamPickerItem::Saved { name, .. } => Ok(vec![ShellAction::CommandPicked {
-                        text: format!("/team start {name} "),
-                    }]),
-                }
             }
             Some(OverlayState::ProviderPicker { .. }) => {
                 let Some(item) = state.selected_provider_item() else {
@@ -430,7 +416,6 @@ impl ShellController {
                 }
             }
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
-            SlashCommand::ListTeams => self.team_picker_actions(state).await,
             SlashCommand::SwitchModel { model } => self.switch_model_actions(state, model).await,
             SlashCommand::TaskControl { action, task_id } => {
                 let task = self.client.control_task(&task_id, action.as_str()).await?;
@@ -458,50 +443,6 @@ impl ShellController {
                     child_runs,
                     status: format!("Opened run {run_id}"),
                 }])
-            }
-            SlashCommand::TeamStart {
-                saved_team,
-                assignment,
-                approval_id,
-            } => {
-                let result = self
-                    .client
-                    .start_team_from_template(&saved_team, assignment, approval_id)
-                    .await?;
-                if !result.success {
-                    bail!(
-                        "{}",
-                        result
-                            .error
-                            .unwrap_or_else(|| "spawn_subagent_batch execution failed".to_string())
-                    );
-                }
-                let spawned_count = result
-                    .result
-                    .get("spawned_count")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                let task_ids = result
-                    .result
-                    .get("task_ids")
-                    .and_then(serde_json::Value::as_array)
-                    .map(|ids| {
-                        ids.iter()
-                            .filter_map(serde_json::Value::as_str)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .filter(|ids| !ids.is_empty())
-                    .unwrap_or_else(|| "No task ids returned".to_string());
-                let content = format!(
-                    "Started team template {saved_team}: {spawned_count} task(s)\n{task_ids}"
-                );
-                Ok(vec![
-                    ShellAction::MessageAppended(ShellMessage::TeamNotice {
-                        content: content.clone(),
-                    }),
-                    ShellAction::StatusUpdated(format!("Started {spawned_count} team task(s)")),
-                ])
             }
         }
     }
@@ -539,35 +480,6 @@ impl ShellController {
             "Select a task".to_string()
         };
         Ok(vec![ShellAction::TaskPickerLoaded { tasks, status }])
-    }
-
-    async fn team_picker_actions(&self, _state: &AppState) -> Result<Vec<ShellAction>> {
-        let mut items = Vec::new();
-
-        if let Ok(response) = self.client.list_teams().await {
-            for team in response.saved {
-                if let Some(name) = team.get("team").and_then(serde_json::Value::as_str) {
-                    items.push(TeamPickerItem::Saved {
-                        name: name.to_string(),
-                        member_groups: team
-                            .get("member_groups")
-                            .and_then(serde_json::Value::as_u64)
-                            .unwrap_or_default() as usize,
-                        total_instances: team
-                            .get("total_instances")
-                            .and_then(serde_json::Value::as_u64)
-                            .unwrap_or_default() as usize,
-                    });
-                }
-            }
-        }
-
-        let status = if items.is_empty() {
-            "No teams available.".to_string()
-        } else {
-            "Select a team".to_string()
-        };
-        Ok(vec![ShellAction::TeamPickerLoaded { items, status }])
     }
 
     async fn provider_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
@@ -1073,7 +985,6 @@ Use /daemon when the daemon is offline.\n\
 Enter sends the current draft.\n\
 Ctrl-J inserts a newline.\n\
 Ctrl-P resumes a previous session.\n\
-Ctrl-G opens saved team templates.\n\
 Ctrl-L clears and redraws the screen.\n\
 Ctrl-C exits.\n\n\
 Slash commands:\n\
@@ -1082,7 +993,6 @@ Slash commands:\n\
 /help\n\
 /resume\n\
 /model\n\
-/team\n\
 /task"
 }
 

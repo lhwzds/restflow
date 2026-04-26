@@ -27,10 +27,6 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "convert_session",
     "promote_to_background",
     "run_batch",
-    "save_team",
-    "list_teams",
-    "get_team",
-    "delete_team",
     "update",
     "delete",
     "list",
@@ -48,9 +44,9 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "run",
 ];
 
-pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_artifacts, list_traces, read_trace, pause, start, resume, stop, run";
+pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, update, delete, list, control, progress, send_message, list_messages, list_artifacts, list_traces, read_trace, pause, start, resume, stop, run";
 
-pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/start/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from explicit workers and optionally trigger run_now), run (trigger now), pause/start/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
 pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
 
@@ -795,34 +791,6 @@ pub trait UnifiedMemorySearch: Send + Sync {
         limit: u32,
         offset: u32,
     ) -> Result<Value>;
-}
-
-// ── TeamTemplateStore ────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TeamTemplateEntry {
-    pub namespace: String,
-    pub team: String,
-    pub content: String,
-    pub type_hint: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-pub trait TeamTemplateStore: Send + Sync {
-    fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>>;
-    fn save_template(
-        &self,
-        namespace: &str,
-        team: &str,
-        content: &str,
-        type_hint: Option<&str>,
-        tags: Option<Vec<String>>,
-    ) -> Result<TeamTemplateEntry>;
-    fn delete_template(&self, namespace: &str, team: &str) -> Result<bool>;
-    fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>>;
 }
 
 // ── MarketplaceStore ────────────────────────────────────────────────

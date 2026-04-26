@@ -20,7 +20,7 @@ use crate::storage::agent::StoredAgent;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,
     ExecutionTraceStorage, MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage,
-    TeamTemplateStorage, TerminalSessionStorage, TriggerStorage, WorkItemStorage,
+    TerminalSessionStorage, TriggerStorage, WorkItemStorage,
 };
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -50,7 +50,6 @@ struct AssessmentContext {
     chat_sessions: crate::storage::ChatSessionStorage,
     channel_session_bindings: ChannelSessionBindingStorage,
     execution_traces: ExecutionTraceStorage,
-    team_templates: TeamTemplateStorage,
     work_items: WorkItemStorage,
     config: ConfigStorage,
     agents: AgentStorage,
@@ -74,7 +73,6 @@ impl AssessmentContext {
             chat_sessions: storage.chat_sessions.clone(),
             channel_session_bindings: storage.channel_session_bindings.clone(),
             execution_traces: storage.execution_traces.clone(),
-            team_templates: storage.team_templates.clone(),
             work_items: storage.work_items.clone(),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
@@ -412,7 +410,6 @@ async fn validate_agent_async(
         context.chat_sessions.clone(),
         context.channel_session_bindings.clone(),
         context.execution_traces.clone(),
-        context.team_templates.clone(),
         context.work_items.clone(),
         context.secrets.clone(),
         context.config.clone(),

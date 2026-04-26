@@ -4,6 +4,8 @@ mod agents;
 mod auth;
 #[path = "dispatch/config.rs"]
 mod config;
+#[path = "dispatch/execution.rs"]
+mod execution;
 #[path = "dispatch/hooks.rs"]
 mod hooks;
 #[path = "dispatch/maintenance.rs"]
@@ -24,8 +26,6 @@ mod skills;
 mod system;
 #[path = "dispatch/tasks.rs"]
 mod tasks;
-#[path = "dispatch/team.rs"]
-mod team;
 #[path = "dispatch/terminals.rs"]
 mod terminals;
 #[path = "dispatch/work_items.rs"]
@@ -453,9 +453,6 @@ impl IpcServer {
             }
             IpcRequest::SubscribeSessionEvents => {
                 Self::handle_subscribe_session_events_unsupported().await
-            }
-            IpcRequest::ListTeams { include_saved } => {
-                Self::handle_list_teams(core, runtime_tool_registry, include_saved).await
             }
             IpcRequest::ListRunArtifacts { run_id, task_id } => {
                 Self::handle_list_run_artifacts(core, run_id, task_id).await

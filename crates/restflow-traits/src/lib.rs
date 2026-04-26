@@ -77,13 +77,12 @@ pub use store::{
     SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
     TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest, TeamTemplateEntry, TeamTemplateStore, TerminalStore, TriggerStore,
-    UnifiedMemorySearch, WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord,
-    WorkItemSpec, WorkItemStatus,
+    TaskUpdateRequest, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
+    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 // Shared orchestration contracts
-pub use batch_template::{RuntimeTaskPayload, TeamTemplateDocument};
+pub use batch_template::RuntimeTaskPayload;
 pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan};
 
 // Sub-agent types

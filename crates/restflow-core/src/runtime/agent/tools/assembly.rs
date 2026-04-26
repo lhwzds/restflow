@@ -1,13 +1,12 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter, TeamTemplateStoreAdapter};
+use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, RunArtifactStorage, SecretStorage, SkillStorage,
-    TeamTemplateStorage,
 };
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
@@ -19,7 +18,7 @@ use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
-use restflow_traits::store::{AgentStore, TaskStore, TeamTemplateStore};
+use restflow_traits::store::{AgentStore, TaskStore};
 
 pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
     ("http", "http_request"),
@@ -38,7 +37,6 @@ pub(crate) struct AgentCrudComponents {
 
 pub(crate) struct TaskStoreComponents {
     pub store: Arc<dyn TaskStore>,
-    pub team_template_store: Arc<dyn TeamTemplateStore>,
 }
 
 pub(crate) fn register_bash_execution_tool(
@@ -198,12 +196,6 @@ pub(crate) fn build_runtime_assessor(storage: &Storage) -> Arc<dyn AgentOperatio
     Arc::new(OperationAssessorAdapter::from_storage(storage))
 }
 
-pub(crate) fn build_team_template_store(
-    team_template_storage: TeamTemplateStorage,
-) -> Arc<dyn TeamTemplateStore> {
-    Arc::new(TeamTemplateStoreAdapter::new(team_template_storage))
-}
-
 pub(crate) fn build_agent_crud_components(
     agent_storage: AgentStorage,
     skill_storage: SkillStorage,
@@ -226,7 +218,6 @@ pub(crate) fn build_task_store_components(
     agent_storage: AgentStorage,
     run_artifact_storage: RunArtifactStorage,
     session_service: SessionService,
-    team_template_store: Arc<dyn TeamTemplateStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     let mut store = TaskStoreAdapter::new(
@@ -241,7 +232,6 @@ pub(crate) fn build_task_store_components(
 
     TaskStoreComponents {
         store: Arc::new(store),
-        team_template_store,
     }
 }
 
@@ -249,7 +239,6 @@ pub(crate) fn register_management_tools(
     mut builder: ToolRegistryBuilder,
     agent_store: Option<Arc<dyn AgentStore>>,
     task_store: Option<Arc<dyn TaskStore>>,
-    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> ToolRegistryBuilder {
     if let Some(agent_store) = agent_store {
@@ -260,15 +249,11 @@ pub(crate) fn register_management_tools(
         };
     }
 
-    if let (Some(task_store), Some(team_template_store)) = (task_store, team_template_store) {
+    if let Some(task_store) = task_store {
         builder = if let Some(assessor) = assessor.clone() {
-            builder.with_task_and_team_templates_and_assessor(
-                task_store.clone(),
-                team_template_store.clone(),
-                assessor,
-            )
+            builder.with_task_and_assessor(task_store.clone(), assessor)
         } else {
-            builder.with_task_and_team_templates(task_store.clone(), team_template_store.clone())
+            builder.with_task(task_store.clone())
         };
     }
 
@@ -278,15 +263,10 @@ pub(crate) fn register_management_tools(
 pub(crate) fn register_subagent_management_tools(
     registry: &mut ToolRegistry,
     manager: Arc<dyn SubagentManager>,
-    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) {
     let mut spawn_tool = SpawnSubagentTool::new(manager.clone());
     let mut batch_tool = SpawnSubagentBatchTool::new(manager.clone());
-    if let Some(team_template_store) = team_template_store {
-        spawn_tool = spawn_tool.with_team_template_store(team_template_store.clone());
-        batch_tool = batch_tool.with_team_template_store(team_template_store);
-    }
     if let Some(assessor) = assessor {
         spawn_tool = spawn_tool.with_assessor(assessor.clone());
         batch_tool = batch_tool.with_assessor(assessor);
@@ -300,7 +280,6 @@ pub(crate) fn register_subagent_management_tools(
 
 pub(crate) fn build_task_store_runtime_components(
     storage: &Storage,
-    team_template_store: Arc<dyn TeamTemplateStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     build_task_store_components(
@@ -308,7 +287,6 @@ pub(crate) fn build_task_store_runtime_components(
         storage.agents.clone(),
         storage.run_artifacts.clone(),
         SessionService::from_storage(storage),
-        team_template_store,
         assessor,
     )
 }

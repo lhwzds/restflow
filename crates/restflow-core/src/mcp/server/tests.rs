@@ -1461,9 +1461,7 @@ async fn test_manage_tasks_list_operation() {
         description: None,
         input: None,
         inputs: None,
-        team: None,
         workers: None,
-        save_as_team: None,
         input_template: None,
         schedule: None,
         notification: None,
@@ -1605,82 +1603,20 @@ async fn test_manage_tasks_promote_to_background_defaults_run_now_to_false() {
 }
 
 #[tokio::test]
-async fn test_mcp_manage_tasks_save_team_and_get_team_round_trip() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
-    let save = call_tool_through_mcp(
-        server.clone(),
-        "manage_tasks",
-        serde_json::json!({
-            "operation": "save_team",
-            "team": "bg-review-team",
-            "workers": [
-                {
-                    "count": 2,
-                    "agent_id": "default"
-                }
-            ]
-        }),
-    )
-    .await;
-    assert!(!save.is_error.unwrap_or(false), "{}", call_tool_text(&save));
-    let save_value: serde_json::Value =
-        serde_json::from_str(call_tool_text(&save)).expect("save_team response json");
-    assert_eq!(save_value["operation"], "save_team");
-
-    let get = call_tool_through_mcp(
-        server,
-        "manage_tasks",
-        serde_json::json!({
-            "operation": "get_team",
-            "team": "bg-review-team"
-        }),
-    )
-    .await;
-    assert!(!get.is_error.unwrap_or(false));
-    let get_value: serde_json::Value =
-        serde_json::from_str(call_tool_text(&get)).expect("get_team response json");
-    assert_eq!(get_value["operation"], "get_team");
-    assert_eq!(get_value["team"], "bg-review-team");
-    assert_eq!(get_value["member_groups"], 1);
-    assert_eq!(get_value["total_instances"], 2);
-    assert!(
-        get_value["members"][0].get("input").is_none()
-            || get_value["members"][0]["input"].is_null()
-    );
-    assert!(
-        get_value["members"][0].get("inputs").is_none()
-            || get_value["members"][0]["inputs"].is_null()
-    );
-}
-
-#[tokio::test]
 async fn test_mcp_manage_tasks_run_batch_accepts_runtime_inputs() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
-    let save = call_tool_through_mcp(
-        server.clone(),
-        "manage_tasks",
-        serde_json::json!({
-            "operation": "save_team",
-            "team": "bg-runtime-inputs-team",
-            "workers": [
-                {
-                    "count": 2,
-                    "agent_id": "default"
-                }
-            ]
-        }),
-    )
-    .await;
-    assert!(!save.is_error.unwrap_or(false), "{}", call_tool_text(&save));
 
     let run = call_tool_through_mcp(
         server,
         "manage_tasks",
         serde_json::json!({
             "operation": "run_batch",
-            "team": "bg-runtime-inputs-team",
+            "workers": [
+                {
+                    "count": 2,
+                    "agent_id": "default"
+                }
+            ],
             "inputs": ["scan backend", "scan frontend"],
             "run_now": false
         }),
@@ -2653,9 +2589,7 @@ fn base_manage_tasks_params(operation: &str) -> ManageTasksParams {
         description: None,
         input: None,
         inputs: None,
-        team: None,
         workers: None,
-        save_as_team: None,
         input_template: None,
         schedule: None,
         notification: None,

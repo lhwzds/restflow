@@ -117,55 +117,6 @@ async fn execute_tool_failure_includes_structured_error_metadata() {
 }
 
 #[tokio::test]
-async fn execute_tool_exposes_spawn_subagent_batch_team_listing() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ExecuteTool {
-            name: "spawn_subagent_batch".to_string(),
-            input: serde_json::json!({
-                "operation": "list_teams"
-            }),
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
-            assert_eq!(value["result"]["operation"], "list_teams");
-            assert_eq!(value["result"]["teams"].as_array().map(Vec::len), Some(0));
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn list_teams_returns_saved_team_templates_only() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ListTeams {
-            include_saved: true,
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            assert_eq!(value["saved"].as_array().map(Vec::len), Some(0));
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 /// Skills are now registered as callable tools, not injected into the system prompt.
 async fn build_agent_system_prompt_does_not_inject_skills() {
     let (core, _temp) = create_test_core().await;

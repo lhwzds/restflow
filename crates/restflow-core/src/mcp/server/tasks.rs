@@ -28,11 +28,7 @@ impl RestFlowMcpServer {
             | "send_message"
             | "list_messages"
             | "list_artifacts"
-            | "run_batch"
-            | "save_team"
-            | "list_teams"
-            | "get_team"
-            | "delete_team" => self.execute_task_runtime_tool(&params).await?,
+            | "run_batch" => self.execute_task_runtime_tool(&params).await?,
             "list_traces" => {
                 let defaults = self.load_api_defaults().await?;
                 let limit = params

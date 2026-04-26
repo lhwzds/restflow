@@ -33,15 +33,6 @@ pub struct TaskPickerItem {
     pub next_run_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TeamPickerItem {
-    Saved {
-        name: String,
-        member_groups: usize,
-        total_instances: usize,
-    },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelPickerCategory {
     Recent,
@@ -212,7 +203,6 @@ pub enum OverlayState {
     SessionPicker { selected: usize },
     TaskPicker { selected: usize },
     TaskActionPicker { task_id: String, selected: usize },
-    TeamPicker { selected: usize },
     ProviderPicker { selected: usize },
     ModelPicker { provider: String, selected: usize },
     RunPicker { selected: usize },
@@ -234,7 +224,6 @@ pub struct AppState {
     pub thread: SessionThreadState,
     pub sessions: Vec<ChatSessionSummary>,
     pub tasks: Vec<TaskPickerItem>,
-    pub team_items: Vec<TeamPickerItem>,
     pub provider_items: Vec<ProviderPickerItem>,
     pub model_items: Vec<ModelPickerItem>,
     pub available_models: Vec<ModelMetadataDTO>,
@@ -270,7 +259,6 @@ impl AppState {
             thread: SessionThreadState::default(),
             sessions: Vec::new(),
             tasks: Vec::new(),
-            team_items: Vec::new(),
             provider_items: Vec::new(),
             model_items: Vec::new(),
             available_models: Vec::new(),
@@ -507,10 +495,6 @@ impl AppState {
         });
     }
 
-    pub fn open_team_picker(&mut self) {
-        self.overlay = Some(OverlayState::TeamPicker { selected: 0 });
-    }
-
     pub fn open_provider_picker(&mut self) {
         self.overlay = Some(OverlayState::ProviderPicker { selected: 0 });
     }
@@ -544,7 +528,6 @@ impl AppState {
             | Some(OverlayState::SessionPicker { selected })
             | Some(OverlayState::TaskPicker { selected })
             | Some(OverlayState::TaskActionPicker { selected, .. })
-            | Some(OverlayState::TeamPicker { selected })
             | Some(OverlayState::ProviderPicker { selected })
             | Some(OverlayState::ModelPicker { selected, .. })
             | Some(OverlayState::RunPicker { selected }) => {
@@ -584,7 +567,6 @@ impl AppState {
             OverlayState::SessionPicker { .. } => Some(self.sessions.len()),
             OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
             OverlayState::TaskActionPicker { .. } => Some(3),
-            OverlayState::TeamPicker { .. } => Some(self.team_items.len()),
             OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
             OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
@@ -673,13 +655,6 @@ impl AppState {
                 };
                 Some((task_id.clone(), action))
             }
-            _ => None,
-        }
-    }
-
-    pub fn selected_team_item(&self) -> Option<TeamPickerItem> {
-        match self.overlay.as_ref() {
-            Some(OverlayState::TeamPicker { selected }) => self.team_items.get(*selected).cloned(),
             _ => None,
         }
     }

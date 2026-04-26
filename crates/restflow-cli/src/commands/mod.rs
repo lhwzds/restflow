@@ -22,7 +22,6 @@ pub mod start;
 pub mod status;
 pub mod stop;
 pub mod task;
-pub mod team;
 pub mod trigger;
 pub mod upgrade;
 pub mod utils;

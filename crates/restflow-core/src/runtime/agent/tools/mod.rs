@@ -15,11 +15,10 @@ use tracing::{debug, warn};
 
 use self::assembly::{
     KNOWN_TOOL_ALIASES, build_agent_crud_components, build_runtime_assessor,
-    build_task_store_runtime_components, build_team_template_store,
-    populate_known_tools_from_registry, register_bash_execution_tool, register_binary_skill_tools,
-    register_file_execution_tool, register_http_execution_tool, register_management_tools,
-    register_python_execution_tools, register_send_email_execution_tool,
-    register_subagent_management_tools,
+    build_task_store_runtime_components, populate_known_tools_from_registry,
+    register_bash_execution_tool, register_binary_skill_tools, register_file_execution_tool,
+    register_http_execution_tool, register_management_tools, register_python_execution_tools,
+    register_send_email_execution_tool, register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
@@ -221,13 +220,8 @@ pub fn registry_from_allowlist_with_security_gate(
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
     let wants_guarded_assessor =
         wants_manage_agents || wants_manage_task_tools || wants_spawn_subagent;
-    let wants_team_template_store = wants_manage_task_tools || wants_spawn_subagent;
-
     let shared_assessor =
         storage.and_then(|value| wants_guarded_assessor.then(|| build_runtime_assessor(value)));
-    let shared_team_template_store = storage.and_then(|value| {
-        wants_team_template_store.then(|| build_team_template_store(value.team_templates.clone()))
-    });
     let agent_crud_components = storage.and_then(|value| {
         wants_manage_agents.then(|| {
             build_agent_crud_components(
@@ -239,15 +233,8 @@ pub fn registry_from_allowlist_with_security_gate(
         })
     });
     let task_components = storage.and_then(|value| {
-        wants_manage_task_tools.then(|| {
-            build_task_store_runtime_components(
-                value,
-                shared_team_template_store
-                    .clone()
-                    .expect("team template store should exist for task tools"),
-                shared_assessor.clone(),
-            )
-        })
+        wants_manage_task_tools
+            .then(|| build_task_store_runtime_components(value, shared_assessor.clone()))
     });
 
     let mut builder = ToolRegistryBuilder::new();
@@ -659,9 +646,6 @@ pub fn registry_from_allowlist_with_security_gate(
                 task_components
                     .as_ref()
                     .map(|components| components.store.clone()),
-                task_components
-                    .as_ref()
-                    .map(|components| components.team_template_store.clone()),
                 shared_assessor.clone(),
             );
         } else {
@@ -684,11 +668,6 @@ pub fn registry_from_allowlist_with_security_gate(
             register_subagent_management_tools(
                 &mut registry,
                 manager.clone(),
-                if wants_spawn_subagent {
-                    shared_team_template_store.clone()
-                } else {
-                    None
-                },
                 if wants_spawn_subagent {
                     shared_assessor.clone()
                 } else {

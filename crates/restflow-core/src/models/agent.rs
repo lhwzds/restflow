@@ -510,7 +510,6 @@ impl AgentNode {
             core.storage.chat_sessions.clone(),
             core.storage.channel_session_bindings.clone(),
             core.storage.execution_traces.clone(),
-            core.storage.team_templates.clone(),
             core.storage.work_items.clone(),
             core.storage.secrets.clone(),
             core.storage.config.clone(),

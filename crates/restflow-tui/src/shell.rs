@@ -477,10 +477,6 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
         return Some(lines);
     }
 
-    if let Some(lines) = build_team_picker_lines(state, width, max_rows) {
-        return Some(lines);
-    }
-
     if let Some(lines) = build_provider_picker_lines(state, width, max_rows) {
         return Some(lines);
     }
@@ -733,76 +729,6 @@ fn build_task_action_picker_lines(state: &AppState, width: u16) -> Option<Vec<Li
         ]);
         lines.extend(wrap_styled_line(line, width));
     }
-    Some(lines)
-}
-
-fn build_team_picker_lines(
-    state: &AppState,
-    width: u16,
-    max_rows: u16,
-) -> Option<Vec<Line<'static>>> {
-    let Some(crate::state::OverlayState::TeamPicker { selected }) = state.overlay.as_ref() else {
-        return None;
-    };
-
-    let mut lines = vec![Line::from(vec![
-        Span::styled("Teams", tool_title_style()),
-        Span::styled(
-            "  Up/Down select, Enter open/start, Esc close",
-            muted_style(),
-        ),
-    ])];
-    if state.team_items.is_empty() {
-        lines.push(styled_line("  No teams available.", muted_style()));
-        return Some(lines);
-    }
-
-    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
-    let selected_index = (*selected).min(state.team_items.len().saturating_sub(1));
-    let start = selected_index
-        .saturating_sub(visible_capacity / 2)
-        .min(state.team_items.len().saturating_sub(visible_capacity));
-    let end = (start + visible_capacity).min(state.team_items.len());
-
-    for (index, item) in state.team_items[start..end].iter().enumerate() {
-        let index = start + index;
-        let is_selected = index == selected_index;
-        let marker = if is_selected { "› " } else { "  " };
-        let title_style = if is_selected {
-            tool_title_style()
-        } else {
-            Style::default().add_modifier(Modifier::BOLD)
-        };
-        let line = match item {
-            crate::state::TeamPickerItem::Saved {
-                name,
-                member_groups,
-                total_instances,
-            } => Line::from(vec![
-                Span::styled(
-                    marker,
-                    if is_selected {
-                        tool_title_style()
-                    } else {
-                        muted_style()
-                    },
-                ),
-                Span::styled(format!("Saved team {name}"), title_style),
-                Span::styled(
-                    format!(" · {member_groups} groups · {total_instances} members"),
-                    muted_style(),
-                ),
-            ]),
-        };
-        lines.extend(wrap_styled_line(line, width));
-    }
-    if end < state.team_items.len() {
-        lines.push(styled_line(
-            format!("  ... {} more", state.team_items.len() - end),
-            muted_style(),
-        ));
-    }
-    lines.truncate(max_rows as usize);
     Some(lines)
 }
 
@@ -1730,7 +1656,7 @@ mod tests {
     use crate::slash_command::SLASH_COMMAND_SPECS;
     use crate::state::{
         AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem, PendingSessionState,
-        PendingUserCell, ProviderPickerItem, TaskPickerItem, TeamPickerItem,
+        PendingUserCell, ProviderPickerItem, TaskPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use restflow_core::models::ChatSessionSummary;
@@ -2289,7 +2215,6 @@ mod tests {
         assert!(!rendered.iter().any(|line| line.contains("/stop")));
         assert!(rendered.iter().any(|line| line.contains("/resume")));
         assert!(rendered.iter().any(|line| line.contains("/task")));
-        assert!(rendered.iter().any(|line| line.contains("/team")));
         assert!(
             !rendered
                 .iter()
@@ -2410,22 +2335,6 @@ mod tests {
         assert!(text.contains("/task pause"));
         assert!(text.contains("/task resume"));
         assert!(text.contains("/task stop"));
-    }
-
-    #[test]
-    fn team_picker_lists_saved_teams() {
-        let mut state = AppState::empty();
-        state.team_items = vec![TeamPickerItem::Saved {
-            name: "reviewers".to_string(),
-            member_groups: 1,
-            total_instances: 3,
-        }];
-        state.open_team_picker();
-
-        let lines = build_transient_lines(&state, 80, 8);
-        let text = line_texts(&lines).join("\n");
-        assert!(text.contains("Teams"));
-        assert!(text.contains("Saved team reviewers"));
     }
 
     #[test]

@@ -1,5 +1,4 @@
 use anyhow::{Result, bail};
-use restflow_contracts::ToolExecutionResult;
 use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
 use restflow_core::daemon::ChatSessionEvent;
 use restflow_core::daemon::{
@@ -14,19 +13,12 @@ use restflow_core::paths;
 use restflow_core::storage::agent::{
     DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
 };
-use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 
 use super::event_loop::AppEvent;
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TeamListResponse {
-    #[serde(default)]
-    pub saved: Vec<serde_json::Value>,
-}
 
 #[derive(Clone)]
 pub struct TuiDaemonClient {
@@ -259,36 +251,6 @@ impl TuiDaemonClient {
             .request_typed(IpcRequest::ControlTask {
                 id: task_id.to_string(),
                 action: action.to_string(),
-            })
-            .await
-    }
-
-    pub async fn list_teams(&self) -> Result<TeamListResponse> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::ListTeams {
-                include_saved: true,
-            })
-            .await
-    }
-
-    pub async fn start_team_from_template(
-        &self,
-        team: &str,
-        assignment: String,
-        approval_id: Option<String>,
-    ) -> Result<ToolExecutionResult> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::ExecuteTool {
-                name: "spawn_subagent_batch".to_string(),
-                input: serde_json::json!({
-                    "operation": "spawn",
-                    "team": team,
-                    "task": assignment,
-                    "approval_id": approval_id,
-                    "wait": false,
-                }),
             })
             .await
     }

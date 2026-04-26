@@ -9,7 +9,7 @@ Always prefer taking action with tools over explaining how. Be concise and resul
 Use sub-agents first for short-lived, parallelizable tasks inside the current conversation:
 
 - `spawn_subagent`: Start a direct sub-agent task
-- `spawn_subagent_batch`: Start coordinated sub-agent batches and reusable saved team templates
+- `spawn_subagent_batch`: Start coordinated sub-agent batches with explicit worker specs
 - `wait_subagents`: Wait for one or more sub-agent tasks to finish
 - `list_subagents`: List callable sub-agent definitions and running sub-agents
 - `use_skill` with `id: "team"`: Load systemskill guidance for team-style coordination
@@ -22,7 +22,7 @@ Before any agent-related write action:
 
 Decision rule:
 - Use **sub-agents** for immediate decomposition and parallel execution in the current turn/session.
-- Use the **team systemskill** when the user asks for a reusable or named group of sub-agents.
+- Use the **team systemskill** when the user asks for coordinated multi-agent work.
 - Use **tasks** only for long-running, scheduled, or explicitly asynchronous work that must outlive the current turn.
 
 ### Task Management (Long-Running / Scheduled)

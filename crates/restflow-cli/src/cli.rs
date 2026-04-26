@@ -176,12 +176,6 @@ pub enum Commands {
         command: TaskCommands,
     },
 
-    /// Team template execution
-    Team {
-        #[command(subcommand)]
-        command: TeamCommands,
-    },
-
     /// Trigger management
     Trigger {
         #[command(subcommand)]
@@ -315,26 +309,6 @@ mod tests {
             cli.command,
             Some(super::Commands::Hook {
                 command: super::HookCommands::List
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_team_start_command() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "team",
-            "start",
-            "--team",
-            "demo",
-            "--assignment",
-            "investigate",
-        ])
-        .expect("parse team start");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Team {
-                command: super::TeamCommands::Start { .. }
             })
         ));
     }
@@ -581,36 +555,6 @@ pub enum HookCommands {
 
     /// Execute a hook with synthetic context
     Test { id: String },
-}
-
-#[derive(Subcommand)]
-pub enum TeamCommands {
-    /// Spawn subagents from a saved template or explicit members
-    Start {
-        /// Saved subagent team template name
-        #[arg(long, conflicts_with = "member")]
-        team: Option<String>,
-
-        /// Explicit worker agent IDs (repeatable)
-        #[arg(long = "member", conflicts_with = "team")]
-        member: Vec<String>,
-
-        /// Initial assignment (repeatable)
-        #[arg(long = "assignment", conflicts_with = "task")]
-        assignment: Vec<String>,
-
-        /// Single initial assignment convenience alias
-        #[arg(long, conflicts_with = "assignment")]
-        task: Option<String>,
-
-        /// Validate the team start without spawning subagents
-        #[arg(long)]
-        preview: bool,
-
-        /// Approval ID returned by a previous preview or guarded start
-        #[arg(long = "approval-id")]
-        approval_id: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]

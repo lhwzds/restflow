@@ -268,19 +268,19 @@ fn tool_call_text_prefers_structured_content_payload() {
     let response = json!({
         "result": {
             "content": [
-                { "type": "text", "text": "Background team saved successfully." }
+                { "type": "text", "text": "Batch started successfully." }
             ],
             "structuredContent": {
-                "operation": "save_team",
-                "team": "demo"
+                "operation": "run_batch",
+                "total": 2
             }
         }
     });
 
     let text = tool_call_text(&response);
     let parsed = parse_tool_text_json(&text).expect("structured content should parse as JSON");
-    assert_eq!(parsed["operation"], "save_team");
-    assert_eq!(parsed["team"], "demo");
+    assert_eq!(parsed["operation"], "run_batch");
+    assert_eq!(parsed["total"], 2);
 }
 
 fn guarded_approval_id(value: &Value) -> Result<&str> {
@@ -306,7 +306,7 @@ fn parse_json_rpc_response_accepts_sse_with_comment_and_event_lines() {
 
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
-async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
+async fn test_daemon_mcp_manage_tasks_run_batch_contract() -> Result<()> {
     let env = RestflowTestEnv::new();
     let db_path = env.db_path("restflow.db");
 
@@ -343,131 +343,6 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
         "manage_background_agents alias must not be exposed over MCP"
     );
 
-    let save_team_initial = post_json_rpc(
-        &client,
-        &url,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "manage_tasks",
-                "arguments": {
-                    "operation": "save_team",
-                    "team": "daemon-bg-team",
-                    "workers": [
-                        {
-                            "count": 2,
-                            "agent_id": "default"
-                        }
-                    ]
-                }
-            }
-        }),
-    )
-    .await?;
-    let save_initial_text = tool_call_text(&save_team_initial);
-    if let Ok(save_initial_value) = parse_tool_text_json(&save_initial_text) {
-        let save_value = if save_initial_value["operation"] == "save_team" {
-            save_initial_value
-        } else {
-            let approval_id = guarded_approval_id(&save_initial_value)?;
-            let save_team = post_json_rpc(
-                &client,
-                &url,
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": 4,
-                    "method": "tools/call",
-                    "params": {
-                        "name": "manage_tasks",
-                        "arguments": {
-                            "operation": "save_team",
-                            "team": "daemon-bg-team",
-                            "approval_id": approval_id,
-                            "workers": [
-                                {
-                                    "count": 2,
-                                    "agent_id": "default"
-                                }
-                            ]
-                        }
-                    }
-                }),
-            )
-            .await?;
-            let save_text = tool_call_text(&save_team);
-            if let Ok(value) = parse_tool_text_json(&save_text) {
-                value
-            } else {
-                assert_plain_success_response(&save_team, &save_text, "save_team replay");
-                json!({
-                    "operation": "save_team"
-                })
-            }
-        };
-        assert_eq!(save_value["operation"], "save_team");
-    } else {
-        assert_plain_success_response(&save_team_initial, &save_initial_text, "save_team");
-    }
-
-    let get_team = post_json_rpc(
-        &client,
-        &url,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 5,
-            "method": "tools/call",
-            "params": {
-                "name": "manage_tasks",
-                "arguments": {
-                    "operation": "get_team",
-                    "team": "daemon-bg-team"
-                }
-            }
-        }),
-    )
-    .await?;
-    let get_text = tool_call_text(&get_team);
-    let get_value = parse_tool_text_json(&get_text)?;
-    assert_eq!(get_value["operation"], "get_team");
-    assert_eq!(get_value["member_groups"], 1);
-    assert_eq!(get_value["total_instances"], 2);
-    assert!(
-        get_value["members"][0].get("input").is_none()
-            || get_value["members"][0]["input"].is_null()
-    );
-    assert!(
-        get_value["members"][0].get("inputs").is_none()
-            || get_value["members"][0]["inputs"].is_null()
-    );
-
-    let get_team_alias = post_json_rpc(
-        &client,
-        &url,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 51,
-            "method": "tools/call",
-            "params": {
-                "name": "manage_tasks",
-                "arguments": {
-                    "operation": "get_team",
-                    "team": "daemon-bg-team"
-                }
-            }
-        }),
-    )
-    .await?;
-    let get_alias_text = tool_call_text(&get_team_alias);
-    let get_alias_value = parse_tool_text_json(&get_alias_text)?;
-    assert_eq!(get_alias_value["operation"], "get_team");
-    assert_eq!(get_alias_value["member_groups"], get_value["member_groups"]);
-    assert_eq!(
-        get_alias_value["total_instances"],
-        get_value["total_instances"]
-    );
-
     let run_batch_initial = post_json_rpc(
         &client,
         &url,
@@ -479,7 +354,12 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
                 "name": "manage_tasks",
                 "arguments": {
                     "operation": "run_batch",
-                    "team": "daemon-bg-team",
+                    "workers": [
+                        {
+                            "count": 2,
+                            "agent_id": "default"
+                        }
+                    ],
                     "inputs": ["alpha", "beta"],
                     "run_now": false
                 }
@@ -501,13 +381,18 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
                 "id": 7,
                 "method": "tools/call",
                 "params": {
-                    "name": "manage_tasks",
-                    "arguments": {
-                        "operation": "run_batch",
-                        "team": "daemon-bg-team",
-                        "inputs": ["alpha", "beta"],
-                        "run_now": false,
-                        "approval_id": approval_id
+                        "name": "manage_tasks",
+                        "arguments": {
+                            "operation": "run_batch",
+                            "workers": [
+                                {
+                                    "count": 2,
+                                    "agent_id": "default"
+                                }
+                            ],
+                            "inputs": ["alpha", "beta"],
+                            "run_now": false,
+                            "approval_id": approval_id
                     }
                 }
             }),

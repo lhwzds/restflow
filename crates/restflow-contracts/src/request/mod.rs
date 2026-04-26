@@ -427,10 +427,6 @@ pub enum IpcRequest {
         task_id: String,
     },
     SubscribeSessionEvents,
-    ListTeams {
-        #[serde(default)]
-        include_saved: bool,
-    },
     ListRunArtifacts {
         #[serde(default)]
         run_id: Option<String>,

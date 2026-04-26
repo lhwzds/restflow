@@ -1,36 +1,8 @@
-use super::super::runtime::get_runtime_tool_registry;
 use super::super::*;
 use crate::services::session_policy::SessionPolicy;
 use restflow_contracts::request::WireModelRef;
-use serde_json::{Value, json};
 
 impl IpcServer {
-    pub(super) async fn handle_list_teams(
-        core: &Arc<AppCore>,
-        runtime_tool_registry: &OnceLock<restflow_ai::tools::ToolRegistry>,
-        include_saved: bool,
-    ) -> IpcResponse {
-        let saved = if include_saved {
-            match Self::execute_runtime_tool_json(
-                core,
-                runtime_tool_registry,
-                "spawn_subagent_batch",
-                json!({ "operation": "list_teams" }),
-            )
-            .await
-            {
-                Ok(value) => value.get("teams").cloned().unwrap_or_else(|| json!([])),
-                Err(error) => return IpcResponse::error(500, error),
-            }
-        } else {
-            json!([])
-        };
-
-        IpcResponse::success(json!({
-            "saved": saved,
-        }))
-    }
-
     pub(super) async fn handle_list_run_artifacts(
         core: &Arc<AppCore>,
         run_id: Option<String>,
@@ -76,26 +48,6 @@ impl IpcServer {
                 Err(error) => IpcResponse::error(500, error.to_string()),
             },
             Err(error) => IpcResponse::error(500, error.to_string()),
-        }
-    }
-
-    async fn execute_runtime_tool_json(
-        core: &Arc<AppCore>,
-        runtime_tool_registry: &OnceLock<restflow_ai::tools::ToolRegistry>,
-        name: &str,
-        input: Value,
-    ) -> Result<Value, String> {
-        let registry = get_runtime_tool_registry(core, runtime_tool_registry)?;
-        let output = registry
-            .execute_safe(name, input)
-            .await
-            .map_err(|error| error.to_string())?;
-        if output.success {
-            Ok(output.result)
-        } else {
-            Err(output
-                .error
-                .unwrap_or_else(|| format!("{name} execution failed")))
         }
     }
 }

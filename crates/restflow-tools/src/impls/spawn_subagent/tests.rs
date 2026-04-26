@@ -7,7 +7,6 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
-use restflow_traits::store::{TeamTemplateEntry, TeamTemplateStore};
 use restflow_traits::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,
@@ -58,90 +57,6 @@ impl SubagentDefLookup for MockDefLookup {
     }
     fn list_callable(&self) -> Vec<SubagentDefSummary> {
         self.summaries.clone()
-    }
-}
-
-#[derive(Default)]
-struct MockTeamTemplateStore {
-    entries: Mutex<HashMap<String, String>>,
-}
-
-impl TeamTemplateStore for MockTeamTemplateStore {
-    fn get_template(
-        &self,
-        namespace: &str,
-        team: &str,
-    ) -> crate::Result<Option<TeamTemplateEntry>> {
-        let key = format!("{namespace}:{team}");
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(entries.get(&key).map(|content| TeamTemplateEntry {
-            namespace: namespace.to_string(),
-            team: team.to_string(),
-            content: content.clone(),
-            type_hint: None,
-            tags: Vec::new(),
-            created_at: 1,
-            updated_at: 2,
-        }))
-    }
-
-    fn save_template(
-        &self,
-        namespace: &str,
-        team: &str,
-        content: &str,
-        type_hint: Option<&str>,
-        tags: Option<Vec<String>>,
-    ) -> crate::Result<TeamTemplateEntry> {
-        let key = format!("{namespace}:{team}");
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        entries.insert(key.to_string(), content.to_string());
-        Ok(TeamTemplateEntry {
-            namespace: namespace.to_string(),
-            team: team.to_string(),
-            content: content.to_string(),
-            type_hint: type_hint.map(str::to_string),
-            tags: tags.unwrap_or_default(),
-            created_at: 1,
-            updated_at: 2,
-        })
-    }
-
-    fn delete_template(&self, namespace: &str, team: &str) -> crate::Result<bool> {
-        let key = format!("{namespace}:{team}");
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(entries.remove(&key).is_some())
-    }
-
-    fn list_templates(&self, namespace: &str) -> crate::Result<Vec<TeamTemplateEntry>> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = format!("{namespace}:");
-        Ok(entries
-            .iter()
-            .filter_map(|(key, content)| {
-                Some(TeamTemplateEntry {
-                    namespace: namespace.to_string(),
-                    team: key.strip_prefix(&prefix)?.to_string(),
-                    content: content.clone(),
-                    type_hint: None,
-                    tags: Vec::new(),
-                    created_at: 1,
-                    updated_at: 2,
-                })
-            })
-            .collect())
     }
 }
 
@@ -389,8 +304,6 @@ fn test_params_serialize_canonical_parent_run_id() {
         inline_allowed_tools: None,
         inline_max_iterations: None,
         workers: None,
-        team: None,
-        save_as_team: None,
         preview: false,
         approval_id: None,
     };
@@ -426,16 +339,6 @@ async fn test_spawn_subagent_preserves_parent_run_id() {
             .as_deref(),
         Some("run-789")
     );
-}
-
-#[test]
-fn test_params_with_team_operation() {
-    let json = r#"{"operation":"save_team","team":"TeamOnly","workers":[{"count":2}]}"#;
-    let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
-    assert_eq!(params.operation, SpawnSubagentBatchOperation::SaveTeam);
-    assert_eq!(params.team.as_deref(), Some("TeamOnly"));
-    assert!(params.task.is_none());
-    assert!(params.tasks.is_none());
 }
 
 #[test]
@@ -679,7 +582,7 @@ async fn test_spawn_subagent_rejects_mixed_single_and_workers_mode_fields() {
         result
             .unwrap_err()
             .to_string()
-            .contains("Batch mode uses 'workers'/'team'")
+            .contains("Batch mode uses 'workers'")
     );
 }
 
@@ -709,106 +612,6 @@ async fn test_spawn_subagent_workers_support_distinct_tasks_list() {
         .expect("results should be array");
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|entry| entry["status"] == "completed"));
-}
-
-#[tokio::test]
-async fn test_spawn_subagent_team_supports_runtime_tasks_list() {
-    let deps = make_test_deps(
-        vec![("coder", "Coder")],
-        vec![MockStep::text("done-a"), MockStep::text("done-b")],
-    );
-    let team_template_store: Arc<dyn TeamTemplateStore> =
-        Arc::new(MockTeamTemplateStore::default());
-    let tool = SpawnSubagentTool::new(deps).with_team_template_store(team_template_store);
-
-    let saved = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "RuntimeTasksTeam",
-            "workers": [
-                { "agent": "coder", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(saved.success);
-
-    let result = tool
-        .execute(json!({
-            "team": "RuntimeTasksTeam",
-            "tasks": ["task-a", "task-b"],
-            "wait": true
-        }))
-        .await
-        .unwrap();
-
-    assert!(result.success);
-    assert_eq!(result.result["status"], "completed");
-    assert_eq!(result.result["spawned_count"], 2);
-}
-
-#[tokio::test]
-async fn test_spawn_subagent_save_team_operation_persists_without_spawning() {
-    let deps = make_test_deps(
-        vec![("coder", "Coder")],
-        vec![MockStep::text("should-not-run")],
-    );
-    let team_template_store: Arc<dyn TeamTemplateStore> =
-        Arc::new(MockTeamTemplateStore::default());
-    let tool = SpawnSubagentTool::new(deps.clone()).with_team_template_store(team_template_store);
-
-    let output = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "TeamOnly",
-            "workers": [
-                { "agent": "coder", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-
-    assert!(output.success);
-    assert_eq!(output.result["operation"], "save_team");
-    assert_eq!(deps.running_count(), 0);
-
-    let reuse = tool
-        .execute(json!({
-            "task": "Use saved team",
-            "wait": true,
-            "team": "TeamOnly"
-        }))
-        .await
-        .unwrap();
-
-    assert!(reuse.success);
-    assert_eq!(reuse.result["spawned_count"], 2);
-}
-
-#[tokio::test]
-async fn test_spawn_subagent_save_team_rejects_prompt_fields() {
-    let deps = make_test_deps(vec![("coder", "Coder")], vec![]);
-    let team_template_store: Arc<dyn TeamTemplateStore> =
-        Arc::new(MockTeamTemplateStore::default());
-    let tool = SpawnSubagentTool::new(deps).with_team_template_store(team_template_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "PromptfulTeam",
-            "workers": [
-                { "agent": "coder", "task": "Should not persist" }
-            ]
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("stores worker structure only")
-    );
 }
 
 #[test]

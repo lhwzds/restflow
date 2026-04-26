@@ -1,6 +1,6 @@
 ---
 name: Team
-description: Coordinate short-lived parallel subagents through spawn_subagent_batch and saved team templates.
+description: Coordinate short-lived parallel subagents through explicit spawn_subagent_batch workers.
 tags:
   - system
   - team
@@ -20,13 +20,12 @@ Use this systemskill when the user asks for a team, parallel review, fan-out pla
 
 1. Prefer `spawn_subagent_batch` for multi-agent work.
 - Use a direct `workers` list for one-off execution.
-- Use a saved `team` template only when the user wants reusable structure.
-- Use `preview: true` before creating or reusing a saved team if the operation is broad or risky.
+- Use `preview: true` before broad or risky subagent batches.
 
-2. Keep saved teams structural.
-- Save agent/model/count/tool-shape preferences.
-- Do not save the current task prompt as reusable team structure.
-- Do not create a long-lived team runtime.
+2. Keep team coordination transient.
+- Define the needed agent/model/count/tool-shape directly in the `workers` list.
+- Do not create long-lived team runtime state.
+- Do not persist reusable team templates.
 
 3. Collect and merge results.
 - Wait for spawned subagents when the user needs an answer in the current turn.
@@ -36,5 +35,5 @@ Use this systemskill when the user asks for a team, parallel review, fan-out pla
 ## Rules
 
 - `spawn_subagent_batch` is the only team execution primitive.
-- Team templates are reusable configuration, not task/run history.
+- Team is systemskill guidance, not a saved product object.
 - Use tasks only when the work must continue after the current conversation.

@@ -73,7 +73,7 @@ pub(super) fn parameters_schema() -> Value {
             "inputs": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Optional per-instance input list for run_batch. Inputs are assigned in worker order and are never persisted in saved teams."
+                "description": "Optional per-instance input list for run_batch. Inputs are assigned in worker order."
             },
             "input_template": {
                 "type": "string",
@@ -99,14 +99,6 @@ pub(super) fn parameters_schema() -> Value {
             "approval_id": {
                 "type": "string",
                 "description": "Approval ID returned by preview when warnings require explicit confirmation."
-            },
-            "team": {
-                "type": "string",
-                "description": "Team name for save_team/get_team/delete_team, or run_batch from saved team."
-            },
-            "save_as_team": {
-                "type": "string",
-                "description": "Optionally save provided workers as a team during run_batch."
             },
             "workers": workers_schema(),
             "status": {

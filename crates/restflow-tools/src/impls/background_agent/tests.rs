@@ -8,10 +8,9 @@ use restflow_traits::store::{
     MANAGE_TASK_OPERATIONS_CSV, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
     TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest, TeamTemplateEntry, TeamTemplateStore,
+    TaskUpdateRequest,
 };
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 struct MockStore;
@@ -20,10 +19,6 @@ struct MockAssessor;
 #[derive(Default)]
 struct ConfirmationCreateStore {
     create_calls: Mutex<usize>,
-}
-#[derive(Default)]
-struct MockTeamTemplateStore {
-    entries: Mutex<HashMap<String, String>>,
 }
 
 #[async_trait]
@@ -140,13 +135,6 @@ fn writable_tool() -> TaskTool {
         .with_assessor(Arc::new(MockAssessor))
 }
 
-fn writable_team_tool(team_template_store: Arc<dyn TeamTemplateStore>) -> TaskTool {
-    TaskTool::new(Arc::new(MockStore))
-        .with_team_template_store(team_template_store)
-        .with_write(true)
-        .with_assessor(Arc::new(MockAssessor))
-}
-
 #[test]
 fn task_tool_from_task_store_keeps_canonical_store() {
     let task_store: Arc<dyn TaskStore> = Arc::new(MockStore);
@@ -178,81 +166,6 @@ fn task_tool_schema_is_openai_function_compatible() {
     assert!(schema.get("anyOf").is_none());
     assert!(schema.get("allOf").is_none());
     assert!(schema.get("enum").is_none());
-}
-
-impl TeamTemplateStore for MockTeamTemplateStore {
-    fn get_template(&self, namespace: &str, team: &str) -> Result<Option<TeamTemplateEntry>> {
-        let key = format!("{namespace}:{team}");
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(entries.get(&key).map(|content| TeamTemplateEntry {
-            namespace: namespace.to_string(),
-            team: team.to_string(),
-            content: content.clone(),
-            type_hint: None,
-            tags: Vec::new(),
-            created_at: 1,
-            updated_at: 2,
-        }))
-    }
-
-    fn save_template(
-        &self,
-        namespace: &str,
-        team: &str,
-        content: &str,
-        type_hint: Option<&str>,
-        tags: Option<Vec<String>>,
-    ) -> Result<TeamTemplateEntry> {
-        let key = format!("{namespace}:{team}");
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        entries.insert(key.to_string(), content.to_string());
-        Ok(TeamTemplateEntry {
-            namespace: namespace.to_string(),
-            team: team.to_string(),
-            content: content.to_string(),
-            type_hint: type_hint.map(str::to_string),
-            tags: tags.unwrap_or_default(),
-            created_at: 1,
-            updated_at: 2,
-        })
-    }
-
-    fn delete_template(&self, namespace: &str, team: &str) -> Result<bool> {
-        let key = format!("{namespace}:{team}");
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(entries.remove(&key).is_some())
-    }
-
-    fn list_templates(&self, namespace: &str) -> Result<Vec<TeamTemplateEntry>> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = format!("{namespace}:");
-        Ok(entries
-            .iter()
-            .filter_map(|(key, content)| {
-                Some(TeamTemplateEntry {
-                    namespace: namespace.to_string(),
-                    team: key.strip_prefix(&prefix)?.to_string(),
-                    content: content.clone(),
-                    type_hint: None,
-                    tags: Vec::new(),
-                    created_at: 1,
-                    updated_at: 2,
-                })
-            })
-            .collect())
-    }
 }
 
 impl TaskStore for MockStore {
@@ -1036,237 +949,4 @@ async fn test_run_batch_replays_per_task_confirmation() {
     assert_eq!(output.result["total"], 2);
     assert_eq!(output.result["tasks"][0]["task_id"], "task-2");
     assert_eq!(output.result["tasks"][1]["task_id"], "task-4");
-}
-
-#[tokio::test]
-async fn test_team_management_round_trip() {
-    let team_template_store = Arc::new(MockTeamTemplateStore::default());
-    let tool = writable_team_tool(team_template_store);
-
-    let save = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "TeamA",
-            "workers": [
-                { "agent_id": "agent-1", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(save.success);
-    assert_eq!(save.result["operation"], "save_team");
-
-    let list = tool
-        .execute(json!({
-            "operation": "list_teams"
-        }))
-        .await
-        .unwrap();
-    assert!(list.success);
-    assert_eq!(list.result["operation"], "list_teams");
-    assert_eq!(
-        list.result["teams"].as_array().map(|items| items.len()),
-        Some(1)
-    );
-
-    let get = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "TeamA"
-        }))
-        .await
-        .unwrap();
-    assert!(get.success);
-    assert_eq!(get.result["operation"], "get_team");
-    assert_eq!(get.result["team"], "TeamA");
-    assert_eq!(get.result["member_groups"], 1);
-    assert_eq!(get.result["total_instances"], 2);
-    assert_eq!(
-        get.result["members"].as_array().map(|items| items.len()),
-        Some(1)
-    );
-    assert!(
-        get.result["members"][0].get("input").is_none()
-            || get.result["members"][0]["input"].is_null()
-    );
-
-    let delete_preview = tool
-        .execute(json!({
-            "operation": "delete_team",
-            "team": "TeamA",
-            "preview": true
-        }))
-        .await
-        .unwrap();
-    assert!(delete_preview.success);
-    assert_eq!(delete_preview.result["status"], "preview");
-    let token = delete_preview.result["assessment"]["approval_id"]
-        .as_str()
-        .expect("delete team preview approval id")
-        .to_string();
-
-    let delete = tool
-        .execute(json!({
-            "operation": "delete_team",
-            "team": "TeamA",
-            "approval_id": token
-        }))
-        .await
-        .unwrap();
-    assert!(delete.success);
-    assert_eq!(delete.result["operation"], "delete_team");
-}
-
-#[tokio::test]
-async fn test_run_batch_from_saved_team() {
-    let team_template_store = Arc::new(MockTeamTemplateStore::default());
-    let tool = writable_team_tool(team_template_store);
-
-    tool.execute(json!({
-        "operation": "save_team",
-        "team": "TeamB",
-        "workers": [
-            { "agent_id": "agent-1", "count": 2 }
-        ]
-    }))
-    .await
-    .unwrap();
-
-    let output = tool
-        .execute(json!({
-            "operation": "run_batch",
-            "team": "TeamB",
-            "inputs": ["alpha", "beta"]
-        }))
-        .await
-        .unwrap();
-    assert!(output.success);
-    assert_eq!(output.result["operation"], "run_batch");
-    assert_eq!(output.result["total"], 2);
-}
-
-#[tokio::test]
-async fn test_run_batch_save_as_team_strips_runtime_inputs() {
-    let team_template_store = Arc::new(MockTeamTemplateStore::default());
-    let tool = writable_team_tool(team_template_store);
-
-    let saved = tool
-        .execute(json!({
-            "operation": "run_batch",
-            "save_as_team": "TeamC",
-            "agent_id": "agent-1",
-            "workers": [
-                { "count": 2, "inputs": ["alpha", "beta"] }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(saved.success);
-
-    let get = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "TeamC"
-        }))
-        .await
-        .unwrap();
-    assert!(get.success);
-    assert!(
-        get.result["members"][0].get("inputs").is_none()
-            || get.result["members"][0]["inputs"].is_null()
-    );
-    assert_eq!(get.result["members"][0]["count"], 2);
-}
-
-#[tokio::test]
-async fn test_run_batch_rejects_workers_and_team_combined() {
-    let team_template_store = Arc::new(MockTeamTemplateStore::default());
-    let tool = writable_team_tool(team_template_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "run_batch",
-            "team": "TeamD",
-            "workers": [
-                { "agent_id": "agent-1", "count": 1 }
-            ],
-            "input": "task"
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'workers' or 'team'")
-    );
-}
-
-#[tokio::test]
-async fn test_save_team_rejects_runtime_input_fields() {
-    let team_template_store = Arc::new(MockTeamTemplateStore::default());
-    let tool = writable_team_tool(team_template_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "PromptfulTeam",
-            "workers": [
-                { "agent_id": "agent-1", "input": "do work" }
-            ]
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("stores worker structure only")
-    );
-}
-
-#[tokio::test]
-async fn test_get_team_rejects_legacy_worker_payload() {
-    let team_template_store = Arc::new(MockTeamTemplateStore::default());
-    team_template_store
-        .save_template(
-            "background_agent_team",
-            "LegacyTeam",
-            &json!({
-                "version": 1,
-                "name": "LegacyTeam",
-                "workers": [
-                    {
-                        "agent_id": "agent-1",
-                        "inputs": ["alpha", "beta"]
-                    }
-                ],
-                "created_at": 1,
-                "updated_at": 2
-            })
-            .to_string(),
-            None,
-            None,
-        )
-        .expect("store legacy team");
-    let tool = TaskTool::new(Arc::new(MockStore))
-        .with_team_template_store(team_template_store)
-        .with_write(true)
-        .with_assessor(Arc::new(MockAssessor));
-
-    let error = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "LegacyTeam"
-        }))
-        .await
-        .expect_err("legacy payload should fail to decode");
-
-    assert!(
-        error
-            .to_string()
-            .contains("Failed to decode team 'LegacyTeam'")
-    );
 }

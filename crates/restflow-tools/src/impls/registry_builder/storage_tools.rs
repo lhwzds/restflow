@@ -25,8 +25,7 @@ use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore,
     MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider, SessionStore,
-    TaskStore, TeamTemplateStore, TerminalStore, TriggerStore, UnifiedMemorySearch,
-    WorkItemProvider,
+    TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
 
 use super::ToolRegistryBuilder;
@@ -34,13 +33,9 @@ use super::configs::SecretsConfig;
 
 fn build_task_tool(
     store: Arc<dyn TaskStore>,
-    team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskTool {
     let mut tool = TaskTool::from_task_store(store);
-    if let Some(team_template_store) = team_template_store {
-        tool = tool.with_team_template_store(team_template_store);
-    }
     if let Some(assessor) = assessor {
         tool = tool.with_assessor(assessor);
     }
@@ -165,31 +160,17 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_task(mut self, store: Arc<dyn TaskStore>) -> Self {
-        self.registry.register(build_task_tool(store, None, None));
+        self.registry.register(build_task_tool(store, None));
         self
     }
 
-    pub fn with_task_and_team_templates(
+    pub fn with_task_and_assessor(
         mut self,
         store: Arc<dyn TaskStore>,
-        team_template_store: Arc<dyn TeamTemplateStore>,
-    ) -> Self {
-        self.registry
-            .register(build_task_tool(store, Some(team_template_store), None));
-        self
-    }
-
-    pub fn with_task_and_team_templates_and_assessor(
-        mut self,
-        store: Arc<dyn TaskStore>,
-        team_template_store: Arc<dyn TeamTemplateStore>,
         assessor: Arc<dyn AgentOperationAssessor>,
     ) -> Self {
-        self.registry.register(build_task_tool(
-            store,
-            Some(team_template_store),
-            Some(assessor),
-        ));
+        self.registry
+            .register(build_task_tool(store, Some(assessor)));
         self
     }
 

@@ -3,7 +3,6 @@ use super::keymap::Action;
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
 use super::state::{
     AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, TaskPickerItem,
-    TeamPickerItem,
 };
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
@@ -63,10 +62,6 @@ pub enum ShellAction {
     },
     TaskPickerLoaded {
         tasks: Vec<TaskPickerItem>,
-        status: String,
-    },
-    TeamPickerLoaded {
-        items: Vec<TeamPickerItem>,
         status: String,
     },
     ProviderPickerLoaded {
@@ -129,7 +124,6 @@ pub enum ShellEffect {
     ExecuteSlashCommand(SlashCommand),
     DeleteSession { session_id: String },
     ListSessionsInline,
-    ListTeamsInline,
     ListRunsInline,
 }
 
@@ -248,11 +242,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         ShellAction::TaskPickerLoaded { tasks, status } => {
             state.tasks = tasks;
             state.open_task_picker();
-            state.status = status;
-        }
-        ShellAction::TeamPickerLoaded { items, status } => {
-            state.team_items = items;
-            state.open_team_picker();
             state.status = status;
         }
         ShellAction::ProviderPickerLoaded {
@@ -410,7 +399,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
         Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
-        Action::OpenTeam => output.effects.push(ShellEffect::ListTeamsInline),
         Action::OpenHelp => output
             .effects
             .push(ShellEffect::ExecuteSlashCommand(SlashCommand::Help)),
@@ -628,7 +616,6 @@ fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
         SlashCommand::ListModelsForProvider { .. } => "Loading models...",
         SlashCommand::SwitchModel { .. } => "Switching model...",
         SlashCommand::ListTasks => "Loading tasks...",
-        SlashCommand::ListTeams => "Loading teams...",
         SlashCommand::ListSessions => "Loading sessions...",
         _ => "Running command...",
     }

@@ -9,6 +9,6 @@ pub use restflow_traits::store::{
     SessionStore, TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest,
     TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
     TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
-    TeamTemplateEntry, TeamTemplateStore, TerminalStore, TriggerStore, UnifiedMemorySearch,
-    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch, WorkItemProvider,
+    WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };

@@ -6,7 +6,6 @@ pub enum Action {
     CloseOverlay,
     OpenSessions,
     OpenRuns,
-    OpenTeam,
     OpenHelp,
     Redraw,
     Resize,
@@ -64,11 +63,6 @@ pub fn map_event(event: Event) -> Action {
             modifiers,
             ..
         }) if modifiers.contains(KeyModifiers::CONTROL) => Action::OpenRuns,
-        Event::Key(KeyEvent {
-            code: KeyCode::Char('g'),
-            modifiers,
-            ..
-        }) if modifiers.contains(KeyModifiers::CONTROL) => Action::OpenTeam,
         Event::Key(KeyEvent {
             code: KeyCode::Char('l'),
             modifiers,

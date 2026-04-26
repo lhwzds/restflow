@@ -11,7 +11,6 @@ use restflow_traits::store::{TaskControlRequest, TaskCreateRequest, TaskStore};
 use restflow_traits::{OperationAssessmentIntent, RuntimeTaskPayload};
 
 use super::TaskTool;
-use super::team::{load_team_workers, save_team_workers};
 use super::types::BackgroundBatchWorkerSpec;
 
 fn now_unix_seconds() -> i64 {
@@ -204,8 +203,6 @@ pub(super) async fn execute_run_batch(
     input: Option<String>,
     inputs: Option<Vec<String>>,
     workers: Option<Vec<BackgroundBatchWorkerSpec>>,
-    team: Option<String>,
-    save_as_team: Option<String>,
     input_template: Option<String>,
     chat_session_id: Option<String>,
     schedule: Option<ContractTaskSchedule>,
@@ -227,28 +224,14 @@ pub(super) async fn execute_run_batch(
     }
 
     let run_group_id = format!("bg-batch-{}", now_unix_seconds());
-    let resolved_workers = match (workers, team.as_deref()) {
-        (Some(_), Some(_)) => {
+    let resolved_workers = match workers {
+        Some(specs) if !specs.is_empty() => specs,
+        _ => {
             return Err(ToolError::Tool(
-                "run_batch accepts either 'workers' or 'team', not both.".to_string(),
-            ));
-        }
-        (Some(specs), None) => specs,
-        (None, Some(team_name)) => {
-            let store = tool.team_store()?;
-            load_team_workers(store.as_ref(), team_name)?
-        }
-        (None, None) => {
-            return Err(ToolError::Tool(
-                "run_batch requires 'workers' or 'team'.".to_string(),
+                "run_batch requires non-empty 'workers'.".to_string(),
             ));
         }
     };
-
-    if let Some(team_name) = save_as_team.as_deref() {
-        let store = tool.team_store()?;
-        save_team_workers(store.as_ref(), team_name, &resolved_workers, false)?;
-    }
 
     let expanded_workers =
         expand_worker_specs(&resolved_workers, input.as_deref(), inputs.as_deref())?;
@@ -394,7 +377,6 @@ pub(super) async fn execute_run_batch(
         "run_group_id": run_group_id,
         "total": tasks.len(),
         "run_now": should_run_now,
-        "team": team,
         "tasks": tasks
     })))
 }

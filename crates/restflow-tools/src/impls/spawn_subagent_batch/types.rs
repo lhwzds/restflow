@@ -13,14 +13,6 @@ pub enum SpawnSubagentBatchOperation {
     /// Spawn one batch of sub-agents immediately.
     #[default]
     Spawn,
-    /// Save a reusable team configuration.
-    SaveTeam,
-    /// List all saved teams.
-    ListTeams,
-    /// Get one saved team definition.
-    GetTeam,
-    /// Delete one saved team definition.
-    DeleteTeam,
 }
 
 fn default_member_count() -> u32 {
@@ -45,7 +37,7 @@ pub struct BatchSubagentSpec {
 
     /// Optional transient per-spec task override.
     ///
-    /// If omitted, top-level `task` is used. This field is never persisted in saved teams.
+    /// If omitted, top-level `task` is used.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
@@ -53,8 +45,7 @@ pub struct BatchSubagentSpec {
     /// Optional transient per-instance task list.
     ///
     /// When provided, each spawned instance uses the corresponding entry in this list.
-    /// This allows one worker spec to fan out with distinct prompts. This field is never
-    /// persisted in saved teams.
+    /// This allows one worker spec to fan out with distinct prompts.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub tasks: Option<Vec<String>>,
@@ -104,15 +95,9 @@ pub struct SpawnSubagentBatchParams {
     #[serde(default)]
     pub operation: SpawnSubagentBatchOperation,
 
-    /// Team name for `save_team`, `get_team`, `delete_team`, or `spawn` from saved team.
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub team: Option<String>,
-
     /// Batch member specs.
     ///
-    /// For `spawn`, either `specs` or `team` must be provided.
-    /// For `save_team`, `specs` is required.
+    /// For `spawn`, `specs` is required.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub specs: Option<Vec<BatchSubagentSpec>>,
@@ -124,8 +109,7 @@ pub struct SpawnSubagentBatchParams {
 
     /// Transient per-instance task list for this spawn.
     ///
-    /// When provided, tasks are assigned across all instances in spec order and are not
-    /// persisted in saved teams.
+    /// When provided, tasks are assigned across all instances in spec order.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub tasks: Option<Vec<String>>,
@@ -138,11 +122,6 @@ pub struct SpawnSubagentBatchParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub timeout_secs: Option<u64>,
-
-    /// Optionally persist the provided specs as a named team during `spawn`.
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub save_as_team: Option<String>,
 
     /// Optional parent run ID for context propagation (runtime-injected).
     #[serde(default)]
@@ -174,8 +153,6 @@ struct RawSpawnSubagentBatchParams {
     #[serde(default)]
     operation: SpawnSubagentBatchOperation,
     #[serde(default)]
-    team: Option<String>,
-    #[serde(default)]
     specs: Option<Vec<BatchSubagentSpec>>,
     #[serde(default)]
     task: Option<String>,
@@ -185,8 +162,6 @@ struct RawSpawnSubagentBatchParams {
     wait: bool,
     #[serde(default)]
     timeout_secs: Option<u64>,
-    #[serde(default)]
-    save_as_team: Option<String>,
     #[serde(default)]
     parent_run_id: Option<String>,
     #[serde(default)]
@@ -209,13 +184,11 @@ impl<'de> Deserialize<'de> for SpawnSubagentBatchParams {
         let raw = RawSpawnSubagentBatchParams::deserialize(deserializer)?;
         Ok(Self {
             operation: raw.operation,
-            team: raw.team,
             specs: raw.specs,
             task: raw.task,
             tasks: raw.tasks,
             wait: raw.wait,
             timeout_secs: raw.timeout_secs,
-            save_as_team: raw.save_as_team,
             parent_run_id: raw.parent_run_id.or(raw.parent_execution_id),
             trace_session_id: raw.trace_session_id,
             trace_scope_id: raw.trace_scope_id,
@@ -223,19 +196,6 @@ impl<'de> Deserialize<'de> for SpawnSubagentBatchParams {
             approval_id: raw.approval_id,
         })
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct StoredBatchSubagentSpec {
-    pub(crate) agent: Option<String>,
-    pub(crate) count: u32,
-    pub(crate) timeout_secs: Option<u64>,
-    pub(crate) model: Option<String>,
-    pub(crate) provider: Option<String>,
-    pub(crate) inline_name: Option<String>,
-    pub(crate) inline_system_prompt: Option<String>,
-    pub(crate) inline_allowed_tools: Option<Vec<String>>,
-    pub(crate) inline_max_iterations: Option<u32>,
 }
 
 #[derive(Debug, Clone)]

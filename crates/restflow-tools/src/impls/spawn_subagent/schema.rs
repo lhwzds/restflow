@@ -27,9 +27,9 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
         "properties": {
             "operation": {
                 "type": "string",
-                "enum": ["spawn", "save_team", "list_teams", "get_team", "delete_team"],
+                "enum": ["spawn"],
                 "default": "spawn",
-                "description": "Operation to perform. Use team management operations to save/list/read/delete teams without spawning."
+                "description": "Operation to perform."
             },
             "agent": agent_property,
             "task": {
@@ -39,7 +39,7 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
             "tasks": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Transient per-instance task list for batch/team spawn. Tasks are assigned in worker order and are never persisted in saved teams."
+                "description": "Transient per-instance task list for batch spawn. Tasks are assigned in worker order."
             },
             "wait": {
                 "type": "boolean",
@@ -94,7 +94,7 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
             },
             "workers": {
                 "type": "array",
-                "description": "Optional unified list-based batch specs. Use for batch spawn or save_team.",
+                "description": "Optional unified list-based batch specs. Use for batch spawn.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -111,14 +111,6 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
                         "inline_max_iterations": { "type": "integer", "minimum": 1, "description": "Optional temporary sub-agent max iterations." }
                     }
                 }
-            },
-            "team": {
-                "type": "string",
-                "description": "Team name for save_team/get_team/delete_team, or spawn from a saved team."
-            },
-            "save_as_team": {
-                "type": "string",
-                "description": "Spawn-only convenience flag to save provided workers as a structural team during spawn. For save-only, use operation='save_team'."
             },
             "preview": {
                 "type": "boolean",
