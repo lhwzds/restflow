@@ -93,7 +93,6 @@ mod tests {
 
     #[test]
     fn crate_root_exports_task_tool_as_canonical_surface() {
-        let _: fn(Arc<dyn restflow_traits::store::BackgroundAgentStore>) -> TaskTool =
-            TaskTool::new;
+        let _: fn(Arc<dyn restflow_traits::store::TaskStore>) -> TaskTool = TaskTool::new;
     }
 }

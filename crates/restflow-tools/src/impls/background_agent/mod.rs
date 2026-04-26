@@ -18,22 +18,21 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentStore, MANAGE_TASK_OPERATIONS_CSV, MANAGE_TASKS_TOOL_NAME, TaskStore,
-    TeamTemplateStore,
+    MANAGE_TASK_OPERATIONS_CSV, MANAGE_TASKS_TOOL_NAME, TaskStore, TeamTemplateStore,
 };
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::TaskAction;
 
 #[derive(Clone)]
 pub struct TaskTool {
-    store: Arc<dyn BackgroundAgentStore>,
+    store: Arc<dyn TaskStore>,
     team_template_store: Option<Arc<dyn TeamTemplateStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
 
 impl TaskTool {
-    pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
+    pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
         Self {
             store,
             team_template_store: None,
@@ -42,13 +41,8 @@ impl TaskTool {
         }
     }
 
-    pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
-        Self {
-            store,
-            team_template_store: None,
-            assessor: None,
-            allow_write: false,
-        }
+    pub fn new(store: Arc<dyn TaskStore>) -> Self {
+        Self::from_task_store(store)
     }
 
     pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {

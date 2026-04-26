@@ -12,11 +12,9 @@ use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{
-    BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
-    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest, TaskCreateRequest,
+    TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest, TaskProgressRequest, TaskStore,
+    TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
 };
 use restflow_traits::{
     DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
@@ -275,11 +273,8 @@ impl TaskStoreAdapter {
     }
 }
 
-impl BackgroundAgentStore for TaskStoreAdapter {
-    fn create_background_agent(
-        &self,
-        request: BackgroundAgentCreateRequest,
-    ) -> restflow_tools::Result<Value> {
+impl TaskStore for TaskStoreAdapter {
+    fn create_task(&self, request: TaskCreateRequest) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
@@ -289,9 +284,9 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(outcome)?)
     }
 
-    fn convert_session_to_background_agent(
+    fn convert_session_to_task(
         &self,
-        request: BackgroundAgentConvertSessionRequest,
+        request: TaskConvertSessionRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
@@ -302,10 +297,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(outcome)?)
     }
 
-    fn update_background_agent(
-        &self,
-        request: BackgroundAgentUpdateRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn update_task(&self, request: TaskUpdateRequest) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
@@ -315,10 +307,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(outcome)?)
     }
 
-    fn delete_background_agent(
-        &self,
-        request: BackgroundAgentDeleteRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn delete_task(&self, request: TaskDeleteRequest) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
@@ -339,10 +328,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(tasks)?)
     }
 
-    fn control_background_agent(
-        &self,
-        request: BackgroundAgentControlRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn control_task(&self, request: TaskControlRequest) -> restflow_tools::Result<Value> {
         let _ = parse_control_action(&request.action)?;
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
@@ -353,10 +339,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(outcome)?)
     }
 
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn get_task_progress(&self, request: TaskProgressRequest) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let progress = self.command_service.progress(
             &resolved_id,
@@ -368,10 +351,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(progress)?)
     }
 
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn send_task_message(&self, request: TaskMessageRequest) -> restflow_tools::Result<Value> {
         let source = Self::parse_message_source(request.source.as_deref())?;
         let resolved_id = self.resolve_task_id(&request.id)?;
         let message = self
@@ -380,10 +360,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(message)?)
     }
 
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn list_task_messages(&self, request: TaskMessageListRequest) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let messages = self.storage.list_background_agent_messages(
             &resolved_id,
@@ -395,19 +372,16 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(messages)?)
     }
 
-    fn list_background_agent_artifacts(
+    fn list_task_artifacts(
         &self,
-        request: BackgroundAgentArtifactListRequest,
+        request: TaskArtifactListRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let items = self.run_artifact_storage.list_by_task(&resolved_id)?;
         Ok(serde_json::to_value(items)?)
     }
 
-    fn list_background_agent_traces(
-        &self,
-        request: BackgroundAgentTraceListRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn list_task_traces(&self, request: TaskTraceListRequest) -> restflow_tools::Result<Value> {
         let limit = request.limit.unwrap_or(DEFAULT_BG_TRACE_LIST_LIMIT).max(1);
         let trace_targets = if let Some(task_id) = request.id.as_deref() {
             vec![self.task_trace_target(task_id)?]
@@ -442,10 +416,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(Value::Array(data))
     }
 
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn read_task_trace(&self, request: TaskTraceReadRequest) -> restflow_tools::Result<Value> {
         let trace_id = request.trace_id.trim();
         if trace_id.is_empty() {
             return Err(ToolError::Tool("trace_id must not be empty".to_string()));
@@ -500,9 +471,11 @@ mod tests {
         AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     };
     use restflow_traits::store::{
-        AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
-        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-        BackgroundAgentDeleteRequest, BackgroundAgentStore, BackgroundAgentUpdateRequest,
+        AgentCreateRequest, AgentUpdateRequest, BackgroundAgentArtifactListRequest,
+        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
+        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
+        BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest, BackgroundAgentStore,
+        BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
     };
     use restflow_traits::{ContractSubagentSpawnRequest, ToolError};
     use std::sync::Arc;

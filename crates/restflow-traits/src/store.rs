@@ -379,28 +379,22 @@ mod tests {
         }
     }
 
-    impl BackgroundAgentStore for MockBackgroundAgentStore {
-        fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
-            self.calls
-                .lock()
-                .expect("calls lock")
-                .push("create_background_agent");
+    impl TaskStore for MockBackgroundAgentStore {
+        fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
+            self.calls.lock().expect("calls lock").push("create_task");
             assert_eq!(request.name, "Task");
             Ok(json!({"ok": true}))
         }
 
-        fn convert_session_to_background_agent(
-            &self,
-            _request: BackgroundAgentConvertSessionRequest,
-        ) -> Result<Value> {
+        fn convert_session_to_task(&self, _request: TaskConvertSessionRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+        fn update_task(&self, _request: TaskUpdateRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn delete_background_agent(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
+        fn delete_task(&self, _request: TaskDeleteRequest) -> Result<Value> {
             panic!("not expected")
         }
 
@@ -410,52 +404,31 @@ mod tests {
             Ok(json!([{"id": "task-1"}]))
         }
 
-        fn control_background_agent(
-            &self,
-            _request: BackgroundAgentControlRequest,
-        ) -> Result<Value> {
+        fn control_task(&self, _request: TaskControlRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn get_background_agent_progress(
-            &self,
-            _request: BackgroundAgentProgressRequest,
-        ) -> Result<Value> {
+        fn get_task_progress(&self, _request: TaskProgressRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn send_background_agent_message(
-            &self,
-            _request: BackgroundAgentMessageRequest,
-        ) -> Result<Value> {
+        fn send_task_message(&self, _request: TaskMessageRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agent_messages(
-            &self,
-            _request: BackgroundAgentMessageListRequest,
-        ) -> Result<Value> {
+        fn list_task_messages(&self, _request: TaskMessageListRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agent_artifacts(
-            &self,
-            _request: BackgroundAgentArtifactListRequest,
-        ) -> Result<Value> {
+        fn list_task_artifacts(&self, _request: TaskArtifactListRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agent_traces(
-            &self,
-            _request: BackgroundAgentTraceListRequest,
-        ) -> Result<Value> {
+        fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn read_background_agent_trace(
-            &self,
-            _request: BackgroundAgentTraceReadRequest,
-        ) -> Result<Value> {
+        fn read_task_trace(&self, _request: TaskTraceReadRequest) -> Result<Value> {
             panic!("not expected")
         }
     }
@@ -488,21 +461,52 @@ mod tests {
         .expect("create_task should forward");
         assert_eq!(create_result["ok"], true);
 
-        let list_result = BackgroundAgentStore::list_tasks(&store, Some("active".to_string()))
+        let list_result = TaskStore::list_tasks(&store, Some("active".to_string()))
             .expect("list_tasks should forward");
         assert_eq!(list_result.as_array().map(|items| items.len()), Some(1));
-        assert_eq!(store.calls(), vec!["create_background_agent", "list_tasks"]);
+        assert_eq!(store.calls(), vec!["create_task", "list_tasks"]);
     }
 
     #[test]
     fn task_store_trait_object_forwards_to_background_agent_store() {
-        let store: Arc<dyn BackgroundAgentStore> = Arc::new(MockBackgroundAgentStore::default());
+        let store: Arc<dyn TaskStore> = Arc::new(MockBackgroundAgentStore::default());
 
         let result = store
             .list_tasks(Some("active".to_string()))
             .expect("list_tasks should forward through trait object");
 
         assert_eq!(result.as_array().map(|items| items.len()), Some(1));
+    }
+
+    #[test]
+    fn background_agent_store_compat_forwards_to_task_store() {
+        let store = MockBackgroundAgentStore::default();
+
+        let result = BackgroundAgentStore::create_background_agent(
+            &store,
+            TaskCreateRequest {
+                name: "Task".to_string(),
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                schedule: ContractTaskSchedule::Interval {
+                    interval_ms: 1_000,
+                    start_at: None,
+                },
+                input: None,
+                input_template: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                approval_id: None,
+            },
+        )
+        .expect("legacy create should forward");
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(store.calls(), vec!["create_task"]);
     }
 }
 
@@ -533,89 +537,89 @@ pub type BackgroundAgentTraceListRequest = TaskTraceListRequest;
 #[doc(hidden)]
 pub type BackgroundAgentTraceReadRequest = TaskTraceReadRequest;
 
-pub trait BackgroundAgentStore: Send + Sync {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
+pub trait TaskStore: Send + Sync {
+    fn create_task(&self, request: TaskCreateRequest) -> Result<Value>;
+    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value>;
+    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value>;
+    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value>;
+    fn list_tasks(&self, status: Option<String>) -> Result<Value>;
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value>;
+    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value>;
+    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value>;
+    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value>;
+    fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value>;
+    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value>;
+    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value>;
+}
+
+pub trait BackgroundAgentStore: TaskStore + Send + Sync {
+    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+        self.create_task(request)
+    }
+
     fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<Value>;
-    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value>;
-    fn list_tasks(&self, status: Option<String>) -> Result<Value>;
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value>;
+    ) -> Result<Value> {
+        self.convert_session_to_task(request)
+    }
+
+    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value> {
+        self.update_task(request)
+    }
+
+    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+        self.delete_task(request)
+    }
+
+    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+        self.control_task(request)
+    }
+
     fn get_background_agent_progress(
         &self,
         request: BackgroundAgentProgressRequest,
-    ) -> Result<Value>;
+    ) -> Result<Value> {
+        self.get_task_progress(request)
+    }
+
     fn send_background_agent_message(
         &self,
         request: BackgroundAgentMessageRequest,
-    ) -> Result<Value>;
+    ) -> Result<Value> {
+        self.send_task_message(request)
+    }
+
     fn list_background_agent_messages(
         &self,
         request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value>;
+    ) -> Result<Value> {
+        self.list_task_messages(request)
+    }
+
     fn list_background_agent_artifacts(
         &self,
         request: BackgroundAgentArtifactListRequest,
-    ) -> Result<Value>;
+    ) -> Result<Value> {
+        self.list_task_artifacts(request)
+    }
+
     fn list_background_agent_traces(
         &self,
         request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value>;
+    ) -> Result<Value> {
+        self.list_task_traces(request)
+    }
+
     fn read_background_agent_trace(
         &self,
         request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value>;
-}
-
-pub trait TaskStore: BackgroundAgentStore + Send + Sync {
-    fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
-        self.create_background_agent(request)
-    }
-
-    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value> {
-        self.convert_session_to_background_agent(request)
-    }
-
-    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value> {
-        self.update_background_agent(request)
-    }
-
-    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value> {
-        self.delete_background_agent(request)
-    }
-
-    fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
-        self.control_background_agent(request)
-    }
-
-    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value> {
-        self.get_background_agent_progress(request)
-    }
-
-    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value> {
-        self.send_background_agent_message(request)
-    }
-
-    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
-        self.list_background_agent_messages(request)
-    }
-
-    fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value> {
-        self.list_background_agent_artifacts(request)
-    }
-
-    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
-        self.list_background_agent_traces(request)
-    }
-
-    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
-        self.read_background_agent_trace(request)
+    ) -> Result<Value> {
+        self.read_task_trace(request)
     }
 }
 
-impl<T: ?Sized> TaskStore for T where T: BackgroundAgentStore + Send + Sync {}
+impl<T: ?Sized> BackgroundAgentStore for T where T: TaskStore + Send + Sync {}
 
 pub mod compat {
     pub use super::{

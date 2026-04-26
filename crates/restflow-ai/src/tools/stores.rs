@@ -9,7 +9,7 @@ pub use restflow_traits::store::{
     DiagnosticsProvider, MarketplaceStore, MemoryClearRequest, MemoryCompactRequest,
     MemoryExportRequest, MemoryManager, MemoryStore, OpsProvider, ProcessLog, ProcessManager,
     ProcessPollResult, ProcessSessionInfo, ReplySender, SecurityQueryProvider,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, TeamTemplateEntry,
-    TeamTemplateStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
-    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, TaskStore,
+    TeamTemplateEntry, TeamTemplateStore, TerminalStore, TriggerStore, UnifiedMemorySearch,
+    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };

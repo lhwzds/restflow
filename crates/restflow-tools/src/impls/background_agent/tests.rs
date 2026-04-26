@@ -8,7 +8,7 @@ use restflow_traits::store::{
     BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, MANAGE_TASK_OPERATIONS_CSV,
     TaskStore, TeamTemplateEntry, TeamTemplateStore,
 };
@@ -150,18 +150,18 @@ fn writable_team_tool(team_template_store: Arc<dyn TeamTemplateStore>) -> TaskTo
 }
 
 #[test]
-fn task_tool_from_task_store_keeps_background_agent_compat() {
+fn task_tool_from_task_store_keeps_canonical_store() {
     let task_store: Arc<dyn TaskStore> = Arc::new(MockStore);
     let tool = TaskTool::from_task_store(task_store);
 
-    let _: Arc<dyn BackgroundAgentStore> = tool.store.clone();
+    let _: Arc<dyn TaskStore> = tool.store.clone();
 }
 
 #[test]
-fn background_agent_constructor_preserves_status_through_bridge() {
+fn task_tool_constructor_preserves_canonical_store() {
     let tool = TaskTool::new(Arc::new(MockStore));
 
-    let _: Arc<dyn BackgroundAgentStore> = tool.store.clone();
+    let _: Arc<dyn TaskStore> = tool.store.clone();
 }
 
 #[test]
@@ -257,8 +257,8 @@ impl TeamTemplateStore for MockTeamTemplateStore {
     }
 }
 
-impl BackgroundAgentStore for MockStore {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+impl TaskStore for MockStore {
+    fn create_task(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -275,7 +275,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn convert_session_to_background_agent(
+    fn convert_session_to_task(
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> Result<Value> {
@@ -302,7 +302,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_task(&self, request: BackgroundAgentUpdateRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -320,7 +320,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_task(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -352,7 +352,7 @@ impl BackgroundAgentStore for MockStore {
         Ok(json!([{"id": "task-1"}]))
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_task(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -370,10 +370,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_task_progress(&self, request: BackgroundAgentProgressRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "event_limit": request.event_limit.unwrap_or(10),
@@ -381,10 +378,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_task_message(&self, request: BackgroundAgentMessageRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "message": request.message,
@@ -392,10 +386,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_task_messages(&self, request: BackgroundAgentMessageListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "msg-1",
             "task_id": request.id,
@@ -403,10 +394,7 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn list_background_agent_artifacts(
-        &self,
-        request: BackgroundAgentArtifactListRequest,
-    ) -> Result<Value> {
+    fn list_task_artifacts(&self, request: BackgroundAgentArtifactListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "d-1",
             "task_id": request.id,
@@ -414,10 +402,7 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn list_background_agent_traces(
-        &self,
-        request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_task_traces(&self, request: BackgroundAgentTraceListRequest) -> Result<Value> {
         Ok(json!([{
             "id": request.id,
             "trace_id": "trace-001",
@@ -425,10 +410,7 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_task_trace(&self, request: BackgroundAgentTraceReadRequest) -> Result<Value> {
         Ok(json!({
             "trace_id": request.trace_id,
             "line_limit": request.line_limit.unwrap_or(200),
@@ -440,8 +422,8 @@ impl BackgroundAgentStore for MockStore {
     }
 }
 
-impl BackgroundAgentStore for ConfirmationCreateStore {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+impl TaskStore for ConfirmationCreateStore {
+    fn create_task(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
         let mut create_calls = self
             .create_calls
             .lock()
@@ -465,18 +447,18 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         }))
     }
 
-    fn convert_session_to_background_agent(
+    fn convert_session_to_task(
         &self,
         _request: BackgroundAgentConvertSessionRequest,
     ) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_task(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn delete_background_agent(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_task(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
         panic!("not expected")
     }
 
@@ -484,7 +466,7 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         panic!("not expected")
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_task(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": {
@@ -494,58 +476,40 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         }))
     }
 
-    fn get_background_agent_progress(
-        &self,
-        _request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_task_progress(&self, _request: BackgroundAgentProgressRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn send_background_agent_message(
-        &self,
-        _request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_task_message(&self, _request: BackgroundAgentMessageRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agent_messages(
-        &self,
-        _request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_task_messages(&self, _request: BackgroundAgentMessageListRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agent_artifacts(
-        &self,
-        _request: BackgroundAgentArtifactListRequest,
-    ) -> Result<Value> {
+    fn list_task_artifacts(&self, _request: BackgroundAgentArtifactListRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agent_traces(
-        &self,
-        _request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_task_traces(&self, _request: BackgroundAgentTraceListRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn read_background_agent_trace(
-        &self,
-        _request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_task_trace(&self, _request: BackgroundAgentTraceReadRequest) -> Result<Value> {
         panic!("not expected")
     }
 }
 
-impl BackgroundAgentStore for FailingListStore {
-    fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
+impl TaskStore for FailingListStore {
+    fn create_task(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": "task-1" }
         }))
     }
 
-    fn convert_session_to_background_agent(
+    fn convert_session_to_task(
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> Result<Value> {
@@ -563,14 +527,14 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_task(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": "task-1", "updated": true }
         }))
     }
 
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_task(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": request.id, "deleted": true }
@@ -581,17 +545,14 @@ impl BackgroundAgentStore for FailingListStore {
         Err(crate::ToolError::Tool("store offline".to_string()))
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_task(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": request.id, "action": request.action }
         }))
     }
 
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_task_progress(&self, request: BackgroundAgentProgressRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "event_limit": request.event_limit.unwrap_or(10),
@@ -599,10 +560,7 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_task_message(&self, request: BackgroundAgentMessageRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "message": request.message,
@@ -610,10 +568,7 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_task_messages(&self, request: BackgroundAgentMessageListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "msg-1",
             "task_id": request.id,
@@ -621,10 +576,7 @@ impl BackgroundAgentStore for FailingListStore {
         }]))
     }
 
-    fn list_background_agent_artifacts(
-        &self,
-        request: BackgroundAgentArtifactListRequest,
-    ) -> Result<Value> {
+    fn list_task_artifacts(&self, request: BackgroundAgentArtifactListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "d-1",
             "task_id": request.id,
@@ -632,17 +584,11 @@ impl BackgroundAgentStore for FailingListStore {
         }]))
     }
 
-    fn list_background_agent_traces(
-        &self,
-        _request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_task_traces(&self, _request: BackgroundAgentTraceListRequest) -> Result<Value> {
         Ok(json!([]))
     }
 
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_task_trace(&self, request: BackgroundAgentTraceReadRequest) -> Result<Value> {
         Ok(json!({
             "trace_id": request.trace_id,
             "line_limit": request.line_limit.unwrap_or(200),
