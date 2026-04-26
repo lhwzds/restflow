@@ -6,6 +6,10 @@ type SessionLike = {
   model?: string
 }
 
+type AgentLike = {
+  id: string
+}
+
 type CreateSessionRequest = {
   agent_id?: string | null
   model: string
@@ -14,9 +18,12 @@ type CreateSessionRequest = {
 }
 
 type TrackedState = {
+  agentIds: Set<string>
   sessionIds: Set<string>
   backgroundTaskIds: Set<string>
 }
+
+const E2E_OPENAI_MODEL = 'gpt-5-4-mini'
 
 type BackgroundAgentDeleteResult = {
   id: string
@@ -32,6 +39,7 @@ function getTrackedState(page: Page): TrackedState {
   }
 
   const created: TrackedState = {
+    agentIds: new Set(),
     sessionIds: new Set(),
     backgroundTaskIds: new Set(),
   }
@@ -45,6 +53,10 @@ function isNotFoundError(error: unknown): boolean {
 
 function rememberSessionId(page: Page, sessionId: string) {
   getTrackedState(page).sessionIds.add(sessionId)
+}
+
+function rememberAgentId(page: Page, agentId: string) {
+  getTrackedState(page).agentIds.add(agentId)
 }
 
 function rememberBackgroundTaskId(page: Page, taskId: string) {
@@ -231,12 +243,51 @@ export async function createApiSessionForTest(
   return session
 }
 
+export async function createOpenAiSessionForTest(page: Page, name?: string): Promise<string> {
+  const timestamp = Date.now()
+  const agent = await requestIpc<AgentLike>(page, {
+    type: 'CreateAgent',
+    data: {
+      name: `E2E OpenAI Agent ${timestamp}`,
+      agent: {
+        model: E2E_OPENAI_MODEL,
+        model_ref: {
+          provider: 'openai',
+          model: E2E_OPENAI_MODEL,
+        },
+        prompt: 'You are an E2E test agent.',
+        api_key_config: {
+          type: 'secret',
+          value: 'OPENAI_API_KEY',
+        },
+        tools: [],
+        skills: [],
+      },
+    },
+  })
+  rememberAgentId(page, agent.id)
+
+  const session = await createApiSessionForTest(page, {
+    agent_id: agent.id,
+    model: E2E_OPENAI_MODEL,
+    name: name ?? `E2E Workspace ${timestamp}`,
+    skill_id: null,
+  })
+  await page.goto(`/workspace/c/${session.id}`)
+  await page.waitForLoadState('domcontentloaded')
+  await expect(page.getByTestId(`workspace-folder-${session.id}`)).toBeVisible({
+    timeout: 15000,
+  })
+  return session.id
+}
+
 export async function cleanupTrackedState(page: Page) {
   const state = trackedState.get(page)
   if (!state) {
     return
   }
 
+  const agentIds = [...state.agentIds].reverse()
   const sessionIds = [...state.sessionIds].reverse()
   const backgroundTaskIds = [...state.backgroundTaskIds].reverse()
   trackedState.delete(page)
@@ -267,6 +318,23 @@ export async function cleanupTrackedState(page: Page) {
       if (!isNotFoundError(error)) {
         cleanupErrors.push(
           `Failed to delete session ${sessionId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    }
+  }
+
+  for (const agentId of agentIds) {
+    try {
+      await requestIpcDirect({
+        type: 'DeleteAgent',
+        data: { id: agentId },
+      })
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        cleanupErrors.push(
+          `Failed to delete agent ${agentId}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         )

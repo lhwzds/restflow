@@ -221,7 +221,8 @@ fn setup_storage() -> (
     let channel_session_binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
     let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
     let work_item_storage = WorkItemStorage::new(db.clone()).unwrap();
-    let secret_storage = SecretStorage::with_master_key(db.clone(), [0x11; 32]).unwrap();
+    let test_master_key = std::array::from_fn(|index| (index as u8).wrapping_add(1));
+    let secret_storage = SecretStorage::with_master_key(db.clone(), test_master_key).unwrap();
     let config_storage = ConfigStorage::new(db.clone()).unwrap();
     let agent_storage = AgentStorage::new(db.clone()).unwrap();
     let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
