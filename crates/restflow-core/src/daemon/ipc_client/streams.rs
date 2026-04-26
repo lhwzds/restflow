@@ -113,18 +113,6 @@ impl IpcClient {
         }
     }
 
-    pub async fn subscribe_background_agent_events<F>(
-        &mut self,
-        background_agent_id: String,
-        on_event: F,
-    ) -> Result<()>
-    where
-        F: FnMut(TaskStreamEvent) -> Result<()>,
-    {
-        self.subscribe_task_events(background_agent_id, on_event)
-            .await
-    }
-
     pub async fn subscribe_session_events<F>(&mut self, mut on_event: F) -> Result<()>
     where
         F: FnMut(ChatSessionEvent) -> Result<()>,

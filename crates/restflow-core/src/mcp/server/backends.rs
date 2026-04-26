@@ -651,7 +651,7 @@ impl McpBackend for IpcBackend {
     async fn get_task(&self, id: &str) -> Result<Task, String> {
         let mut client = self.client.lock().await;
         client
-            .get_background_agent(id.to_string())
+            .get_task(id.to_string())
             .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Task {} not found", id))

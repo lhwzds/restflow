@@ -171,14 +171,6 @@ impl IpcClient {
         fn mark_auth_success(&mut self, _id: String) -> ();
         fn mark_auth_failure(&mut self, _id: String) -> ();
         fn clear_auth_profiles(&mut self) -> ();
-        fn list_background_agents(&mut self, _status: Option<String>) -> Vec<BackgroundAgent>;
-        fn get_background_agent(&mut self, _id: String) -> Option<BackgroundAgent>;
-        fn create_background_agent(&mut self, _spec: BackgroundAgentSpec) -> BackgroundAgent;
-        fn convert_session_to_background_agent(&mut self, _request: restflow_traits::store::BackgroundAgentConvertSessionRequest) -> crate::models::BackgroundAgentConversionResult;
-        fn update_background_agent(&mut self, _id: String, _patch: BackgroundAgentPatch) -> BackgroundAgent;
-        fn delete_background_agent(&mut self, _id: String) -> restflow_contracts::DeleteWithIdResponse;
-        fn control_background_agent(&mut self, _id: String, _action: BackgroundAgentControlAction) -> BackgroundAgent;
-        fn get_background_agent_history(&mut self, _id: String) -> Vec<BackgroundAgentEvent>;
         fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> String;
         fn init_python(&mut self) -> bool;
         fn get_available_tool_definitions(&mut self) -> Vec<ToolDefinition>;
@@ -199,17 +191,6 @@ impl IpcClient {
     }
 
     pub async fn subscribe_task_events<F>(&mut self, _task_id: String, _on_event: F) -> Result<()>
-    where
-        F: FnMut(TaskStreamEvent) -> Result<()>,
-    {
-        Self::unsupported()
-    }
-
-    pub async fn subscribe_background_agent_events<F>(
-        &mut self,
-        _background_agent_id: String,
-        _on_event: F,
-    ) -> Result<()>
     where
         F: FnMut(TaskStreamEvent) -> Result<()>,
     {

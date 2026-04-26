@@ -181,13 +181,6 @@ impl CoreAccess {
         }
     }
 
-    pub async fn list_background_agents(
-        &mut self,
-        status: Option<BackgroundAgentStatus>,
-    ) -> Result<Vec<BackgroundAgent>> {
-        self.list_tasks(status).await
-    }
-
     pub async fn get_task(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.get_task(id),
@@ -199,10 +192,6 @@ impl CoreAccess {
         }
     }
 
-    pub async fn get_background_agent(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
-        self.get_task(id).await
-    }
-
     pub async fn create_task(&mut self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
@@ -211,13 +200,6 @@ impl CoreAccess {
                 client.request_typed(IpcRequest::CreateTask { spec }).await
             }
         }
-    }
-
-    pub async fn create_background_agent(
-        &mut self,
-        spec: BackgroundAgentSpec,
-    ) -> Result<BackgroundAgent> {
-        self.create_task(spec).await
     }
 
     pub async fn list_secrets(&mut self) -> Result<Vec<crate::models::Secret>> {
