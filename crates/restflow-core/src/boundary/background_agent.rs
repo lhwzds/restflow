@@ -12,10 +12,7 @@ use restflow_contracts::request::{
     TaskSchedule as ContractTaskSchedule, TaskSpec as ContractTaskSpec,
 };
 use restflow_tools::ToolError;
-use restflow_traits::store::{
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentUpdateRequest,
-};
+use restflow_traits::store::{TaskConvertSessionRequest, TaskCreateRequest, TaskUpdateRequest};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -25,9 +22,6 @@ type CoreTaskControlAction = TaskControlAction;
 type CoreTaskPatch = TaskPatch;
 type CoreTaskSchedule = TaskSchedule;
 type CoreTaskSpec = TaskSpec;
-type LegacyStoreTaskCreateRequest = BackgroundAgentCreateRequest;
-type LegacyStoreTaskFromSessionRequest = BackgroundAgentConvertSessionRequest;
-type LegacyStoreTaskUpdateRequest = BackgroundAgentUpdateRequest;
 
 pub(crate) struct ConvertSessionToTaskOptions {
     pub(crate) name: Option<String>,
@@ -127,8 +121,8 @@ pub(crate) fn core_patch_to_contract(patch: CoreTaskPatch) -> anyhow::Result<Con
 
 pub(crate) fn core_task_spec_to_store_create_request(
     spec: &CoreTaskSpec,
-) -> anyhow::Result<LegacyStoreTaskCreateRequest> {
-    Ok(LegacyStoreTaskCreateRequest {
+) -> anyhow::Result<TaskCreateRequest> {
+    Ok(TaskCreateRequest {
         name: spec.name.clone(),
         agent_id: spec.agent_id.clone(),
         chat_session_id: spec.chat_session_id.clone(),
@@ -147,15 +141,15 @@ pub(crate) fn core_task_spec_to_store_create_request(
 
 pub(crate) fn core_spec_to_create_request(
     spec: &CoreTaskSpec,
-) -> anyhow::Result<LegacyStoreTaskCreateRequest> {
+) -> anyhow::Result<TaskCreateRequest> {
     core_task_spec_to_store_create_request(spec)
 }
 
 pub(crate) fn core_patch_to_update_request(
     id: String,
     patch: &CoreTaskPatch,
-) -> anyhow::Result<LegacyStoreTaskUpdateRequest> {
-    Ok(LegacyStoreTaskUpdateRequest {
+) -> anyhow::Result<TaskUpdateRequest> {
+    Ok(TaskUpdateRequest {
         id,
         name: patch.name.clone(),
         description: patch.description.clone(),
@@ -177,7 +171,7 @@ pub(crate) fn core_patch_to_update_request(
 }
 
 pub(crate) fn store_create_request_to_core_task_spec(
-    request: LegacyStoreTaskCreateRequest,
+    request: TaskCreateRequest,
 ) -> Result<CoreTaskSpec, ToolError> {
     let schedule =
         decode_contract::<ContractTaskSchedule, CoreTaskSchedule>("schedule", request.schedule)?;
@@ -214,13 +208,13 @@ pub(crate) fn store_create_request_to_core_task_spec(
 }
 
 pub(crate) fn create_request_to_spec(
-    request: LegacyStoreTaskCreateRequest,
+    request: TaskCreateRequest,
 ) -> Result<CoreTaskSpec, ToolError> {
     store_create_request_to_core_task_spec(request)
 }
 
 pub(crate) fn update_request_to_patch(
-    request: LegacyStoreTaskUpdateRequest,
+    request: TaskUpdateRequest,
 ) -> Result<CoreTaskPatch, ToolError> {
     Ok(CoreTaskPatch {
         name: request.name,
@@ -281,7 +275,7 @@ pub(crate) fn parse_control_action(action: &str) -> Result<CoreTaskControlAction
 }
 
 pub(crate) fn task_from_session_request_to_options(
-    request: LegacyStoreTaskFromSessionRequest,
+    request: TaskConvertSessionRequest,
 ) -> Result<ConvertSessionToTaskOptions, ToolError> {
     Ok(ConvertSessionToTaskOptions {
         name: request.name,
@@ -312,15 +306,15 @@ pub(crate) fn task_from_session_request_to_options(
 }
 
 pub(crate) fn convert_session_request_to_options(
-    request: LegacyStoreTaskFromSessionRequest,
+    request: TaskConvertSessionRequest,
 ) -> Result<ConvertSessionRequestOptions, ToolError> {
     task_from_session_request_to_options(request)
 }
 
 pub(crate) fn contract_task_from_session_request_to_store(
     request: ContractTaskFromSessionRequest,
-) -> anyhow::Result<LegacyStoreTaskFromSessionRequest> {
-    Ok(LegacyStoreTaskFromSessionRequest {
+) -> anyhow::Result<TaskConvertSessionRequest> {
+    Ok(TaskConvertSessionRequest {
         session_id: request.session_id,
         name: request.name,
         schedule: request.schedule,
@@ -338,7 +332,7 @@ pub(crate) fn contract_task_from_session_request_to_store(
 
 pub(crate) fn contract_convert_request_to_store(
     request: ContractTaskFromSessionRequest,
-) -> anyhow::Result<LegacyStoreTaskFromSessionRequest> {
+) -> anyhow::Result<TaskConvertSessionRequest> {
     contract_task_from_session_request_to_store(request)
 }
 
@@ -440,7 +434,7 @@ mod tests {
 
     #[test]
     fn create_request_to_spec_merges_memory_scope() {
-        let spec = create_request_to_spec(BackgroundAgentCreateRequest {
+        let spec = create_request_to_spec(TaskCreateRequest {
             name: "nightly".to_string(),
             agent_id: "agent-1".to_string(),
             chat_session_id: None,
@@ -468,7 +462,7 @@ mod tests {
 
     #[test]
     fn create_request_to_spec_accepts_legacy_memory_scope_alias() {
-        let spec = create_request_to_spec(BackgroundAgentCreateRequest {
+        let spec = create_request_to_spec(TaskCreateRequest {
             name: "nightly".to_string(),
             agent_id: "agent-1".to_string(),
             chat_session_id: None,
