@@ -670,13 +670,6 @@ pub async fn assess_task_create(
     assess_task_create_with_context(&context, request).await
 }
 
-pub async fn assess_background_agent_create(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentCreateRequest,
-) -> Result<OperationAssessment> {
-    assess_task_create(core, request).await
-}
-
 async fn assess_task_create_with_context(
     context: &AssessmentContext,
     request: TaskCreateRequest,
@@ -700,13 +693,6 @@ pub async fn assess_task_convert_session(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_convert_session_with_context(&context, request).await
-}
-
-pub async fn assess_background_agent_convert_session(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
-) -> Result<OperationAssessment> {
-    assess_task_convert_session(core, request).await
 }
 
 async fn assess_task_convert_session_with_context(
@@ -760,13 +746,6 @@ pub async fn assess_task_update(
     assess_task_update_with_context(&context, request).await
 }
 
-pub async fn assess_background_agent_update(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentUpdateRequest,
-) -> Result<OperationAssessment> {
-    assess_task_update(core, request).await
-}
-
 async fn assess_task_update_with_context(
     context: &AssessmentContext,
     request: TaskUpdateRequest,
@@ -801,13 +780,6 @@ pub async fn assess_task_delete(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_delete_with_context(&context, request).await
-}
-
-pub async fn assess_background_agent_delete(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentDeleteRequest,
-) -> Result<OperationAssessment> {
-    assess_task_delete(core, request).await
 }
 
 async fn assess_task_delete_with_context(
@@ -845,13 +817,6 @@ pub async fn assess_task_control(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_control_with_context(&context, request).await
-}
-
-pub async fn assess_background_agent_control(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentControlRequest,
-) -> Result<OperationAssessment> {
-    assess_task_control(core, request).await
 }
 
 async fn assess_task_control_with_context(
@@ -895,16 +860,6 @@ pub async fn assess_task_template(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_template_with_context(&context, operation, intent, agent_ids, template_mode).await
-}
-
-pub async fn assess_background_agent_template(
-    core: &Arc<AppCore>,
-    operation: &str,
-    intent: OperationAssessmentIntent,
-    agent_ids: Vec<String>,
-    template_mode: bool,
-) -> Result<OperationAssessment> {
-    assess_task_template(core, operation, intent, agent_ids, template_mode).await
 }
 
 async fn assess_task_template_with_context(
@@ -1091,7 +1046,7 @@ mod tests {
     use crate::prompt_files;
     use crate::services::agent::create_agent;
     use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
-    use restflow_traits::{BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest};
+    use restflow_traits::{TaskConvertSessionRequest, TaskDeleteRequest};
     use tempfile::tempdir;
 
     struct AgentsDirEnvGuard {
@@ -1316,7 +1271,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_defaults_run_now_to_save() {
+    async fn assess_task_convert_session_defaults_run_now_to_save() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1336,9 +1291,9 @@ mod tests {
             .create(&session)
             .expect("session");
 
-        let assessment = assess_background_agent_convert_session(
+        let assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1360,7 +1315,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_blocks_when_input_cannot_be_derived() {
+    async fn assess_task_convert_session_blocks_when_input_cannot_be_derived() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1379,9 +1334,9 @@ mod tests {
             .create(&session)
             .expect("session");
 
-        let assessment = assess_background_agent_convert_session(
+        let assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1406,7 +1361,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_approval_id_is_bound_to_session() {
+    async fn assess_task_convert_session_approval_id_is_bound_to_session() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1439,9 +1394,9 @@ mod tests {
             .create(&second_session)
             .expect("second session");
 
-        let first_assessment = assess_background_agent_convert_session(
+        let first_assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: first_session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1458,9 +1413,9 @@ mod tests {
         )
         .await
         .expect("first assessment");
-        let second_assessment = assess_background_agent_convert_session(
+        let second_assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: second_session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1484,7 +1439,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_approval_id_is_stable_for_same_session() {
+    async fn assess_task_convert_session_approval_id_is_stable_for_same_session() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1507,7 +1462,7 @@ mod tests {
             .create(&session)
             .expect("session");
 
-        let request = BackgroundAgentConvertSessionRequest {
+        let request = TaskConvertSessionRequest {
             session_id: session.id.clone(),
             name: None,
             schedule: None,
@@ -1522,10 +1477,10 @@ mod tests {
             approval_id: None,
         };
 
-        let first_assessment = assess_background_agent_convert_session(&core, request.clone())
+        let first_assessment = assess_task_convert_session(&core, request.clone())
             .await
             .expect("first assessment");
-        let second_assessment = assess_background_agent_convert_session(&core, request)
+        let second_assessment = assess_task_convert_session(&core, request)
             .await
             .expect("second assessment");
 
@@ -1534,7 +1489,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_delete_returns_warning_with_bound_token() {
+    async fn assess_task_delete_returns_warning_with_bound_token() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1566,9 +1521,9 @@ mod tests {
             })
             .expect("task");
 
-        let assessment = assess_background_agent_delete(
+        let assessment = assess_task_delete(
             &core,
-            BackgroundAgentDeleteRequest {
+            TaskDeleteRequest {
                 id: task.id.clone(),
                 preview: true,
                 approval_id: None,
@@ -1584,7 +1539,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_task_convert_session_matches_background_behavior() {
+    async fn assess_task_convert_session_adapter_uses_task_path() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
