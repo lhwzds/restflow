@@ -404,11 +404,8 @@ mod tests {
             panic!("not expected")
         }
 
-        fn list_background_agents(&self, status: Option<String>) -> Result<Value> {
-            self.calls
-                .lock()
-                .expect("calls lock")
-                .push("list_background_agents");
+        fn list_tasks(&self, status: Option<String>) -> Result<Value> {
+            self.calls.lock().expect("calls lock").push("list_tasks");
             assert_eq!(status.as_deref(), Some("active"));
             Ok(json!([{"id": "task-1"}]))
         }
@@ -491,20 +488,18 @@ mod tests {
         .expect("create_task should forward");
         assert_eq!(create_result["ok"], true);
 
-        let list_result = TaskStore::list_tasks(&store, Some("active".to_string()))
+        let list_result = BackgroundAgentStore::list_tasks(&store, Some("active".to_string()))
             .expect("list_tasks should forward");
         assert_eq!(list_result.as_array().map(|items| items.len()), Some(1));
-        assert_eq!(
-            store.calls(),
-            vec!["create_background_agent", "list_background_agents"]
-        );
+        assert_eq!(store.calls(), vec!["create_background_agent", "list_tasks"]);
     }
 
     #[test]
     fn task_store_trait_object_forwards_to_background_agent_store() {
         let store: Arc<dyn BackgroundAgentStore> = Arc::new(MockBackgroundAgentStore::default());
 
-        let result = TaskStore::list_tasks(store.as_ref(), Some("active".to_string()))
+        let result = store
+            .list_tasks(Some("active".to_string()))
             .expect("list_tasks should forward through trait object");
 
         assert_eq!(result.as_array().map(|items| items.len()), Some(1));
@@ -546,7 +541,7 @@ pub trait BackgroundAgentStore: Send + Sync {
     ) -> Result<Value>;
     fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
     fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value>;
-    fn list_background_agents(&self, status: Option<String>) -> Result<Value>;
+    fn list_tasks(&self, status: Option<String>) -> Result<Value>;
     fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value>;
     fn get_background_agent_progress(
         &self,
@@ -589,10 +584,6 @@ pub trait TaskStore: BackgroundAgentStore + Send + Sync {
 
     fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value> {
         self.delete_background_agent(request)
-    }
-
-    fn list_tasks(&self, status: Option<String>) -> Result<Value> {
-        self.list_background_agents(status)
     }
 
     fn control_task(&self, request: TaskControlRequest) -> Result<Value> {

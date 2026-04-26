@@ -348,7 +348,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+    fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
         Ok(json!([{"id": "task-1"}]))
     }
 
@@ -480,7 +480,7 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         panic!("not expected")
     }
 
-    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+    fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
         panic!("not expected")
     }
 
@@ -577,7 +577,7 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+    fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
         Err(crate::ToolError::Tool("store offline".to_string()))
     }
 
@@ -925,7 +925,7 @@ async fn test_list_store_error_is_wrapped() {
     let result = tool.execute(json!({ "operation": "list" })).await;
     let err = result.expect_err("expected wrapped store error");
     let err_text = err.to_string();
-    assert!(err_text.contains("Failed to list background agent"));
+    assert!(err_text.contains("Failed to list tasks"));
     assert!(err_text.contains("store offline"));
 }
 

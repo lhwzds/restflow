@@ -10,8 +10,10 @@ use super::TaskTool;
 use super::team::{get_team, list_teams};
 
 pub(super) fn execute_list(tool: &TaskTool, status: Option<String>) -> Result<ToolOutput> {
-    let result = TaskStore::list_tasks(tool.store.as_ref(), status)
-        .map_err(|e| ToolError::Tool(format!("Failed to list background agent: {e}.")))?;
+    let result = tool
+        .store
+        .list_tasks(status)
+        .map_err(|e| ToolError::Tool(format!("Failed to list tasks: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 

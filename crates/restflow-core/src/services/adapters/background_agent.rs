@@ -328,7 +328,7 @@ impl BackgroundAgentStore for TaskStoreAdapter {
         Ok(serde_json::to_value(outcome)?)
     }
 
-    fn list_background_agents(&self, status: Option<String>) -> restflow_tools::Result<Value> {
+    fn list_tasks(&self, status: Option<String>) -> restflow_tools::Result<Value> {
         let tasks = if let Some(status) = status {
             let status = Self::parse_status(&status)?;
             self.storage.list_tasks_by_status(status)?
@@ -847,7 +847,7 @@ mod tests {
         assert_eq!(created["status"], "executed");
         assert!(created["result"]["id"].as_str().is_some());
 
-        let list = adapter.list_background_agents(None).unwrap();
+        let list = adapter.list_tasks(None).unwrap();
         let tasks = list.as_array().unwrap();
         assert_eq!(tasks.len(), 1);
     }
@@ -946,12 +946,7 @@ mod tests {
 
         assert_eq!(created["status"], "confirmation_required");
         assert_eq!(
-            adapter
-                .list_background_agents(None)
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .len(),
+            adapter.list_tasks(None).unwrap().as_array().unwrap().len(),
             0
         );
     }
@@ -1023,12 +1018,7 @@ mod tests {
 
         assert_eq!(converted["status"], "confirmation_required");
         assert_eq!(
-            adapter
-                .list_background_agents(None)
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .len(),
+            adapter.list_tasks(None).unwrap().as_array().unwrap().len(),
             0
         );
     }
