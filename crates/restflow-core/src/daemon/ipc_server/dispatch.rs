@@ -2,8 +2,8 @@
 mod agents;
 #[path = "dispatch/auth.rs"]
 mod auth;
-#[path = "dispatch/background_agents.rs"]
-mod background_agents;
+#[path = "dispatch/tasks.rs"]
+mod tasks;
 #[path = "dispatch/config.rs"]
 mod config;
 #[path = "dispatch/hooks.rs"]
@@ -517,85 +517,4 @@ impl IpcServer {
         }
     }
 
-    async fn handle_list_tasks(core: &Arc<AppCore>, status: Option<String>) -> IpcResponse {
-        Self::handle_list_background_agents(core, status).await
-    }
-
-    async fn handle_list_runnable_tasks(
-        core: &Arc<AppCore>,
-        current_time: Option<i64>,
-    ) -> IpcResponse {
-        Self::handle_list_runnable_background_agents(core, current_time).await
-    }
-
-    async fn handle_get_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
-        Self::handle_get_background_agent(core, id).await
-    }
-
-    async fn handle_get_task_history(core: &Arc<AppCore>, id: String) -> IpcResponse {
-        Self::handle_get_background_agent_history(core, id).await
-    }
-
-    async fn handle_create_task(
-        core: &Arc<AppCore>,
-        spec: crate::models::BackgroundAgentSpec,
-    ) -> IpcResponse {
-        Self::handle_create_background_agent(core, spec).await
-    }
-
-    async fn handle_create_task_from_session(
-        core: &Arc<AppCore>,
-        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
-    ) -> IpcResponse {
-        Self::handle_convert_session_to_background_agent(core, request).await
-    }
-
-    async fn handle_update_task(
-        core: &Arc<AppCore>,
-        id: String,
-        patch: crate::models::BackgroundAgentPatch,
-    ) -> IpcResponse {
-        Self::handle_update_background_agent(core, id, patch).await
-    }
-
-    async fn handle_delete_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
-        Self::handle_delete_background_agent(core, id).await
-    }
-
-    async fn handle_control_task(
-        core: &Arc<AppCore>,
-        id: String,
-        action: crate::models::BackgroundAgentControlAction,
-    ) -> IpcResponse {
-        Self::handle_control_background_agent(core, id, action).await
-    }
-
-    async fn handle_get_task_progress(
-        core: &Arc<AppCore>,
-        id: String,
-        event_limit: Option<usize>,
-    ) -> IpcResponse {
-        Self::handle_get_background_agent_progress(core, id, event_limit).await
-    }
-
-    async fn handle_send_task_message(
-        core: &Arc<AppCore>,
-        id: String,
-        message: String,
-        source: Option<crate::models::TaskMessageSource>,
-    ) -> IpcResponse {
-        Self::handle_send_background_agent_message(core, id, message, source).await
-    }
-
-    async fn handle_task_approval(core: &Arc<AppCore>, id: String, approved: bool) -> IpcResponse {
-        Self::handle_background_agent_approval(core, id, approved).await
-    }
-
-    async fn handle_list_task_messages(
-        core: &Arc<AppCore>,
-        id: String,
-        limit: Option<usize>,
-    ) -> IpcResponse {
-        Self::handle_list_background_agent_messages(core, id, limit).await
-    }
 }

@@ -491,7 +491,7 @@ pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfil
     Ok(manager)
 }
 
-pub(super) fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> {
+pub(super) fn parse_task_status(status: &str) -> Result<BackgroundAgentStatus> {
     match status.to_lowercase().as_str() {
         "active" => Ok(BackgroundAgentStatus::Active),
         "paused" => Ok(BackgroundAgentStatus::Paused),
@@ -499,10 +499,7 @@ pub(super) fn parse_background_agent_status(status: &str) -> Result<BackgroundAg
         "completed" => Ok(BackgroundAgentStatus::Completed),
         "failed" => Ok(BackgroundAgentStatus::Failed),
         "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
-        _ => Err(anyhow::anyhow!(
-            "Unknown background agent status: {}",
-            status
-        )),
+        _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
     }
 }
 

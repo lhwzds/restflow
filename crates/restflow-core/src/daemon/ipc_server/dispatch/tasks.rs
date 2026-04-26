@@ -1,4 +1,4 @@
-use super::super::runtime::parse_background_agent_status;
+use super::super::runtime::parse_task_status;
 use super::super::*;
 use crate::boundary::background_agent::{
     core_patch_to_update_request, core_spec_to_create_request,
@@ -12,7 +12,7 @@ use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::ApprovalHandledResponse;
 use restflow_traits::store::{BackgroundAgentControlRequest, BackgroundAgentDeleteRequest};
 
-fn resolve_background_agent_id(
+fn resolve_task_id(
     core: &Arc<AppCore>,
     id: &str,
 ) -> std::result::Result<String, IpcResponse> {
@@ -22,7 +22,7 @@ fn resolve_background_agent_id(
         .resolve_existing_task_id_typed(id)
     {
         Ok(id) => Ok(id),
-        Err(ResolveTaskIdError::NotFound(_)) => Err(IpcResponse::not_found("Background agent")),
+        Err(ResolveTaskIdError::NotFound(_)) => Err(IpcResponse::not_found("Task")),
         Err(ResolveTaskIdError::Ambiguous { prefix, preview }) => Err(IpcResponse::error(
             400,
             format!("Task ID prefix '{prefix}' is ambiguous. Candidates: {preview}"),
@@ -43,12 +43,12 @@ fn command_error_response(error: TaskCommandError) -> IpcResponse {
 }
 
 impl IpcServer {
-    pub(super) async fn handle_list_background_agents(
+    pub(super) async fn handle_list_tasks(
         core: &Arc<AppCore>,
         status: Option<String>,
     ) -> IpcResponse {
         let result = match status {
-            Some(status) => match parse_background_agent_status(&status) {
+            Some(status) => match parse_task_status(&status) {
                 Ok(status) => core.storage.background_agents.list_tasks_by_status(status),
                 Err(err) => return IpcResponse::error(400, err.to_string()),
             },
@@ -56,42 +56,39 @@ impl IpcServer {
         };
 
         match result {
-            Ok(background_agents) => IpcResponse::success(background_agents),
+            Ok(tasks) => IpcResponse::success(tasks),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
 
-    pub(super) async fn handle_list_runnable_background_agents(
+    pub(super) async fn handle_list_runnable_tasks(
         core: &Arc<AppCore>,
         current_time: Option<i64>,
     ) -> IpcResponse {
         let now = current_time.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
         match core.storage.background_agents.list_runnable_tasks(now) {
-            Ok(background_agents) => IpcResponse::success(background_agents),
+            Ok(tasks) => IpcResponse::success(tasks),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
 
-    pub(super) async fn handle_get_background_agent(
-        core: &Arc<AppCore>,
-        id: String,
-    ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
+    pub(super) async fn handle_get_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
+        let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
         match core.storage.background_agents.get_task(&resolved_id) {
-            Ok(Some(background_agent)) => IpcResponse::success(background_agent),
-            Ok(None) => IpcResponse::not_found("Background agent"),
+            Ok(Some(task)) => IpcResponse::success(task),
+            Ok(None) => IpcResponse::not_found("Task"),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
 
-    pub(super) async fn handle_get_background_agent_history(
+    pub(super) async fn handle_get_task_history(
         core: &Arc<AppCore>,
         id: String,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
+        let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
@@ -105,7 +102,7 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_create_background_agent(
+    pub(super) async fn handle_create_task(
         core: &Arc<AppCore>,
         spec: crate::models::BackgroundAgentSpec,
     ) -> IpcResponse {
@@ -123,7 +120,7 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_convert_session_to_background_agent(
+    pub(super) async fn handle_create_task_from_session(
         core: &Arc<AppCore>,
         request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
     ) -> IpcResponse {
@@ -137,7 +134,7 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_update_background_agent(
+    pub(super) async fn handle_update_task(
         core: &Arc<AppCore>,
         id: String,
         patch: crate::models::BackgroundAgentPatch,
@@ -156,10 +153,7 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_delete_background_agent(
-        core: &Arc<AppCore>,
-        id: String,
-    ) -> IpcResponse {
+    pub(super) async fn handle_delete_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let request = BackgroundAgentDeleteRequest {
             id,
             preview: false,
@@ -175,7 +169,7 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_control_background_agent(
+    pub(super) async fn handle_control_task(
         core: &Arc<AppCore>,
         id: String,
         action: crate::models::BackgroundAgentControlAction,
@@ -200,12 +194,12 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_get_background_agent_progress(
+    pub(super) async fn handle_get_task_progress(
         core: &Arc<AppCore>,
         id: String,
         event_limit: Option<usize>,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
+        let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
@@ -215,13 +209,13 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_send_background_agent_message(
+    pub(super) async fn handle_send_task_message(
         core: &Arc<AppCore>,
         id: String,
         message: String,
         source: Option<crate::models::TaskMessageSource>,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
+        let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
@@ -235,12 +229,12 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_background_agent_approval(
+    pub(super) async fn handle_task_approval(
         core: &Arc<AppCore>,
         id: String,
         approved: bool,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
+        let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
@@ -262,12 +256,12 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_list_background_agent_messages(
+    pub(super) async fn handle_list_task_messages(
         core: &Arc<AppCore>,
         id: String,
         limit: Option<usize>,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
+        let resolved_id = match resolve_task_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };

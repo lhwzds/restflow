@@ -205,7 +205,7 @@ async fn process_convert_session_background_agent_returns_direct_result() {
 }
 
 #[tokio::test]
-async fn process_handle_background_agent_approval_returns_typed_response() {
+async fn process_handle_task_approval_returns_typed_response() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     ensure_test_agent_with_id(&core, "agent-1");
@@ -254,7 +254,7 @@ async fn process_get_background_agent_returns_not_found_for_missing_task() {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 404);
             assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
-            assert!(error.message.contains("Background agent"));
+            assert!(error.message.contains("Task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
