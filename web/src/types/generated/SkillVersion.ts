@@ -4,19 +4,20 @@
  * Semantic version for skills
  */
 export type SkillVersion = {
-/**
- * Major version (breaking changes)
- */
-major: number,
-/**
- * Minor version (new features, backward compatible)
- */
-minor: number,
-/**
- * Patch version (bug fixes)
- */
-patch: number,
-/**
- * Optional prerelease tag (e.g., "alpha", "beta.1")
- */
-prerelease: string | null, };
+  /**
+   * Major version (breaking changes)
+   */
+  major: number
+  /**
+   * Minor version (new features, backward compatible)
+   */
+  minor: number
+  /**
+   * Patch version (bug fixes)
+   */
+  patch: number
+  /**
+   * Optional prerelease tag (e.g., "alpha", "beta.1")
+   */
+  prerelease: string | null
+}

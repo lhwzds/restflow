@@ -3,4 +3,4 @@
 /**
  * Skill source used by the unified skill catalog.
  */
-export type SkillSource = "system" | "user" | "external";
+export type SkillSource = 'system' | 'user' | 'external'

@@ -4,15 +4,16 @@
  * Author information
  */
 export type SkillAuthor = {
-/**
- * Author name
- */
-name: string,
-/**
- * Optional email
- */
-email: string | null,
-/**
- * Optional URL (website, GitHub profile)
- */
-url: string | null, };
+  /**
+   * Author name
+   */
+  name: string
+  /**
+   * Optional email
+   */
+  email: string | null
+  /**
+   * Optional URL (website, GitHub profile)
+   */
+  url: string | null
+}

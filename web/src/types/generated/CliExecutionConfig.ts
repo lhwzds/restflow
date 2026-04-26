@@ -4,23 +4,24 @@
  * Configuration for CLI-based execution
  */
 export type CliExecutionConfig = {
-/**
- * CLI binary name (e.g., "claude", "aider")
- */
-binary: string,
-/**
- * Additional arguments to pass to the CLI
- */
-args: Array<string>,
-/**
- * Working directory for CLI execution
- */
-working_dir: string | null,
-/**
- * Timeout in seconds for CLI execution
- */
-timeout_secs: bigint,
-/**
- * Whether to use PTY for interactive mode
- */
-use_pty: boolean, };
+  /**
+   * CLI binary name (e.g., "claude", "aider")
+   */
+  binary: string
+  /**
+   * Additional arguments to pass to the CLI
+   */
+  args: Array<string>
+  /**
+   * Working directory for CLI execution
+   */
+  working_dir: string | null
+  /**
+   * Timeout in seconds for CLI execution
+   */
+  timeout_secs: bigint
+  /**
+   * Whether to use PTY for interactive mode
+   */
+  use_pty: boolean
+}

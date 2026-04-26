@@ -4,24 +4,25 @@
  * Configuration for long-horizon execution continuation.
  */
 export type ContinuationConfig = {
-/**
- * Automatically continue with additional segments when an execution reaches
- * the segment iteration ceiling.
- */
-enabled: boolean,
-/**
- * Maximum iterations allowed in one segment execution.
- */
-segment_iterations: number,
-/**
- * Hard cap for total iterations accumulated across all segments.
- */
-max_total_iterations: number,
-/**
- * Hard cap for cumulative LLM cost across all segments.
- */
-max_total_cost_usd: number | null,
-/**
- * Delay between segments in milliseconds to allow checkpoint persistence.
- */
-inter_segment_pause_ms: bigint, };
+  /**
+   * Automatically continue with additional segments when an execution reaches
+   * the segment iteration ceiling.
+   */
+  enabled: boolean
+  /**
+   * Maximum iterations allowed in one segment execution.
+   */
+  segment_iterations: number
+  /**
+   * Hard cap for total iterations accumulated across all segments.
+   */
+  max_total_iterations: number
+  /**
+   * Hard cap for cumulative LLM cost across all segments.
+   */
+  max_total_cost_usd: number | null
+  /**
+   * Delay between segments in milliseconds to allow checkpoint persistence.
+   */
+  inter_segment_pause_ms: bigint
+}

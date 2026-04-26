@@ -4,23 +4,24 @@
  * Statistics about task execution
  */
 export type ExecutionStats = {
-/**
- * Number of output lines produced
- */
-output_lines: number | null,
-/**
- * Total bytes of output
- */
-output_bytes: bigint | null,
-/**
- * Number of API calls made (for API mode)
- */
-api_calls: number | null,
-/**
- * Tokens used (for API mode)
- */
-tokens_used: number | null,
-/**
- * Cost in USD (for API mode)
- */
-cost_usd: number | null, };
+  /**
+   * Number of output lines produced
+   */
+  output_lines: number | null
+  /**
+   * Total bytes of output
+   */
+  output_bytes: bigint | null
+  /**
+   * Number of API calls made (for API mode)
+   */
+  api_calls: number | null
+  /**
+   * Tokens used (for API mode)
+   */
+  tokens_used: number | null
+  /**
+   * Cost in USD (for API mode)
+   */
+  cost_usd: number | null
+}

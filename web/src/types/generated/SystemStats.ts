@@ -4,11 +4,12 @@
  * System statistics included in heartbeat
  */
 export type SystemStats = {
-/**
- * Memory usage in bytes (if available)
- */
-memory_bytes: number | null,
-/**
- * Number of tokio tasks (if available)
- */
-tokio_tasks: number | null, };
+  /**
+   * Memory usage in bytes (if available)
+   */
+  memory_bytes: number | null
+  /**
+   * Number of tokio tasks (if available)
+   */
+  tokio_tasks: number | null
+}

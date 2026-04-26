@@ -4,15 +4,16 @@
  * Breakdown of how the score was calculated.
  */
 export type ScoreBreakdown = {
-/**
- * Score contribution from keyword frequency
- */
-frequency_score: number,
-/**
- * Score contribution from recency
- */
-recency_score: number,
-/**
- * Score contribution from tag matches
- */
-tag_score: number, };
+  /**
+   * Score contribution from keyword frequency
+   */
+  frequency_score: number
+  /**
+   * Score contribution from recency
+   */
+  recency_score: number
+  /**
+   * Score contribution from tag matches
+   */
+  tag_score: number
+}

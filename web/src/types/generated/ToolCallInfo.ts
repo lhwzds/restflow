@@ -4,15 +4,16 @@
  * Tool call information
  */
 export type ToolCallInfo = {
-/**
- * Unique identifier for this tool call
- */
-id: string,
-/**
- * Name of the tool being called
- */
-name: string,
-/**
- * Arguments passed to the tool (JSON object)
- */
-arguments: Record<string, unknown>, };
+  /**
+   * Unique identifier for this tool call
+   */
+  id: string
+  /**
+   * Name of the tool being called
+   */
+  name: string
+  /**
+   * Arguments passed to the tool (JSON object)
+   */
+  arguments: Record<string, unknown>
+}

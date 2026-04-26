@@ -6,11 +6,12 @@
  * Tracks aggregate statistics about the session.
  */
 export type ChatSessionMetadata = {
-/**
- * Total tokens used across all messages
- */
-total_tokens: number,
-/**
- * Number of messages in the session
- */
-message_count: number, };
+  /**
+   * Total tokens used across all messages
+   */
+  total_tokens: number
+  /**
+   * Number of messages in the session
+   */
+  message_count: number
+}
