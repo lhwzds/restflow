@@ -171,7 +171,6 @@ pub enum Commands {
     },
 
     /// Task management
-    #[command(visible_alias = "background-agent")]
     Task {
         #[command(subcommand)]
         command: TaskCommands,
@@ -349,115 +348,6 @@ mod tests {
                 command: super::TaskCommands::List { .. }
             })
         ));
-    }
-
-    #[test]
-    fn parses_task_legacy_background_agent_list_alias() {
-        let cli = Cli::try_parse_from(["restflow", "background-agent", "list"]);
-        assert!(matches!(
-            cli,
-            Ok(Cli {
-                command: Some(super::Commands::Task {
-                    command: super::TaskCommands::List { .. }
-                }),
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_task_legacy_background_agent_convert_session_alias() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "convert-session",
-            "session-123",
-        ]);
-        assert!(matches!(
-            cli,
-            Ok(Cli {
-                command: Some(super::Commands::Task {
-                    command: super::TaskCommands::ConvertSession { .. }
-                }),
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_task_legacy_background_agent_create_alias() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "create",
-            "--name",
-            "guarded-task",
-            "--agent",
-            "default",
-            "--schedule",
-            "interval",
-            "--schedule-value",
-            "60000",
-        ])
-        .expect("parse background-agent create");
-
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Task {
-                command: super::TaskCommands::Create { .. }
-            })
-        ));
-    }
-
-    #[test]
-    fn rejects_legacy_background_agent_create_guard_flags() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "create",
-            "--name",
-            "guarded-task",
-            "--agent",
-            "default",
-            "--schedule",
-            "interval",
-            "--schedule-value",
-            "60000",
-            "--preview",
-        ]);
-        assert!(cli.is_err());
-    }
-
-    #[test]
-    fn rejects_legacy_background_agent_create_confirm_flag() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "create",
-            "--name",
-            "guarded-task",
-            "--agent",
-            "default",
-            "--schedule",
-            "interval",
-            "--schedule-value",
-            "60000",
-            "--confirm",
-            "token-123",
-        ]);
-        assert!(cli.is_err());
-    }
-
-    #[test]
-    fn rejects_legacy_background_agent_convert_session_preview_flag() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "convert-session",
-            "session-123",
-            "--preview",
-        ]);
-        assert!(cli.is_err());
     }
 
     #[test]

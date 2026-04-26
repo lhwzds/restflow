@@ -20,5 +20,5 @@ pub async fn prepare_core(db_path: Option<String>) -> Result<Arc<AppCore>> {
     Ok(Arc::new(AppCore::new(&db_path).await?))
 }
 
-// TODO: Add startup-time API key validation for chat/background-agent flows.
+// TODO: Add startup-time API key validation for chat/task flows.
 // The old validation used rig-core which has been removed.
