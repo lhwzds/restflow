@@ -101,6 +101,7 @@ pub enum ShellAction {
     NewChatStarted {
         status: String,
     },
+    OpenHelpOverlay,
     OpenDaemonPicker,
     OpenTaskActionPicker {
         task_id: String,
@@ -329,6 +330,11 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.start_new_chat();
             state.status = status;
         }
+        ShellAction::OpenHelpOverlay => {
+            state.composer.clear();
+            state.open_help_overlay();
+            state.status = "Showing help".to_string();
+        }
         ShellAction::OpenDaemonPicker => {
             state.composer.clear();
             state.open_daemon_picker();
@@ -399,9 +405,7 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
         Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
-        Action::OpenHelp => output
-            .effects
-            .push(ShellEffect::ExecuteSlashCommand(SlashCommand::Help)),
+        Action::OpenHelp => output.actions.push(ShellAction::OpenHelpOverlay),
         Action::Resize => output.effects.push(ShellEffect::ClearScreen),
         Action::Redraw => {
             state.status = "Screen redrawn".to_string();
@@ -982,6 +986,22 @@ mod tests {
             output.effects.as_slice(),
             [ShellEffect::ExecuteSlashCommand(SlashCommand::Help)]
         ));
+    }
+
+    #[test]
+    fn help_overlay_does_not_append_runtime_info() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::OpenHelpOverlay);
+
+        assert!(output.effects.is_empty());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::Help)
+        ));
+        assert_eq!(state.status, "Showing help");
     }
 
     #[test]

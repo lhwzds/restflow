@@ -393,11 +393,7 @@ impl ShellController {
                 };
                 Ok(vec![ShellAction::DaemonStopped { status }])
             }
-            SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(
-                ShellMessage::InfoNotice {
-                    content: help_text().to_string(),
-                },
-            )]),
+            SlashCommand::Help => Ok(vec![ShellAction::OpenHelpOverlay]),
             SlashCommand::ListSessions => self.session_picker_actions().await,
             SlashCommand::ListTasks => self.task_picker_actions().await,
             SlashCommand::ListModels => self.provider_picker_actions(state).await,
@@ -976,24 +972,6 @@ fn command_display(command: &str, args: &str) -> String {
     } else {
         format!("{command} {args}")
     }
-}
-
-fn help_text() -> &'static str {
-    "RestFlow terminal shell\n\n\
-Use /daemon when the daemon is offline.\n\
-\
-Enter sends the current draft.\n\
-Ctrl-J inserts a newline.\n\
-Ctrl-P resumes a previous session.\n\
-Ctrl-L clears and redraws the screen.\n\
-Ctrl-C exits.\n\n\
-Slash commands:\n\
-/daemon\n\
-/new\n\
-/help\n\
-/resume\n\
-/model\n\
-/task"
 }
 
 #[cfg(test)]

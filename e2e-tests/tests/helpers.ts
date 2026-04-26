@@ -25,9 +25,10 @@ type TrackedState = {
 
 const E2E_OPENAI_MODEL = 'gpt-5-4-mini'
 
-type BackgroundAgentDeleteResult = {
-  id: string
-  deleted: boolean
+type ToolExecutionResult = {
+  success: boolean
+  result: unknown
+  error?: string | null
 }
 
 const trackedState = new WeakMap<Page, TrackedState>()
@@ -182,13 +183,66 @@ async function requestIpcDirect<T>(request: Record<string, unknown>): Promise<T>
   throw new Error(`Unexpected daemon response: ${envelope.response_type}`)
 }
 
-async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
-  const result = await requestIpcDirect<BackgroundAgentDeleteResult>({
-    type: 'DeleteTask',
-    data: { id: taskId },
+async function executeManageTasksDirect(input: Record<string, unknown>): Promise<unknown> {
+  const output = await requestIpcDirect<ToolExecutionResult>({
+    type: 'ExecuteTool',
+    data: {
+      name: 'manage_tasks',
+      input,
+    },
   })
 
-  if (!result.deleted) {
+  if (!output.success) {
+    throw new Error(output.error || JSON.stringify(output.result))
+  }
+
+  return output.result
+}
+
+function readApprovalId(value: unknown): string {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'assessment' in value &&
+    typeof value.assessment === 'object' &&
+    value.assessment !== null &&
+    'approval_id' in value.assessment &&
+    typeof value.assessment.approval_id === 'string'
+  ) {
+    return value.assessment.approval_id
+  }
+  throw new Error('Missing task delete approval id')
+}
+
+function readTaskDeleted(value: unknown): boolean {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'result' in value &&
+    typeof value.result === 'object' &&
+    value.result !== null &&
+    'deleted' in value.result &&
+    typeof value.result.deleted === 'boolean'
+  ) {
+    return value.result.deleted
+  }
+  return false
+}
+
+async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
+  const preview = await executeManageTasksDirect({
+    action: 'delete',
+    id: taskId,
+    preview: true,
+  })
+  const approvalId = readApprovalId(preview)
+  const result = await executeManageTasksDirect({
+    action: 'delete',
+    id: taskId,
+    approval_id: approvalId,
+  })
+
+  if (!readTaskDeleted(result)) {
     throw new Error(`Failed to delete background task ${taskId}`)
   }
 }

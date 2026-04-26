@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 
 use crate::render::render_shell_bottom_viewport;
 use crate::scrollback::ScrollbackWriter;
-use crate::slash_command::SLASH_COMMAND_SPECS;
+use crate::slash_command::{HELP_TEXT, SLASH_COMMAND_SPECS};
 use crate::state::AppState;
 use crate::transcript::{TranscriptCell, TranscriptCellKind};
 
@@ -490,6 +490,10 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
     }
 
     if let Some(lines) = build_command_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_help_overlay_lines(state, width, max_rows) {
         return Some(lines);
     }
 
@@ -1055,6 +1059,33 @@ fn build_command_picker_lines(
             Span::raw(padding),
             Span::styled(spec.description, muted_style()),
         ]);
+        lines.extend(wrap_styled_line(line, width));
+    }
+
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_help_overlay_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    if !matches!(state.overlay, Some(crate::state::OverlayState::Help)) {
+        return None;
+    }
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Help", tool_title_style()),
+        Span::styled("  Esc close", muted_style()),
+    ]));
+    for raw_line in HELP_TEXT.lines() {
+        let line = if raw_line.is_empty() {
+            Line::from("")
+        } else {
+            Line::from(vec![Span::styled(raw_line.to_string(), muted_style())])
+        };
         lines.extend(wrap_styled_line(line, width));
     }
 
@@ -2249,6 +2280,24 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
+    }
+
+    #[test]
+    fn help_overlay_renders_as_transient_content() {
+        let mut state = AppState::empty();
+        state.open_help_overlay();
+
+        let lines = build_transient_lines(&state, 100, 32);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered[0].contains("Help"));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("RestFlow terminal shell"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("/daemon")));
+        assert!(!rendered.iter().any(|line| line.starts_with("Info")));
     }
 
     #[test]

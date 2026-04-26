@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
+import { cleanupTrackedState, createOpenAiSessionForTest, goToWorkspace, requestIpc } from './helpers'
 
 type ModelMetadata = {
   model: string
@@ -32,6 +32,7 @@ const PROVIDER_DISPLAY_ORDER = [
 
 const MOCK_MODELS: ModelMetadata[] = [
   { model: 'gpt-5', provider: 'openai', name: 'GPT-5' },
+  { model: 'gpt-5-4-mini', provider: 'openai', name: 'GPT-5.4 Mini' },
   { model: 'minimax-coding-plan-m2-5', provider: 'minimax-coding-plan', name: 'MiniMax M2.5 (Coding Plan)' },
   {
     model: 'minimax-coding-plan-m2-5-highspeed',
@@ -65,6 +66,10 @@ async function mockGetAvailableModels(page: Page) {
 }
 
 test.describe('Provider Catalog', () => {
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
+  })
+
   test('daemon returns all configured provider groups', async ({ page }) => {
     await goToWorkspace(page)
 
@@ -93,6 +98,7 @@ test.describe('Provider Catalog', () => {
 
   test('workspace selectors surface actual daemon catalog models', async ({ page }) => {
     await goToWorkspace(page)
+    await createOpenAiSessionForTest(page)
 
     const models = await requestIpc<ModelMetadata[]>(page, { type: 'GetAvailableModels' })
     const daemonModelNames = new Set(models.map((model) => model.name))
@@ -138,6 +144,7 @@ test.describe('Provider Catalog', () => {
   test('workspace selectors show provider labels from daemon catalog', async ({ page }) => {
     await mockGetAvailableModels(page)
     await goToWorkspace(page)
+    await createOpenAiSessionForTest(page)
 
     const chatModelSelector = page
       .locator('button[role="combobox"]')

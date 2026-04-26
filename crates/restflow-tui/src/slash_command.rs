@@ -83,6 +83,22 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
     },
 ];
 
+pub const HELP_TEXT: &str = "RestFlow terminal shell\n\n\
+Use /daemon when the daemon is offline.\n\
+\
+Enter sends the current draft.\n\
+Ctrl-J inserts a newline.\n\
+Ctrl-P resumes a previous session.\n\
+Ctrl-L clears and redraws the screen.\n\
+Ctrl-C exits.\n\n\
+Slash commands:\n\
+/daemon\n\
+/new\n\
+/help\n\
+/resume\n\
+/model\n\
+/task";
+
 pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
     let mut parts = raw.split_whitespace();
     let command = parts.next().unwrap_or_default();
