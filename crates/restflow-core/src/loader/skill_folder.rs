@@ -1,17 +1,26 @@
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 use walkdir::WalkDir;
 
-use crate::models::{Skill, SkillReference, SkillScript, StorageMode};
+use crate::models::{Skill, SkillReference, SkillScript, SkillSource, StorageMode};
 use crate::paths;
+
+pub const INSTALL_SOURCE_METADATA_FILE: &str = ".restflow-source.json";
 
 #[derive(Debug, Clone)]
 pub struct SkillFolderLoader {
     base_dir: PathBuf,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstallSourceMetadata {
+    source: SkillSource,
+    #[serde(default)]
+    source_ref: Option<String>,
 }
 
 pub fn discover_skill_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -129,6 +138,10 @@ impl SkillFolderLoader {
         skill.storage_mode = StorageMode::FileSystemOnly;
         skill.is_synced = true;
         skill.content_hash = Some(Self::hash_content(&content));
+        if let Some(metadata) = Self::install_source_metadata(folder_path)? {
+            skill.source = metadata.source;
+            skill.source_ref = metadata.source_ref;
+        }
 
         if skill.scripts.is_empty() {
             skill.scripts = self.discover_scripts(folder_path)?;
@@ -214,6 +227,33 @@ impl SkillFolderLoader {
 
     fn hash_content(content: &str) -> String {
         hex::encode(Sha256::digest(content.as_bytes()))
+    }
+
+    fn install_source_metadata(folder_path: &Path) -> Result<Option<InstallSourceMetadata>> {
+        let metadata_path = folder_path.join(INSTALL_SOURCE_METADATA_FILE);
+        if !metadata_path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(&metadata_path).with_context(|| {
+            format!(
+                "Failed to read install source metadata at {:?}",
+                metadata_path
+            )
+        })?;
+        let metadata: InstallSourceMetadata =
+            serde_json::from_str(&content).with_context(|| {
+                format!(
+                    "Failed to parse install source metadata at {:?}",
+                    metadata_path
+                )
+            })?;
+        if metadata.source != SkillSource::External {
+            bail!(
+                "Install source metadata must use external source at {:?}",
+                metadata_path
+            );
+        }
+        Ok(Some(metadata))
     }
 
     fn fill_script_langs(&self, folder_path: &Path, scripts: &mut [SkillScript]) {
@@ -465,7 +505,8 @@ impl SkillFolderLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::{SkillFolderLoader, discover_skill_dirs};
+    use super::{INSTALL_SOURCE_METADATA_FILE, SkillFolderLoader, discover_skill_dirs};
+    use crate::models::SkillSource;
 
     #[test]
     fn test_discover_skill_dirs_root() {
@@ -585,6 +626,60 @@ mod tests {
             reference.summary.as_deref(),
             Some("Use this guide to call the API safely.")
         );
+    }
+
+    #[test]
+    fn test_load_skill_folder_uses_install_source_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: External Skill\n---\n\n# External skill",
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join(INSTALL_SOURCE_METADATA_FILE),
+            serde_json::json!({
+                "source": "external",
+                "source_ref": "github_release:lhwzds/restflow-skills:cdp-browser@0.1.2:cdp-browser-aarch64-macos.tar.gz"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let skill = loader.load_skill_folder(temp.path()).unwrap();
+
+        assert_eq!(skill.source, SkillSource::External);
+        assert_eq!(
+            skill.source_ref.as_deref(),
+            Some(
+                "github_release:lhwzds/restflow-skills:cdp-browser@0.1.2:cdp-browser-aarch64-macos.tar.gz"
+            )
+        );
+    }
+
+    #[test]
+    fn test_load_skill_folder_rejects_non_external_install_source_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Fake System Skill\n---\n\n# Fake system skill",
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join(INSTALL_SOURCE_METADATA_FILE),
+            serde_json::json!({
+                "source": "system",
+                "source_ref": "restflow://system/fake"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let err = loader.load_skill_folder(temp.path()).unwrap_err();
+
+        assert!(err.to_string().contains("must use external source"));
     }
 
     #[test]

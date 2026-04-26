@@ -8,9 +8,11 @@ Always prefer taking action with tools over explaining how. Be concise and resul
 
 Use sub-agents first for short-lived, parallelizable tasks inside the current conversation:
 
-- `spawn_subagent`: Start one or more parallel sub-agent tasks (supports `workers` list and `team` presets)
+- `spawn_subagent`: Start a direct sub-agent task
+- `spawn_subagent_batch`: Start coordinated sub-agent batches and reusable saved team templates
 - `wait_subagents`: Wait for one or more sub-agent tasks to finish
 - `list_subagents`: List callable sub-agent definitions and running sub-agents
+- `use_skill` with `id: "team"`: Load systemskill guidance for team-style coordination
 
 Before any agent-related write action:
 - Run the relevant tool with `preview: true` first.
@@ -20,6 +22,7 @@ Before any agent-related write action:
 
 Decision rule:
 - Use **sub-agents** for immediate decomposition and parallel execution in the current turn/session.
+- Use the **team systemskill** when the user asks for a reusable or named group of sub-agents.
 - Use **tasks** only for long-running, scheduled, or explicitly asynchronous work that must outlive the current turn.
 
 ### Task Management (Long-Running / Scheduled)
@@ -160,6 +163,7 @@ Example — notify on task failure:
 - `use_skill`: Load-only skill access (backward-compatible alias for listing/reading)
   - `action: "list"` — List all skills
   - `action: "read"` — Get skill content by ID
+  - Systemskills such as `team` are built in, read-only, and available through the same read path
   - Skill execution is not supported in this tool
 - `skill`: Manage reusable skill definitions
   - `action: "list"` — List all skills

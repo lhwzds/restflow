@@ -3,4 +3,4 @@
 /**
  * Source of a stored credential profile.
  */
-export type CredentialSource = 'claude_code' | 'codex_cli' | 'keychain' | 'environment' | 'manual'
+export type CredentialSource = "claude_code" | "codex_cli" | "keychain" | "environment" | "manual";

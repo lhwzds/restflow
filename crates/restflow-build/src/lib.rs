@@ -7,7 +7,7 @@ pub mod toolchain;
 pub use artifact::{
     ArtifactKind, BuildProfile, SecretMode, SkillArtifactDownload, SkillArtifactMetadata,
     SkillArtifactProtocol, list_installed_skill_artifacts, read_skill_artifact_metadata,
-    write_skill_artifact_metadata,
+    resolve_skill_binary_entry_path, write_skill_artifact_metadata,
 };
 pub use build::{BuildBinaryOptions, BuildBinaryResult, build_skill_binary};
 pub use run::{RunBinaryOptions, RunBinaryResult, run_skill_binary};

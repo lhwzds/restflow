@@ -9,6 +9,7 @@ tags:
 suggested_tools:
   - list_subagents
   - spawn_subagent
+  - spawn_subagent_batch
   - wait_subagents
   - reply
 ---
@@ -30,10 +31,10 @@ Use this skill when a task should be split into one or more specialized subagent
 
 2. Spawn subagents with explicit task boundaries.
 - Use `spawn_subagent` with a clear, testable task prompt.
-- Use `spawn_subagent` `workers` and `team` fields when you need model/count fan-out or saved team presets.
-- Use `workers[].tasks` when each parallel instance needs a distinct prompt instead of one shared task.
+- Use `spawn_subagent_batch` when you need model/count fan-out or saved team presets.
+- Load the `team` systemskill when the user asks for reusable team coordination.
 - Prefer a single subagent unless parallel execution is clearly beneficial.
-- Before spawning or saving a team, call `spawn_subagent` with `preview: true`.
+- Before spawning or saving a team, call `spawn_subagent_batch` with `preview: true`.
 - If preview returns warnings, summarize them and wait for user confirmation before retrying with `approval_id`.
 - If preview returns blockers, stop and report the blockers instead of partially spawning work.
 

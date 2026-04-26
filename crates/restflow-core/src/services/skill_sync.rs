@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::AppCore;
 use crate::loader::skill_folder::SkillFolderLoader;
 use crate::models::{Skill, SkillGating, SkillReference, SkillScript};
+use crate::skill_files;
 
 #[derive(Debug, Clone, Default)]
 pub struct SkillSyncReport {
@@ -25,6 +26,10 @@ pub async fn sync_all(core: &AppCore, base_dir: impl AsRef<Path>) -> Result<Skil
     };
 
     for mut skill in skills {
+        if skill_files::systemskill_ids().any(|id| id == skill.id) {
+            report.skipped += 1;
+            continue;
+        }
         let existing = core.storage.skills.get(&skill.id)?;
 
         if let Some(existing_skill) = existing {
@@ -62,6 +67,9 @@ fn skills_equal(left: &Skill, right: &Skill) -> bool {
         && left.content_hash == right.content_hash
         && left.storage_mode == right.storage_mode
         && left.is_synced == right.is_synced
+        && left.source == right.source
+        && left.read_only == right.read_only
+        && left.source_ref == right.source_ref
 }
 
 fn normalize_scripts(scripts: &[SkillScript]) -> Vec<(String, String, Option<String>)> {

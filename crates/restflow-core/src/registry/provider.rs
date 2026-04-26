@@ -220,7 +220,8 @@ impl LocalSkillProvider {
             if let Some(manifest_path) = manifest_path {
                 match self.parse_manifest(&manifest_path).await {
                     Ok(mut manifest) => {
-                        manifest.source = SkillSource::Local;
+                        manifest.source = SkillSource::User;
+                        manifest.source_ref = Some(format!("file://{}", manifest_path.display()));
                         manifests.push(manifest);
                     }
                     Err(e) => {
@@ -368,39 +369,39 @@ impl SkillProvider for LocalSkillProvider {
     }
 }
 
-/// Built-in skill provider - provides skills bundled with RestFlow
-pub struct BuiltinSkillProvider {
-    /// Built-in skills (loaded at compile time or from embedded resources)
+/// Systemskill registry provider - provides skills bundled with RestFlow
+pub struct SystemSkillRegistryProvider {
+    /// Systemskills (loaded at compile time or from embedded resources)
     skills: HashMap<String, (SkillManifest, String)>,
 }
 
-impl BuiltinSkillProvider {
-    /// Create a new builtin provider with the default skills
+impl SystemSkillRegistryProvider {
+    /// Create a new systemskill provider with the default skills
     pub fn new() -> Self {
         let skills = HashMap::new();
 
-        // Add built-in skills here
+        // Add systemskills here
         // These would typically be loaded from embedded resources
 
         Self { skills }
     }
 
-    /// Add a built-in skill
+    /// Add a systemskill
     pub fn add_skill(&mut self, manifest: SkillManifest, content: String) {
         self.skills.insert(manifest.id.clone(), (manifest, content));
     }
 }
 
-impl Default for BuiltinSkillProvider {
+impl Default for SystemSkillRegistryProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl SkillProvider for BuiltinSkillProvider {
+impl SkillProvider for SystemSkillRegistryProvider {
     fn name(&self) -> &str {
-        "builtin"
+        "system"
     }
 
     fn priority(&self) -> u32 {
@@ -468,8 +469,8 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_builtin_provider() {
-        let mut provider = BuiltinSkillProvider::new();
+    async fn test_systemskill_provider() {
+        let mut provider = SystemSkillRegistryProvider::new();
 
         let manifest = SkillManifest {
             id: "test-skill".to_string(),

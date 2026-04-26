@@ -31,7 +31,7 @@ pub use ops::OpsProviderAdapter;
 pub use secret::SecretStoreAdapter;
 pub use security_query::SecurityQueryProviderAdapter;
 pub use session::SessionStorageAdapter;
-pub use skill_provider::SkillStorageProvider;
+pub use skill_provider::{CompositeSkillProvider, SkillStorageProvider, SystemSkillProvider};
 pub use team_template::TeamTemplateStoreAdapter;
 pub use terminal::TerminalStoreAdapter;
 pub use trigger::TriggerStoreAdapter;

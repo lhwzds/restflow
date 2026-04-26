@@ -196,12 +196,11 @@ impl GitHubProvider {
             let mut manifest: SkillManifest =
                 toml::from_str(&content).map_err(|e| SkillProviderError::Parse(e.to_string()))?;
 
-            manifest.source = SkillSource::GitHub {
-                owner: repo.owner.login.clone(),
-                repo: repo.name.clone(),
-                git_ref: Some(repo.default_branch.clone()),
-                path: None,
-            };
+            manifest.source = SkillSource::External;
+            manifest.source_ref = Some(format!(
+                "github:{}/{}#{}",
+                repo.owner.login, repo.name, repo.default_branch
+            ));
 
             return Ok(manifest);
         }
@@ -225,12 +224,11 @@ impl GitHubProvider {
             let mut manifest: SkillManifest = serde_json::from_str(&content)
                 .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
 
-            manifest.source = SkillSource::GitHub {
-                owner: repo.owner.login.clone(),
-                repo: repo.name.clone(),
-                git_ref: Some(repo.default_branch.clone()),
-                path: None,
-            };
+            manifest.source = SkillSource::External;
+            manifest.source_ref = Some(format!(
+                "github:{}/{}#{}",
+                repo.owner.login, repo.name, repo.default_branch
+            ));
 
             return Ok(manifest);
         }
@@ -251,12 +249,11 @@ impl GitHubProvider {
             categories: vec![],
             repository: Some(repo.html_url.clone()),
             homepage: None,
-            source: SkillSource::GitHub {
-                owner: repo.owner.login.clone(),
-                repo: repo.name.clone(),
-                git_ref: Some(repo.default_branch.clone()),
-                path: None,
-            },
+            source: SkillSource::External,
+            source_ref: Some(format!(
+                "github:{}/{}#{}",
+                repo.owner.login, repo.name, repo.default_branch
+            )),
             readme: None,
             changelog: None,
             icon: None,

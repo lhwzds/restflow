@@ -92,6 +92,7 @@ pub use chat_session::{
     ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
 };
 pub use restflow_storage::Secret;
+pub use restflow_traits::skill::SkillSource;
 pub use security::{
     AgentSecurityConfig, ApprovalStatus, AskMode, CommandPattern, PendingApproval, SecurityAction,
     SecurityCheckResult, SecurityMode, SecurityPolicy, ToolAction, ToolRule,
@@ -101,7 +102,7 @@ pub use skill_folder::{SkillGating, SkillReference, SkillScript};
 pub use skill_marketplace::{
     BinaryRequirement, EnvVarRequirement, GatingCheckResult, GatingRequirements, InstallStatus,
     InstalledSkill, OsType, SkillAuthor, SkillDependency, SkillManifest, SkillPermission,
-    SkillPermissions, SkillSource, SkillVersion, VersionRequirement,
+    SkillPermissions, SkillVersion, VersionRequirement,
 };
 pub use skill_meta::SkillMeta;
 pub use storage_mode::StorageMode;

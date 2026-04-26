@@ -1,6 +1,6 @@
 //! MarketplaceStore adapter backed by SkillStorage.
 
-use crate::models::Skill;
+use crate::models::{Skill, SkillSource};
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
 use crate::storage::skill::SkillStorage;
 use chrono::Utc;
@@ -41,6 +41,17 @@ impl MarketplaceStoreAdapter {
             Some("github") => "github",
             _ => "marketplace",
         }
+    }
+
+    fn is_reserved_systemskill_id(id: &str) -> bool {
+        crate::skill_files::systemskill_ids().any(|system_id| system_id == id)
+    }
+
+    fn is_marketplace_source_ref(source_ref: &str) -> bool {
+        source_ref.starts_with("marketplace:")
+            || source_ref.starts_with("github:")
+            || source_ref.starts_with("mcp_marketplace:")
+            || source_ref.starts_with("mcp_github:")
     }
 
     async fn search_source(
@@ -101,8 +112,13 @@ impl MarketplaceStoreAdapter {
         }
     }
 
-    fn manifest_to_skill(manifest: crate::models::SkillManifest, content: String) -> Skill {
+    fn manifest_to_skill(
+        source_name: &str,
+        manifest: crate::models::SkillManifest,
+        content: String,
+    ) -> Skill {
         let now = Utc::now().timestamp_millis();
+        let source_ref = format!("{source_name}:{}@{}", manifest.id, manifest.version);
         Skill {
             id: manifest.id,
             name: manifest.name,
@@ -123,6 +139,9 @@ impl MarketplaceStoreAdapter {
             auto_complete: false,
             storage_mode: crate::models::StorageMode::DatabaseOnly,
             is_synced: false,
+            source: crate::models::SkillSource::External,
+            read_only: false,
+            source_ref: Some(source_ref),
             created_at: now,
             updated_at: now,
         }
@@ -167,10 +186,16 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
         source: Option<&str>,
         overwrite: bool,
     ) -> restflow_tools::Result<Value> {
+        if Self::is_reserved_systemskill_id(id) {
+            return Err(ToolError::Tool(format!(
+                "Cannot install marketplace skill over systemskill: {id}"
+            )));
+        }
+
         let source_name = Self::provider_name(source);
         let manifest = self.get_manifest(source_name, id).await?;
         let content = self.get_content(source_name, id, &manifest.version).await?;
-        let skill = Self::manifest_to_skill(manifest, content);
+        let skill = Self::manifest_to_skill(source_name, manifest, content);
 
         let exists = self.storage.exists(id)?;
         if exists && !overwrite {
@@ -195,18 +220,43 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
     }
 
     fn uninstall_skill(&self, id: &str) -> restflow_tools::Result<Value> {
-        let exists = self.storage.exists(id)?;
-        if exists {
-            self.storage.delete(id)?;
+        let skill = self.storage.get(id)?;
+        let Some(skill) = skill else {
+            return Ok(json!({
+                "id": id,
+                "deleted": false
+            }));
+        };
+        if skill.source != SkillSource::External
+            || !skill
+                .source_ref
+                .as_deref()
+                .is_some_and(Self::is_marketplace_source_ref)
+        {
+            return Err(ToolError::Tool(format!(
+                "Skill is not a marketplace installation: {id}"
+            )));
         }
+        self.storage.delete(id)?;
         Ok(json!({
             "id": id,
-            "deleted": exists
+            "deleted": true
         }))
     }
 
     fn list_installed(&self) -> restflow_tools::Result<Value> {
-        let skills = self.storage.list()?;
+        let skills = self
+            .storage
+            .list()?
+            .into_iter()
+            .filter(|skill| {
+                skill.source == SkillSource::External
+                    && skill
+                        .source_ref
+                        .as_deref()
+                        .is_some_and(Self::is_marketplace_source_ref)
+            })
+            .collect::<Vec<_>>();
         Ok(serde_json::to_value(skills)?)
     }
 }
@@ -245,6 +295,24 @@ mod tests {
     fn test_uninstall_existing_skill() {
         let (adapter, _dir) = setup();
         // Manually create a skill to uninstall
+        let mut skill = crate::models::Skill::new(
+            "test-skill".to_string(),
+            "Test".to_string(),
+            Some("Description".to_string()),
+            Some(vec!["test".to_string()]),
+            "# Skill content".to_string(),
+        );
+        skill.source = SkillSource::External;
+        skill.source_ref = Some("marketplace:test-skill@1.0.0".to_string());
+        adapter.storage.create(&skill).unwrap();
+
+        let result = adapter.uninstall_skill("test-skill").unwrap();
+        assert_eq!(result["deleted"], true);
+    }
+
+    #[test]
+    fn test_uninstall_rejects_user_skill() {
+        let (adapter, _dir) = setup();
         let skill = crate::models::Skill::new(
             "test-skill".to_string(),
             "Test".to_string(),
@@ -254,8 +322,9 @@ mod tests {
         );
         adapter.storage.create(&skill).unwrap();
 
-        let result = adapter.uninstall_skill("test-skill").unwrap();
-        assert_eq!(result["deleted"], true);
+        let err = adapter.uninstall_skill("test-skill").unwrap_err();
+
+        assert!(err.to_string().contains("not a marketplace installation"));
     }
 
     #[test]
@@ -269,5 +338,32 @@ mod tests {
             MarketplaceStoreAdapter::provider_name(Some("other")),
             "marketplace"
         );
+    }
+
+    #[test]
+    fn test_reserved_systemskill_detection() {
+        assert!(MarketplaceStoreAdapter::is_reserved_systemskill_id("team"));
+        assert!(!MarketplaceStoreAdapter::is_reserved_systemskill_id(
+            "demo-skill"
+        ));
+    }
+
+    #[test]
+    fn test_marketplace_source_ref_detection() {
+        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
+            "marketplace:demo@1.0.0"
+        ));
+        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
+            "github:demo@1.0.0"
+        ));
+        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
+            "mcp_marketplace:demo@1.0.0"
+        ));
+        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
+            "mcp_github:demo@1.0.0"
+        ));
+        assert!(!MarketplaceStoreAdapter::is_marketplace_source_ref(
+            "github_release:repo:tag:asset"
+        ));
     }
 }

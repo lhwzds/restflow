@@ -3,4 +3,4 @@
 /**
  * Skill preflight policy mode.
  */
-export type SkillPreflightPolicyMode = 'off' | 'warn' | 'enforce'
+export type SkillPreflightPolicyMode = "off" | "warn" | "enforce";

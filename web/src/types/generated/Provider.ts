@@ -3,22 +3,4 @@
 /**
  * API-facing provider wrapper backed by the shared canonical provider identity.
  */
-export type Provider =
-  | 'openai'
-  | 'anthropic'
-  | 'claude-code'
-  | 'codex'
-  | 'deepseek'
-  | 'google'
-  | 'groq'
-  | 'openrouter'
-  | 'xai'
-  | 'qwen'
-  | 'zai'
-  | 'zai-coding-plan'
-  | 'moonshot'
-  | 'doubao'
-  | 'yi'
-  | 'siliconflow'
-  | 'minimax'
-  | 'minimax-coding-plan'
+export type Provider = "openai" | "anthropic" | "claude-code" | "codex" | "deepseek" | "google" | "groq" | "openrouter" | "xai" | "qwen" | "zai" | "zai-coding-plan" | "moonshot" | "doubao" | "yi" | "siliconflow" | "minimax" | "minimax-coding-plan";

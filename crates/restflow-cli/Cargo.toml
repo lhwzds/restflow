@@ -37,11 +37,13 @@ comfy-table = "7"
 # Config
 toml = "1.1"
 dirs = "6"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 flate2 = "1.1"
 tar = "0.4"
 zip = "6.0.0"
 walkdir = "2"
+tempfile = "3.25"
+sha2 = "0.10.9"
 
 # Database
 redb = "3.1"
@@ -62,6 +64,5 @@ clap_mangen = "0.2"
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"
-tempfile = "3.25"
 redb = "3.1"
 restflow-test-support = { workspace = true }

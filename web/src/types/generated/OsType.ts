@@ -3,4 +3,4 @@
 /**
  * Operating system type
  */
-export type OsType = 'windows' | 'macos' | 'linux' | 'any'
+export type OsType = "windows" | "macos" | "linux" | "any";

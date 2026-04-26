@@ -701,9 +701,9 @@ pub enum SkillCommands {
     /// Search marketplace
     Search { query: String },
 
-    /// Install a skill from marketplace, git, or local sources
+    /// Install a skill from marketplace, git, local, package, or official binary sources
     Install {
-        /// Source: marketplace id, git URL, local path, or .skill package
+        /// Source: marketplace id, git URL, local path, .skill package, or official binary skill
         source: String,
 
         /// Subpath within a git repository

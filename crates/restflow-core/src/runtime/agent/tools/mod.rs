@@ -111,6 +111,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "transcribe",
         "vision",
         "spawn_subagent",
+        "spawn_subagent_batch",
         "wait_subagents",
         "list_subagents",
         "use_skill",
@@ -213,7 +214,9 @@ pub fn registry_from_allowlist_with_security_gate(
     let wants_manage_agents = wants_named_tool(tool_names, "manage_agents");
     let wants_manage_tasks = wants_named_tool(tool_names, MANAGE_TASKS_TOOL_NAME);
     let wants_manage_task_tools = wants_manage_tasks;
-    let wants_spawn_subagent = tool_names.iter().any(|name| name == "spawn_subagent");
+    let wants_spawn_subagent = tool_names
+        .iter()
+        .any(|name| name == "spawn_subagent" || name == "spawn_subagent_batch");
     let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
     let wants_guarded_assessor =
@@ -430,11 +433,11 @@ pub fn registry_from_allowlist_with_security_gate(
             }
 
             // --- Subagent tools ---
-            "spawn_subagent" | "wait_subagents" | "list_subagents" => {}
+            "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents" => {}
             "use_skill" => {
                 if let Some(storage) = storage {
                     let provider: Arc<dyn SkillProvider> =
-                        Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+                        Arc::new(CompositeSkillProvider::with_storage(storage.skills.clone()));
                     builder = if let Some(gate) = security_gate.clone() {
                         builder.with_use_skill_with_security(
                             provider,
@@ -487,7 +490,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "skill" => {
                 with_storage!(storage, "skill", builder, |s| {
-                    let provider = Arc::new(SkillStorageProvider::new(s.skills.clone()));
+                    let provider = Arc::new(CompositeSkillProvider::with_storage(s.skills.clone()));
                     if let Some(gate) = security_gate.clone() {
                         builder.with_skill_tool_with_security(
                             provider,
@@ -629,7 +632,7 @@ pub fn registry_from_allowlist_with_security_gate(
     if let Some(storage) = storage {
         if !allowlisted_skill_ids.is_empty() {
             let provider: Arc<dyn SkillProvider> =
-                Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+                Arc::new(CompositeSkillProvider::with_storage(storage.skills.clone()));
             register_allowlisted_skill_tools(
                 &mut builder.registry,
                 provider,

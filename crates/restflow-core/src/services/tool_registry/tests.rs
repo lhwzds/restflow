@@ -4,7 +4,7 @@ use super::subagent_backend::{
     build_service_subagent_tool_registry, create_subagent_manager,
 };
 use super::*;
-use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill};
+use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill, SkillSource};
 use crate::services::adapters::{
     AgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter, TaskStoreAdapter,
 };
@@ -1363,6 +1363,16 @@ async fn test_marketplace_tool_list_and_uninstall() {
         "# Local".to_string(),
     );
     skill_storage.create(&local_skill).unwrap();
+    let mut marketplace_skill = Skill::new(
+        "marketplace-skill".to_string(),
+        "Marketplace Skill".to_string(),
+        Some("from marketplace".to_string()),
+        None,
+        "# Marketplace".to_string(),
+    );
+    marketplace_skill.source = SkillSource::External;
+    marketplace_skill.source_ref = Some("mcp_marketplace:marketplace-skill@1.0.0".to_string());
+    skill_storage.create(&marketplace_skill).unwrap();
 
     let registry = create_tool_registry(
         skill_storage,
@@ -1398,7 +1408,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
     let deleted = registry
         .execute_safe(
             "manage_marketplace",
-            json!({ "operation": "uninstall", "id": "local-skill" }),
+            json!({ "operation": "uninstall", "id": "marketplace-skill" }),
         )
         .await
         .unwrap();

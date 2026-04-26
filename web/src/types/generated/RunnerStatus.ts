@@ -3,4 +3,4 @@
 /**
  * Runner status enumeration
  */
-export type RunnerStatus = 'starting' | 'running' | 'paused' | 'stopping' | 'stopped' | 'error'
+export type RunnerStatus = "starting" | "running" | "paused" | "stopping" | "stopped" | "error";

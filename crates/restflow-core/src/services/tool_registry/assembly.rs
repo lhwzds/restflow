@@ -85,7 +85,7 @@ pub fn create_tool_registry_with_assessor(
     };
 
     // Create adapters
-    let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
+    let skill_provider = Arc::new(CompositeSkillProvider::with_storage(skill_storage.clone()));
     let session_store = Arc::new(SessionStorageAdapter::new(
         crate::storage::SessionStorage::new(
             chat_storage.clone(),

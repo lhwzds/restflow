@@ -1,4 +1,4 @@
-use crate::artifact::read_skill_artifact_metadata;
+use crate::artifact::{read_skill_artifact_metadata, resolve_skill_binary_entry_path};
 use crate::scaffold::skill_dir_for;
 use anyhow::{Context, Result, bail};
 use std::io::Write;
@@ -23,7 +23,7 @@ pub struct RunBinaryResult {
 pub fn run_skill_binary(options: &RunBinaryOptions) -> Result<RunBinaryResult> {
     let skill_dir = skill_dir_for(&options.skill_id)?;
     let metadata = read_skill_artifact_metadata(&skill_dir)?;
-    let binary_path = skill_dir.join(&metadata.entry_binary);
+    let binary_path = resolve_skill_binary_entry_path(&skill_dir, &metadata)?;
     if !binary_path.exists() {
         bail!(
             "compiled binary not found at {}. Run `restflow binary skill build {}` first.",

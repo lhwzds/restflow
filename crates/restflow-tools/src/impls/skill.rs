@@ -112,6 +112,9 @@ impl SkillTool {
             description,
             tags,
             content,
+            source: restflow_traits::skill::SkillSource::User,
+            read_only: false,
+            source_ref: None,
         }
     }
 }
@@ -366,7 +369,7 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_traits::skill::{SkillContent, SkillInfo};
+    use restflow_traits::skill::{SkillContent, SkillInfo, SkillSource};
 
     struct MockSkillProvider {
         skills: Vec<SkillRecord>,
@@ -381,6 +384,9 @@ mod tests {
                     name: skill.name.clone(),
                     description: skill.description.clone(),
                     tags: skill.tags.clone(),
+                    source: skill.source,
+                    read_only: skill.read_only,
+                    source_ref: skill.source_ref.clone(),
                 })
                 .collect()
         }
@@ -393,6 +399,9 @@ mod tests {
                     id: skill.id.clone(),
                     name: skill.name.clone(),
                     content: skill.content.clone(),
+                    source: skill.source,
+                    read_only: skill.read_only,
+                    source_ref: skill.source_ref.clone(),
                 })
         }
 
@@ -455,6 +464,9 @@ mod tests {
                 description: None,
                 tags: None,
                 content: markdown.to_string(),
+                source: SkillSource::User,
+                read_only: false,
+                source_ref: None,
             })
         }
     }
@@ -467,6 +479,9 @@ mod tests {
                 description: Some("A test skill".to_string()),
                 tags: Some(vec!["test".to_string()]),
                 content: "# Test Skill Content\n\nThis is a test.".to_string(),
+                source: SkillSource::User,
+                read_only: false,
+                source_ref: None,
             }],
         })
     }

@@ -3,4 +3,4 @@
 /**
  * Approval behavior for commands.
  */
-export type AskMode = 'off' | 'on_miss' | 'always'
+export type AskMode = "off" | "on_miss" | "always";

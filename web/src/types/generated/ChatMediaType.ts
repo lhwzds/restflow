@@ -3,4 +3,4 @@
 /**
  * Structured media type for a chat message.
  */
-export type ChatMediaType = 'voice'
+export type ChatMediaType = "voice";

@@ -1,6 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const ARTIFACT_FILE_NAME: &str = "artifact.json";
 
@@ -120,6 +120,67 @@ pub fn read_skill_artifact_metadata(skill_dir: &Path) -> Result<SkillArtifactMet
     Ok(serde_json::from_str(&content)?)
 }
 
+pub fn resolve_skill_binary_entry_path(
+    skill_dir: &Path,
+    metadata: &SkillArtifactMetadata,
+) -> Result<PathBuf> {
+    if !matches!(&metadata.kind, ArtifactKind::SkillBinary) {
+        bail!("artifact kind must be skill_binary");
+    }
+
+    let folder_id = skill_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| anyhow::anyhow!("invalid skill folder name"))?;
+    if metadata.id != folder_id {
+        bail!(
+            "artifact id '{}' does not match skill folder '{}'",
+            metadata.id,
+            folder_id
+        );
+    }
+
+    let raw = Path::new(&metadata.entry_binary);
+    if raw.is_absolute() {
+        bail!("entry_binary must be relative: {}", metadata.entry_binary);
+    }
+    if raw
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_) | Component::CurDir))
+    {
+        bail!(
+            "entry_binary must not contain traversal or root components: {}",
+            metadata.entry_binary
+        );
+    }
+
+    let candidate = skill_dir.join(raw);
+    let metadata = std::fs::symlink_metadata(&candidate)
+        .with_context(|| format!("failed to stat {}", candidate.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "entry_binary must not be a symlink: {}",
+            candidate.display()
+        );
+    }
+    if !metadata.is_file() {
+        bail!("entry_binary must point to a file: {}", candidate.display());
+    }
+
+    let canonical_skill_dir = std::fs::canonicalize(skill_dir)
+        .with_context(|| format!("failed to canonicalize {}", skill_dir.display()))?;
+    let canonical_candidate = std::fs::canonicalize(&candidate)
+        .with_context(|| format!("failed to canonicalize {}", candidate.display()))?;
+    if !canonical_candidate.starts_with(&canonical_skill_dir) {
+        bail!(
+            "entry_binary resolves outside skill folder: {}",
+            canonical_candidate.display()
+        );
+    }
+
+    Ok(canonical_candidate)
+}
+
 pub fn write_skill_artifact_metadata(
     skill_dir: &Path,
     metadata: &SkillArtifactMetadata,
@@ -148,6 +209,9 @@ pub fn list_installed_skill_artifacts(
             continue;
         }
         let metadata = read_skill_artifact_metadata(&path)?;
+        if matches!(&metadata.kind, ArtifactKind::SkillBinary) {
+            resolve_skill_binary_entry_path(&path, &metadata)?;
+        }
         artifacts.push((path, metadata));
     }
     artifacts.sort_by(|left, right| left.1.id.cmp(&right.1.id));
@@ -192,5 +256,74 @@ mod tests {
             metadata.download.expect("download metadata").asset,
             "regex-finder-aarch64-macos.tar.gz"
         );
+    }
+
+    #[test]
+    fn resolves_binary_entry_inside_matching_skill_dir() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join("regex-finder");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("regex-finder"), "#!/bin/sh\n").expect("binary");
+        let metadata: SkillArtifactMetadata = serde_json::from_str(
+            r#"{
+                "kind": "skill_binary",
+                "id": "regex-finder",
+                "name": "Regex Finder",
+                "version": "0.1.2",
+                "entry_binary": "regex-finder"
+            }"#,
+        )
+        .expect("metadata");
+
+        let resolved =
+            resolve_skill_binary_entry_path(&skill_dir, &metadata).expect("resolve entry");
+
+        assert_eq!(
+            resolved,
+            std::fs::canonicalize(skill_dir.join("regex-finder")).expect("canonical")
+        );
+    }
+
+    #[test]
+    fn rejects_binary_entry_traversal() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join("regex-finder");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        let metadata: SkillArtifactMetadata = serde_json::from_str(
+            r#"{
+                "kind": "skill_binary",
+                "id": "regex-finder",
+                "name": "Regex Finder",
+                "version": "0.1.2",
+                "entry_binary": "../tool"
+            }"#,
+        )
+        .expect("metadata");
+
+        let err = resolve_skill_binary_entry_path(&skill_dir, &metadata).unwrap_err();
+
+        assert!(err.to_string().contains("traversal"));
+    }
+
+    #[test]
+    fn rejects_binary_artifact_id_folder_mismatch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join("regex-finder");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("regex-finder"), "#!/bin/sh\n").expect("binary");
+        let metadata: SkillArtifactMetadata = serde_json::from_str(
+            r#"{
+                "kind": "skill_binary",
+                "id": "other",
+                "name": "Other",
+                "version": "0.1.2",
+                "entry_binary": "regex-finder"
+            }"#,
+        )
+        .expect("metadata");
+
+        let err = resolve_skill_binary_entry_path(&skill_dir, &metadata).unwrap_err();
+
+        assert!(err.to_string().contains("does not match"));
     }
 }

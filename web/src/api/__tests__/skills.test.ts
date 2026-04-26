@@ -25,6 +25,8 @@ describe('skills API', () => {
     auto_complete: false,
     storage_mode: 'DatabaseOnly',
     is_synced: false,
+    source: 'user',
+    read_only: false,
     created_at: 1000,
     updated_at: 2000,
   }

@@ -1150,6 +1150,15 @@ pub enum SkillStatus {
     Draft,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillSource {
+    System,
+    #[default]
+    User,
+    External,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Skill {
     pub id: String,
@@ -1185,6 +1194,12 @@ pub struct Skill {
     pub storage_mode: StorageMode,
     #[serde(default)]
     pub is_synced: bool,
+    #[serde(default)]
+    pub source: SkillSource,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

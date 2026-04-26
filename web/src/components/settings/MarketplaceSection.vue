@@ -81,6 +81,13 @@ function resolveSource(source: string): MarketplaceSource {
   return source === 'github' ? 'github' : 'marketplace'
 }
 
+function resolveInstalledSource(skill: Skill): MarketplaceSource {
+  const sourceRef = skill.source_ref ?? ''
+  return sourceRef.startsWith('github:') || sourceRef.startsWith('mcp_github:')
+    ? 'github'
+    : 'marketplace'
+}
+
 function handleIncludeGithubChange(value: boolean) {
   includeGithub.value = value
   void runSearch()
@@ -199,7 +206,7 @@ async function updateSkill(skill: Skill) {
   error.value = null
   actionInProgressId.value = skill.id
   try {
-    const result = await updateMarketplaceSkill(skill.id, 'marketplace')
+    const result = await updateMarketplaceSkill(skill.id, resolveInstalledSource(skill))
     if (!result.success) {
       error.value = result.error ?? 'Update failed.'
       return
@@ -448,7 +455,7 @@ onMounted(async () => {
                   size="sm"
                   variant="outline"
                   :disabled="actionInProgressId === skill.id"
-                  @click="openDetail(skill.id, 'marketplace')"
+                  @click="openDetail(skill.id, resolveInstalledSource(skill))"
                 >
                   {{ t('settings.marketplace.details') }}
                 </Button>

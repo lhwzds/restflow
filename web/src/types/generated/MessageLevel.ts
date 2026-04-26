@@ -3,4 +3,4 @@
 /**
  * Message level for formatting
  */
-export type MessageLevel = 'plain' | 'info' | 'success' | 'warning' | 'error'
+export type MessageLevel = "plain" | "info" | "success" | "warning" | "error";
