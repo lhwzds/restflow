@@ -471,11 +471,9 @@ mod tests {
         AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     };
     use restflow_traits::store::{
-        AgentCreateRequest, AgentUpdateRequest, BackgroundAgentArtifactListRequest,
-        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-        BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest, BackgroundAgentStore,
-        BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+        AgentCreateRequest, AgentUpdateRequest, BackgroundAgentStore, TaskArtifactListRequest,
+        TaskControlRequest, TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest,
+        TaskMessageListRequest, TaskMessageRequest, TaskTraceReadRequest, TaskUpdateRequest,
     };
     use restflow_traits::{ContractSubagentSpawnRequest, ToolError};
     use std::sync::Arc;
@@ -508,7 +506,7 @@ mod tests {
 
         async fn assess_task_create(
             &self,
-            _request: BackgroundAgentCreateRequest,
+            _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "create_background_agent",
@@ -518,7 +516,7 @@ mod tests {
 
         async fn assess_task_convert_session(
             &self,
-            _request: BackgroundAgentConvertSessionRequest,
+            _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "convert_session_to_background_agent",
@@ -528,7 +526,7 @@ mod tests {
 
         async fn assess_task_update(
             &self,
-            _request: BackgroundAgentUpdateRequest,
+            _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "update_background_agent",
@@ -538,7 +536,7 @@ mod tests {
 
         async fn assess_task_delete(
             &self,
-            _request: BackgroundAgentDeleteRequest,
+            _request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "delete_background_agent",
@@ -549,7 +547,7 @@ mod tests {
 
         async fn assess_task_control(
             &self,
-            _request: BackgroundAgentControlRequest,
+            _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "control_background_agent",
@@ -618,7 +616,7 @@ mod tests {
 
         async fn assess_task_create(
             &self,
-            _request: BackgroundAgentCreateRequest,
+            _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "create_background_agent",
@@ -629,7 +627,7 @@ mod tests {
 
         async fn assess_task_convert_session(
             &self,
-            _request: BackgroundAgentConvertSessionRequest,
+            _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "convert_session_to_background_agent",
@@ -640,7 +638,7 @@ mod tests {
 
         async fn assess_task_update(
             &self,
-            _request: BackgroundAgentUpdateRequest,
+            _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "update_background_agent",
@@ -651,7 +649,7 @@ mod tests {
 
         async fn assess_task_delete(
             &self,
-            _request: BackgroundAgentDeleteRequest,
+            _request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "delete_background_agent",
@@ -662,7 +660,7 @@ mod tests {
 
         async fn assess_task_control(
             &self,
-            _request: BackgroundAgentControlRequest,
+            _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "control_background_agent",
@@ -801,7 +799,7 @@ mod tests {
     fn test_create_and_list_background_agent() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
-        let request = BackgroundAgentCreateRequest {
+        let request = TaskCreateRequest {
             name: "Test BG Task".to_string(),
             agent_id,
             chat_session_id: None,
@@ -829,7 +827,7 @@ mod tests {
     fn test_create_background_agent_accepts_default_agent_alias() {
         let (adapter, _dir, _guard) = setup();
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Default Alias".to_string(),
                 agent_id: "default".to_string(),
                 chat_session_id: None,
@@ -865,7 +863,7 @@ mod tests {
         adapter.storage.chat_sessions().create(&session).unwrap();
 
         let converted = adapter
-            .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+            .convert_session_to_background_agent(TaskConvertSessionRequest {
                 session_id: session.id.clone(),
                 name: Some("Converted Task".to_string()),
                 schedule: None,
@@ -900,7 +898,7 @@ mod tests {
         let agent_id = get_agent_id(&adapter);
 
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Guarded Create".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -937,7 +935,7 @@ mod tests {
         adapter.storage.chat_sessions().create(&session).unwrap();
 
         let error = adapter
-            .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+            .convert_session_to_background_agent(TaskConvertSessionRequest {
                 session_id: session.id,
                 name: None,
                 schedule: None,
@@ -973,7 +971,7 @@ mod tests {
         adapter.storage.chat_sessions().create(&session).unwrap();
 
         let converted = adapter
-            .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+            .convert_session_to_background_agent(TaskConvertSessionRequest {
                 session_id: session.id,
                 name: Some("Guarded Convert".to_string()),
                 schedule: None,
@@ -1000,7 +998,7 @@ mod tests {
     fn test_delete_background_agent() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
-        let request = BackgroundAgentCreateRequest {
+        let request = TaskCreateRequest {
             name: "Delete Me".to_string(),
             agent_id,
             chat_session_id: None,
@@ -1019,7 +1017,7 @@ mod tests {
         let id = created["result"]["id"].as_str().unwrap();
 
         let preview = adapter
-            .delete_background_agent(BackgroundAgentDeleteRequest {
+            .delete_background_agent(TaskDeleteRequest {
                 id: id.to_string(),
                 preview: true,
                 approval_id: None,
@@ -1032,7 +1030,7 @@ mod tests {
             .expect("preview should return confirmation token")
             .to_string();
         let result = adapter
-            .delete_background_agent(BackgroundAgentDeleteRequest {
+            .delete_background_agent(TaskDeleteRequest {
                 id: id.to_string(),
                 preview: false,
                 approval_id: Some(token),
@@ -1047,7 +1045,7 @@ mod tests {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Delete Prefix".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -1067,7 +1065,7 @@ mod tests {
         let prefix = &id[..8];
 
         let preview = adapter
-            .delete_background_agent(BackgroundAgentDeleteRequest {
+            .delete_background_agent(TaskDeleteRequest {
                 id: prefix.to_string(),
                 preview: true,
                 approval_id: None,
@@ -1078,7 +1076,7 @@ mod tests {
             .expect("preview should return confirmation token")
             .to_string();
         let result = adapter
-            .delete_background_agent(BackgroundAgentDeleteRequest {
+            .delete_background_agent(TaskDeleteRequest {
                 id: prefix.to_string(),
                 preview: false,
                 approval_id: Some(token),
@@ -1093,7 +1091,7 @@ mod tests {
         let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
         let agent_id = get_agent_id(&adapter);
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Update Guarded".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -1114,7 +1112,7 @@ mod tests {
             .expect("preview token")
             .to_string();
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Update Guarded".to_string(),
                 agent_id: "default".to_string(),
                 chat_session_id: None,
@@ -1133,7 +1131,7 @@ mod tests {
         let id = created["result"]["id"].as_str().unwrap().to_string();
 
         let updated = adapter
-            .update_background_agent(BackgroundAgentUpdateRequest {
+            .update_background_agent(TaskUpdateRequest {
                 id: id.clone(),
                 name: Some("Updated Name".to_string()),
                 description: None,
@@ -1164,7 +1162,7 @@ mod tests {
         let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
         let agent_id = get_agent_id(&adapter);
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Control Guarded".to_string(),
                 agent_id: agent_id.clone(),
                 chat_session_id: None,
@@ -1185,7 +1183,7 @@ mod tests {
             .expect("preview token")
             .to_string();
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Control Guarded".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -1204,7 +1202,7 @@ mod tests {
         let id = created["result"]["id"].as_str().unwrap().to_string();
 
         let updated = adapter
-            .control_background_agent(BackgroundAgentControlRequest {
+            .control_background_agent(TaskControlRequest {
                 id: id.clone(),
                 action: "pause".to_string(),
                 preview: false,
@@ -1222,7 +1220,7 @@ mod tests {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Messaging".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -1241,7 +1239,7 @@ mod tests {
         let task_id = created["result"]["id"].as_str().unwrap().to_string();
 
         adapter
-            .send_background_agent_message(BackgroundAgentMessageRequest {
+            .send_background_agent_message(TaskMessageRequest {
                 id: task_id.clone(),
                 message: "Hello from test".to_string(),
                 source: Some("user".to_string()),
@@ -1249,7 +1247,7 @@ mod tests {
             .unwrap();
 
         let messages = adapter
-            .list_background_agent_messages(BackgroundAgentMessageListRequest {
+            .list_background_agent_messages(TaskMessageListRequest {
                 id: task_id,
                 limit: Some(50),
             })
@@ -1263,7 +1261,7 @@ mod tests {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Artifacts".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -1283,7 +1281,7 @@ mod tests {
         let prefix = &id[..8];
 
         let value = adapter
-            .list_background_agent_artifacts(BackgroundAgentArtifactListRequest {
+            .list_background_agent_artifacts(TaskArtifactListRequest {
                 id: prefix.to_string(),
             })
             .unwrap();
@@ -1308,7 +1306,7 @@ mod tests {
     #[test]
     fn test_read_trace_requires_non_empty_trace_id() {
         let (adapter, _dir, _guard) = setup();
-        let result = adapter.read_background_agent_trace(BackgroundAgentTraceReadRequest {
+        let result = adapter.read_background_agent_trace(TaskTraceReadRequest {
             trace_id: String::new(),
             line_limit: None,
         });
@@ -1321,7 +1319,7 @@ mod tests {
         let agent_id = get_agent_id(&adapter);
 
         let created = adapter
-            .create_background_agent(BackgroundAgentCreateRequest {
+            .create_background_agent(TaskCreateRequest {
                 name: "Trace Reader".to_string(),
                 agent_id,
                 chat_session_id: None,
@@ -1370,7 +1368,7 @@ mod tests {
         adapter.storage.execution_traces().store(&event).unwrap();
 
         let value = adapter
-            .read_background_agent_trace(BackgroundAgentTraceReadRequest {
+            .read_background_agent_trace(TaskTraceReadRequest {
                 trace_id: "run-1".to_string(),
                 line_limit: Some(2),
             })

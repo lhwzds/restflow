@@ -26,11 +26,10 @@ use restflow_traits::assessment::{
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentControlRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    MemoryStore as _,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentStore, MemoryStore as _,
+    TaskControlRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskTraceListRequest, TaskTraceReadRequest,
+    TaskUpdateRequest,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -87,7 +86,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
 
     async fn assess_task_create(
         &self,
-        _request: BackgroundAgentCreateRequest,
+        _request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "create_background_agent",
@@ -97,7 +96,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
 
     async fn assess_task_convert_session(
         &self,
-        _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+        _request: restflow_traits::store::TaskConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "convert_session_to_background_agent",
@@ -107,7 +106,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
 
     async fn assess_task_update(
         &self,
-        _request: BackgroundAgentUpdateRequest,
+        _request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "update_background_agent",
@@ -117,7 +116,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
 
     async fn assess_task_delete(
         &self,
-        _request: BackgroundAgentDeleteRequest,
+        _request: TaskDeleteRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::warning_with_confirmation(
             "delete_background_agent",
@@ -128,7 +127,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
 
     async fn assess_task_control(
         &self,
-        _request: BackgroundAgentControlRequest,
+        _request: TaskControlRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "control_background_agent",
@@ -1178,7 +1177,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let created = BackgroundAgentStore::create_background_agent(
         &adapter,
-        BackgroundAgentCreateRequest {
+        TaskCreateRequest {
             name: "Background Agent".to_string(),
             agent_id: created_agent.id,
             chat_session_id: None,
@@ -1219,7 +1218,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let updated = BackgroundAgentStore::update_background_agent(
         &adapter,
-        BackgroundAgentUpdateRequest {
+        TaskUpdateRequest {
             id: task_id.clone(),
             name: Some("Background Agent Updated".to_string()),
             description: Some("Updated description".to_string()),
@@ -1265,7 +1264,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let controlled = BackgroundAgentStore::control_background_agent(
         &adapter,
-        BackgroundAgentControlRequest {
+        TaskControlRequest {
             id: task_id.clone(),
             action: "run_now".to_string(),
             preview: false,
@@ -1283,7 +1282,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let message = BackgroundAgentStore::send_background_agent_message(
         &adapter,
-        BackgroundAgentMessageRequest {
+        TaskMessageRequest {
             id: task_id.clone(),
             message: "Also check deployment logs".to_string(),
             source: Some("user".to_string()),
@@ -1297,7 +1296,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let progress = BackgroundAgentStore::get_background_agent_progress(
         &adapter,
-        BackgroundAgentProgressRequest {
+        TaskProgressRequest {
             id: task_id.clone(),
             event_limit: Some(5),
         },
@@ -1312,7 +1311,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let messages = BackgroundAgentStore::list_background_agent_messages(
         &adapter,
-        BackgroundAgentMessageListRequest {
+        TaskMessageListRequest {
             id: task_id.clone(),
             limit: Some(10),
         },
@@ -1323,7 +1322,7 @@ fn test_task_store_adapter_background_agent_flow() {
     // Test list_background_agent_traces (DB-backed)
     let traces = BackgroundAgentStore::list_background_agent_traces(
         &adapter,
-        BackgroundAgentTraceListRequest {
+        TaskTraceListRequest {
             id: Some(task_id.clone()),
             limit: Some(5),
         },
@@ -1335,7 +1334,7 @@ fn test_task_store_adapter_background_agent_flow() {
     // Test read_background_agent_trace (DB-backed)
     let trace_result = BackgroundAgentStore::read_background_agent_trace(
         &adapter,
-        BackgroundAgentTraceReadRequest {
+        TaskTraceReadRequest {
             trace_id: "missing-trace-id".to_string(),
             line_limit: Some(10),
         },
@@ -1344,7 +1343,7 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let delete_preview = BackgroundAgentStore::delete_background_agent(
         &adapter,
-        restflow_traits::store::BackgroundAgentDeleteRequest {
+        restflow_traits::store::TaskDeleteRequest {
             id: task_id.clone(),
             preview: true,
             approval_id: None,
@@ -1357,7 +1356,7 @@ fn test_task_store_adapter_background_agent_flow() {
         .to_string();
     let deleted = BackgroundAgentStore::delete_background_agent(
         &adapter,
-        restflow_traits::store::BackgroundAgentDeleteRequest {
+        restflow_traits::store::TaskDeleteRequest {
             id: task_id,
             preview: false,
             approval_id: Some(token),
