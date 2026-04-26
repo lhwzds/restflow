@@ -4,7 +4,7 @@ use crate::storage::Storage;
 use crate::{
     ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace, MetricSampleTrace,
 };
-use restflow_contracts::request::ChildRunListQuery;
+use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
 use restflow_storage::SimpleStorage;
 
 fn assert_execution_thread_error(
@@ -663,6 +663,57 @@ async fn delete_session_rejects_background_bound_workspace_session() {
         &runtime_tool_registry,
         IpcRequest::DeleteSession {
             id: session.id.clone(),
+        },
+    )
+    .await;
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            assert!(error.message.contains("bound to background task"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn switch_session_model_rejects_background_bound_workspace_session() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    session.source_channel = Some(ChatSessionSource::Workspace);
+    core.storage.chat_sessions.create(&session).unwrap();
+
+    core.storage
+        .background_agents
+        .create_background_agent(crate::models::BackgroundAgentSpec {
+            name: "bound-task".to_string(),
+            agent_id: "agent-1".to_string(),
+            chat_session_id: Some(session.id.clone()),
+            description: None,
+            input: Some("run".to_string()),
+            input_template: None,
+            schedule: crate::models::BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::SwitchSessionModel {
+            session_id: session.id.clone(),
+            model_ref: WireModelRef {
+                provider: "openai".to_string(),
+                model: "gpt-5.5".to_string(),
+            },
+            reason: None,
         },
     )
     .await;

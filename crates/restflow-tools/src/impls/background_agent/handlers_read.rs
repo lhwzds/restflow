@@ -24,7 +24,7 @@ pub(super) fn execute_progress(
 ) -> Result<ToolOutput> {
     let result =
         TaskStore::get_task_progress(tool.store.as_ref(), TaskProgressRequest { id, event_limit })
-            .map_err(|e| ToolError::Tool(format!("Failed to get background agent: {e}.")))?;
+            .map_err(|e| ToolError::Tool(format!("Failed to get task progress: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 
@@ -35,18 +35,14 @@ pub(super) fn execute_list_messages(
 ) -> Result<ToolOutput> {
     let result =
         TaskStore::list_task_messages(tool.store.as_ref(), TaskMessageListRequest { id, limit })
-            .map_err(|e| {
-                ToolError::Tool(format!("Failed to list messages background agent: {e}."))
-            })?;
+            .map_err(|e| ToolError::Tool(format!("Failed to list task messages: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 
 pub(super) fn execute_list_artifacts(tool: &TaskTool, id: String) -> Result<ToolOutput> {
     let result =
         TaskStore::list_task_artifacts(tool.store.as_ref(), TaskArtifactListRequest { id })
-            .map_err(|e| {
-                ToolError::Tool(format!("Failed to list artifacts background agent: {e}."))
-            })?;
+            .map_err(|e| ToolError::Tool(format!("Failed to list task artifacts: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 
@@ -57,9 +53,7 @@ pub(super) fn execute_list_traces(
 ) -> Result<ToolOutput> {
     let result =
         TaskStore::list_task_traces(tool.store.as_ref(), TaskTraceListRequest { id, limit })
-            .map_err(|e| {
-                ToolError::Tool(format!("Failed to list traces for background agent: {e}."))
-            })?;
+            .map_err(|e| ToolError::Tool(format!("Failed to list task traces: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 
@@ -75,7 +69,7 @@ pub(super) fn execute_read_trace(
             line_limit,
         },
     )
-    .map_err(|e| ToolError::Tool(format!("Failed to read trace for background agent: {e}.")))?;
+    .map_err(|e| ToolError::Tool(format!("Failed to read task trace: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 

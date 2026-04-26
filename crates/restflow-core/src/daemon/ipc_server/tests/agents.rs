@@ -3,8 +3,8 @@ use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
 use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
 use restflow_contracts::{
-    ApprovalHandledResponse, CleanupReportResponse, DeleteWithIdResponse, PairingApprovalResponse,
-    PairingStateResponse, RouteBindingResponse,
+    ApprovalHandledResponse, CleanupReportResponse, PairingApprovalResponse, PairingStateResponse,
+    RouteBindingResponse,
 };
 use restflow_storage::SimpleStorage;
 
@@ -128,7 +128,7 @@ async fn process_get_background_agent_returns_created_task() {
 }
 
 #[tokio::test]
-async fn process_delete_background_agent_returns_delete_with_id_response() {
+async fn process_delete_task_requires_confirmation() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     ensure_test_agent_with_id(&core, "agent-1");
@@ -149,13 +149,14 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
     .await;
 
     match response {
-        IpcResponse::Success(value) => {
-            let deleted: DeleteWithIdResponse =
-                serde_json::from_value(value).expect("delete response");
-            assert_eq!(deleted.id, task.id);
-            assert!(deleted.deleted);
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            let details = error.details.expect("confirmation details");
+            assert_eq!(details["status"], "confirmation_required");
+            assert_eq!(details["pending_approval"], true);
+            assert_eq!(details["assessment"]["operation"], "delete_task");
         }
-        other => panic!("expected success response, got {other:?}"),
+        other => panic!("expected confirmation error response, got {other:?}"),
     }
 }
 
@@ -906,7 +907,7 @@ async fn process_create_agent_rejects_invalid_wire_model_ref() {
 }
 
 #[tokio::test]
-async fn process_create_background_agent_persists_when_agent_provider_missing() {
+async fn process_create_task_requires_confirmation_when_agent_provider_missing() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let stored_agent = core
@@ -942,13 +943,14 @@ async fn process_create_background_agent_persists_when_agent_provider_missing() 
     .await;
 
     match response {
-        IpcResponse::Success(value) => {
-            let created: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
-            assert_eq!(created.name, "bg-warning");
-            assert_eq!(created.agent_id, stored_agent.id);
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            let details = error.details.expect("confirmation details");
+            assert_eq!(details["status"], "confirmation_required");
+            assert_eq!(details["pending_approval"], true);
+            assert_eq!(details["assessment"]["operation"], "create_task");
         }
-        other => panic!("expected success response, got {other:?}"),
+        other => panic!("expected confirmation error response, got {other:?}"),
     }
 }
 

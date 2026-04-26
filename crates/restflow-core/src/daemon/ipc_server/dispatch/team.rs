@@ -1,5 +1,6 @@
 use super::super::runtime::get_runtime_tool_registry;
 use super::super::*;
+use crate::services::session_policy::SessionPolicy;
 use restflow_contracts::request::WireModelRef;
 use serde_json::{Value, json};
 
@@ -156,6 +157,11 @@ impl IpcServer {
             Ok(None) => return IpcResponse::not_found("session"),
             Err(error) => return IpcResponse::error(500, error.to_string()),
         };
+        if let Err(error) = SessionPolicy::from_storage(&core.storage)
+            .ensure_workspace_operation_allowed(&session, "switch model")
+        {
+            return IpcResponse::error(409, error.to_string());
+        }
         session.provider = model_ref.provider;
         session.model = model_ref.model;
         session.updated_at = chrono::Utc::now().timestamp_millis();

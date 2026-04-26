@@ -299,8 +299,12 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         } => {
             if state.update_pending_session_model(provider, model, model_name) {
                 state.clear_overlay();
+                state.status = status;
+            } else {
+                state.status =
+                    "No default agent is available. Start the daemon or send a message first."
+                        .to_string();
             }
-            state.status = status;
         }
         ShellAction::TeamSnapshotLoaded {
             team_state,
@@ -1140,6 +1144,30 @@ mod tests {
         assert_eq!(pending.model_name, "GPT-5.4");
         assert!(state.overlay.is_none());
         assert_eq!(state.status, "Model selected for new chat.");
+    }
+
+    #[test]
+    fn model_selection_without_default_agent_does_not_claim_success() {
+        let mut state = AppState::empty();
+        state.open_model_picker("codex");
+
+        let output = reduce(
+            &mut state,
+            ShellAction::PendingSessionModelSelected {
+                provider: "codex".to_string(),
+                model: "gpt-5.4".to_string(),
+                model_name: "GPT-5.4".to_string(),
+                status: "Model selected for new chat.".to_string(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        assert!(state.pending_session.is_none());
+        assert!(state.overlay.is_some());
+        assert_eq!(
+            state.status,
+            "No default agent is available. Start the daemon or send a message first."
+        );
     }
 
     #[test]

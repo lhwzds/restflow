@@ -270,8 +270,8 @@ impl ShellController {
                     TeamPickerItem::Current { team_run_id, .. } => {
                         self.load_team_actions(&team_run_id, true).await
                     }
-                    TeamPickerItem::Saved { name, .. } => Ok(vec![ShellAction::SubmitText {
-                        text: format!("/team start {name}"),
+                    TeamPickerItem::Saved { name, .. } => Ok(vec![ShellAction::CommandPicked {
+                        text: format!("/team start {name} "),
                     }]),
                 }
             }

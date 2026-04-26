@@ -95,10 +95,6 @@ pub fn tool_description() -> &'static str {
     schema::tool_description()
 }
 
-pub fn legacy_tool_description() -> &'static str {
-    schema::legacy_tool_description()
-}
-
 #[async_trait]
 impl Tool for TaskTool {
     fn name(&self) -> &str {

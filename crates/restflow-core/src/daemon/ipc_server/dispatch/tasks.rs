@@ -7,10 +7,14 @@ use crate::daemon::request_mapper::to_contract;
 use crate::services::background_agent_command::{
     TaskCommandError, TaskCommandService, TaskExecutionMode,
 };
+use crate::services::operation_assessment::assessment_summary;
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::ApprovalHandledResponse;
 use restflow_traits::store::{TaskControlRequest, TaskConvertSessionRequest, TaskDeleteRequest};
+use restflow_traits::TaskCommandOutcome;
+use serde::Serialize;
+use serde_json::json;
 
 fn resolve_task_id(
     core: &Arc<AppCore>,
@@ -40,6 +44,38 @@ fn command_service(core: &Arc<AppCore>) -> TaskCommandService {
 
 fn command_error_response(error: TaskCommandError) -> IpcResponse {
     IpcResponse::error_payload(error.payload())
+}
+
+fn guarded_mutation_response<T: Serialize>(outcome: TaskCommandOutcome<T>) -> IpcResponse {
+    match outcome {
+        TaskCommandOutcome::Executed { result } => IpcResponse::success(result),
+        TaskCommandOutcome::Blocked { assessment } => IpcResponse::error_with_details(
+            409,
+            assessment_summary(&assessment),
+            Some(json!({
+                "status": "blocked",
+                "assessment": assessment,
+            })),
+        ),
+        TaskCommandOutcome::ConfirmationRequired { assessment } => IpcResponse::error_with_details(
+            409,
+            assessment_summary(&assessment),
+            Some(json!({
+                "status": "confirmation_required",
+                "pending_approval": true,
+                "approval_id": assessment.approval_id,
+                "assessment": assessment,
+            })),
+        ),
+        TaskCommandOutcome::Preview { assessment } => IpcResponse::error_with_details(
+            400,
+            "Typed IPC task mutations do not support preview. Use manage_tasks for preview flows.",
+            Some(json!({
+                "status": "preview",
+                "assessment": assessment,
+            })),
+        ),
+    }
 }
 
 impl IpcServer {
@@ -111,11 +147,10 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match command_service(core)
-            .create_from_request(request, TaskExecutionMode::Direct)
+            .create_from_request(request, TaskExecutionMode::Guarded)
             .await
-            .and_then(TaskCommandService::into_direct_result)
         {
-            Ok(agent) => IpcResponse::success(agent),
+            Ok(outcome) => guarded_mutation_response(outcome),
             Err(err) => command_error_response(err),
         }
     }
@@ -125,11 +160,10 @@ impl IpcServer {
         request: TaskConvertSessionRequest,
     ) -> IpcResponse {
         match command_service(core)
-            .convert_session(request, TaskExecutionMode::Direct)
+            .convert_session(request, TaskExecutionMode::Guarded)
             .await
-            .and_then(TaskCommandService::into_direct_result)
         {
-            Ok(result) => IpcResponse::success(result),
+            Ok(outcome) => guarded_mutation_response(outcome),
             Err(err) => command_error_response(err),
         }
     }
@@ -144,11 +178,10 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match command_service(core)
-            .update_from_request(request, TaskExecutionMode::Direct)
+            .update_from_request(request, TaskExecutionMode::Guarded)
             .await
-            .and_then(TaskCommandService::into_direct_result)
         {
-            Ok(agent) => IpcResponse::success(agent),
+            Ok(outcome) => guarded_mutation_response(outcome),
             Err(err) => command_error_response(err),
         }
     }
@@ -160,11 +193,10 @@ impl IpcServer {
             approval_id: None,
         };
         match command_service(core)
-            .delete_from_request(request, TaskExecutionMode::Direct)
+            .delete_from_request(request, TaskExecutionMode::Guarded)
             .await
-            .and_then(TaskCommandService::into_direct_result)
         {
-            Ok(result) => IpcResponse::success(result),
+            Ok(outcome) => guarded_mutation_response(outcome),
             Err(err) => command_error_response(err),
         }
     }
@@ -185,11 +217,10 @@ impl IpcServer {
             approval_id: None,
         };
         match command_service(core)
-            .control_from_request(request, TaskExecutionMode::Direct)
+            .control_from_request(request, TaskExecutionMode::Guarded)
             .await
-            .and_then(TaskCommandService::into_direct_result)
         {
-            Ok(agent) => IpcResponse::success(agent),
+            Ok(outcome) => guarded_mutation_response(outcome),
             Err(err) => command_error_response(err),
         }
     }

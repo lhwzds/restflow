@@ -26,9 +26,7 @@ pub mod agent_crud;
 pub mod auth_profile;
 pub mod background_agent;
 pub mod task {
-    pub use super::background_agent::{
-        TaskTool, legacy_tool_description, tool_description, tool_parameters_schema,
-    };
+    pub use super::background_agent::{TaskTool, tool_description, tool_parameters_schema};
 
     #[cfg(test)]
     mod tests {

@@ -124,7 +124,7 @@ pub(super) async fn execute_create(
         approval_id,
     };
     let result = TaskStore::create_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to create background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to create task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -162,11 +162,8 @@ pub(super) async fn execute_convert_session(
         preview,
         approval_id,
     };
-    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request).map_err(|e| {
-        ToolError::Tool(format!(
-            "Failed to convert session into background agent: {e}."
-        ))
-    })?;
+    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request)
+        .map_err(|e| ToolError::Tool(format!("Failed to convert session into task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -210,11 +207,8 @@ pub(super) async fn execute_promote_to_background(
         preview,
         approval_id,
     };
-    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request).map_err(|e| {
-        ToolError::Tool(format!(
-            "Failed to promote session into background agent: {e}."
-        ))
-    })?;
+    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request)
+        .map_err(|e| ToolError::Tool(format!("Failed to promote session into task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -263,7 +257,7 @@ pub(super) async fn execute_update(
         approval_id,
     };
     let result = TaskStore::update_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to update background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to update task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -283,7 +277,7 @@ pub(super) async fn execute_delete(
         approval_id,
     };
     let result = TaskStore::delete_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to delete background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to delete task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -305,6 +299,6 @@ pub(super) fn execute_send_message(
             source,
         },
     )
-    .map_err(|e| ToolError::Tool(format!("Failed to send message background agent: {e}.")))?;
+    .map_err(|e| ToolError::Tool(format!("Failed to send task message: {e}.")))?;
     Ok(ToolOutput::success(result))
 }

@@ -334,7 +334,7 @@ pub(super) async fn execute_run_batch(
         let mut created = TaskStore::create_task(tool.store.as_ref(), create_request.clone())
             .map_err(|e| {
                 ToolError::Tool(format!(
-                    "Failed to create background agent for worker {}: {e}.",
+                    "Failed to create task for worker {}: {e}.",
                     worker_index + 1
                 ))
             })?;
@@ -349,7 +349,7 @@ pub(super) async fn execute_run_batch(
             replay_request.approval_id = Some(approval_id);
             created = TaskStore::create_task(tool.store.as_ref(), replay_request).map_err(|e| {
                 ToolError::Tool(format!(
-                    "Failed to replay background agent creation for worker {}: {e}.",
+                    "Failed to replay task creation for worker {}: {e}.",
                     worker_index + 1
                 ))
             })?;
@@ -376,9 +376,7 @@ pub(super) async fn execute_run_batch(
                     approval_id: None,
                 },
             )
-            .map_err(|e| {
-                ToolError::Tool(format!("Failed to run background agent {}: {e}.", task_id))
-            })?;
+            .map_err(|e| ToolError::Tool(format!("Failed to run task {}: {e}.", task_id)))?;
         }
 
         tasks.push(json!({

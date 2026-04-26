@@ -7,6 +7,8 @@ const GPT_5_2_ALIASES: &[&str] = &["gpt-5-2"];
 const GPT_5_4_ALIASES: &[&str] = &["gpt-5-4"];
 const GPT_5_4_MINI_ALIASES: &[&str] = &["gpt-5-4-mini"];
 const GPT_5_4_NANO_ALIASES: &[&str] = &["gpt-5-4-nano"];
+const GPT_5_5_ALIASES: &[&str] = &["gpt-5-5"];
+const GPT_5_5_PRO_ALIASES: &[&str] = &["gpt-5-5-pro"];
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(
@@ -82,6 +84,25 @@ pub const MODELS: &[ModelDescriptor] = &[
     )
     .with_aliases(GPT_5_2_ALIASES),
     ModelDescriptor::new(
+        ModelId::Gpt5_5,
+        Provider::OpenAI,
+        "gpt-5.5",
+        "GPT-5.5",
+        false,
+    )
+    .with_aliases(GPT_5_5_ALIASES)
+    .with_same_provider_fallback(ModelId::Gpt5_4)
+    .with_openrouter_equivalent(ModelId::OrGpt5),
+    ModelDescriptor::new(
+        ModelId::Gpt5_5Pro,
+        Provider::OpenAI,
+        "gpt-5.5-pro",
+        "GPT-5.5 Pro",
+        false,
+    )
+    .with_aliases(GPT_5_5_PRO_ALIASES)
+    .with_same_provider_fallback(ModelId::Gpt5_5),
+    ModelDescriptor::new(
         ModelId::OpenCodeCli,
         Provider::OpenAI,
         "opencode",
@@ -93,4 +114,4 @@ pub const MODELS: &[ModelDescriptor] = &[
 ];
 
 pub const CATALOG: ProviderCatalog =
-    ProviderCatalog::new(Provider::OpenAI, ModelId::Gpt5_4, MODELS);
+    ProviderCatalog::new(Provider::OpenAI, ModelId::Gpt5_5, MODELS);

@@ -3,6 +3,8 @@ use crate::{ClientKind, ModelId, Provider};
 
 const GPT_5_4_ALIASES: &[&str] = &["gpt-5.4-codex"];
 const GPT_5_4_MINI_ALIASES: &[&str] = &["gpt-5.4-mini-codex"];
+const GPT_5_5_ALIASES: &[&str] = &["gpt-5.5-codex"];
+const GPT_5_5_PRO_ALIASES: &[&str] = &["gpt-5.5-pro-codex"];
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(
@@ -24,6 +26,26 @@ pub const MODELS: &[ModelDescriptor] = &[
     )
     .with_aliases(GPT_5_4_MINI_ALIASES)
     .with_client_kind(ClientKind::CodexCli),
+    ModelDescriptor::new(
+        ModelId::Gpt5_5Codex,
+        Provider::Codex,
+        "gpt-5.5",
+        "Codex GPT-5.5",
+        false,
+    )
+    .with_aliases(GPT_5_5_ALIASES)
+    .with_client_kind(ClientKind::CodexCli)
+    .with_same_provider_fallback(ModelId::Gpt5_4Codex),
+    ModelDescriptor::new(
+        ModelId::Gpt5_5ProCodex,
+        Provider::Codex,
+        "gpt-5.5-pro",
+        "Codex GPT-5.5 Pro",
+        false,
+    )
+    .with_aliases(GPT_5_5_PRO_ALIASES)
+    .with_client_kind(ClientKind::CodexCli)
+    .with_same_provider_fallback(ModelId::Gpt5_5Codex),
     ModelDescriptor::new(
         ModelId::Gpt5Codex,
         Provider::Codex,
@@ -59,4 +81,4 @@ pub const MODELS: &[ModelDescriptor] = &[
 ];
 
 pub const CATALOG: ProviderCatalog =
-    ProviderCatalog::new(Provider::Codex, ModelId::Gpt5_4Codex, MODELS);
+    ProviderCatalog::new(Provider::Codex, ModelId::Gpt5_5Codex, MODELS);
