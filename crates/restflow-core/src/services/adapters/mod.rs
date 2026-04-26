@@ -23,7 +23,7 @@ pub mod work_item;
 
 pub use agent::AgentStoreAdapter;
 pub use auth_profile::AuthProfileStorageAdapter;
-pub use background_agent::{BackgroundAgentStoreAdapter, TaskStoreAdapter};
+pub use background_agent::TaskStoreAdapter;
 pub use config::ConfigStoreAdapter;
 pub use marketplace::MarketplaceStoreAdapter;
 pub use memory::{DbMemoryStoreAdapter, MemoryManagerAdapter};

@@ -54,9 +54,6 @@ pub enum TaskExecutionMode {
     Direct,
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentExecutionMode = TaskExecutionMode;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskCommandError {
     Validation(String),
@@ -64,9 +61,6 @@ pub enum TaskCommandError {
     Conflict(String),
     Internal(String),
 }
-
-#[doc(hidden)]
-pub type BackgroundAgentCommandError = TaskCommandError;
 
 impl std::fmt::Display for TaskCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -163,9 +157,6 @@ pub struct TaskCommandService {
     session_service: SessionService,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 }
-
-#[doc(hidden)]
-pub type BackgroundAgentCommandService = TaskCommandService;
 
 impl TaskCommandService {
     pub fn new(
@@ -1114,9 +1105,8 @@ mod tests {
     }
 
     #[test]
-    fn task_command_aliases_legacy_background_agent_names() {
+    fn task_command_types_are_canonical() {
         let (service, _session, _temp_dir) = setup();
-        let _: &TaskCommandService = &service;
         let _: &TaskCommandService = &service;
         let _: TaskExecutionMode = TaskExecutionMode::Guarded;
         let _: TaskExecutionMode = TaskExecutionMode::Direct;

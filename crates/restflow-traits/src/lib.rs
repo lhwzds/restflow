@@ -41,9 +41,9 @@ pub use error::{Result as ToolResult, ToolError};
 
 // Assessment types
 pub use assessment::{
-    AgentOperationAssessor, AssessmentModelRef, BackgroundAgentCommandOutcome, OperationAssessment,
-    OperationAssessmentIntent, OperationAssessmentIssue, OperationAssessmentStatus,
-    TaskCommandOutcome, normalize_legacy_approval_replay,
+    AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
+    OperationAssessmentIssue, OperationAssessmentStatus, TaskCommandOutcome,
+    normalize_legacy_approval_replay,
 };
 
 // Tool trait and core types
@@ -71,16 +71,16 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate
 // Store traits
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
-    AuthProfileTestRequest, BackgroundAgentStore, ConfigStore, CredentialInput,
-    DiagnosticsProvider, MarketplaceStore, MemoryClearRequest, MemoryCompactRequest,
-    MemoryExportRequest, MemoryManager, MemoryStore, OpsProvider, ProcessLog, ProcessManager,
-    ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore, SecurityQueryProvider,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
-    TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest, TaskCreateRequest,
-    TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest, TaskProgressRequest, TaskStore,
-    TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest, TeamTemplateEntry,
-    TeamTemplateStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
-    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    AuthProfileTestRequest, ConfigStore, CredentialInput, DiagnosticsProvider, MarketplaceStore,
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
+    OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
+    SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
+    SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
+    TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
+    TaskUpdateRequest, TeamTemplateEntry, TeamTemplateStore, TerminalStore, TriggerStore,
+    UnifiedMemorySearch, WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord,
+    WorkItemSpec, WorkItemStatus,
 };
 
 // Shared orchestration contracts

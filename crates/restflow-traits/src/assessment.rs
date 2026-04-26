@@ -133,9 +133,6 @@ pub enum TaskCommandOutcome<T> {
     Executed { result: T },
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentCommandOutcome<T> = TaskCommandOutcome<T>;
-
 #[async_trait]
 pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_agent_create(

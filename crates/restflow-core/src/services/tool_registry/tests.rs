@@ -6,7 +6,7 @@ use super::subagent_backend::{
 use super::*;
 use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill};
 use crate::services::adapters::{
-    AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
+    AgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter, TaskStoreAdapter,
 };
 use crate::services::session::SessionService;
 use async_trait::async_trait;
@@ -26,10 +26,9 @@ use restflow_traits::assessment::{
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentStore, MemoryStore as _,
-    TaskControlRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
-    TaskMessageRequest, TaskProgressRequest, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, MemoryStore as _, TaskControlRequest,
+    TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
+    TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -1121,7 +1120,7 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
 }
 
 #[test]
-fn test_task_store_adapter_background_agent_flow() {
+fn test_task_store_adapter_task_flow() {
     struct AgentsDirEnvCleanup;
     impl Drop for AgentsDirEnvCleanup {
         fn drop(&mut self) {
@@ -1158,7 +1157,7 @@ fn test_task_store_adapter_background_agent_flow() {
             crate::models::AgentNode::new(),
         )
         .unwrap();
-    let adapter = BackgroundAgentStoreAdapter::new(
+    let adapter = TaskStoreAdapter::new(
         background_agent_storage.clone(),
         agent_storage.clone(),
         run_artifact_storage,
@@ -1175,7 +1174,7 @@ fn test_task_store_adapter_background_agent_flow() {
     )
     .with_assessor(Arc::new(BackgroundMutationAssessor));
 
-    let created = BackgroundAgentStore::create_background_agent(
+    let created = TaskStore::create_task(
         &adapter,
         TaskCreateRequest {
             name: "Background Agent".to_string(),
@@ -1216,7 +1215,7 @@ fn test_task_store_adapter_background_agent_flow() {
         .unwrap()
         .to_string();
 
-    let updated = BackgroundAgentStore::update_background_agent(
+    let updated = TaskStore::update_task(
         &adapter,
         TaskUpdateRequest {
             id: task_id.clone(),
@@ -1262,7 +1261,7 @@ fn test_task_store_adapter_background_agent_flow() {
         Some(900)
     );
 
-    let controlled = BackgroundAgentStore::control_background_agent(
+    let controlled = TaskStore::control_task(
         &adapter,
         TaskControlRequest {
             id: task_id.clone(),
@@ -1280,7 +1279,7 @@ fn test_task_store_adapter_background_agent_flow() {
         Some("active")
     );
 
-    let message = BackgroundAgentStore::send_background_agent_message(
+    let message = TaskStore::send_task_message(
         &adapter,
         TaskMessageRequest {
             id: task_id.clone(),
@@ -1294,7 +1293,7 @@ fn test_task_store_adapter_background_agent_flow() {
         Some("queued")
     );
 
-    let progress = BackgroundAgentStore::get_background_agent_progress(
+    let progress = TaskStore::get_task_progress(
         &adapter,
         TaskProgressRequest {
             id: task_id.clone(),
@@ -1309,7 +1308,7 @@ fn test_task_store_adapter_background_agent_flow() {
         Some(task_id.as_str())
     );
 
-    let messages = BackgroundAgentStore::list_background_agent_messages(
+    let messages = TaskStore::list_task_messages(
         &adapter,
         TaskMessageListRequest {
             id: task_id.clone(),
@@ -1319,8 +1318,8 @@ fn test_task_store_adapter_background_agent_flow() {
     .unwrap();
     assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
 
-    // Test list_background_agent_traces (DB-backed)
-    let traces = BackgroundAgentStore::list_background_agent_traces(
+    // Test list_task_traces (DB-backed)
+    let traces = TaskStore::list_task_traces(
         &adapter,
         TaskTraceListRequest {
             id: Some(task_id.clone()),
@@ -1331,8 +1330,8 @@ fn test_task_store_adapter_background_agent_flow() {
     // Trace list is empty until execution telemetry writes canonical events
     assert!(traces.as_array().unwrap().is_empty() || traces.as_array().is_some());
 
-    // Test read_background_agent_trace (DB-backed)
-    let trace_result = BackgroundAgentStore::read_background_agent_trace(
+    // Test read_task_trace (DB-backed)
+    let trace_result = TaskStore::read_task_trace(
         &adapter,
         TaskTraceReadRequest {
             trace_id: "missing-trace-id".to_string(),
@@ -1341,7 +1340,7 @@ fn test_task_store_adapter_background_agent_flow() {
     );
     assert!(trace_result.is_err());
 
-    let delete_preview = BackgroundAgentStore::delete_background_agent(
+    let delete_preview = TaskStore::delete_task(
         &adapter,
         restflow_traits::store::TaskDeleteRequest {
             id: task_id.clone(),
@@ -1354,7 +1353,7 @@ fn test_task_store_adapter_background_agent_flow() {
         .as_str()
         .expect("delete preview token")
         .to_string();
-    let deleted = BackgroundAgentStore::delete_background_agent(
+    let deleted = TaskStore::delete_task(
         &adapter,
         restflow_traits::store::TaskDeleteRequest {
             id: task_id,
