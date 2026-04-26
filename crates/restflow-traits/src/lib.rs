@@ -71,11 +71,7 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate
 // Store traits
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
-    AuthProfileTestRequest, BackgroundAgentArtifactListRequest, BackgroundAgentControlRequest,
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
-    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, ConfigStore, CredentialInput,
+    AuthProfileTestRequest, BackgroundAgentStore, ConfigStore, CredentialInput,
     DiagnosticsProvider, MarketplaceStore, MemoryClearRequest, MemoryCompactRequest,
     MemoryExportRequest, MemoryManager, MemoryStore, OpsProvider, ProcessLog, ProcessManager,
     ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore, SecurityQueryProvider,

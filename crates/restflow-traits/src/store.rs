@@ -268,23 +268,6 @@ pub struct TaskMessageListRequest {
     pub limit: Option<usize>,
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentCreateRequest = TaskCreateRequest;
-#[doc(hidden)]
-pub type BackgroundAgentConvertSessionRequest = TaskConvertSessionRequest;
-#[doc(hidden)]
-pub type BackgroundAgentUpdateRequest = TaskUpdateRequest;
-#[doc(hidden)]
-pub type BackgroundAgentControlRequest = TaskControlRequest;
-#[doc(hidden)]
-pub type BackgroundAgentDeleteRequest = TaskDeleteRequest;
-#[doc(hidden)]
-pub type BackgroundAgentProgressRequest = TaskProgressRequest;
-#[doc(hidden)]
-pub type BackgroundAgentMessageRequest = TaskMessageRequest;
-#[doc(hidden)]
-pub type BackgroundAgentMessageListRequest = TaskMessageListRequest;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,13 +513,6 @@ pub struct TaskTraceReadRequest {
     pub line_limit: Option<usize>,
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentArtifactListRequest = TaskArtifactListRequest;
-#[doc(hidden)]
-pub type BackgroundAgentTraceListRequest = TaskTraceListRequest;
-#[doc(hidden)]
-pub type BackgroundAgentTraceReadRequest = TaskTraceReadRequest;
-
 pub trait TaskStore: Send + Sync {
     fn create_task(&self, request: TaskCreateRequest) -> Result<Value>;
     fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value>;
@@ -553,68 +529,50 @@ pub trait TaskStore: Send + Sync {
 }
 
 pub trait BackgroundAgentStore: TaskStore + Send + Sync {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+    fn create_background_agent(&self, request: TaskCreateRequest) -> Result<Value> {
         self.create_task(request)
     }
 
     fn convert_session_to_background_agent(
         &self,
-        request: BackgroundAgentConvertSessionRequest,
+        request: TaskConvertSessionRequest,
     ) -> Result<Value> {
         self.convert_session_to_task(request)
     }
 
-    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_background_agent(&self, request: TaskUpdateRequest) -> Result<Value> {
         self.update_task(request)
     }
 
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_background_agent(&self, request: TaskDeleteRequest) -> Result<Value> {
         self.delete_task(request)
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_background_agent(&self, request: TaskControlRequest) -> Result<Value> {
         self.control_task(request)
     }
 
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_background_agent_progress(&self, request: TaskProgressRequest) -> Result<Value> {
         self.get_task_progress(request)
     }
 
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_background_agent_message(&self, request: TaskMessageRequest) -> Result<Value> {
         self.send_task_message(request)
     }
 
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_background_agent_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
         self.list_task_messages(request)
     }
 
-    fn list_background_agent_artifacts(
-        &self,
-        request: BackgroundAgentArtifactListRequest,
-    ) -> Result<Value> {
+    fn list_background_agent_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value> {
         self.list_task_artifacts(request)
     }
 
-    fn list_background_agent_traces(
-        &self,
-        request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_background_agent_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
         self.list_task_traces(request)
     }
 
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_background_agent_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
         self.read_task_trace(request)
     }
 }
