@@ -23,23 +23,6 @@ pub mod multiedit;
 // Migrated from restflow-ai
 pub mod agent_crud;
 pub mod auth_profile;
-pub mod background_agent;
-pub mod task {
-    pub use super::background_agent::{TaskTool, tool_description, tool_parameters_schema};
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn task_tool_schema_matches_background_agent_schema() {
-            assert_eq!(
-                tool_parameters_schema(),
-                super::super::background_agent::tool_parameters_schema()
-            );
-        }
-    }
-}
 pub mod config;
 pub mod diagnostics;
 pub mod file_tracker;
@@ -54,6 +37,7 @@ pub mod secrets;
 pub mod session;
 pub mod skill;
 pub mod switch_model;
+pub mod task;
 pub mod transcribe;
 pub mod vision;
 pub mod web_fetch;
@@ -104,7 +88,6 @@ pub use telegram::{TelegramTool, send_telegram_notification};
 // Re-export migrated tools
 pub use agent_crud::AgentCrudTool;
 pub use auth_profile::AuthProfileTool;
-pub use background_agent::TaskTool;
 pub use config::ConfigTool;
 pub use diagnostics::DiagnosticsTool;
 pub use jina_reader::JinaReaderTool;
@@ -118,6 +101,7 @@ pub use secrets::{SecretGetPolicy, SecretsTool};
 pub use session::SessionTool;
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
+pub use task::TaskTool;
 pub use transcribe::{TranscribeConfig, TranscribeTool};
 pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;

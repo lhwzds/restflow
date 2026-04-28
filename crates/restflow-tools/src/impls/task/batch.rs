@@ -11,7 +11,7 @@ use restflow_traits::store::{TaskControlRequest, TaskCreateRequest, TaskStore};
 use restflow_traits::{OperationAssessmentIntent, RuntimeTaskPayload};
 
 use super::TaskTool;
-use super::types::BackgroundBatchWorkerSpec;
+use super::types::TaskBatchWorkerSpec;
 
 fn now_unix_seconds() -> i64 {
     SystemTime::now()
@@ -20,10 +20,10 @@ fn now_unix_seconds() -> i64 {
 }
 
 fn expand_worker_specs(
-    workers: &[BackgroundBatchWorkerSpec],
+    workers: &[TaskBatchWorkerSpec],
     fallback_input: Option<&str>,
     fallback_inputs: Option<&[String]>,
-) -> Result<Vec<(usize, String, BackgroundBatchWorkerSpec)>> {
+) -> Result<Vec<(usize, String, TaskBatchWorkerSpec)>> {
     RuntimeTaskPayload {
         task: fallback_input.map(str::to_string),
         tasks: fallback_inputs.map(|items| items.to_vec()),
@@ -202,7 +202,7 @@ pub(super) async fn execute_run_batch(
     name: Option<String>,
     input: Option<String>,
     inputs: Option<Vec<String>>,
-    workers: Option<Vec<BackgroundBatchWorkerSpec>>,
+    workers: Option<Vec<TaskBatchWorkerSpec>>,
     input_template: Option<String>,
     chat_session_id: Option<String>,
     schedule: Option<ContractTaskSchedule>,

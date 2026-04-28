@@ -11,7 +11,7 @@ fn default_worker_count() -> u32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct BackgroundBatchWorkerSpec {
+pub(super) struct TaskBatchWorkerSpec {
     #[serde(default)]
     pub agent_id: Option<String>,
     #[serde(default)]
@@ -201,7 +201,7 @@ pub(super) enum TaskAction {
         #[serde(default)]
         inputs: Option<Vec<String>>,
         #[serde(default)]
-        workers: Option<Vec<BackgroundBatchWorkerSpec>>,
+        workers: Option<Vec<TaskBatchWorkerSpec>>,
         #[serde(default)]
         input_template: Option<String>,
         #[serde(default)]

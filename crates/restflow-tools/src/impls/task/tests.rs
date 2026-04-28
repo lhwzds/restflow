@@ -547,7 +547,7 @@ async fn test_invalid_input_message() {
 }
 
 #[tokio::test]
-async fn test_create_accepts_typed_background_agent_payloads() {
+async fn test_create_accepts_typed_task_payloads() {
     let tool = writable_tool();
     let output = tool
         .execute(json!({
