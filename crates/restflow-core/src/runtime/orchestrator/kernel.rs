@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, MemoryConfig, SteerMessage};
-use crate::runtime::background_agent::{
+use crate::runtime::task_runtime::{
     AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionExecutionResult, SessionInputMode,
     SessionTurnRuntimeOptions,
 };

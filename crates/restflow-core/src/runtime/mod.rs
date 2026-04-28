@@ -1,10 +1,10 @@
 pub mod agent;
-pub mod background_agent;
 pub mod channel;
 pub mod execution_context;
 pub mod orchestrator;
 mod output;
 pub mod subagent;
+pub mod task_runtime;
 
 // Public surface rule:
 // - `restflow-core::runtime` re-exports durable runtime and core-owned adapters.
@@ -17,12 +17,6 @@ pub use agent::{
     effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     secret_resolver_from_storage,
 };
-pub use background_agent::{
-    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, NoopHeartbeatEmitter,
-    NoopNotificationSender, NotificationSender, SessionExecutionResult, SessionInputMode,
-    TaskEventEmitter, TaskRunner, TaskRunnerConfig, TaskRunnerHandle, TaskStreamEvent,
-    TelegramNotifier,
-};
 pub use channel::{
     ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager, MessageDebouncer,
     MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision, SystemStatus,
@@ -33,4 +27,10 @@ pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
 pub use restflow_telemetry::RestflowTrace;
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
+};
+pub use task_runtime::{
+    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, NoopHeartbeatEmitter,
+    NoopNotificationSender, NotificationSender, SessionExecutionResult, SessionInputMode,
+    TaskEventEmitter, TaskRunner, TaskRunnerConfig, TaskRunnerHandle, TaskStreamEvent,
+    TelegramNotifier,
 };

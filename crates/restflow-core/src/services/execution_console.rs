@@ -96,7 +96,7 @@ impl ExecutionConsoleService {
             })
             .collect::<Vec<_>>();
         let external_groups = self.group_external_sessions(&session_contexts);
-        let background_tasks = self.storage.background_agents.list_tasks()?;
+        let background_tasks = self.storage.tasks.list_tasks()?;
 
         let mut containers = workspace_containers;
 
@@ -313,7 +313,7 @@ impl ExecutionConsoleService {
         let sessions = self.storage.chat_sessions.list()?;
         let session_policy = SessionPolicy::from_storage(&self.storage);
         let mut bound_tasks_by_session_id = HashMap::new();
-        for task in self.storage.background_agents.list_tasks()? {
+        for task in self.storage.tasks.list_tasks()? {
             let trimmed_session_id = task.chat_session_id.trim();
             if trimmed_session_id.is_empty() {
                 continue;
@@ -361,7 +361,7 @@ impl ExecutionConsoleService {
     fn list_background_task_sessions(&self, task_id: &str) -> Result<Vec<RunSummary>> {
         let task = self
             .storage
-            .background_agents
+            .tasks
             .get_task(task_id)?
             .ok_or_else(|| anyhow!("background task '{}' not found", task_id))?;
         self.list_background_task_runs(&task)
@@ -680,7 +680,7 @@ impl ExecutionConsoleService {
             .last()
             .ok_or_else(|| anyhow!("run '{}' has no events", run_id))?;
         if latest.parent_run_id.is_none()
-            && let Ok(Some(task)) = self.storage.background_agents.get_task(&latest.task_id)
+            && let Ok(Some(task)) = self.storage.tasks.get_task(&latest.task_id)
         {
             return Ok(self.build_run_summary(
                 run_id,
@@ -926,9 +926,8 @@ fn latest_run_by_task_id(
 mod tests {
     use super::*;
     use crate::models::{
-        BackgroundAgentSchedule, BackgroundAgentSpec, ChatMessage, ChatSession,
-        ExecutionContainerRef, ExecutionMode, LifecycleTrace, NotificationConfig,
-        execution_trace_builders,
+        ChatMessage, ChatSession, ExecutionContainerRef, ExecutionMode, LifecycleTrace,
+        NotificationConfig, TaskSchedule, TaskSpec, execution_trace_builders,
     };
     use crate::storage::Storage;
     use crate::{ExecutionTraceCategory, ExecutionTraceSource};
@@ -1075,15 +1074,15 @@ mod tests {
             .expect("workspace session");
 
         let task = storage
-            .background_agents
-            .create_background_agent(BackgroundAgentSpec {
+            .tasks
+            .create_task_from_spec(TaskSpec {
                 name: "Digest".to_string(),
                 description: None,
                 agent_id: "agent-1".to_string(),
                 chat_session_id: None,
                 input: Some("digest".to_string()),
                 input_template: None,
-                schedule: BackgroundAgentSchedule::default(),
+                schedule: TaskSchedule::default(),
                 notification: Some(NotificationConfig::default()),
                 execution_mode: Some(ExecutionMode::default()),
                 timeout_secs: None,
@@ -1115,15 +1114,15 @@ mod tests {
         let service = ExecutionConsoleService::from_storage(&storage);
 
         let task = storage
-            .background_agents
-            .create_background_agent(BackgroundAgentSpec {
+            .tasks
+            .create_task_from_spec(TaskSpec {
                 name: "Digest".to_string(),
                 description: None,
                 agent_id: "agent-1".to_string(),
                 chat_session_id: None,
                 input: Some("digest".to_string()),
                 input_template: None,
-                schedule: BackgroundAgentSchedule::default(),
+                schedule: TaskSchedule::default(),
                 notification: Some(NotificationConfig::default()),
                 execution_mode: Some(ExecutionMode::default()),
                 timeout_secs: None,

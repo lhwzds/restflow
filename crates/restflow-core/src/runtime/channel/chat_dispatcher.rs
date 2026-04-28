@@ -16,7 +16,6 @@ use crate::models::{
     ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution, ModelId,
 };
 use crate::process::ProcessRegistry;
-use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     build_turn_persistence_payload, detect_voice_message, hydrate_voice_message_metadata,
     preprocess_voice_message,
@@ -25,6 +24,7 @@ use crate::runtime::orchestrator::{
     AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
+use crate::runtime::task_runtime::{AgentRuntimeExecutor, SessionInputMode};
 use crate::services::session::{PersistInteractiveTurnRequest, SessionService};
 use crate::storage::Storage;
 use crate::telemetry::{build_execution_trace_sink, emit_message};

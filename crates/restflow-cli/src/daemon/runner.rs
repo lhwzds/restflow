@@ -9,8 +9,8 @@ use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{Task, TaskControlAction, TaskMessageSource, TaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
-use restflow_core::runtime::background_agent::BackgroundReplySenderFactory;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
+use restflow_core::runtime::task_runtime::BackgroundReplySenderFactory;
 use restflow_core::runtime::{
     AgentRuntimeExecutor, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
     MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, NoopHeartbeatEmitter,
@@ -102,7 +102,7 @@ impl CliTaskRunner {
         let channel_router = Arc::new(RwLock::new(None));
 
         let reply_sender_factory = Arc::new(BackgroundReplySenderFactory::new(
-            Arc::new(storage.background_agents.clone()),
+            Arc::new(storage.tasks.clone()),
             event_emitter.clone(),
             channel_router.clone(),
         ));
@@ -122,7 +122,7 @@ impl CliTaskRunner {
 
         let runner = Arc::new(
             TaskRunner::with_memory_persistence(
-                Arc::new(storage.background_agents.clone()),
+                Arc::new(storage.tasks.clone()),
                 Arc::new(OrchestratingAgentExecutor::from_runtime_executor(executor)),
                 Arc::new(notifier),
                 build_runner_config(&system_config),
@@ -368,11 +368,11 @@ impl CliTaskTrigger {
 #[async_trait]
 impl TaskTrigger for CliTaskTrigger {
     async fn list_tasks(&self) -> Result<Vec<Task>> {
-        self.core.storage.background_agents.list_tasks()
+        self.core.storage.tasks.list_tasks()
     }
 
     async fn find_and_run_task(&self, name_or_id: &str) -> Result<Task> {
-        if let Ok(Some(task)) = self.core.storage.background_agents.get_task(name_or_id) {
+        if let Ok(Some(task)) = self.core.storage.tasks.get_task(name_or_id) {
             self.runner_handle()
                 .await?
                 .run_task_now(task.id.clone())
@@ -380,7 +380,7 @@ impl TaskTrigger for CliTaskTrigger {
             return Ok(task);
         }
 
-        let tasks = self.core.storage.background_agents.list_tasks()?;
+        let tasks = self.core.storage.tasks.list_tasks()?;
         let task = tasks
             .into_iter()
             .find(|t| t.name.eq_ignore_ascii_case(name_or_id))
@@ -405,13 +405,13 @@ impl TaskTrigger for CliTaskTrigger {
             None => false,
         };
 
-        if let Ok(Some(task)) = self.core.storage.background_agents.get_task(task_id)
+        if let Ok(Some(task)) = self.core.storage.tasks.get_task(task_id)
             && (task.status != TaskStatus::Running || !stop_requested)
         {
             self.core
                 .storage
-                .background_agents
-                .control_background_agent(task_id, TaskControlAction::Stop)?;
+                .tasks
+                .control_task(task_id, TaskControlAction::Stop)?;
         }
 
         Ok(())
@@ -421,7 +421,7 @@ impl TaskTrigger for CliTaskTrigger {
         let runner_active = self.handle.read().await.is_some();
         let active_count = self.running_task_count().await;
 
-        let tasks = self.core.storage.background_agents.list_tasks()?;
+        let tasks = self.core.storage.tasks.list_tasks()?;
         let pending_count = tasks
             .iter()
             .filter(|t| t.status == TaskStatus::Active)
@@ -447,10 +447,11 @@ impl TaskTrigger for CliTaskTrigger {
     }
 
     async fn send_message_to_task(&self, task_id: &str, input: &str) -> Result<()> {
-        self.core
-            .storage
-            .background_agents
-            .send_background_agent_message(task_id, input.to_string(), TaskMessageSource::User)?;
+        self.core.storage.tasks.send_task_message(
+            task_id,
+            input.to_string(),
+            TaskMessageSource::User,
+        )?;
         Ok(())
     }
 
@@ -460,14 +461,11 @@ impl TaskTrigger for CliTaskTrigger {
         } else {
             "User rejected the pending action."
         };
-        self.core
-            .storage
-            .background_agents
-            .send_background_agent_message(
-                task_id,
-                message.to_string(),
-                TaskMessageSource::System,
-            )?;
+        self.core.storage.tasks.send_task_message(
+            task_id,
+            message.to_string(),
+            TaskMessageSource::System,
+        )?;
         Ok(true)
     }
 }
@@ -578,8 +576,8 @@ mod tests {
 
         let task = core
             .storage
-            .background_agents
-            .create_background_agent(TaskSpec {
+            .tasks
+            .create_task_from_spec(TaskSpec {
                 name: "Task Test".to_string(),
                 agent_id: default_agent.id,
                 chat_session_id: None,
@@ -627,8 +625,8 @@ mod tests {
 
         let messages = core
             .storage
-            .background_agents
-            .list_background_agent_messages(&task.id, 10)
+            .tasks
+            .list_task_messages(&task.id, 10)
             .expect("failed to list background messages");
 
         assert_eq!(messages.len(), 1);
@@ -649,8 +647,8 @@ mod tests {
 
         let messages = core
             .storage
-            .background_agents
-            .list_background_agent_messages(&task.id, 10)
+            .tasks
+            .list_task_messages(&task.id, 10)
             .expect("failed to list background messages");
 
         assert_eq!(messages.len(), 1);

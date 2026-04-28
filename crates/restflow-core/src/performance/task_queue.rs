@@ -1,4 +1,4 @@
-use crate::models::BackgroundAgent;
+use crate::models::Task;
 use anyhow::Result;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
@@ -20,7 +20,7 @@ pub enum TaskPriority {
 /// Task queued for execution.
 #[derive(Debug, Clone)]
 pub struct QueuedTask {
-    pub task: BackgroundAgent,
+    pub task: Task,
     pub submitted_at: Instant,
     pub priority: TaskPriority,
 }
@@ -48,7 +48,7 @@ pub struct QueueStats {
 /// Storage interface for persisting queued tasks.
 #[async_trait]
 pub trait TaskQueueStorage: Send + Sync {
-    async fn save_task(&self, task: &BackgroundAgent) -> Result<()>;
+    async fn save_task(&self, task: &Task) -> Result<()>;
 }
 
 /// Queue configuration.
@@ -116,11 +116,7 @@ impl TaskQueue {
     }
 
     /// Submit a task to the queue.
-    pub async fn submit(
-        &self,
-        task: BackgroundAgent,
-        priority: TaskPriority,
-    ) -> Result<(), QueueError> {
+    pub async fn submit(&self, task: Task, priority: TaskPriority) -> Result<(), QueueError> {
         self.stats
             .pending_count
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
@@ -308,7 +304,7 @@ pub struct QueueStatsSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::background_agent::TaskSchedule;
+    use crate::models::task_runtime::TaskSchedule;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tokio::sync::Barrier;
@@ -323,9 +319,9 @@ mod tests {
         TaskQueue::new(config, None)
     }
 
-    /// Helper to create a minimal BackgroundAgent for testing.
-    fn test_agent(id: &str) -> BackgroundAgent {
-        BackgroundAgent::new(
+    /// Helper to create a minimal Task for testing.
+    fn test_agent(id: &str) -> Task {
+        Task::new(
             id.to_string(),
             format!("task-{id}"),
             "agent-1".to_string(),

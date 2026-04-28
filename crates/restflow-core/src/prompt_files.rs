@@ -7,17 +7,17 @@ use uuid::Uuid;
 
 const AGENTS_DIR: &str = "agents";
 const DEFAULT_AGENT_PROMPT_FILE: &str = "default.md";
-const BACKGROUND_AGENT_POLICY_FILE: &str = "background_agent.md";
+const TASK_POLICY_FILE: &str = "task.md";
 const AGENT_ID_METADATA_PREFIX: &str = "<!-- restflow-agent-id: ";
 const METADATA_SUFFIX: &str = " -->";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
 const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/agents/default.md");
-const BACKGROUND_AGENT_POLICY_ASSET: &str = include_str!("../assets/agents/background_agent.md");
+const TASK_POLICY_ASSET: &str = include_str!("../assets/agents/task.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
-    ensure_prompt_template_file(BACKGROUND_AGENT_POLICY_FILE, BACKGROUND_AGENT_POLICY_ASSET)?;
+    ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_ASSET)?;
     Ok(())
 }
 
@@ -25,12 +25,11 @@ pub fn load_default_main_agent_prompt() -> Result<String> {
     Ok(DEFAULT_AGENT_PROMPT_ASSET.to_string())
 }
 
-pub fn load_background_agent_policy(background_task_id: Option<&str>) -> Result<String> {
-    let path =
-        ensure_prompt_template_file(BACKGROUND_AGENT_POLICY_FILE, BACKGROUND_AGENT_POLICY_ASSET)?;
+pub fn load_task_policy(task_id: Option<&str>) -> Result<String> {
+    let path = ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_ASSET)?;
     let content = fs::read_to_string(&path)
         .with_context(|| format!("Failed to read task policy prompt: {}", path.display()))?;
-    Ok(apply_task_id_placeholder(&content, background_task_id))
+    Ok(apply_task_id_placeholder(&content, task_id))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,7 +112,7 @@ pub fn load_all_agent_prompts() -> Result<std::collections::HashMap<String, Stri
             continue;
         };
         if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
-            || stem == BACKGROUND_AGENT_POLICY_FILE.trim_end_matches(".md")
+            || stem == TASK_POLICY_FILE.trim_end_matches(".md")
         {
             continue;
         }
@@ -269,7 +268,7 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
         };
 
         if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
-            || stem == BACKGROUND_AGENT_POLICY_FILE.trim_end_matches(".md")
+            || stem == TASK_POLICY_FILE.trim_end_matches(".md")
         {
             continue;
         }
@@ -315,8 +314,8 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
     Ok(deleted)
 }
 
-fn apply_task_id_placeholder(content: &str, background_task_id: Option<&str>) -> String {
-    let task_id = background_task_id.unwrap_or("unknown");
+fn apply_task_id_placeholder(content: &str, task_id: Option<&str>) -> String {
+    let task_id = task_id.unwrap_or("unknown");
     let replacements = HashMap::from([
         ("{{task_id}}", task_id),
         ("{{background_task_id}}", task_id),
@@ -400,7 +399,7 @@ fn find_agent_prompt_path_by_id(agent_id: &str) -> Result<Option<PathBuf>> {
             continue;
         };
         if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
-            || stem == BACKGROUND_AGENT_POLICY_FILE.trim_end_matches(".md")
+            || stem == TASK_POLICY_FILE.trim_end_matches(".md")
         {
             continue;
         }
@@ -709,12 +708,12 @@ mod tests {
     }
 
     #[test]
-    fn test_load_background_agent_policy_replaces_task_id() {
+    fn test_load_task_policy_replaces_task_id() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
 
-        let content = load_background_agent_policy(Some("task-123")).unwrap();
+        let content = load_task_policy(Some("task-123")).unwrap();
         assert!(content.contains("task-123"));
         assert!(!content.contains("{{task_id}}"));
 
@@ -729,7 +728,7 @@ mod tests {
 
         ensure_prompt_templates().unwrap();
         assert!(!temp.path().join(DEFAULT_AGENT_PROMPT_FILE).exists());
-        assert!(temp.path().join(BACKGROUND_AGENT_POLICY_FILE).exists());
+        assert!(temp.path().join(TASK_POLICY_FILE).exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }

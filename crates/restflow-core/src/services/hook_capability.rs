@@ -1,25 +1,22 @@
 use crate::hooks::{HookExecutor, TaskHookScheduler};
 use crate::models::{Hook, HookContext, HookEvent};
-use crate::storage::{BackgroundAgentStorage, HookStorage, Storage};
+use crate::storage::{HookStorage, Storage, TaskStorage};
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct HookCapabilityService {
     hooks: HookStorage,
-    background_agents: BackgroundAgentStorage,
+    tasks: TaskStorage,
 }
 
 impl HookCapabilityService {
-    pub fn new(hooks: HookStorage, background_agents: BackgroundAgentStorage) -> Self {
-        Self {
-            hooks,
-            background_agents,
-        }
+    pub fn new(hooks: HookStorage, tasks: TaskStorage) -> Self {
+        Self { hooks, tasks }
     }
 
     pub fn from_storage(storage: &Storage) -> Self {
-        Self::new(storage.hooks.clone(), storage.background_agents.clone())
+        Self::new(storage.hooks.clone(), storage.tasks.clone())
     }
 
     pub fn list(&self) -> Result<Vec<Hook>> {
@@ -45,7 +42,7 @@ impl HookCapabilityService {
             .hooks
             .get(id)?
             .ok_or_else(|| anyhow!("Hook not found: {id}"))?;
-        let scheduler = Arc::new(TaskHookScheduler::new(self.background_agents.clone()));
+        let scheduler = Arc::new(TaskHookScheduler::new(self.tasks.clone()));
         let executor =
             HookExecutor::with_storage(self.hooks.clone()).with_task_scheduler(scheduler);
         executor

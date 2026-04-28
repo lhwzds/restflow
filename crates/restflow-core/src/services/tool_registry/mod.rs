@@ -19,8 +19,8 @@ use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
-    ConfigStorage, ExecutionTraceStorage, MemoryStorage, SecretStorage, TerminalSessionStorage,
+    AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ConfigStorage,
+    ExecutionTraceStorage, MemoryStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
 };
 use restflow_ai::AgentState;
 use restflow_ai::agent::{

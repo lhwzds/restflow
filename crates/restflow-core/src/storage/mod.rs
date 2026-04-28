@@ -5,7 +5,6 @@
 
 pub mod agent;
 pub mod audit;
-pub mod background_agent;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
@@ -17,6 +16,7 @@ pub mod run_artifact;
 pub mod session;
 pub mod skill;
 pub mod structured_execution_log;
+pub mod task_runtime;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
 
@@ -36,7 +36,6 @@ pub use restflow_storage::{
 
 pub use agent::AgentStorage;
 pub use audit::AuditStorage;
-pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
@@ -48,6 +47,7 @@ pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
 pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
+pub use task_runtime::TaskStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
 
@@ -59,7 +59,7 @@ pub struct Storage {
     db: Arc<Database>,
     pub config: ConfigStorage,
     pub agents: AgentStorage,
-    pub background_agents: BackgroundAgentStorage,
+    pub tasks: TaskStorage,
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
@@ -97,7 +97,7 @@ impl Storage {
 
         let config = ConfigStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
-        let background_agents = BackgroundAgentStorage::new(db.clone())?;
+        let tasks = TaskStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
@@ -137,7 +137,7 @@ impl Storage {
             db,
             config,
             agents,
-            background_agents,
+            tasks,
             secrets,
             daemon_state,
             skills,

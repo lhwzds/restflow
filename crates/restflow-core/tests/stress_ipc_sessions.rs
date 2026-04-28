@@ -12,7 +12,7 @@ use reqwest::Client;
 use restflow_ai::llm::{AnthropicClient, LlmClient, LlmClientFactory, OpenAIClient};
 use restflow_core::daemon::{IpcRequest, IpcResponse, StreamFrame, run_mcp_http_server};
 use restflow_core::prompt_files;
-use restflow_core::runtime::background_agent::install_test_llm_factory;
+use restflow_core::runtime::task_runtime::install_test_llm_factory;
 use restflow_core::{
     AppCore, ChatRole, ChatSession, ExecutionThread, ExecutionTraceStats, ModelId,
 };

@@ -388,7 +388,7 @@ mod tests {
     use crate::models::{CliExecutionConfig, ContinuationConfig};
 
     #[test]
-    fn contract_spec_to_core_preserves_background_agent_defaults() {
+    fn contract_spec_to_core_preserves_task_defaults() {
         let contract: ContractTaskSpec = serde_json::from_value(serde_json::json!({
             "name": "nightly",
             "agent_id": "agent-1",

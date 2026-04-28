@@ -1,10 +1,9 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    AgentNode, ApiKeyConfig, BackgroundAgentStatus, ChannelSessionBinding, ChatSession,
-    ChatSessionSource, ModelId, RunKind, RunListQuery, RunSummary, Skill, SkillReference, Task,
-    TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSchedule,
-    TaskSpec, TaskStatus,
+    AgentNode, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId,
+    RunKind, RunListQuery, RunSummary, Skill, SkillReference, Task, TaskControlAction, TaskMessage,
+    TaskMessageSource, TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -1679,11 +1678,11 @@ async fn test_mcp_manage_tasks_stop_uses_stop_semantics() {
 
     let stored = core
         .storage
-        .background_agents
+        .tasks
         .get_task(stopped["result"]["id"].as_str().expect("stopped task id"))
         .expect("background storage query should succeed")
         .expect("stop should not delete the task");
-    assert_eq!(stored.status, BackgroundAgentStatus::Interrupted);
+    assert_eq!(stored.status, TaskStatus::Interrupted);
 }
 
 #[tokio::test]
@@ -1746,11 +1745,11 @@ async fn test_mcp_manage_tasks_start_returns_active_status() {
 
     let stored = core
         .storage
-        .background_agents
+        .tasks
         .get_task(started["result"]["id"].as_str().expect("started task id"))
         .expect("background storage query should succeed")
         .expect("start should not delete the task");
-    assert_eq!(stored.status, BackgroundAgentStatus::Active);
+    assert_eq!(stored.status, TaskStatus::Active);
     assert!(stored.next_run_at.is_some());
 }
 
@@ -2434,12 +2433,6 @@ async fn test_mcp_manage_tasks_stress_path_emits_latency_summary() {
     assert!(
         tools.iter().any(|tool| tool.name == "manage_tasks"),
         "manage_tasks tool must be registered"
-    );
-    assert!(
-        tools
-            .iter()
-            .all(|tool| tool.name != "manage_background_agents"),
-        "manage_background_agents must not be listed by default"
     );
 
     let mut create_params = base_manage_tasks_params("create");

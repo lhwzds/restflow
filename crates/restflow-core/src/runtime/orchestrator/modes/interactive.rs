@@ -3,11 +3,11 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, SteerMessage};
-use crate::runtime::background_agent::{
-    SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
-};
 use crate::runtime::orchestrator::kernel::{
     ExecutionKernel, map_anyhow_error, parse_optional_metadata, require_mode_input,
+};
+use crate::runtime::task_runtime::{
+    SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
 };
 use restflow_ai::StreamDisplayMode;
 use restflow_ai::agent::StreamEmitter;

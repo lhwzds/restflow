@@ -8,18 +8,18 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, MemoryChunk, MemorySearchQuery, MessageExecution, ModelId, SteerMessage,
-    SteerSource, TerminalSession,
+    AgentNode, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
+    MemoryChunk, MemorySearchQuery, MessageExecution, ModelId, SteerMessage, SteerSource,
+    TaskStatus, TerminalSession,
 };
 use crate::process::ProcessRegistry;
-use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     build_turn_persistence_payload, detect_voice_message, hydrate_voice_message_metadata,
     preprocess_voice_message, replace_latest_user_message_content,
 };
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
+use crate::runtime::task_runtime::{AgentRuntimeExecutor, SessionInputMode};
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     session::{PersistInteractiveTurnRequest, SessionService},

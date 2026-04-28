@@ -3,17 +3,17 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::models::{MemoryConfig, SteerMessage};
-use crate::runtime::background_agent::ExecutionResult;
 use crate::runtime::orchestrator::kernel::{
     ExecutionKernel, map_anyhow_error, parse_optional_metadata,
 };
+use crate::runtime::task_runtime::ExecutionResult;
 use restflow_ai::AgentState;
 use restflow_ai::agent::StreamEmitter;
 use restflow_traits::{ExecutionOutcome, ExecutionPlan};
 
 pub struct BackgroundExecutionRequest {
     pub agent_id: String,
-    pub background_task_id: Option<String>,
+    pub task_id: Option<String>,
     pub input: Option<String>,
     pub memory_config: MemoryConfig,
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -30,7 +30,7 @@ pub async fn run_with_request(
             .backend()
             .execute_background_from_state(
                 &request.agent_id,
-                request.background_task_id.as_deref(),
+                request.task_id.as_deref(),
                 state,
                 &request.memory_config,
                 request.steer_rx,
@@ -42,7 +42,7 @@ pub async fn run_with_request(
             .backend()
             .execute_background(
                 &request.agent_id,
-                request.background_task_id.as_deref(),
+                request.task_id.as_deref(),
                 request.input.as_deref(),
                 &request.memory_config,
                 request.steer_rx,
@@ -65,7 +65,7 @@ pub async fn run_plan(
 
     let request = BackgroundExecutionRequest {
         agent_id,
-        background_task_id: plan.background_task_id.clone(),
+        task_id: plan.background_task_id.clone(),
         input: plan.input.clone(),
         memory_config,
         steer_rx: None,
@@ -90,7 +90,7 @@ pub async fn run_plan(
                 metadata: Some(json!({
                     "message_count": result.messages.len(),
                     "compaction": compaction,
-                    "background_task_id": plan.background_task_id,
+                    "task_id": plan.background_task_id,
                 })),
                 ..ExecutionOutcome::default()
             }

@@ -9,7 +9,7 @@ pub enum ExecutionRole {
     /// Foreground interactive chat turn.
     MainAgent,
     /// Scheduled or manually triggered background task run.
-    BackgroundAgent,
+    Task,
     /// Child agent spawned by another agent.
     Subagent,
 }
@@ -18,7 +18,7 @@ impl ExecutionRole {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::MainAgent => "main_agent",
-            Self::BackgroundAgent => "background_agent",
+            Self::Task => "task",
             Self::Subagent => "subagent",
         }
     }
@@ -30,7 +30,8 @@ pub struct ExecutionContext {
     pub role: ExecutionRole,
     pub agent_id: String,
     pub chat_session_id: Option<String>,
-    pub background_task_id: Option<String>,
+    #[serde(alias = "background_task_id")]
+    pub task_id: Option<String>,
     #[serde(rename = "parent_run_id", alias = "parent_execution_id")]
     pub parent_run_id: Option<String>,
 }
@@ -41,7 +42,7 @@ impl ExecutionContext {
             role: ExecutionRole::MainAgent,
             agent_id: agent_id.into(),
             chat_session_id: Some(chat_session_id.into()),
-            background_task_id: None,
+            task_id: None,
             parent_run_id: None,
         }
     }
@@ -49,13 +50,13 @@ impl ExecutionContext {
     pub fn background(
         agent_id: impl Into<String>,
         chat_session_id: impl Into<String>,
-        background_task_id: impl Into<String>,
+        task_id: impl Into<String>,
     ) -> Self {
         Self {
-            role: ExecutionRole::BackgroundAgent,
+            role: ExecutionRole::Task,
             agent_id: agent_id.into(),
             chat_session_id: Some(chat_session_id.into()),
-            background_task_id: Some(background_task_id.into()),
+            task_id: Some(task_id.into()),
             parent_run_id: None,
         }
     }
@@ -65,7 +66,7 @@ impl ExecutionContext {
             role: ExecutionRole::Subagent,
             agent_id: agent_id.into(),
             chat_session_id: None,
-            background_task_id: None,
+            task_id: None,
             parent_run_id: Some(parent_run_id.into()),
         }
     }
@@ -84,15 +85,15 @@ mod tests {
         let context = ExecutionContext::main("agent-1", "session-1");
         assert_eq!(context.role, ExecutionRole::MainAgent);
         assert_eq!(context.chat_session_id.as_deref(), Some("session-1"));
-        assert!(context.background_task_id.is_none());
+        assert!(context.task_id.is_none());
     }
 
     #[test]
     fn background_context_sets_task_and_session() {
         let context = ExecutionContext::background("agent-1", "session-1", "task-1");
-        assert_eq!(context.role, ExecutionRole::BackgroundAgent);
+        assert_eq!(context.role, ExecutionRole::Task);
         assert_eq!(context.chat_session_id.as_deref(), Some("session-1"));
-        assert_eq!(context.background_task_id.as_deref(), Some("task-1"));
+        assert_eq!(context.task_id.as_deref(), Some("task-1"));
     }
 
     #[test]
@@ -101,7 +102,7 @@ mod tests {
         assert_eq!(context.role, ExecutionRole::Subagent);
         assert_eq!(context.parent_run_id.as_deref(), Some("exec-1"));
         assert!(context.chat_session_id.is_none());
-        assert!(context.background_task_id.is_none());
+        assert!(context.task_id.is_none());
     }
 
     #[test]
@@ -115,7 +116,7 @@ mod tests {
     #[test]
     fn role_as_str_is_stable() {
         assert_eq!(ExecutionRole::MainAgent.as_str(), "main_agent");
-        assert_eq!(ExecutionRole::BackgroundAgent.as_str(), "background_agent");
+        assert_eq!(ExecutionRole::Task.as_str(), "task");
         assert_eq!(ExecutionRole::Subagent.as_str(), "subagent");
     }
 
@@ -123,9 +124,9 @@ mod tests {
     fn context_serializes_to_json_value() {
         let context = ExecutionContext::background("agent-1", "session-1", "task-1");
         let value = context.to_value();
-        assert_eq!(value["role"], "background_agent");
+        assert_eq!(value["role"], "task");
         assert_eq!(value["agent_id"], "agent-1");
         assert_eq!(value["chat_session_id"], "session-1");
-        assert_eq!(value["background_task_id"], "task-1");
+        assert_eq!(value["task_id"], "task-1");
     }
 }

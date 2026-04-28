@@ -638,15 +638,15 @@ async fn delete_session_rejects_background_bound_workspace_session() {
     core.storage.chat_sessions.create(&session).unwrap();
 
     core.storage
-        .background_agents
-        .create_background_agent(crate::models::BackgroundAgentSpec {
+        .tasks
+        .create_task_from_spec(crate::models::TaskSpec {
             name: "bound-task".to_string(),
             agent_id: "agent-1".to_string(),
             chat_session_id: Some(session.id.clone()),
             description: None,
             input: Some("run".to_string()),
             input_template: None,
-            schedule: crate::models::BackgroundAgentSchedule::default(),
+            schedule: crate::models::TaskSchedule::default(),
             notification: None,
             execution_mode: None,
             timeout_secs: None,
@@ -684,15 +684,15 @@ async fn switch_session_model_rejects_background_bound_workspace_session() {
     core.storage.chat_sessions.create(&session).unwrap();
 
     core.storage
-        .background_agents
-        .create_background_agent(crate::models::BackgroundAgentSpec {
+        .tasks
+        .create_task_from_spec(crate::models::TaskSpec {
             name: "bound-task".to_string(),
             agent_id: "agent-1".to_string(),
             chat_session_id: Some(session.id.clone()),
             description: None,
             input: Some("run".to_string()),
             input_template: None,
-            schedule: crate::models::BackgroundAgentSchedule::default(),
+            schedule: crate::models::TaskSchedule::default(),
             notification: None,
             execution_mode: None,
             timeout_secs: None,
@@ -735,15 +735,15 @@ async fn archive_session_rejects_background_bound_workspace_session() {
     core.storage.chat_sessions.create(&session).unwrap();
 
     core.storage
-        .background_agents
-        .create_background_agent(crate::models::BackgroundAgentSpec {
+        .tasks
+        .create_task_from_spec(crate::models::TaskSpec {
             name: "bound-task".to_string(),
             agent_id: "agent-1".to_string(),
             chat_session_id: Some(session.id.clone()),
             description: None,
             input: Some("run".to_string()),
             input_template: None,
-            schedule: crate::models::BackgroundAgentSchedule::default(),
+            schedule: crate::models::TaskSchedule::default(),
             notification: None,
             execution_mode: None,
             timeout_secs: None,

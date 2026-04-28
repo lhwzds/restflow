@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use restflow_core::models::{TaskSchedule, TaskStatus};
-use restflow_core::runtime::background_agent::testkit::{
+use restflow_core::runtime::task_runtime::testkit::{
     DeterministicMockExecutor, MockNotificationSender, create_test_storage,
 };
 use restflow_core::runtime::{TaskRunner, TaskRunnerConfig};
@@ -335,7 +335,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
 }
 
 async fn wait_for_terminal_states(
-    storage: &Arc<restflow_core::storage::BackgroundAgentStorage>,
+    storage: &Arc<restflow_core::storage::TaskStorage>,
     total_tasks: usize,
     timeout: Duration,
 ) {

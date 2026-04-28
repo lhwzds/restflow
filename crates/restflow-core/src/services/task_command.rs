@@ -12,7 +12,7 @@ use crate::services::operation_assessment::{
 };
 use crate::services::session::SessionService;
 use crate::services::task_conversion::{ConvertSessionSpecOptions, build_convert_session_spec};
-use crate::storage::{AgentStorage, BackgroundAgentStorage, Storage};
+use crate::storage::{AgentStorage, Storage, TaskStorage};
 use restflow_contracts::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
@@ -150,7 +150,7 @@ impl TaskCommandError {
 
 #[derive(Clone)]
 pub struct TaskCommandService {
-    storage: BackgroundAgentStorage,
+    storage: TaskStorage,
     agents: AgentStorage,
     session_service: SessionService,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
@@ -158,7 +158,7 @@ pub struct TaskCommandService {
 
 impl TaskCommandService {
     pub fn new(
-        storage: BackgroundAgentStorage,
+        storage: TaskStorage,
         agents: AgentStorage,
         session_service: SessionService,
         assessor: Option<Arc<dyn AgentOperationAssessor>>,
@@ -176,7 +176,7 @@ impl TaskCommandService {
         assessor: Option<Arc<dyn AgentOperationAssessor>>,
     ) -> Self {
         Self::new(
-            storage.background_agents.clone(),
+            storage.tasks.clone(),
             storage.agents.clone(),
             SessionService::from_storage(storage),
             assessor,
@@ -190,7 +190,7 @@ impl TaskCommandService {
 
     fn create(&self, spec: TaskSpec) -> CommandResult<Task> {
         self.storage
-            .create_background_agent(spec)
+            .create_task_from_spec(spec)
             .map_err(TaskCommandError::from_anyhow)
     }
 
@@ -205,7 +205,7 @@ impl TaskCommandService {
 
     fn update(&self, id: &str, patch: TaskPatch) -> CommandResult<Task> {
         self.storage
-            .update_background_agent(id, patch)
+            .update_task_from_patch(id, patch)
             .map_err(TaskCommandError::from_anyhow)
     }
 
@@ -241,13 +241,13 @@ impl TaskCommandService {
 
     fn control(&self, id: &str, action: TaskControlAction) -> CommandResult<Task> {
         self.storage
-            .control_background_agent(id, action)
+            .control_task(id, action)
             .map_err(TaskCommandError::from_anyhow)
     }
 
     pub fn progress(&self, id: &str, event_limit: usize) -> CommandResult<TaskProgress> {
         self.storage
-            .get_background_agent_progress(id, event_limit)
+            .get_task_progress(id, event_limit)
             .map_err(TaskCommandError::from_anyhow)
     }
 
@@ -258,7 +258,7 @@ impl TaskCommandService {
         source: TaskMessageSource,
     ) -> CommandResult<TaskMessage> {
         self.storage
-            .send_background_agent_message(id, message, source)
+            .send_task_message(id, message, source)
             .map_err(TaskCommandError::from_anyhow)
     }
 
@@ -606,12 +606,12 @@ impl TaskCommandService {
     ) -> CommandResult<TaskConversionResult> {
         let mut task = self
             .storage
-            .create_background_agent(prepared.spec)
+            .create_task_from_spec(prepared.spec)
             .map_err(TaskCommandError::from_anyhow)?;
         if prepared.run_now {
             task = self
                 .storage
-                .control_background_agent(&task.id, TaskControlAction::RunNow)
+                .control_task(&task.id, TaskControlAction::RunNow)
                 .map_err(TaskCommandError::from_anyhow)?;
         }
         Ok(TaskConversionResult {
@@ -626,12 +626,12 @@ impl TaskCommandService {
 #[cfg(test)]
 mod tests {
     use super::{TaskCommandService, TaskExecutionMode};
-    use crate::models::{AgentNode, BackgroundAgentSpec, ChatMessage, ChatSession, ModelId};
+    use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId, TaskSpec};
     use crate::prompt_files;
     use crate::services::session::SessionService;
     use crate::storage::{
-        AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
-        ExecutionTraceStorage, MemoryStorage, SessionStorage,
+        AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage,
+        MemoryStorage, SessionStorage, TaskStorage,
     };
     use async_trait::async_trait;
     use restflow_traits::ContractSubagentSpawnRequest;
@@ -1048,7 +1048,7 @@ mod tests {
         let db_path = temp_dir.path().join("background-command.db");
         let db = Arc::new(redb::Database::create(&db_path).expect("create db"));
 
-        let background_storage = BackgroundAgentStorage::new(db.clone()).expect("bg storage");
+        let background_storage = TaskStorage::new(db.clone()).expect("bg storage");
         let agent_storage = AgentStorage::new(db.clone()).expect("agent storage");
         let chat_storage = ChatSessionStorage::new(db.clone()).expect("chat storage");
         let binding_storage =
@@ -1248,7 +1248,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Update Guarded Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1314,7 +1314,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Control Guarded Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1359,7 +1359,7 @@ mod tests {
             .get_task(&task.id)
             .expect("load task")
             .expect("task should still exist");
-        assert_eq!(stored.status, crate::models::BackgroundAgentStatus::Active);
+        assert_eq!(stored.status, crate::models::TaskStatus::Active);
     }
 
     #[tokio::test]
@@ -1403,7 +1403,7 @@ mod tests {
         let (service, session, _dir) = setup();
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Delete Preview".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -1461,7 +1461,7 @@ mod tests {
         let (service, session, _dir) = setup();
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Delete Requires Confirmation".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -1518,7 +1518,7 @@ mod tests {
         let (service, session, _dir) = setup();
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Delete Confirmed".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -1590,7 +1590,7 @@ mod tests {
         let (service, session, _dir) = setup();
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Delete Direct".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1668,7 +1668,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Update Direct Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1723,7 +1723,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Control Direct Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1757,7 +1757,7 @@ mod tests {
             .expect("control direct");
 
         assert_eq!(result.id, task.id);
-        assert_eq!(result.status, crate::models::BackgroundAgentStatus::Paused);
+        assert_eq!(result.status, crate::models::TaskStatus::Paused);
     }
 
     #[tokio::test]
@@ -1796,7 +1796,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(CanonicalTaskAssessor));
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Canonical Task".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -1951,7 +1951,7 @@ mod tests {
         );
         let task = service
             .storage
-            .create_background_agent(BackgroundAgentSpec {
+            .create_task_from_spec(TaskSpec {
                 name: "Delete Without Assessor".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,

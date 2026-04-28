@@ -16,7 +16,7 @@ pub enum Stage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Feature {
-    BackgroundAgents,
+    Tasks,
     Triggers,
     WebSocketTransport,
     StuckDetection,
@@ -40,7 +40,7 @@ pub struct Features {
 
 impl Feature {
     pub const ALL: [Feature; 6] = [
-        Feature::BackgroundAgents,
+        Feature::Tasks,
         Feature::Triggers,
         Feature::WebSocketTransport,
         Feature::StuckDetection,
@@ -50,7 +50,7 @@ impl Feature {
 
     pub fn key(self) -> &'static str {
         match self {
-            Feature::BackgroundAgents => "background_agents",
+            Feature::Tasks => "tasks",
             Feature::Triggers => "triggers",
             Feature::WebSocketTransport => "websocket_transport",
             Feature::StuckDetection => "stuck_detection",
@@ -61,7 +61,7 @@ impl Feature {
 
     pub fn stage(self) -> Stage {
         match self {
-            Feature::BackgroundAgents => Stage::Stable,
+            Feature::Tasks => Stage::Stable,
             Feature::Triggers => Stage::Stable,
             Feature::WebSocketTransport => Stage::Experimental,
             Feature::StuckDetection => Stage::Experimental,
@@ -72,7 +72,7 @@ impl Feature {
 
     pub fn description(self) -> &'static str {
         match self {
-            Feature::BackgroundAgents => "Run long-lived AI tasks in background workers.",
+            Feature::Tasks => "Run long-lived AI tasks in background workers.",
             Feature::Triggers => "Activate workflows and tasks by event or schedule.",
             Feature::WebSocketTransport => "Use websocket transport for live client streams.",
             Feature::StuckDetection => "Detect and recover tasks that stop making progress.",
@@ -92,7 +92,7 @@ impl FromStr for Feature {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let normalized = value.trim().to_ascii_lowercase();
         match normalized.as_str() {
-            "background_agents" => Ok(Feature::BackgroundAgents),
+            "tasks" => Ok(Feature::Tasks),
             "triggers" => Ok(Feature::Triggers),
             "websocket_transport" | "websocket" => Ok(Feature::WebSocketTransport),
             "stuck_detection" => Ok(Feature::StuckDetection),
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn test_stable_feature_enabled_by_default() {
         let features = Features::from_config(&SystemConfig::default());
-        assert!(features.is_enabled(Feature::BackgroundAgents));
+        assert!(features.is_enabled(Feature::Tasks));
     }
 
     #[test]

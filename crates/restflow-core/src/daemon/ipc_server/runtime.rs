@@ -41,7 +41,7 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agents.clone(),
-        core.storage.background_agents.clone(),
+        core.storage.tasks.clone(),
         core.storage.terminal_sessions.clone(),
         core.storage.run_artifacts.clone(),
         None,
@@ -487,14 +487,14 @@ pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfil
     Ok(manager)
 }
 
-pub(super) fn parse_task_status(status: &str) -> Result<BackgroundAgentStatus> {
+pub(super) fn parse_task_status(status: &str) -> Result<TaskStatus> {
     match status.to_lowercase().as_str() {
-        "active" => Ok(BackgroundAgentStatus::Active),
-        "paused" => Ok(BackgroundAgentStatus::Paused),
-        "running" => Ok(BackgroundAgentStatus::Running),
-        "completed" => Ok(BackgroundAgentStatus::Completed),
-        "failed" => Ok(BackgroundAgentStatus::Failed),
-        "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
+        "active" => Ok(TaskStatus::Active),
+        "paused" => Ok(TaskStatus::Paused),
+        "running" => Ok(TaskStatus::Running),
+        "completed" => Ok(TaskStatus::Completed),
+        "failed" => Ok(TaskStatus::Failed),
+        "interrupted" => Ok(TaskStatus::Interrupted),
         _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
     }
 }

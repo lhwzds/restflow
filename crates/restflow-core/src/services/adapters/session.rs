@@ -1,7 +1,7 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
 use crate::services::session::SessionService;
-use crate::storage::{AgentStorage, BackgroundAgentStorage, SessionStorage};
+use crate::storage::{AgentStorage, SessionStorage, TaskStorage};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
@@ -12,19 +12,19 @@ use serde_json::{Value, json};
 pub struct SessionStorageAdapter {
     sessions: SessionStorage,
     agent_storage: AgentStorage,
-    background_agent_storage: BackgroundAgentStorage,
+    task_storage: TaskStorage,
 }
 
 impl SessionStorageAdapter {
     pub fn new(
         sessions: SessionStorage,
         agent_storage: AgentStorage,
-        background_agent_storage: BackgroundAgentStorage,
+        task_storage: TaskStorage,
     ) -> Self {
         Self {
             sessions,
             agent_storage,
-            background_agent_storage,
+            task_storage,
         }
     }
 
@@ -32,7 +32,7 @@ impl SessionStorageAdapter {
         SessionService::new(
             self.sessions.clone(),
             Some(self.agent_storage.clone()),
-            self.background_agent_storage.clone(),
+            self.task_storage.clone(),
             None,
         )
     }
@@ -137,9 +137,9 @@ mod tests {
             crate::storage::ExecutionTraceStorage::new(db.clone()).unwrap(),
         );
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
-        let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
+        let task_storage = TaskStorage::new(db.clone()).unwrap();
         (
-            SessionStorageAdapter::new(session_storage, agent_storage, background_agent_storage),
+            SessionStorageAdapter::new(session_storage, agent_storage, task_storage),
             temp_dir,
         )
     }
@@ -220,15 +220,15 @@ mod tests {
         let session_id = created["id"].as_str().unwrap().to_string();
 
         adapter
-            .background_agent_storage
-            .create_background_agent(crate::models::BackgroundAgentSpec {
+            .task_storage
+            .create_task_from_spec(crate::models::TaskSpec {
                 name: "Session Owner".to_string(),
                 agent_id,
                 chat_session_id: Some(session_id.clone()),
                 description: None,
                 input: Some("run".to_string()),
                 input_template: None,
-                schedule: crate::models::BackgroundAgentSchedule::default(),
+                schedule: crate::models::TaskSchedule::default(),
                 notification: None,
                 execution_mode: None,
                 timeout_secs: None,

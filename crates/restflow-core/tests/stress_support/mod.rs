@@ -22,12 +22,10 @@ use restflow_core::models::{AgentNode, TaskSchedule, TaskStatus};
 use restflow_core::process::ProcessRegistry;
 use restflow_core::prompt_files;
 use restflow_core::runtime::agent::install_test_tool_overrides;
-use restflow_core::runtime::background_agent::install_test_llm_factory;
-use restflow_core::runtime::background_agent::runner::{AgentExecutor, ExecutionResult};
-use restflow_core::runtime::background_agent::testkit::{
-    MockNotificationSender, create_test_storage,
-};
 use restflow_core::runtime::subagent::AgentDefinitionRegistry;
+use restflow_core::runtime::task_runtime::install_test_llm_factory;
+use restflow_core::runtime::task_runtime::runner::{AgentExecutor, ExecutionResult};
+use restflow_core::runtime::task_runtime::testkit::{MockNotificationSender, create_test_storage};
 use restflow_core::runtime::{AgentRuntimeExecutor, TaskRunner, TaskRunnerConfig};
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::Storage;
@@ -961,7 +959,7 @@ pub async fn run_background_workload_with_real_runtime(
     let now = chrono::Utc::now().timestamp_millis();
     for index in 0..task_count {
         let mut task = storage
-            .background_agents
+            .tasks
             .create_task(
                 format!("real-{}-task-{index}", profile.provider.as_str()),
                 agent.id.clone(),
@@ -982,7 +980,7 @@ pub async fn run_background_workload_with_real_runtime(
         ));
         task.next_run_at = Some(now - 1_000);
         storage
-            .background_agents
+            .tasks
             .update_task(&task)
             .expect("update real background task");
     }
@@ -995,7 +993,7 @@ pub async fn run_background_workload_with_real_runtime(
         StressLevel::Soak => task_count.min(64),
     };
     let runner = Arc::new(TaskRunner::new(
-        Arc::new(storage.background_agents.clone()),
+        Arc::new(storage.tasks.clone()),
         executor,
         notifier.clone(),
         TaskRunnerConfig {
@@ -1017,10 +1015,7 @@ pub async fn run_background_workload_with_real_runtime(
             Duration::from_secs(240),
         );
     loop {
-        let tasks = storage
-            .background_agents
-            .list_tasks()
-            .expect("list real runtime tasks");
+        let tasks = storage.tasks.list_tasks().expect("list real runtime tasks");
         let terminal = tasks
             .iter()
             .filter(|task| matches!(task.status, TaskStatus::Completed | TaskStatus::Failed))
@@ -1039,7 +1034,7 @@ pub async fn run_background_workload_with_real_runtime(
         .expect("stop real runtime background runner");
 
     let tasks = storage
-        .background_agents
+        .tasks
         .list_tasks()
         .expect("load real runtime results");
     let orphan_running = tasks

@@ -1,4 +1,4 @@
-//! TaskStore adapter backed by legacy BackgroundAgentStorage persistence.
+//! TaskStore adapter backed by legacy TaskStorage persistence.
 
 use crate::boundary::task::parse_control_action;
 use crate::models::{
@@ -7,7 +7,7 @@ use crate::models::{
 };
 use crate::services::session::SessionService;
 use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
-use crate::storage::{AgentStorage, BackgroundAgentStorage, RunArtifactStorage};
+use crate::storage::{AgentStorage, RunArtifactStorage, TaskStorage};
 use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
 use restflow_traits::AgentOperationAssessor;
@@ -26,7 +26,7 @@ use std::future::Future;
 
 #[derive(Clone)]
 pub struct TaskStoreAdapter {
-    storage: BackgroundAgentStorage,
+    storage: TaskStorage,
     #[allow(dead_code)]
     agent_storage: AgentStorage,
     run_artifact_storage: RunArtifactStorage,
@@ -35,7 +35,7 @@ pub struct TaskStoreAdapter {
 
 impl TaskStoreAdapter {
     pub fn new(
-        storage: BackgroundAgentStorage,
+        storage: TaskStorage,
         agent_storage: AgentStorage,
         run_artifact_storage: RunArtifactStorage,
         session_service: SessionService,
@@ -360,7 +360,7 @@ impl TaskStore for TaskStoreAdapter {
 
     fn list_task_messages(&self, request: TaskMessageListRequest) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let messages = self.storage.list_background_agent_messages(
+        let messages = self.storage.list_task_messages(
             &resolved_id,
             request
                 .limit
@@ -734,7 +734,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let bg_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
+        let bg_storage = TaskStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let chat_storage = crate::storage::ChatSessionStorage::new(db.clone()).unwrap();
         let binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
@@ -793,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_and_list_background_agent() {
+    fn test_create_and_list_task() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let request = TaskCreateRequest {
@@ -1254,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_background_agent_artifacts_resolves_prefix() {
+    fn test_list_task_artifacts_resolves_prefix() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter

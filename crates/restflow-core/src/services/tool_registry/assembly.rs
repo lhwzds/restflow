@@ -21,7 +21,7 @@ pub fn create_tool_registry(
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
-    background_agent_storage: BackgroundAgentStorage,
+    task_storage: TaskStorage,
     terminal_storage: TerminalSessionStorage,
     run_artifact_storage: crate::storage::RunArtifactStorage,
     _accessor_id: Option<String>,
@@ -37,7 +37,7 @@ pub fn create_tool_registry(
         secret_storage,
         config_storage,
         agent_storage,
-        background_agent_storage,
+        task_storage,
         terminal_storage,
         run_artifact_storage,
         _accessor_id,
@@ -57,7 +57,7 @@ pub fn create_tool_registry_with_assessor(
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
-    background_agent_storage: BackgroundAgentStorage,
+    task_storage: TaskStorage,
     terminal_storage: TerminalSessionStorage,
     run_artifact_storage: crate::storage::RunArtifactStorage,
     _accessor_id: Option<String>,
@@ -84,7 +84,7 @@ pub fn create_tool_registry_with_assessor(
             execution_trace_storage.clone(),
         ),
         agent_storage.clone(),
-        background_agent_storage.clone(),
+        task_storage.clone(),
     ));
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
     let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
@@ -94,10 +94,10 @@ pub fn create_tool_registry_with_assessor(
         agent_storage.clone(),
         skill_storage.clone(),
         secret_storage.clone(),
-        background_agent_storage.clone(),
+        task_storage.clone(),
     );
     let task_store_components = build_task_store_components(
-        background_agent_storage.clone(),
+        task_storage.clone(),
         agent_storage.clone(),
         run_artifact_storage,
         SessionService::new(
@@ -107,7 +107,7 @@ pub fn create_tool_registry_with_assessor(
                 execution_trace_storage.clone(),
             ),
             Some(agent_storage.clone()),
-            background_agent_storage,
+            task_storage,
             Some(memory_storage.clone()),
         ),
         assessor.clone(),

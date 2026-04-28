@@ -1,5 +1,5 @@
-use crate::models::{BackgroundAgent, ChatSession, ChatSessionSource};
-use crate::storage::{BackgroundAgentStorage, SessionStorage, Storage};
+use crate::models::{ChatSession, ChatSessionSource, Task};
+use crate::storage::{SessionStorage, Storage, TaskStorage};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -101,19 +101,16 @@ pub struct EffectiveSessionSource {
 #[derive(Clone)]
 pub struct SessionPolicy {
     sessions: SessionStorage,
-    background_agents: BackgroundAgentStorage,
+    tasks: TaskStorage,
 }
 
 impl SessionPolicy {
-    pub fn new(sessions: SessionStorage, background_agents: BackgroundAgentStorage) -> Self {
-        Self {
-            sessions,
-            background_agents,
-        }
+    pub fn new(sessions: SessionStorage, tasks: TaskStorage) -> Self {
+        Self { sessions, tasks }
     }
 
     pub fn from_storage(storage: &Storage) -> Self {
-        Self::new(storage.sessions.clone(), storage.background_agents.clone())
+        Self::new(storage.sessions.clone(), storage.tasks.clone())
     }
 
     fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
@@ -134,9 +131,9 @@ impl SessionPolicy {
         }
     }
 
-    fn background_task_by_session_map(&self) -> Result<HashMap<String, BackgroundAgent>> {
+    fn background_task_by_session_map(&self) -> Result<HashMap<String, Task>> {
         let mut map = HashMap::new();
-        for task in self.background_agents.list_tasks()? {
+        for task in self.tasks.list_tasks()? {
             if let Some(session_id) = Self::normalize_session_id(&task.chat_session_id) {
                 map.insert(session_id, task);
             }
@@ -185,7 +182,7 @@ impl SessionPolicy {
         Ok(self.management_owner(session)?.is_none())
     }
 
-    pub fn bound_background_task(&self, session_id: &str) -> Result<Option<BackgroundAgent>> {
+    pub fn bound_background_task(&self, session_id: &str) -> Result<Option<Task>> {
         let Some(session_id) = Self::normalize_session_id(session_id) else {
             return Ok(None);
         };
@@ -389,8 +386,8 @@ fn parse_retention_to_ms(retention: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{BackgroundAgentSpec, ChannelSessionBinding, ChatSessionSource};
-    use crate::storage::{BackgroundAgentStorage, ChatSessionStorage, Storage};
+    use crate::models::{ChannelSessionBinding, ChatSessionSource, TaskSpec};
+    use crate::storage::{ChatSessionStorage, Storage, TaskStorage};
     use tempfile::tempdir;
 
     fn create_workspace_session(chat_sessions: &ChatSessionStorage, agent_id: &str) -> ChatSession {
@@ -400,20 +397,16 @@ mod tests {
         session
     }
 
-    fn create_background_task(
-        background_agents: &BackgroundAgentStorage,
-        name: &str,
-        session_id: &str,
-    ) {
-        background_agents
-            .create_background_agent(BackgroundAgentSpec {
+    fn create_task(tasks: &TaskStorage, name: &str, session_id: &str) {
+        tasks
+            .create_task_from_spec(TaskSpec {
                 name: name.to_string(),
                 agent_id: "agent-1".to_string(),
                 chat_session_id: Some(session_id.to_string()),
                 description: None,
                 input: Some("run".to_string()),
                 input_template: None,
-                schedule: crate::models::BackgroundAgentSchedule::default(),
+                schedule: crate::models::TaskSchedule::default(),
                 notification: None,
                 execution_mode: None,
                 timeout_secs: None,
@@ -490,7 +483,7 @@ mod tests {
         let db_path = dir.path().join("session-policy-bound.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         let session = create_workspace_session(&storage.chat_sessions, "agent-1");
-        create_background_task(&storage.background_agents, "bound-task", &session.id);
+        create_task(&storage.tasks, "bound-task", &session.id);
 
         let policy = SessionPolicy::from_storage(&storage);
         let error = policy
@@ -516,11 +509,7 @@ mod tests {
         let mut bound_workspace = create_workspace_session(&storage.chat_sessions, "agent-1");
         bound_workspace.updated_at = 1;
         storage.chat_sessions.update(&bound_workspace).unwrap();
-        create_background_task(
-            &storage.background_agents,
-            "bound-task",
-            &bound_workspace.id,
-        );
+        create_task(&storage.tasks, "bound-task", &bound_workspace.id);
 
         let mut external = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
             .with_source(ChatSessionSource::Telegram, "chat-123");

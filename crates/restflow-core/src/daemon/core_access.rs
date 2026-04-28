@@ -4,9 +4,7 @@ use super::launcher::ensure_daemon_running;
 use super::request_mapper::to_contract;
 use crate::AppCore;
 use crate::boundary::task::core_spec_to_contract;
-use crate::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentSpec, BackgroundAgentStatus, Skill,
-};
+use crate::models::{AgentNode, Skill, Task, TaskSpec, TaskStatus};
 use crate::paths;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -162,14 +160,11 @@ impl CoreAccess {
         }
     }
 
-    pub async fn list_tasks(
-        &mut self,
-        status: Option<BackgroundAgentStatus>,
-    ) -> Result<Vec<BackgroundAgent>> {
+    pub async fn list_tasks(&mut self, status: Option<TaskStatus>) -> Result<Vec<Task>> {
         match self {
             CoreAccess::Local(core) => match status {
-                Some(status) => core.storage.background_agents.list_tasks_by_status(status),
-                None => core.storage.background_agents.list_tasks(),
+                Some(status) => core.storage.tasks.list_tasks_by_status(status),
+                None => core.storage.tasks.list_tasks(),
             },
             CoreAccess::Remote(client) => {
                 client
@@ -181,9 +176,9 @@ impl CoreAccess {
         }
     }
 
-    pub async fn get_task(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
+    pub async fn get_task(&mut self, id: &str) -> Result<Option<Task>> {
         match self {
-            CoreAccess::Local(core) => core.storage.background_agents.get_task(id),
+            CoreAccess::Local(core) => core.storage.tasks.get_task(id),
             CoreAccess::Remote(client) => {
                 client
                     .request_optional(IpcRequest::GetTask { id: id.to_string() })
@@ -192,9 +187,9 @@ impl CoreAccess {
         }
     }
 
-    pub async fn create_task(&mut self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+    pub async fn create_task(&mut self, spec: TaskSpec) -> Result<Task> {
         match self {
-            CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
+            CoreAccess::Local(core) => core.storage.tasks.create_task_from_spec(spec),
             CoreAccess::Remote(client) => {
                 let spec = core_spec_to_contract(spec)?;
                 client.request_typed(IpcRequest::CreateTask { spec }).await

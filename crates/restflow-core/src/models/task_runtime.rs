@@ -1,0 +1,2114 @@
+//! Agent Task model for scheduled agent execution.
+//!
+//! Agent tasks represent recurring or one-time scheduled executions of agents
+//! with optional notification configurations for reporting results.
+
+use restflow_traits::{
+    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
+    DEFAULT_BACKGROUND_MAX_TOOL_CALLS,
+};
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use ts_rs::TS;
+
+/// Execution mode for agent tasks
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum ExecutionMode {
+    /// Use restflow-ai API executor (default)
+    #[default]
+    Api,
+    /// Use external CLI tool (e.g., claude, aider)
+    Cli(CliExecutionConfig),
+}
+
+/// Durability mode for checkpoint persistence.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum DurabilityMode {
+    /// Persist checkpoints before each tool execution.
+    Sync,
+    /// Persist checkpoints in a background task while execution continues.
+    #[default]
+    Async,
+    /// Persist checkpoints only at execution exit.
+    Exit,
+}
+
+/// Configuration for CLI-based execution
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct CliExecutionConfig {
+    /// CLI binary name (e.g., "claude", "aider")
+    pub binary: String,
+    /// Additional arguments to pass to the CLI
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Working directory for CLI execution
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    /// Timeout in seconds for CLI execution
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Whether to use PTY for interactive mode
+    #[serde(default)]
+    pub use_pty: bool,
+}
+
+fn default_timeout_secs() -> u64 {
+    DEFAULT_AGENT_TASK_TIMEOUT_SECS
+}
+
+impl Default for CliExecutionConfig {
+    fn default() -> Self {
+        Self {
+            binary: "claude".to_string(),
+            args: vec![],
+            working_dir: None,
+            timeout_secs: default_timeout_secs(),
+            use_pty: false,
+        }
+    }
+}
+
+/// Status of an agent task
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Default)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskStatus {
+    /// Task is active and will run on schedule
+    #[default]
+    Active,
+    /// Task is paused (will not run until resumed)
+    Paused,
+    /// Task is currently running
+    Running,
+    /// Task completed (for one-time tasks)
+    Completed,
+    /// Task failed on last execution
+    Failed,
+    /// Task execution interrupted by an explicit stop or checkpoint flow.
+    Interrupted,
+}
+
+impl TaskStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            TaskStatus::Active => "active",
+            TaskStatus::Paused => "paused",
+            TaskStatus::Running => "running",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Failed => "failed",
+            TaskStatus::Interrupted => "interrupted",
+        }
+    }
+}
+
+fn failed_status_is_schedulable(next_run_at: Option<i64>) -> bool {
+    next_run_at.is_some()
+}
+
+/// Schedule configuration for agent tasks
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TaskSchedule {
+    /// Run once at a specific time
+    Once {
+        /// Unix timestamp in milliseconds when to run
+        #[ts(type = "number")]
+        run_at: i64,
+    },
+    /// Run on a recurring interval
+    Interval {
+        /// Interval in milliseconds between runs
+        #[ts(type = "number")]
+        interval_ms: i64,
+        /// Optional start time (defaults to now)
+        #[ts(type = "number | null")]
+        start_at: Option<i64>,
+    },
+    /// Run on a cron schedule
+    Cron {
+        /// Cron expression (e.g., "0 9 * * *" for 9 AM daily)
+        expression: String,
+        /// Timezone for the cron expression (e.g., "America/Los_Angeles")
+        #[serde(default)]
+        timezone: Option<String>,
+    },
+}
+
+impl Default for TaskSchedule {
+    fn default() -> Self {
+        TaskSchedule::Interval {
+            interval_ms: 3600000, // 1 hour default
+            start_at: None,
+        }
+    }
+}
+
+/// Notification configuration for task results
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct NotificationConfig {
+    /// Only notify on failure
+    #[serde(default)]
+    pub notify_on_failure_only: bool,
+    /// Include full output in notification
+    #[serde(default = "default_true")]
+    pub include_output: bool,
+    /// Broadcast per-step tool execution updates to configured channels
+    #[serde(default)]
+    pub broadcast_steps: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_messages() -> usize {
+    100
+}
+
+fn default_compaction_enabled() -> bool {
+    true
+}
+
+fn default_compaction_threshold_ratio() -> f32 {
+    0.80
+}
+
+fn default_max_summary_tokens() -> usize {
+    2_000
+}
+
+fn default_max_tool_calls() -> usize {
+    DEFAULT_BACKGROUND_MAX_TOOL_CALLS
+}
+
+fn default_max_duration_secs() -> u64 {
+    DEFAULT_AGENT_MAX_DURATION_SECS
+}
+
+fn default_max_output_bytes() -> usize {
+    1_000_000
+}
+
+fn default_segment_iterations() -> usize {
+    50
+}
+
+fn default_max_total_iterations() -> usize {
+    500
+}
+
+fn default_inter_segment_pause_ms() -> u64 {
+    1_000
+}
+
+/// Scope for task memory persistence.
+///
+/// Controls whether long-term memory is shared across all tasks of an
+/// agent or isolated per task.
+#[derive(Debug, Clone, Default, Serialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryScope {
+    /// Share long-term memory across tasks using the same agent_id.
+    #[default]
+    SharedAgent,
+    /// Isolate long-term memory by task.
+    #[serde(rename = "per_task")]
+    PerTask,
+}
+
+impl<'de> Deserialize<'de> for MemoryScope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match value.as_str() {
+            "shared_agent" => Ok(Self::SharedAgent),
+            "per_task" => Ok(Self::PerTask),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["shared_agent", "per_task"],
+            )),
+        }
+    }
+}
+
+fn default_memory_scope() -> MemoryScope {
+    MemoryScope::SharedAgent
+}
+
+/// Memory configuration for agent task execution
+///
+/// Controls working memory behavior and persistence settings.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct MemoryConfig {
+    /// Maximum number of messages to keep in working memory
+    /// Older messages are discarded (no summarization)
+    #[serde(default = "default_max_messages")]
+    pub max_messages: usize,
+
+    /// Enable file memory tools (save_memory, read_memory, etc.)
+    /// Allows agents to persist important information to disk
+    #[serde(default = "default_true")]
+    pub enable_file_memory: bool,
+
+    /// Persist conversation to long-term memory on task completion.
+    /// Working memory is chunked and stored for future retrieval.
+    /// Defaults to false — agents should use save_to_memory tool for selective persistence.
+    #[serde(default)]
+    pub persist_on_complete: bool,
+
+    /// Scope for long-term memory persistence.
+    /// Shared scope stores memory under the agent ID, while isolated scope
+    /// stores memory under a task-specific namespace.
+    #[serde(default = "default_memory_scope")]
+    pub memory_scope: MemoryScope,
+
+    /// Enable working memory compaction for long-running tasks.
+    #[serde(default = "default_compaction_enabled")]
+    pub enable_compaction: bool,
+
+    /// Token ratio threshold to trigger compaction against model context window.
+    #[serde(default = "default_compaction_threshold_ratio")]
+    pub compaction_threshold_ratio: f32,
+
+    /// Upper bound for generated summary tokens during compaction.
+    #[serde(default = "default_max_summary_tokens")]
+    pub max_summary_tokens: usize,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            max_messages: default_max_messages(),
+            enable_file_memory: true,
+            persist_on_complete: false,
+            memory_scope: MemoryScope::SharedAgent,
+            enable_compaction: default_compaction_enabled(),
+            compaction_threshold_ratio: default_compaction_threshold_ratio(),
+            max_summary_tokens: default_max_summary_tokens(),
+        }
+    }
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            notify_on_failure_only: false,
+            include_output: true, // Default to true for include_output
+            broadcast_steps: false,
+        }
+    }
+}
+
+/// Resource guardrails for task executions.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ResourceLimits {
+    /// Maximum tool calls allowed in one execution.
+    #[serde(default = "default_max_tool_calls")]
+    pub max_tool_calls: usize,
+    /// Maximum execution duration in seconds.
+    #[serde(default = "default_max_duration_secs")]
+    pub max_duration_secs: u64,
+    /// Maximum output payload size in bytes for tool results.
+    #[serde(default = "default_max_output_bytes")]
+    pub max_output_bytes: usize,
+    /// Maximum estimated LLM cost in USD for one execution.
+    #[serde(default)]
+    pub max_cost_usd: Option<f64>,
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_tool_calls: default_max_tool_calls(),
+            max_duration_secs: default_max_duration_secs(),
+            max_output_bytes: default_max_output_bytes(),
+            max_cost_usd: None,
+        }
+    }
+}
+
+/// Configuration for long-horizon execution continuation.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ContinuationConfig {
+    /// Automatically continue with additional segments when an execution reaches
+    /// the segment iteration ceiling.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum iterations allowed in one segment execution.
+    #[serde(default = "default_segment_iterations")]
+    pub segment_iterations: usize,
+    /// Hard cap for total iterations accumulated across all segments.
+    #[serde(default = "default_max_total_iterations")]
+    pub max_total_iterations: usize,
+    /// Hard cap for cumulative LLM cost across all segments.
+    #[serde(default)]
+    pub max_total_cost_usd: Option<f64>,
+    /// Delay between segments in milliseconds to allow checkpoint persistence.
+    #[serde(default = "default_inter_segment_pause_ms")]
+    pub inter_segment_pause_ms: u64,
+}
+
+impl Default for ContinuationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            segment_iterations: default_segment_iterations(),
+            max_total_iterations: default_max_total_iterations(),
+            max_total_cost_usd: None,
+            inter_segment_pause_ms: default_inter_segment_pause_ms(),
+        }
+    }
+}
+
+/// Creation payload for scheduled tasks.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct TaskSpec {
+    /// Display name of the task
+    pub name: String,
+    /// ID of the agent to execute
+    pub agent_id: String,
+    /// Optional chat session ID bound to this task
+    ///
+    /// When omitted, storage will create and bind a dedicated session.
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional input prompt
+    #[serde(default)]
+    pub input: Option<String>,
+    /// Optional input template rendered at runtime
+    #[serde(default)]
+    pub input_template: Option<String>,
+    /// Schedule configuration
+    pub schedule: TaskSchedule,
+    /// Optional notification configuration
+    #[serde(default)]
+    pub notification: Option<NotificationConfig>,
+    /// Optional execution mode
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
+    /// Optional per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// Optional memory configuration
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+    /// Optional durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
+    /// Optional resource limits for this task
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
+    /// Upstream task IDs that must provide artifacts before execution
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
+    /// Optional continuation policy for long-horizon execution
+    #[serde(default)]
+    pub continuation: Option<ContinuationConfig>,
+}
+
+/// Partial update payload for scheduled tasks.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct TaskPatch {
+    /// New display name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// New description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// New agent ID
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// New bound chat session ID
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
+    /// New input prompt
+    #[serde(default)]
+    pub input: Option<String>,
+    /// New input template
+    #[serde(default)]
+    pub input_template: Option<String>,
+    /// New schedule configuration
+    #[serde(default)]
+    pub schedule: Option<TaskSchedule>,
+    /// New notification configuration
+    #[serde(default)]
+    pub notification: Option<NotificationConfig>,
+    /// New execution mode
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
+    /// New per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// New memory configuration
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+    /// New durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
+    /// New resource limits
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
+    /// New prerequisite task IDs
+    #[serde(default)]
+    pub prerequisites: Option<Vec<String>>,
+    /// New continuation policy
+    #[serde(default)]
+    pub continuation: Option<ContinuationConfig>,
+}
+
+/// Control actions for a scheduled task.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskControlAction {
+    /// Start an agent that is not active
+    Start,
+    /// Pause future executions
+    Pause,
+    /// Resume scheduled executions
+    Resume,
+    /// Stop current/future execution
+    Stop,
+    /// Trigger immediate execution
+    RunNow,
+}
+
+/// Source for task communication messages.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskMessageSource {
+    /// Message provided by a human user
+    #[default]
+    User,
+    /// Message provided by another agent
+    Agent,
+    /// System generated message
+    System,
+}
+
+/// Delivery state of task communication messages.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskMessageStatus {
+    /// Waiting to be injected into a running agent
+    #[default]
+    Queued,
+    /// Successfully injected to a running agent
+    Delivered,
+    /// Processed and consumed by a run
+    Consumed,
+    /// Delivery failed
+    Failed,
+}
+
+impl TaskMessageStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            TaskMessageStatus::Queued => "queued",
+            TaskMessageStatus::Delivered => "delivered",
+            TaskMessageStatus::Consumed => "consumed",
+            TaskMessageStatus::Failed => "failed",
+        }
+    }
+}
+
+/// A communication message sent to a task-backed execution.
+#[derive(Debug, Clone, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct TaskMessage {
+    /// Message ID
+    pub id: String,
+    /// Target task ID
+    pub task_id: String,
+    /// Source of the message
+    pub source: TaskMessageSource,
+    /// Delivery status
+    pub status: TaskMessageStatus,
+    /// Message content
+    pub message: String,
+    /// Message creation timestamp
+    #[ts(type = "number")]
+    pub created_at: i64,
+    /// Delivery timestamp
+    #[ts(type = "number | null")]
+    pub delivered_at: Option<i64>,
+    /// Consumption timestamp
+    #[ts(type = "number | null")]
+    pub consumed_at: Option<i64>,
+    /// Error details for failed delivery
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TaskMessageSerialize<'a> {
+    id: &'a str,
+    task_id: &'a str,
+    source: &'a TaskMessageSource,
+    status: &'a TaskMessageStatus,
+    message: &'a str,
+    created_at: i64,
+    delivered_at: Option<i64>,
+    consumed_at: Option<i64>,
+    error: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct TaskMessageDeserialize {
+    id: String,
+    #[serde(default)]
+    task_id: Option<String>,
+    source: TaskMessageSource,
+    status: TaskMessageStatus,
+    message: String,
+    created_at: i64,
+    #[serde(default)]
+    delivered_at: Option<i64>,
+    #[serde(default)]
+    consumed_at: Option<i64>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+impl Serialize for TaskMessage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        TaskMessageSerialize {
+            id: &self.id,
+            task_id: &self.task_id,
+            source: &self.source,
+            status: &self.status,
+            message: &self.message,
+            created_at: self.created_at,
+            delivered_at: self.delivered_at,
+            consumed_at: self.consumed_at,
+            error: self.error.as_deref(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let payload = TaskMessageDeserialize::deserialize(deserializer)?;
+        let task_id = payload
+            .task_id
+            .ok_or_else(|| serde::de::Error::missing_field("task_id"))?;
+
+        Ok(Self {
+            id: payload.id,
+            task_id,
+            source: payload.source,
+            status: payload.status,
+            message: payload.message,
+            created_at: payload.created_at,
+            delivered_at: payload.delivered_at,
+            consumed_at: payload.consumed_at,
+            error: payload.error,
+        })
+    }
+}
+
+impl TaskMessage {
+    /// Create a new queued task message.
+    pub fn new(task_id: String, source: TaskMessageSource, message: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            task_id,
+            source,
+            status: TaskMessageStatus::Queued,
+            message,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            delivered_at: None,
+            consumed_at: None,
+            error: None,
+        }
+    }
+
+    /// Mark message as delivered to a running agent.
+    pub fn mark_delivered(&mut self) {
+        self.status = TaskMessageStatus::Delivered;
+        self.delivered_at = Some(chrono::Utc::now().timestamp_millis());
+        self.error = None;
+    }
+
+    /// Mark message as consumed by an execution.
+    pub fn mark_consumed(&mut self) {
+        self.status = TaskMessageStatus::Consumed;
+        self.consumed_at = Some(chrono::Utc::now().timestamp_millis());
+        self.error = None;
+    }
+
+    /// Mark message delivery as failed.
+    pub fn mark_failed(&mut self, error: String) {
+        self.status = TaskMessageStatus::Failed;
+        self.error = Some(error);
+    }
+
+    /// Canonical task identifier for this queued message.
+    pub fn task_id(&self) -> &str {
+        &self.task_id
+    }
+}
+
+/// Aggregated progress snapshot for a task-backed execution.
+#[derive(Debug, Clone, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct TaskProgress {
+    /// Task ID
+    pub task_id: String,
+    /// Current status
+    pub status: TaskStatus,
+    /// Current stage label from the latest event
+    pub stage: Option<String>,
+    /// Most recent event
+    pub recent_event: Option<TaskEvent>,
+    /// Recent events in descending order
+    pub recent_events: Vec<TaskEvent>,
+    /// Last run timestamp
+    #[ts(type = "number | null")]
+    pub last_run_at: Option<i64>,
+    /// Next run timestamp
+    #[ts(type = "number | null")]
+    pub next_run_at: Option<i64>,
+    /// Total token usage
+    pub total_tokens_used: u32,
+    /// Total execution cost
+    pub total_cost_usd: f64,
+    /// Successful run count
+    pub success_count: u32,
+    /// Failed run count
+    pub failure_count: u32,
+    /// Pending queued message count
+    pub pending_message_count: u32,
+}
+
+#[derive(Serialize)]
+struct TaskProgressSerialize<'a> {
+    task_id: &'a str,
+    status: &'a TaskStatus,
+    stage: Option<&'a str>,
+    recent_event: Option<&'a TaskEvent>,
+    recent_events: &'a [TaskEvent],
+    last_run_at: Option<i64>,
+    next_run_at: Option<i64>,
+    total_tokens_used: u32,
+    total_cost_usd: f64,
+    success_count: u32,
+    failure_count: u32,
+    pending_message_count: u32,
+}
+
+#[derive(Deserialize)]
+struct TaskProgressDeserialize {
+    #[serde(default)]
+    task_id: Option<String>,
+    status: TaskStatus,
+    #[serde(default)]
+    stage: Option<String>,
+    #[serde(default)]
+    recent_event: Option<TaskEvent>,
+    #[serde(default)]
+    recent_events: Vec<TaskEvent>,
+    #[serde(default)]
+    last_run_at: Option<i64>,
+    #[serde(default)]
+    next_run_at: Option<i64>,
+    #[serde(default)]
+    total_tokens_used: u32,
+    #[serde(default)]
+    total_cost_usd: f64,
+    #[serde(default)]
+    success_count: u32,
+    #[serde(default)]
+    failure_count: u32,
+    #[serde(default)]
+    pending_message_count: u32,
+}
+
+impl Serialize for TaskProgress {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        TaskProgressSerialize {
+            task_id: &self.task_id,
+            status: &self.status,
+            stage: self.stage.as_deref(),
+            recent_event: self.recent_event.as_ref(),
+            recent_events: &self.recent_events,
+            last_run_at: self.last_run_at,
+            next_run_at: self.next_run_at,
+            total_tokens_used: self.total_tokens_used,
+            total_cost_usd: self.total_cost_usd,
+            success_count: self.success_count,
+            failure_count: self.failure_count,
+            pending_message_count: self.pending_message_count,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskProgress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let payload = TaskProgressDeserialize::deserialize(deserializer)?;
+        let task_id = payload
+            .task_id
+            .ok_or_else(|| serde::de::Error::missing_field("task_id"))?;
+
+        Ok(Self {
+            task_id,
+            status: payload.status,
+            stage: payload.stage,
+            recent_event: payload.recent_event,
+            recent_events: payload.recent_events,
+            last_run_at: payload.last_run_at,
+            next_run_at: payload.next_run_at,
+            total_tokens_used: payload.total_tokens_used,
+            total_cost_usd: payload.total_cost_usd,
+            success_count: payload.success_count,
+            failure_count: payload.failure_count,
+            pending_message_count: payload.pending_message_count,
+        })
+    }
+}
+
+impl TaskProgress {
+    /// Canonical task identifier for this progress snapshot.
+    pub fn task_id(&self) -> &str {
+        &self.task_id
+    }
+}
+
+/// Result payload for converting an existing chat session into a task.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct TaskConversionResult {
+    /// Created or updated task.
+    pub task: Task,
+    /// Source session ID used for conversion.
+    pub source_session_id: String,
+    /// Source session agent ID at conversion time.
+    pub source_session_agent_id: String,
+    /// Whether the task was scheduled for immediate execution.
+    pub run_now: bool,
+}
+
+/// Status for one persisted task execution attempt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRunStatus {
+    Running,
+    Completed,
+    Failed,
+    Interrupted,
+    TimedOut,
+}
+
+impl TaskRunStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            TaskRunStatus::Running => "running",
+            TaskRunStatus::Completed => "completed",
+            TaskRunStatus::Failed => "failed",
+            TaskRunStatus::Interrupted => "interrupted",
+            TaskRunStatus::TimedOut => "timed_out",
+        }
+    }
+
+    pub const fn is_active(&self) -> bool {
+        matches!(self, TaskRunStatus::Running)
+    }
+}
+
+/// Minimal persisted metrics for one task execution attempt.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskRunMetrics {
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub iterations: Option<u32>,
+    #[serde(default)]
+    pub active_model: Option<String>,
+    #[serde(default)]
+    pub final_model: Option<String>,
+    #[serde(default)]
+    pub message_count: Option<usize>,
+    #[serde(default)]
+    pub compaction_events: Option<u32>,
+}
+
+/// One persisted task execution attempt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskRun {
+    pub run_id: String,
+    pub task_id: String,
+    pub execution_id: String,
+    pub status: TaskRunStatus,
+    pub started_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub ended_at: Option<i64>,
+    #[serde(default)]
+    pub checkpoint_id: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub metrics: TaskRunMetrics,
+}
+
+impl TaskRun {
+    pub fn new(
+        run_id: impl Into<String>,
+        task_id: impl Into<String>,
+        execution_id: impl Into<String>,
+        started_at: i64,
+        checkpoint_id: Option<String>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            task_id: task_id.into(),
+            execution_id: execution_id.into(),
+            status: TaskRunStatus::Running,
+            started_at,
+            updated_at: started_at,
+            ended_at: None,
+            checkpoint_id,
+            error: None,
+            metrics: TaskRunMetrics::default(),
+        }
+    }
+
+    pub fn set_checkpoint_id(&mut self, checkpoint_id: Option<String>) {
+        self.checkpoint_id = checkpoint_id;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    pub fn mark_terminal(
+        &mut self,
+        status: TaskRunStatus,
+        ended_at: i64,
+        error: Option<String>,
+        metrics: TaskRunMetrics,
+    ) {
+        self.status = status;
+        self.updated_at = ended_at;
+        self.ended_at = Some(ended_at);
+        self.error = error;
+        self.metrics = metrics;
+    }
+
+    pub fn mark_interrupted(&mut self, ended_at: i64, reason: impl Into<String>) {
+        self.status = TaskRunStatus::Interrupted;
+        self.updated_at = ended_at;
+        self.ended_at = Some(ended_at);
+        self.error = Some(reason.into());
+    }
+}
+
+/// Execution path for nested sub-agent calls. Empty for top-level tasks.
+/// When Agent A spawns Agent B, Agent B's events include Agent A's subflow path
+/// plus its own tool_call_id. This enables hierarchical execution tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(type = "string[]")]
+pub struct SubflowPath(pub Vec<String>);
+
+impl SubflowPath {
+    /// Create a new subflow path from a parent path and a new segment.
+    pub fn extend(&self, segment: &str) -> Self {
+        let mut new_path = self.0.clone();
+        new_path.push(segment.to_string());
+        SubflowPath(new_path)
+    }
+}
+
+/// Record of a task execution event
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct TaskEvent {
+    /// Unique event ID
+    pub id: String,
+    /// Task ID this event belongs to
+    pub task_id: String,
+    /// Event type
+    pub event_type: TaskEventType,
+    /// Timestamp of the event (milliseconds since epoch)
+    #[ts(type = "number")]
+    pub timestamp: i64,
+    /// Optional message or details
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Execution output (for completion events)
+    #[serde(default)]
+    pub output: Option<String>,
+    /// Tokens used during execution
+    #[serde(default)]
+    pub tokens_used: Option<u32>,
+    /// Cost in USD for this execution
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    /// Duration of execution in milliseconds (for completion events)
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub duration_ms: Option<i64>,
+    /// Subflow execution path - identifies position in nested agent call tree.
+    /// Empty for top-level tasks. Contains tool_call_ids when spawned by parent agent.
+    #[serde(default)]
+    #[ts(type = "string[]")]
+    pub subflow_path: SubflowPath,
+}
+
+/// Type of task event
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskEventType {
+    /// Task was created
+    Created,
+    /// Task started execution
+    Started,
+    /// Task completed successfully
+    Completed,
+    /// Task failed with error
+    Failed,
+    /// Task was paused
+    Paused,
+    /// Task was resumed
+    Resumed,
+    /// Notification was sent
+    NotificationSent,
+    /// Notification failed to send
+    NotificationFailed,
+    /// Context compaction occurred during execution
+    Compaction,
+    /// Execution was interrupted (checkpoint created)
+    Interrupted,
+}
+
+/// Canonical task record for scheduled agent execution.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct Task {
+    /// Unique identifier for the task
+    pub id: String,
+    /// Display name of the task
+    pub name: String,
+    /// Description of what this task does
+    #[serde(default)]
+    pub description: Option<String>,
+    /// ID of the agent to execute
+    pub agent_id: String,
+    /// Chat session ID bound to this task
+    #[serde(default)]
+    pub chat_session_id: String,
+    /// Whether the bound chat session was auto-created by task storage.
+    ///
+    /// This is used to decide safe cleanup behavior when the task is deleted.
+    #[serde(default)]
+    pub owns_chat_session: bool,
+    /// Input/prompt to send to the agent
+    #[serde(default)]
+    pub input: Option<String>,
+    /// Optional template rendered to construct runtime input
+    #[serde(default)]
+    pub input_template: Option<String>,
+    /// Schedule configuration
+    pub schedule: TaskSchedule,
+    /// Execution mode (API or CLI)
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
+    /// Optional per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// Notification configuration
+    #[serde(default)]
+    pub notification: NotificationConfig,
+    /// Memory configuration
+    #[serde(default)]
+    pub memory: MemoryConfig,
+    /// Durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: DurabilityMode,
+    /// Resource limits configuration
+    #[serde(default)]
+    pub resource_limits: ResourceLimits,
+    /// Task IDs that must complete before this task starts.
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
+    /// Continuation policy for long-horizon execution
+    #[serde(default)]
+    pub continuation: ContinuationConfig,
+    /// Total iterations accumulated across all continuation segments.
+    #[serde(default)]
+    pub continuation_total_iterations: u32,
+    /// Number of continuation segments completed so far.
+    #[serde(default)]
+    pub continuation_segments_completed: u32,
+    /// Current status of the task
+    #[serde(default)]
+    pub status: TaskStatus,
+    /// Timestamp when the task was created (milliseconds since epoch)
+    #[ts(type = "number")]
+    pub created_at: i64,
+    /// Timestamp when the task was last updated (milliseconds since epoch)
+    #[ts(type = "number")]
+    pub updated_at: i64,
+    /// Timestamp of the last execution (milliseconds since epoch)
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub last_run_at: Option<i64>,
+    /// Timestamp of the next scheduled execution (milliseconds since epoch)
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub next_run_at: Option<i64>,
+    /// Count of successful executions
+    #[serde(default)]
+    pub success_count: u32,
+    /// Count of failed executions
+    #[serde(default)]
+    pub failure_count: u32,
+    /// Cumulative tokens used across executions
+    #[serde(default)]
+    pub total_tokens_used: u32,
+    /// Cumulative cost in USD across executions
+    #[serde(default)]
+    pub total_cost_usd: f64,
+    /// Last error message if failed
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Webhook configuration for external triggers
+    #[serde(default)]
+    pub webhook: Option<super::webhook::WebhookConfig>,
+    /// Summary message pointer for compacted task sessions
+    #[serde(default)]
+    pub summary_message_id: Option<String>,
+}
+
+impl Task {
+    /// Create a new agent task with the given parameters
+    pub fn new(id: String, name: String, agent_id: String, schedule: TaskSchedule) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        let next_run = Self::calculate_next_run(&schedule, now);
+
+        Self {
+            id,
+            name,
+            description: None,
+            agent_id,
+            chat_session_id: String::new(),
+            owns_chat_session: false,
+            input: None,
+            input_template: None,
+            schedule,
+            execution_mode: ExecutionMode::default(),
+            timeout_secs: None,
+            notification: NotificationConfig::default(),
+            memory: MemoryConfig::default(),
+            durability_mode: DurabilityMode::Async,
+            resource_limits: ResourceLimits::default(),
+            prerequisites: Vec::new(),
+            continuation: ContinuationConfig::default(),
+            continuation_total_iterations: 0,
+            continuation_segments_completed: 0,
+            status: TaskStatus::Active,
+            created_at: now,
+            updated_at: now,
+            last_run_at: None,
+            next_run_at: next_run,
+            success_count: 0,
+            failure_count: 0,
+            total_tokens_used: 0,
+            total_cost_usd: 0.0,
+            last_error: None,
+            webhook: None,
+            summary_message_id: None,
+        }
+    }
+
+    /// Create a new agent task with CLI execution mode
+    pub fn new_with_cli(
+        id: String,
+        name: String,
+        agent_id: String,
+        schedule: TaskSchedule,
+        cli_config: CliExecutionConfig,
+    ) -> Self {
+        let mut task = Self::new(id, name, agent_id, schedule);
+        task.execution_mode = ExecutionMode::Cli(cli_config);
+        task
+    }
+
+    /// Calculate the next run time based on the schedule
+    pub fn calculate_next_run(schedule: &TaskSchedule, from_time: i64) -> Option<i64> {
+        match schedule {
+            TaskSchedule::Once { run_at } => {
+                if *run_at > from_time {
+                    Some(*run_at)
+                } else {
+                    None // Already passed
+                }
+            }
+            TaskSchedule::Interval {
+                interval_ms,
+                start_at,
+            } => {
+                if *interval_ms <= 0 {
+                    return None;
+                }
+                let start = start_at.unwrap_or(from_time);
+                if start > from_time {
+                    Some(start)
+                } else {
+                    // Calculate next interval after from_time using saturating
+                    // arithmetic to avoid overflow with large elapsed times.
+                    let elapsed = from_time - start;
+                    let intervals_passed = elapsed / interval_ms;
+                    let next_count = intervals_passed.saturating_add(1);
+                    let offset = next_count.saturating_mul(*interval_ms);
+                    let next = start.saturating_add(offset);
+                    if next <= from_time {
+                        // Overflow saturated to i64::MAX or interval too small
+                        None
+                    } else {
+                        Some(next)
+                    }
+                }
+            }
+            TaskSchedule::Cron {
+                expression,
+                timezone,
+            } => {
+                // Parse and calculate next cron time
+                Self::next_cron_time(expression, timezone.as_deref(), from_time)
+            }
+        }
+    }
+
+    /// Calculate next cron execution time
+    fn next_cron_time(expression: &str, timezone: Option<&str>, from_time: i64) -> Option<i64> {
+        use chrono::{DateTime, Utc};
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        let normalized = expression.trim();
+        let field_count = normalized.split_whitespace().count();
+        let schedule = if field_count == 5 {
+            // Accept standard 5-field cron expressions by prepending seconds.
+            Schedule::from_str(&format!("0 {}", normalized))
+                .or_else(|_| Schedule::from_str(normalized))
+                .ok()?
+        } else {
+            Schedule::from_str(normalized).ok()?
+        };
+        let from_datetime = DateTime::from_timestamp_millis(from_time)?;
+
+        if let Some(tz_str) = timezone {
+            // Parse timezone and find next time in that zone
+            if let Ok(tz) = tz_str.parse::<chrono_tz::Tz>() {
+                let local_time = from_datetime.with_timezone(&tz);
+                let next = schedule.after(&local_time).next()?;
+                Some(next.with_timezone(&Utc).timestamp_millis())
+            } else {
+                // Fallback to UTC if timezone parsing fails
+                let next = schedule.after(&from_datetime).next()?;
+                Some(next.timestamp_millis())
+            }
+        } else {
+            // Default to UTC
+            let next = schedule.after(&from_datetime).next()?;
+            Some(next.timestamp_millis())
+        }
+    }
+
+    /// Update the next run time based on current time
+    pub fn update_next_run(&mut self) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.next_run_at = Self::calculate_next_run(&self.schedule, now);
+        self.updated_at = now;
+    }
+
+    /// Mark the task as running
+    pub fn set_running(&mut self) {
+        self.status = TaskStatus::Running;
+        self.last_run_at = Some(chrono::Utc::now().timestamp_millis());
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    /// Mark the task as completed successfully
+    pub fn set_completed(&mut self) {
+        self.success_count += 1;
+        self.last_error = None;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+
+        // Determine next status based on schedule type
+        match &self.schedule {
+            TaskSchedule::Once { .. } => {
+                self.status = TaskStatus::Completed;
+                self.next_run_at = None;
+            }
+            _ => {
+                self.status = TaskStatus::Active;
+                self.update_next_run();
+            }
+        }
+    }
+
+    /// Mark the task as failed
+    pub fn set_failed(&mut self, error: String) {
+        self.failure_count += 1;
+        self.last_error = Some(error);
+        self.status = TaskStatus::Failed;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+        self.update_next_run(); // Still schedule next run
+    }
+
+    /// Mark the task as interrupted.
+    pub fn set_interrupted(&mut self) {
+        self.status = TaskStatus::Interrupted;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    /// Check if the task is interrupted.
+    pub fn is_interrupted(&self) -> bool {
+        self.status == TaskStatus::Interrupted
+    }
+
+    /// Pause the task
+    pub fn pause(&mut self) {
+        self.status = TaskStatus::Paused;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    /// Resume the task
+    pub fn resume(&mut self) {
+        self.status = TaskStatus::Active;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+        self.update_next_run();
+    }
+
+    /// Check if the task should run now
+    pub fn should_run(&self, current_time: i64) -> bool {
+        let is_schedulable = matches!(self.status, TaskStatus::Active)
+            || (self.status == TaskStatus::Failed
+                && failed_status_is_schedulable(self.next_run_at));
+        if !is_schedulable {
+            return false;
+        }
+
+        if let Some(next_run) = self.next_run_at {
+            current_time >= next_run
+        } else {
+            false
+        }
+    }
+
+    /// Check if the task is active (can be scheduled)
+    pub fn is_active(&self) -> bool {
+        self.status == TaskStatus::Active
+            || (self.status == TaskStatus::Failed && failed_status_is_schedulable(self.next_run_at))
+    }
+
+    /// Check if the task is running
+    pub fn is_running(&self) -> bool {
+        self.status == TaskStatus::Running
+    }
+}
+
+impl TaskEvent {
+    /// Create a new task event
+    pub fn new(task_id: String, event_type: TaskEventType) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            task_id,
+            event_type,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            message: None,
+            output: None,
+            tokens_used: None,
+            cost_usd: None,
+            duration_ms: None,
+            subflow_path: SubflowPath::default(),
+        }
+    }
+
+    /// Create a new event with a subflow path
+    pub fn with_subflow_path(mut self, subflow_path: SubflowPath) -> Self {
+        self.subflow_path = subflow_path;
+        self
+    }
+
+    /// Create a new event with a message
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+
+    /// Create a new event with output
+    pub fn with_output(mut self, output: impl Into<String>) -> Self {
+        self.output = Some(output.into());
+        self
+    }
+
+    /// Create a new event with duration
+    pub fn with_duration(mut self, duration_ms: i64) -> Self {
+        self.duration_ms = Some(duration_ms);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_new() {
+        let task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 3600000,
+                start_at: None,
+            },
+        );
+
+        assert_eq!(task.id, "task-123");
+        assert_eq!(task.name, "Test Task");
+        assert_eq!(task.agent_id, "agent-456");
+        assert_eq!(task.status, TaskStatus::Active);
+        assert!(task.input_template.is_none());
+        assert!(task.created_at > 0);
+        assert!(task.next_run_at.is_some());
+        assert_eq!(task.success_count, 0);
+        assert_eq!(task.failure_count, 0);
+    }
+
+    #[test]
+    fn test_task_alias_still_uses_task_owner() {
+        let task = Task::new(
+            "task-compat".to_string(),
+            "Compat Task".to_string(),
+            "agent-compat".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 1000,
+                start_at: None,
+            },
+        );
+
+        assert_eq!(task.status, TaskStatus::Active);
+        assert_eq!(task.id, "task-compat");
+    }
+
+    #[test]
+    fn test_once_schedule_calculation() {
+        let future_time = chrono::Utc::now().timestamp_millis() + 10000;
+        let schedule = TaskSchedule::Once {
+            run_at: future_time,
+        };
+
+        let next = Task::calculate_next_run(&schedule, chrono::Utc::now().timestamp_millis());
+        assert_eq!(next, Some(future_time));
+
+        // Past time should return None
+        let past_time = chrono::Utc::now().timestamp_millis() - 10000;
+        let schedule_past = TaskSchedule::Once { run_at: past_time };
+        let next_past =
+            Task::calculate_next_run(&schedule_past, chrono::Utc::now().timestamp_millis());
+        assert!(next_past.is_none());
+    }
+
+    #[test]
+    fn test_interval_schedule_calculation() {
+        let now = 1000000000000i64; // Fixed time for testing
+        let interval = 3600000i64; // 1 hour
+
+        let schedule = TaskSchedule::Interval {
+            interval_ms: interval,
+            start_at: Some(now - 1000), // Started 1 second ago
+        };
+
+        let next = Task::calculate_next_run(&schedule, now);
+        assert!(next.is_some());
+        let next_time = next.unwrap();
+        assert!(next_time > now);
+        assert!(next_time <= now + interval);
+    }
+
+    #[test]
+    fn test_cron_schedule_calculation() {
+        let schedule = TaskSchedule::Cron {
+            expression: "0 0 9 * * *".to_string(), // Every day at 9 AM
+            timezone: Some("UTC".to_string()),
+        };
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let next = Task::calculate_next_run(&schedule, now);
+        assert!(next.is_some());
+        assert!(next.unwrap() > now);
+    }
+
+    #[test]
+    fn test_five_field_cron_schedule_calculation() {
+        let schedule = TaskSchedule::Cron {
+            expression: "* * * * *".to_string(), // Every minute (5-field cron)
+            timezone: Some("UTC".to_string()),
+        };
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let next = Task::calculate_next_run(&schedule, now);
+        assert!(next.is_some());
+        assert!(next.unwrap() > now);
+    }
+
+    #[test]
+    fn test_interval_zero_returns_none() {
+        let schedule = TaskSchedule::Interval {
+            interval_ms: 0,
+            start_at: Some(1000),
+        };
+        assert!(Task::calculate_next_run(&schedule, 2000).is_none());
+    }
+
+    #[test]
+    fn test_interval_negative_returns_none() {
+        let schedule = TaskSchedule::Interval {
+            interval_ms: -1,
+            start_at: Some(1000),
+        };
+        assert!(Task::calculate_next_run(&schedule, 2000).is_none());
+    }
+
+    #[test]
+    fn test_interval_overflow_returns_none() {
+        let schedule = TaskSchedule::Interval {
+            interval_ms: i64::MAX / 2,
+            start_at: Some(i64::MAX / 2),
+        };
+        // With extreme values, saturating arithmetic should prevent panic
+        // and return None when the result can't advance past from_time.
+        let result = Task::calculate_next_run(&schedule, i64::MAX - 1);
+        // Either None (saturated) or a valid future time — no panic.
+        if let Some(next) = result {
+            assert!(next > i64::MAX - 1);
+        }
+    }
+
+    #[test]
+    fn test_task_status_transitions() {
+        let mut task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 3600000,
+                start_at: None,
+            },
+        );
+
+        assert!(task.is_active());
+        assert!(!task.is_running());
+
+        task.set_running();
+        assert!(task.is_running());
+        assert!(task.last_run_at.is_some());
+
+        task.set_completed();
+        assert!(task.is_active());
+        assert_eq!(task.success_count, 1);
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+        assert_eq!(task.status, TaskStatus::Failed);
+        assert_eq!(task.failure_count, 1);
+        assert_eq!(task.last_error, Some("Test error".to_string()));
+    }
+
+    #[test]
+    fn test_pause_and_resume() {
+        let mut task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 3600000,
+                start_at: None,
+            },
+        );
+
+        task.pause();
+        assert_eq!(task.status, TaskStatus::Paused);
+
+        task.resume();
+        assert_eq!(task.status, TaskStatus::Active);
+    }
+
+    #[test]
+    fn test_should_run() {
+        // Use a future timestamp to ensure next_run_at is set
+        let future_time = chrono::Utc::now().timestamp_millis() + 100000;
+
+        let mut task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Once {
+                run_at: future_time,
+            },
+        );
+
+        // Before run time
+        assert!(!task.should_run(future_time - 1000));
+
+        // At run time
+        assert!(task.should_run(future_time));
+
+        // After run time
+        assert!(task.should_run(future_time + 1000));
+
+        // When paused
+        task.pause();
+        assert!(!task.should_run(future_time + 1000));
+    }
+
+    #[test]
+    fn test_failed_interval_task_remains_schedulable() {
+        let mut task = Task::new(
+            "task-interval-failed".to_string(),
+            "Retrying Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            },
+        );
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+        let next_run = task
+            .next_run_at
+            .expect("interval task should compute next run");
+
+        assert_eq!(task.status, TaskStatus::Failed);
+        assert!(task.is_active());
+        assert!(!task.should_run(next_run - 1));
+        assert!(task.should_run(next_run));
+    }
+
+    #[test]
+    fn test_failed_once_task_is_not_schedulable() {
+        let run_at = chrono::Utc::now().timestamp_millis() - 1_000;
+        let mut task = Task::new(
+            "task-once-failed".to_string(),
+            "One Shot Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Once { run_at },
+        );
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+
+        assert_eq!(task.status, TaskStatus::Failed);
+        assert!(task.next_run_at.is_none());
+        assert!(!task.is_active());
+        assert!(!task.should_run(chrono::Utc::now().timestamp_millis()));
+    }
+
+    #[test]
+    fn test_once_task_completion() {
+        let mut task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Once {
+                run_at: chrono::Utc::now().timestamp_millis() + 1000,
+            },
+        );
+
+        task.set_running();
+        task.set_completed();
+
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert!(task.next_run_at.is_none()); // No next run for one-time tasks
+    }
+
+    #[test]
+    fn test_task_event_creation() {
+        let event = TaskEvent::new("task-123".to_string(), TaskEventType::Started)
+            .with_message("Starting execution")
+            .with_duration(1500);
+
+        assert_eq!(event.task_id, "task-123");
+        assert_eq!(event.event_type, TaskEventType::Started);
+        assert_eq!(event.message, Some("Starting execution".to_string()));
+        assert_eq!(event.duration_ms, Some(1500));
+        assert!(event.timestamp > 0);
+    }
+
+    #[test]
+    fn test_notification_config_defaults() {
+        let config = NotificationConfig::default();
+
+        assert!(!config.notify_on_failure_only);
+        assert!(config.include_output);
+        assert!(!config.broadcast_steps);
+    }
+
+    #[test]
+    fn test_notification_config_deserialization_defaults_broadcast_steps_to_false() {
+        let json = serde_json::json!({
+            "notify_on_failure_only": true,
+            "include_output": false
+        });
+
+        let config: NotificationConfig =
+            serde_json::from_value(json).expect("config should deserialize");
+        assert!(!config.broadcast_steps);
+    }
+
+    #[test]
+    fn test_schedule_default() {
+        let schedule = TaskSchedule::default();
+
+        match schedule {
+            TaskSchedule::Interval {
+                interval_ms,
+                start_at,
+            } => {
+                assert_eq!(interval_ms, 3600000);
+                assert!(start_at.is_none());
+            }
+            _ => panic!("Expected Interval schedule"),
+        }
+    }
+
+    #[test]
+    fn test_status_default() {
+        let status: TaskStatus = Default::default();
+        assert_eq!(status, TaskStatus::Active);
+    }
+
+    #[test]
+    fn test_execution_mode_default() {
+        let mode: ExecutionMode = Default::default();
+        assert_eq!(mode, ExecutionMode::Api);
+    }
+
+    #[test]
+    fn test_cli_execution_config_default() {
+        let config = CliExecutionConfig::default();
+        assert_eq!(config.binary, "claude");
+        assert!(config.args.is_empty());
+        assert!(config.working_dir.is_none());
+        assert_eq!(config.timeout_secs, 1800);
+        assert!(!config.use_pty);
+    }
+
+    #[test]
+    fn test_task_with_api_execution() {
+        let task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+        assert_eq!(task.execution_mode, ExecutionMode::Api);
+    }
+
+    #[test]
+    fn test_task_with_cli_execution() {
+        let cli_config = CliExecutionConfig {
+            binary: "aider".to_string(),
+            args: vec!["--yes".to_string()],
+            working_dir: Some("/tmp/test".to_string()),
+            timeout_secs: 600,
+            use_pty: true,
+        };
+
+        let task = Task::new_with_cli(
+            "task-123".to_string(),
+            "CLI Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+            cli_config.clone(),
+        );
+
+        match &task.execution_mode {
+            ExecutionMode::Cli(config) => {
+                assert_eq!(config.binary, "aider");
+                assert_eq!(config.args, vec!["--yes".to_string()]);
+                assert_eq!(config.working_dir, Some("/tmp/test".to_string()));
+                assert_eq!(config.timeout_secs, 600);
+                assert!(config.use_pty);
+            }
+            _ => panic!("Expected CLI execution mode"),
+        }
+    }
+
+    #[test]
+    fn test_execution_mode_serialization() {
+        // Test API mode serialization
+        let api_mode = ExecutionMode::Api;
+        let json = serde_json::to_string(&api_mode).unwrap();
+        assert!(json.contains("api"));
+
+        // Test CLI mode serialization
+        let cli_mode = ExecutionMode::Cli(CliExecutionConfig {
+            binary: "claude".to_string(),
+            args: vec!["-p".to_string()],
+            working_dir: None,
+            timeout_secs: 300,
+            use_pty: false,
+        });
+        let json = serde_json::to_string(&cli_mode).unwrap();
+        assert!(json.contains("cli"));
+        assert!(json.contains("claude"));
+    }
+
+    #[test]
+    fn test_execution_mode_deserialization() {
+        // Test API mode deserialization
+        let json = r#"{"type":"api"}"#;
+        let mode: ExecutionMode = serde_json::from_str(json).unwrap();
+        assert_eq!(mode, ExecutionMode::Api);
+
+        // Test CLI mode deserialization
+        let json =
+            r#"{"type":"cli","binary":"aider","args":[],"timeout_secs":300,"use_pty":false}"#;
+        let mode: ExecutionMode = serde_json::from_str(json).unwrap();
+        match mode {
+            ExecutionMode::Cli(config) => {
+                assert_eq!(config.binary, "aider");
+            }
+            _ => panic!("Expected CLI mode"),
+        }
+    }
+
+    #[test]
+    fn test_memory_config_defaults() {
+        let config = MemoryConfig::default();
+
+        assert_eq!(config.max_messages, 100);
+        assert!(config.enable_file_memory);
+        assert!(!config.persist_on_complete);
+        assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
+        assert!(config.enable_compaction);
+        assert_eq!(config.compaction_threshold_ratio, 0.80);
+        assert_eq!(config.max_summary_tokens, 2_000);
+    }
+
+    #[test]
+    fn test_memory_config_custom() {
+        let config = MemoryConfig {
+            max_messages: 50,
+            enable_file_memory: false,
+            persist_on_complete: true,
+            memory_scope: MemoryScope::PerTask,
+            enable_compaction: true,
+            compaction_threshold_ratio: 0.75,
+            max_summary_tokens: 1_024,
+        };
+
+        assert_eq!(config.max_messages, 50);
+        assert!(!config.enable_file_memory);
+        assert!(config.persist_on_complete);
+        assert_eq!(config.memory_scope, MemoryScope::PerTask);
+        assert!(config.enable_compaction);
+        assert_eq!(config.compaction_threshold_ratio, 0.75);
+        assert_eq!(config.max_summary_tokens, 1_024);
+    }
+
+    #[test]
+    fn test_task_with_memory_config() {
+        let task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        // Default memory config should be applied
+        assert_eq!(task.memory.max_messages, 100);
+        assert!(task.memory.enable_file_memory);
+        assert!(!task.memory.persist_on_complete);
+        assert_eq!(task.memory.memory_scope, MemoryScope::SharedAgent);
+        assert!(task.memory.enable_compaction);
+        assert_eq!(task.memory.compaction_threshold_ratio, 0.80);
+        assert_eq!(task.memory.max_summary_tokens, 2_000);
+    }
+
+    #[test]
+    fn test_task_with_resource_limits_defaults() {
+        let task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        assert_eq!(task.resource_limits.max_tool_calls, 100);
+        assert_eq!(task.resource_limits.max_duration_secs, 1800);
+        assert_eq!(task.resource_limits.max_output_bytes, 1_000_000);
+        assert_eq!(task.resource_limits.max_cost_usd, None);
+    }
+
+    #[test]
+    fn test_continuation_config_defaults() {
+        let continuation = ContinuationConfig::default();
+        assert!(!continuation.enabled);
+        assert_eq!(continuation.segment_iterations, 50);
+        assert_eq!(continuation.max_total_iterations, 500);
+        assert_eq!(continuation.max_total_cost_usd, None);
+        assert_eq!(continuation.inter_segment_pause_ms, 1_000);
+    }
+
+    #[test]
+    fn test_task_continuation_defaults() {
+        let task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        assert_eq!(task.continuation, ContinuationConfig::default());
+        assert_eq!(task.continuation_total_iterations, 0);
+        assert_eq!(task.continuation_segments_completed, 0);
+    }
+
+    #[test]
+    fn test_memory_config_serialization() {
+        let config = MemoryConfig {
+            max_messages: 75,
+            enable_file_memory: true,
+            persist_on_complete: false,
+            memory_scope: MemoryScope::PerTask,
+            enable_compaction: false,
+            compaction_threshold_ratio: 0.65,
+            max_summary_tokens: 1_500,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: MemoryConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.max_messages, 75);
+        assert!(deserialized.enable_file_memory);
+        assert!(!deserialized.persist_on_complete);
+        assert_eq!(deserialized.memory_scope, MemoryScope::PerTask);
+        assert!(!deserialized.enable_compaction);
+        assert_eq!(deserialized.compaction_threshold_ratio, 0.65);
+        assert_eq!(deserialized.max_summary_tokens, 1_500);
+    }
+
+    #[test]
+    fn test_memory_config_deserialization_with_defaults() {
+        // Test deserializing with missing fields uses defaults
+        let json = r#"{}"#;
+        let config: MemoryConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(config.max_messages, 100);
+        assert!(config.enable_file_memory);
+        assert!(!config.persist_on_complete);
+        assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
+        assert!(config.enable_compaction);
+        assert_eq!(config.compaction_threshold_ratio, 0.80);
+        assert_eq!(config.max_summary_tokens, 2_000);
+    }
+
+    #[test]
+    fn test_memory_scope_serialization() {
+        let scope = MemoryScope::PerTask;
+        let serialized = serde_json::to_string(&scope).unwrap();
+        assert_eq!(serialized, r#""per_task""#);
+    }
+
+    #[test]
+    fn test_task_serialization_with_memory() {
+        let task = Task::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        let json = serde_json::to_string(&task).unwrap();
+        assert!(json.contains("memory"));
+        assert!(json.contains("max_messages"));
+
+        let deserialized: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.memory.max_messages, 100);
+        assert_eq!(deserialized.memory.memory_scope, MemoryScope::SharedAgent);
+    }
+
+    #[test]
+    fn test_task_status_and_events_are_compatible() {
+        let schedule = TaskSchedule::default();
+        let mut task = Task::new(
+            "bg-1".to_string(),
+            "Task".to_string(),
+            "agent-1".to_string(),
+            schedule,
+        );
+        assert_eq!(task.status, TaskStatus::Active);
+
+        task.set_running();
+        assert_eq!(task.status, TaskStatus::Running);
+
+        let event = TaskEvent::new(task.id.clone(), TaskEventType::Started).with_message("started");
+        assert_eq!(event.event_type, TaskEventType::Started);
+        assert_eq!(event.message.as_deref(), Some("started"));
+    }
+
+    #[test]
+    fn test_task_message_progress_are_compatible() {
+        let task: Task = Task::new(
+            "task-1".to_string(),
+            "Canonical Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::default(),
+        );
+        assert_eq!(task.id, "task-1");
+
+        let message: TaskMessage =
+            TaskMessage::new(task.id.clone(), TaskMessageSource::User, "ping".to_string());
+        assert_eq!(message.task_id(), "task-1");
+
+        let progress = TaskProgress {
+            task_id: task.id.clone(),
+            status: TaskStatus::Active,
+            stage: Some("waiting".to_string()),
+            recent_event: None,
+            recent_events: Vec::new(),
+            last_run_at: None,
+            next_run_at: None,
+            total_tokens_used: 0,
+            total_cost_usd: 0.0,
+            success_count: 0,
+            failure_count: 0,
+            pending_message_count: 0,
+        };
+        assert_eq!(progress.task_id(), "task-1");
+    }
+
+    #[test]
+    fn test_task_message_serializes_task_id() {
+        let message = TaskMessage::new(
+            "task-123".to_string(),
+            TaskMessageSource::User,
+            "hello".to_string(),
+        );
+
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["task_id"].as_str(), Some("task-123"));
+    }
+
+    #[test]
+    fn test_task_message_deserializes_from_canonical_task_id() {
+        let json = serde_json::json!({
+            "id": "msg-1",
+            "task_id": "task-123",
+            "source": "user",
+            "status": "queued",
+            "message": "hello",
+            "created_at": 1234,
+            "delivered_at": null,
+            "consumed_at": null,
+            "error": null
+        });
+
+        let message: TaskMessage = serde_json::from_value(json).unwrap();
+        assert_eq!(message.task_id, "task-123");
+        assert_eq!(message.task_id(), "task-123");
+    }
+
+    #[test]
+    fn test_task_progress_serializes_task_id() {
+        let progress = TaskProgress {
+            task_id: "task-123".to_string(),
+            status: TaskStatus::Running,
+            stage: Some("executing".to_string()),
+            recent_event: None,
+            recent_events: Vec::new(),
+            last_run_at: Some(100),
+            next_run_at: Some(200),
+            total_tokens_used: 42,
+            total_cost_usd: 0.5,
+            success_count: 1,
+            failure_count: 2,
+            pending_message_count: 3,
+        };
+
+        let json = serde_json::to_value(&progress).unwrap();
+        assert_eq!(json["task_id"].as_str(), Some("task-123"));
+    }
+
+    #[test]
+    fn test_task_progress_deserializes_from_canonical_task_id() {
+        let json = serde_json::json!({
+            "task_id": "task-123",
+            "status": "active",
+            "stage": null,
+            "recent_event": null,
+            "recent_events": [],
+            "last_run_at": null,
+            "next_run_at": null,
+            "total_tokens_used": 0,
+            "total_cost_usd": 0.0,
+            "success_count": 0,
+            "failure_count": 0,
+            "pending_message_count": 0
+        });
+
+        let progress: TaskProgress = serde_json::from_value(json).unwrap();
+        assert_eq!(progress.task_id, "task-123");
+        assert_eq!(progress.task_id(), "task-123");
+    }
+}

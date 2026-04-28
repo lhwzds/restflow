@@ -446,11 +446,7 @@ mod tests {
         let registry = AgentDefinitionRegistry::from_agents(&[stored]);
         let snapshot = registry.lookup("agent-2").unwrap();
         assert!(!snapshot.allowed_tools.is_empty());
-        assert!(
-            !snapshot
-                .allowed_tools
-                .contains(&"manage_background_agents".to_string())
-        );
+        assert!(!snapshot.allowed_tools.contains(&"manage_tasks".to_string()));
     }
 
     #[test]

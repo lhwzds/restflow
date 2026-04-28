@@ -18,8 +18,8 @@ use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDef
 use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,
-    ExecutionTraceStorage, MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage,
+    AgentStorage, ChannelSessionBindingStorage, ConfigStorage, ExecutionTraceStorage,
+    MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage, TaskStorage,
     TerminalSessionStorage,
 };
 use restflow_tools::ToolError;
@@ -52,7 +52,7 @@ struct AssessmentContext {
     execution_traces: ExecutionTraceStorage,
     config: ConfigStorage,
     agents: AgentStorage,
-    background_agents: BackgroundAgentStorage,
+    tasks: TaskStorage,
     terminal_sessions: TerminalSessionStorage,
     run_artifacts: RunArtifactStorage,
 }
@@ -73,7 +73,7 @@ impl AssessmentContext {
             execution_traces: storage.execution_traces.clone(),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
-            background_agents: storage.background_agents.clone(),
+            tasks: storage.tasks.clone(),
             terminal_sessions: storage.terminal_sessions.clone(),
             run_artifacts: storage.run_artifacts.clone(),
         }
@@ -409,7 +409,7 @@ async fn validate_agent_async(
         context.secrets.clone(),
         context.config.clone(),
         context.agents.clone(),
-        context.background_agents.clone(),
+        context.tasks.clone(),
         context.terminal_sessions.clone(),
         context.run_artifacts.clone(),
         None,
@@ -738,11 +738,9 @@ async fn assess_task_update_with_context(
     request: TaskUpdateRequest,
 ) -> Result<OperationAssessment> {
     let auth_manager = build_auth(context).await?;
-    let task_id = context
-        .background_agents
-        .resolve_existing_task_id(&request.id)?;
+    let task_id = context.tasks.resolve_existing_task_id(&request.id)?;
     let task = context
-        .background_agents
+        .tasks
         .get_task(&task_id)?
         .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
     let next_agent_id = request
@@ -773,11 +771,9 @@ async fn assess_task_delete_with_context(
     context: &AssessmentContext,
     request: TaskDeleteRequest,
 ) -> Result<OperationAssessment> {
-    let task_id = context
-        .background_agents
-        .resolve_existing_task_id(&request.id)?;
+    let task_id = context.tasks.resolve_existing_task_id(&request.id)?;
     let task = context
-        .background_agents
+        .tasks
         .get_task(&task_id)?
         .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
     let mut assessment = OperationAssessment::ok("delete_task", OperationAssessmentIntent::Save);
@@ -819,11 +815,9 @@ async fn assess_task_control_with_context(
     }
 
     let auth_manager = build_auth(context).await?;
-    let task_id = context
-        .background_agents
-        .resolve_existing_task_id(&request.id)?;
+    let task_id = context.tasks.resolve_existing_task_id(&request.id)?;
     let task = context
-        .background_agents
+        .tasks
         .get_task(&task_id)?
         .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
     let stored_agent = load_agent(context, &task.agent_id).await?;
@@ -1488,15 +1482,15 @@ mod tests {
 
         let task = core
             .storage
-            .background_agents
-            .create_background_agent(crate::models::BackgroundAgentSpec {
+            .tasks
+            .create_task_from_spec(crate::models::TaskSpec {
                 name: "Delete Target".to_string(),
                 agent_id: created.id.clone(),
                 chat_session_id: None,
                 description: None,
                 input: Some("run".to_string()),
                 input_template: None,
-                schedule: crate::models::BackgroundAgentSchedule::default(),
+                schedule: crate::models::TaskSchedule::default(),
                 notification: None,
                 execution_mode: None,
                 timeout_secs: None,

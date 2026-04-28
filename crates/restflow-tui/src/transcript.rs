@@ -1,7 +1,7 @@
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{ChatRole, ChatSession};
 use restflow_core::runtime::TaskStreamEvent;
-use restflow_core::runtime::background_agent::StreamEventKind;
+use restflow_core::runtime::task_runtime::StreamEventKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {

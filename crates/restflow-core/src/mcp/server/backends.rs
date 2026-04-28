@@ -9,7 +9,7 @@ use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 
 fn resolve_task_id(
-    storage: &crate::storage::BackgroundAgentStorage,
+    storage: &crate::storage::TaskStorage,
     id_or_prefix: &str,
 ) -> Result<String, String> {
     storage
@@ -181,13 +181,13 @@ impl McpBackend for CoreBackend {
             Some(status) => self
                 .core
                 .storage
-                .background_agents
+                .tasks
                 .list_tasks_by_status(status)
                 .map_err(|e| e.to_string()),
             None => self
                 .core
                 .storage
-                .background_agents
+                .tasks
                 .list_tasks()
                 .map_err(|e| e.to_string()),
         }
@@ -249,8 +249,8 @@ impl McpBackend for CoreBackend {
     ) -> Result<TaskProgress, String> {
         self.core
             .storage
-            .background_agents
-            .get_background_agent_progress(id, event_limit)
+            .tasks
+            .get_task_progress(id, event_limit)
             .map_err(|e| e.to_string())
     }
 
@@ -262,21 +262,21 @@ impl McpBackend for CoreBackend {
     ) -> Result<TaskMessage, String> {
         self.core
             .storage
-            .background_agents
-            .send_background_agent_message(id, message, source)
+            .tasks
+            .send_task_message(id, message, source)
             .map_err(|e| e.to_string())
     }
 
     async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
         self.core
             .storage
-            .background_agents
-            .list_background_agent_messages(id, limit)
+            .tasks
+            .list_task_messages(id, limit)
             .map_err(|e| e.to_string())
     }
 
     async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
-        let resolved_id = resolve_task_id(&self.core.storage.background_agents, task_id)?;
+        let resolved_id = resolve_task_id(&self.core.storage.tasks, task_id)?;
         self.core
             .storage
             .run_artifacts
@@ -332,10 +332,10 @@ impl McpBackend for CoreBackend {
     }
 
     async fn get_task(&self, id: &str) -> Result<Task, String> {
-        let resolved_id = resolve_task_id(&self.core.storage.background_agents, id)?;
+        let resolved_id = resolve_task_id(&self.core.storage.tasks, id)?;
         self.core
             .storage
-            .background_agents
+            .tasks
             .get_task(&resolved_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Task {} not found", resolved_id))

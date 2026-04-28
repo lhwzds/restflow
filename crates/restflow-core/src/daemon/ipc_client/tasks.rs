@@ -11,15 +11,15 @@ use restflow_contracts::request::TaskFromSessionRequest;
 
 #[cfg(unix)]
 impl IpcClient {
-    pub async fn list_tasks(&mut self, status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+    pub async fn list_tasks(&mut self, status: Option<String>) -> Result<Vec<Task>> {
         self.request_typed(IpcRequest::ListTasks { status }).await
     }
 
-    pub async fn get_task(&mut self, id: String) -> Result<Option<BackgroundAgent>> {
+    pub async fn get_task(&mut self, id: String) -> Result<Option<Task>> {
         self.request_optional(IpcRequest::GetTask { id }).await
     }
 
-    pub async fn create_task(&mut self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+    pub async fn create_task(&mut self, spec: TaskSpec) -> Result<Task> {
         let spec = core_spec_to_contract(spec)?;
         self.request_typed(IpcRequest::CreateTask { spec }).await
     }
@@ -27,16 +27,12 @@ impl IpcClient {
     pub async fn create_task_from_session(
         &mut self,
         request: TaskFromSessionRequest,
-    ) -> Result<crate::models::BackgroundAgentConversionResult> {
+    ) -> Result<crate::models::TaskConversionResult> {
         self.request_typed(IpcRequest::CreateTaskFromSession { request })
             .await
     }
 
-    pub async fn update_task(
-        &mut self,
-        id: String,
-        patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
+    pub async fn update_task(&mut self, id: String, patch: TaskPatch) -> Result<Task> {
         let patch = core_patch_to_contract(patch)?;
         self.request_typed(IpcRequest::UpdateTask { id, patch })
             .await
@@ -46,17 +42,13 @@ impl IpcClient {
         self.request_typed(IpcRequest::DeleteTask { id }).await
     }
 
-    pub async fn control_task(
-        &mut self,
-        id: String,
-        action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent> {
+    pub async fn control_task(&mut self, id: String, action: TaskControlAction) -> Result<Task> {
         let action = to_contract(action)?;
         self.request_typed(IpcRequest::ControlTask { id, action })
             .await
     }
 
-    pub async fn get_task_history(&mut self, id: String) -> Result<Vec<BackgroundAgentEvent>> {
+    pub async fn get_task_history(&mut self, id: String) -> Result<Vec<TaskEvent>> {
         self.request_typed(IpcRequest::GetTaskHistory { id }).await
     }
 }

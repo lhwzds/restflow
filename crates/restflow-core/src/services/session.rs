@@ -3,14 +3,12 @@ use crate::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate, MessageExecution,
     ModelId,
 };
-use crate::runtime::background_agent::persist::persist_chat_session_memory;
 use crate::runtime::channel::hydrate_voice_message_metadata;
+use crate::runtime::task_runtime::persist::persist_chat_session_memory;
 use crate::services::session_policy::{
     SessionPolicy, SessionPolicyCleanupStats, SessionPolicyError,
 };
-use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, MemoryStorage, SessionStorage, Storage,
-};
+use crate::storage::{AgentStorage, MemoryStorage, SessionStorage, Storage, TaskStorage};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -39,10 +37,10 @@ impl SessionService {
     pub fn new(
         sessions: SessionStorage,
         agents: Option<AgentStorage>,
-        background_agents: BackgroundAgentStorage,
+        tasks: TaskStorage,
         memory: Option<MemoryStorage>,
     ) -> Self {
-        let policy = SessionPolicy::new(sessions.clone(), background_agents);
+        let policy = SessionPolicy::new(sessions.clone(), tasks);
         Self {
             sessions,
             agents,
@@ -56,7 +54,7 @@ impl SessionService {
         Self::new(
             storage.sessions.clone(),
             Some(storage.agents.clone()),
-            storage.background_agents.clone(),
+            storage.tasks.clone(),
             Some(storage.memory.clone()),
         )
     }

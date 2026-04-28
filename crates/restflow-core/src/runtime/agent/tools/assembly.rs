@@ -5,9 +5,7 @@ use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
-use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, RunArtifactStorage, SecretStorage, SkillStorage,
-};
+use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, SkillStorage, TaskStorage};
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
     BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, PythonTool,
@@ -200,28 +198,28 @@ pub(crate) fn build_agent_crud_components(
     agent_storage: AgentStorage,
     skill_storage: SkillStorage,
     secret_storage: SecretStorage,
-    background_agent_storage: BackgroundAgentStorage,
+    task_storage: TaskStorage,
 ) -> AgentCrudComponents {
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let store: Arc<dyn AgentStore> = Arc::new(AgentStoreAdapter::new(
         agent_storage,
         skill_storage,
         secret_storage,
-        background_agent_storage,
+        task_storage,
         known_tools.clone(),
     ));
     AgentCrudComponents { known_tools, store }
 }
 
 pub(crate) fn build_task_store_components(
-    background_agent_storage: BackgroundAgentStorage,
+    task_storage: TaskStorage,
     agent_storage: AgentStorage,
     run_artifact_storage: RunArtifactStorage,
     session_service: SessionService,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     let mut store = TaskStoreAdapter::new(
-        background_agent_storage,
+        task_storage,
         agent_storage,
         run_artifact_storage,
         session_service,
@@ -283,7 +281,7 @@ pub(crate) fn build_task_store_runtime_components(
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     build_task_store_components(
-        storage.background_agents.clone(),
+        storage.tasks.clone(),
         storage.agents.clone(),
         storage.run_artifacts.clone(),
         SessionService::from_storage(storage),

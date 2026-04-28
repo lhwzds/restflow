@@ -7,7 +7,7 @@ use crate::{
     AppCore,
     models::{AgentNode, ChatSessionSource, encode_validation_error},
     storage::{
-        BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
+        ChannelSessionBindingStorage, ChatSessionStorage, TaskStorage,
         agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
     },
 };
@@ -62,7 +62,7 @@ pub async fn update_agent(
 /// Check whether an agent has active background tasks.
 /// Returns `Ok(Some(task_names))` when active tasks exist, `Ok(None)` otherwise.
 pub(crate) fn check_agent_has_active_tasks(
-    bg_storage: &BackgroundAgentStorage,
+    bg_storage: &TaskStorage,
     agent_id: &str,
 ) -> Result<Option<String>> {
     let active_tasks = bg_storage.list_active_tasks_by_agent_id(agent_id)?;
@@ -191,9 +191,8 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         );
     }
 
-    if let Some(task_names) =
-        check_agent_has_active_tasks(&core.storage.background_agents, &resolved_id)
-            .with_context(|| format!("Failed to query background tasks for agent {}", id))?
+    if let Some(task_names) = check_agent_has_active_tasks(&core.storage.tasks, &resolved_id)
+        .with_context(|| format!("Failed to query background tasks for agent {}", id))?
     {
         anyhow::bail!(
             "Cannot delete agent {}: active background tasks exist ({})",
@@ -500,11 +499,11 @@ mod tests {
             .unwrap();
 
         core.storage
-            .background_agents
+            .tasks
             .create_task(
                 "Integrity Task".to_string(),
                 created.id.clone(),
-                crate::models::BackgroundAgentSchedule::default(),
+                crate::models::TaskSchedule::default(),
             )
             .unwrap();
 

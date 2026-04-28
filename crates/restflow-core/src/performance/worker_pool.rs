@@ -1,4 +1,4 @@
-use crate::models::BackgroundAgent;
+use crate::models::Task;
 use crate::performance::TaskQueue;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ impl Default for WorkerPoolConfig {
 
 #[async_trait]
 pub trait TaskExecutor: Send + Sync + 'static {
-    async fn execute(&self, task: &BackgroundAgent) -> anyhow::Result<bool>;
+    async fn execute(&self, task: &Task) -> anyhow::Result<bool>;
 }
 
 /// Worker pool.
@@ -152,7 +152,7 @@ impl WorkerPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::BackgroundAgent;
+    use crate::models::Task;
     use crate::performance::{TaskPriority, TaskQueue, TaskQueueConfig};
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -189,7 +189,7 @@ mod tests {
 
     #[async_trait]
     impl TaskExecutor for MockExecutor {
-        async fn execute(&self, _task: &BackgroundAgent) -> anyhow::Result<bool> {
+        async fn execute(&self, _task: &Task) -> anyhow::Result<bool> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             if self.should_fail {
                 Err(anyhow::anyhow!("mock executor error"))
@@ -199,10 +199,10 @@ mod tests {
         }
     }
 
-    /// Helper to build a minimal BackgroundAgent for testing.
-    fn make_task(id: &str) -> BackgroundAgent {
+    /// Helper to build a minimal Task for testing.
+    fn make_task(id: &str) -> Task {
         use crate::models::TaskSchedule;
-        BackgroundAgent::new(
+        Task::new(
             id.to_string(),
             format!("task-{}", id),
             "agent-1".to_string(),

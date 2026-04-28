@@ -222,7 +222,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 value.agents.clone(),
                 value.skills.clone(),
                 value.secrets.clone(),
-                value.background_agents.clone(),
+                value.tasks.clone(),
             )
         })
     });
@@ -458,9 +458,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "manage_ops" => {
                 with_storage!(storage, "manage_ops", builder, |s| {
-                    builder.with_ops(Arc::new(OpsProviderAdapter::new(
-                        s.background_agents.clone(),
-                    )))
+                    builder.with_ops(Arc::new(OpsProviderAdapter::new(s.tasks.clone())))
                 });
             }
             "skill" => {
@@ -504,7 +502,7 @@ pub fn registry_from_allowlist_with_security_gate(
                     builder.with_session(Arc::new(SessionStorageAdapter::new(
                         s.sessions.clone(),
                         s.agents.clone(),
-                        s.background_agents.clone(),
+                        s.tasks.clone(),
                     )))
                 });
             }
@@ -762,7 +760,7 @@ mod tests {
         assert!(!names.contains(&"manage_config".to_string()));
         assert!(!names.contains(&"manage_secrets".to_string()));
         assert!(!names.contains(&"task_list".to_string()));
-        assert!(!names.contains(&"manage_background_agents".to_string()));
+        assert!(!names.contains(&"manage_tasks".to_string()));
     }
 
     #[test]
@@ -778,35 +776,14 @@ mod tests {
                 .unwrap();
         assert!(registry.has("manage_tasks"));
         assert!(registry.has("manage_agents"));
-        assert!(!registry.has("manage_background_agents"));
-    }
-
-    #[test]
-    fn test_manage_background_agents_alias_is_not_registered() {
-        let dir = tempdir().expect("temp dir should be created");
-        let db_path = dir.path().join("registry-tools-alias.db");
-        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-            .expect("storage should be created");
-        let names = vec!["manage_background_agents".to_string()];
-
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
-                .unwrap();
-        assert!(!registry.has("manage_tasks"));
-        assert!(!registry.has("manage_background_agents"));
     }
 
     #[test]
     fn test_manage_tasks_tool_skipped_without_storage() {
-        let names = vec![
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-            "manage_agents".to_string(),
-        ];
+        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
         let registry =
             registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
         assert!(!registry.has("manage_tasks"));
-        assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
 

@@ -49,30 +49,26 @@ impl IpcClient {
         Self::unsupported()
     }
 
-    pub async fn list_tasks(&mut self, _status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+    pub async fn list_tasks(&mut self, _status: Option<String>) -> Result<Vec<Task>> {
         Self::unsupported()
     }
 
-    pub async fn get_task(&mut self, _id: String) -> Result<Option<BackgroundAgent>> {
+    pub async fn get_task(&mut self, _id: String) -> Result<Option<Task>> {
         Self::unsupported()
     }
 
-    pub async fn create_task(&mut self, _spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+    pub async fn create_task(&mut self, _spec: TaskSpec) -> Result<Task> {
         Self::unsupported()
     }
 
     pub async fn create_task_from_session(
         &mut self,
         _request: restflow_contracts::request::TaskFromSessionRequest,
-    ) -> Result<crate::models::BackgroundAgentConversionResult> {
+    ) -> Result<crate::models::TaskConversionResult> {
         Self::unsupported()
     }
 
-    pub async fn update_task(
-        &mut self,
-        _id: String,
-        _patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
+    pub async fn update_task(&mut self, _id: String, _patch: TaskPatch) -> Result<Task> {
         Self::unsupported()
     }
 
@@ -83,15 +79,11 @@ impl IpcClient {
         Self::unsupported()
     }
 
-    pub async fn control_task(
-        &mut self,
-        _id: String,
-        _action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent> {
+    pub async fn control_task(&mut self, _id: String, _action: TaskControlAction) -> Result<Task> {
         Self::unsupported()
     }
 
-    pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<BackgroundAgentEvent>> {
+    pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<TaskEvent>> {
         Self::unsupported()
     }
 

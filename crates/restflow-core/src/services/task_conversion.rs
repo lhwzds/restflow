@@ -1,7 +1,6 @@
 use crate::models::{
-    BackgroundAgentSchedule, BackgroundAgentSpec, ChatMessage, ChatRole, ChatSession,
-    ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig, NotificationConfig,
-    ResourceLimits,
+    ChatMessage, ChatRole, ChatSession, ContinuationConfig, DurabilityMode, ExecutionMode,
+    MemoryConfig, NotificationConfig, ResourceLimits, TaskSchedule, TaskSpec,
 };
 
 pub const MISSING_CONVERSION_INPUT_ERROR: &str =
@@ -11,7 +10,7 @@ pub const MISSING_CONVERSION_INPUT_ERROR: &str =
 pub struct ConvertSessionSpecOptions {
     pub name: Option<String>,
     pub description: Option<String>,
-    pub schedule: Option<BackgroundAgentSchedule>,
+    pub schedule: Option<TaskSchedule>,
     pub input: Option<String>,
     pub notification: Option<NotificationConfig>,
     pub execution_mode: Option<ExecutionMode>,
@@ -34,9 +33,9 @@ pub fn normalize_optional_text(value: Option<String>) -> Option<String> {
     })
 }
 
-pub fn default_conversion_schedule() -> BackgroundAgentSchedule {
+pub fn default_conversion_schedule() -> TaskSchedule {
     let now = chrono::Utc::now().timestamp_millis();
-    BackgroundAgentSchedule::Once {
+    TaskSchedule::Once {
         run_at: now.saturating_add(1_000),
     }
 }
@@ -73,7 +72,7 @@ pub fn derive_conversion_input(input: Option<String>, messages: &[ChatMessage]) 
 pub fn build_convert_session_spec(
     session: &ChatSession,
     options: ConvertSessionSpecOptions,
-) -> Result<BackgroundAgentSpec, &'static str> {
+) -> Result<TaskSpec, &'static str> {
     let name = derive_conversion_name(options.name, &session.name, &session.id);
     let input = derive_conversion_input(options.input, &session.messages)
         .ok_or(MISSING_CONVERSION_INPUT_ERROR)?;
@@ -81,7 +80,7 @@ pub fn build_convert_session_spec(
         .description
         .or_else(|| Some(format!("Converted from chat session {}", session.id)));
 
-    Ok(BackgroundAgentSpec {
+    Ok(TaskSpec {
         name,
         agent_id: session.agent_id.clone(),
         chat_session_id: Some(session.id.clone()),

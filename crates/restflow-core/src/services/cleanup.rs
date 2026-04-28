@@ -39,15 +39,12 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
 
     let background_tasks =
         if let Some(cutoff) = retention_cutoff(now_ms, config.background_task_retention_days) {
-            core.storage.background_agents.cleanup_old_tasks(cutoff)?
+            core.storage.tasks.cleanup_old_tasks(cutoff)?
         } else {
             0
         };
 
-    let checkpoints = core
-        .storage
-        .background_agents
-        .cleanup_expired_checkpoints()?;
+    let checkpoints = core.storage.tasks.cleanup_expired_checkpoints()?;
 
     let memory_chunks =
         if let Some(cutoff) = retention_cutoff(now_ms, config.memory_chunk_retention_days) {

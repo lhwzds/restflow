@@ -2,7 +2,7 @@
 
 use crate::daemon::check_health;
 use crate::models::TaskStatus;
-use crate::storage::BackgroundAgentStorage;
+use crate::storage::TaskStorage;
 use restflow_tools::ToolError;
 use restflow_traits::store::OpsProvider;
 use serde_json::{Value, json};
@@ -19,11 +19,11 @@ fn build_ops_response(operation: &str, evidence: Value, verification: Value) -> 
 }
 
 pub struct OpsProviderAdapter {
-    background_storage: BackgroundAgentStorage,
+    background_storage: TaskStorage,
 }
 
 impl OpsProviderAdapter {
-    pub fn new(background_storage: BackgroundAgentStorage) -> Self {
+    pub fn new(background_storage: TaskStorage) -> Self {
         Self { background_storage }
     }
 
@@ -171,7 +171,7 @@ impl OpsProvider for OpsProviderAdapter {
         let verification = json!({
             "status_filter": status_filter.as_ref().map(|s| s.as_str()),
             "sample_limit": limit,
-            "derived_from": "background_agent_storage"
+            "derived_from": "task_storage"
         });
         Ok(build_ops_response(
             "background_summary",
@@ -260,7 +260,7 @@ mod tests_adapter {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let bg_storage = BackgroundAgentStorage::new(db).unwrap();
+        let bg_storage = TaskStorage::new(db).unwrap();
         (OpsProviderAdapter::new(bg_storage), temp_dir)
     }
 

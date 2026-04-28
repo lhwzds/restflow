@@ -1,7 +1,7 @@
 //! AgentStore adapter backed by AgentStorage.
 
 use crate::storage::skill::SkillStorage;
-use crate::storage::{AgentStorage, BackgroundAgentStorage, SecretStorage};
+use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
 use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_tools::ToolError;
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
@@ -14,7 +14,7 @@ pub struct AgentStoreAdapter {
     storage: AgentStorage,
     skills: SkillStorage,
     secrets: SecretStorage,
-    background_agent_storage: BackgroundAgentStorage,
+    task_storage: TaskStorage,
     known_tools: Arc<RwLock<HashSet<String>>>,
 }
 
@@ -23,14 +23,14 @@ impl AgentStoreAdapter {
         storage: AgentStorage,
         skills: SkillStorage,
         secrets: SecretStorage,
-        background_agent_storage: BackgroundAgentStorage,
+        task_storage: TaskStorage,
         known_tools: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         Self {
             storage,
             skills,
             secrets,
-            background_agent_storage,
+            task_storage,
             known_tools,
         }
     }
@@ -169,7 +169,7 @@ impl AgentStore for AgentStoreAdapter {
 
     fn delete_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         if let Some(task_names) =
-            crate::services::agent::check_agent_has_active_tasks(&self.background_agent_storage, id)
+            crate::services::agent::check_agent_has_active_tasks(&self.task_storage, id)
                 .map_err(|e| ToolError::Tool(e.to_string()))?
         {
             return Err(ToolError::Tool(format!(
@@ -205,7 +205,7 @@ mod tests {
             },
         )
         .unwrap();
-        let bg_storage = BackgroundAgentStorage::new(db).unwrap();
+        let bg_storage = TaskStorage::new(db).unwrap();
         let known_tools = Arc::new(RwLock::new(HashSet::from([
             "bash".to_string(),
             "http".to_string(),

@@ -6,11 +6,10 @@ use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, Profi
 use crate::daemon::session_events::ChatSessionEvent;
 use crate::memory::ExportResult;
 use crate::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
-    BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, ExecutionTraceEvent, ExecutionTraceQuery,
-    ExecutionTraceStats, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, RunListQuery,
-    RunSummary, Skill, TerminalSession,
+    AgentNode, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
+    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceStats, MemoryChunk, MemorySearchResult,
+    MemorySession, MemoryStats, RunListQuery, RunSummary, Skill, Task, TaskControlAction,
+    TaskEvent, TaskPatch, TaskSpec, TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;

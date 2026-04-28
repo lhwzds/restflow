@@ -2,7 +2,6 @@ pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
 pub mod audit;
-pub mod background_agent;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
@@ -21,6 +20,7 @@ pub mod skill_marketplace;
 pub mod skill_meta;
 pub mod steer;
 pub mod storage_mode;
+pub mod task_runtime;
 pub mod terminal_session;
 pub mod validation;
 pub mod webhook;
@@ -33,18 +33,6 @@ pub use agent::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub(crate) use background_agent::{
-    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
-    BackgroundAgentEvent, BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentRun,
-    BackgroundAgentRunMetrics, BackgroundAgentRunStatus, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundProgress,
-};
-pub use background_agent::{
-    CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
-    MemoryScope, NotificationConfig, ResourceLimits, Task, TaskControlAction, TaskConversionResult,
-    TaskEvent, TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch,
-    TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus,
-};
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use execution_console::{
@@ -65,6 +53,12 @@ pub(crate) use provider_policy::{
 pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 pub use run_artifact::{RunArtifact, RunArtifactKind};
 pub use steer::{SteerMessage, SteerSource};
+pub use task_runtime::{
+    CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
+    MemoryScope, NotificationConfig, ResourceLimits, Task, TaskControlAction, TaskConversionResult,
+    TaskEvent, TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch,
+    TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus,
+};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 
 // Export execution trace types (new naming)

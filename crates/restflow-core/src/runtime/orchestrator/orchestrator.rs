@@ -6,12 +6,12 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, MemoryConfig, SteerMessage};
-use crate::runtime::background_agent::{
+use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
+use crate::runtime::orchestrator::modes::{background, interactive, subagent};
+use crate::runtime::task_runtime::{
     AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionInputMode,
     SessionTurnRuntimeOptions,
 };
-use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
-use crate::runtime::orchestrator::modes::{background, interactive, subagent};
 use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
 use restflow_ai::StreamDisplayMode;
@@ -23,7 +23,7 @@ use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolEr
 pub struct TracedInteractiveExecutionResult {
     pub trace: RestflowTrace,
     pub duration_ms: u64,
-    pub execution: crate::runtime::background_agent::SessionExecutionResult,
+    pub execution: crate::runtime::task_runtime::SessionExecutionResult,
 }
 
 pub struct InteractiveSessionRequest<'a> {
@@ -238,7 +238,7 @@ impl AgentOrchestratorImpl {
             self.kernel.as_ref(),
             background::BackgroundExecutionRequest {
                 agent_id: agent_id.to_string(),
-                background_task_id: background_task_id.map(ToOwned::to_owned),
+                task_id: background_task_id.map(ToOwned::to_owned),
                 input: input.map(ToOwned::to_owned),
                 memory_config: memory_config.clone(),
                 steer_rx,
@@ -262,7 +262,7 @@ impl AgentOrchestratorImpl {
             self.kernel.as_ref(),
             background::BackgroundExecutionRequest {
                 agent_id: agent_id.to_string(),
-                background_task_id: background_task_id.map(ToOwned::to_owned),
+                task_id: background_task_id.map(ToOwned::to_owned),
                 input: None,
                 memory_config: memory_config.clone(),
                 steer_rx,
@@ -392,10 +392,8 @@ mod tests {
         ChatSession, ExecutionTraceCategory, ExecutionTraceQuery, LlmCallTrace, MemoryConfig,
         ModelId, ModelSwitchTrace, SteerMessage,
     };
-    use crate::runtime::background_agent::{
-        ExecutionResult, SessionExecutionResult, SessionInputMode,
-    };
     use crate::runtime::orchestrator::kernel::ExecutionBackend;
+    use crate::runtime::task_runtime::{ExecutionResult, SessionExecutionResult, SessionInputMode};
     use crate::storage::ExecutionTraceStorage;
     use restflow_ai::AgentState;
     use restflow_ai::agent::StreamEmitter;
