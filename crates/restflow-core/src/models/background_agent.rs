@@ -240,10 +240,9 @@ impl<'de> Deserialize<'de> for MemoryScope {
         match value.as_str() {
             "shared_agent" => Ok(Self::SharedAgent),
             "per_task" => Ok(Self::PerTask),
-            "per_background_agent" => Ok(Self::PerTask),
             other => Err(serde::de::Error::unknown_variant(
                 other,
-                &["shared_agent", "per_task", "per_background_agent"],
+                &["shared_agent", "per_task"],
             )),
         }
     }
@@ -319,7 +318,7 @@ impl Default for NotificationConfig {
     }
 }
 
-/// Resource guardrails for background agent executions.
+/// Resource guardrails for task executions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
@@ -389,11 +388,11 @@ impl Default for ContinuationConfig {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct TaskSpec {
-    /// Display name of the background agent
+    /// Display name of the task
     pub name: String,
     /// ID of the agent to execute
     pub agent_id: String,
-    /// Optional chat session ID bound to this background agent
+    /// Optional chat session ID bound to this task
     ///
     /// When omitted, storage will create and bind a dedicated session.
     #[serde(default)]
@@ -548,15 +547,15 @@ impl TaskMessageStatus {
     }
 }
 
-/// A communication message sent to a task-backed background execution.
+/// A communication message sent to a task-backed execution.
 #[derive(Debug, Clone, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct TaskMessage {
     /// Message ID
     pub id: String,
-    /// Target background agent ID
-    pub background_agent_id: String,
+    /// Target task ID
+    pub task_id: String,
     /// Source of the message
     pub source: TaskMessageSource,
     /// Delivery status
@@ -580,7 +579,6 @@ pub struct TaskMessage {
 struct TaskMessageSerialize<'a> {
     id: &'a str,
     task_id: &'a str,
-    background_agent_id: &'a str,
     source: &'a TaskMessageSource,
     status: &'a TaskMessageStatus,
     message: &'a str,
@@ -616,8 +614,7 @@ impl Serialize for TaskMessage {
     {
         TaskMessageSerialize {
             id: &self.id,
-            task_id: &self.background_agent_id,
-            background_agent_id: &self.background_agent_id,
+            task_id: &self.task_id,
             source: &self.source,
             status: &self.status,
             message: &self.message,
@@ -636,14 +633,14 @@ impl<'de> Deserialize<'de> for TaskMessage {
         D: serde::Deserializer<'de>,
     {
         let payload = TaskMessageDeserialize::deserialize(deserializer)?;
-        let background_agent_id = payload
+        let task_id = payload
             .task_id
             .or(payload.background_agent_id)
             .ok_or_else(|| serde::de::Error::missing_field("task_id"))?;
 
         Ok(Self {
             id: payload.id,
-            background_agent_id,
+            task_id,
             source: payload.source,
             status: payload.status,
             message: payload.message,
@@ -656,11 +653,11 @@ impl<'de> Deserialize<'de> for TaskMessage {
 }
 
 impl TaskMessage {
-    /// Create a new queued background message.
-    pub fn new(background_agent_id: String, source: TaskMessageSource, message: String) -> Self {
+    /// Create a new queued task message.
+    pub fn new(task_id: String, source: TaskMessageSource, message: String) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            background_agent_id,
+            task_id,
             source,
             status: TaskMessageStatus::Queued,
             message,
@@ -693,17 +690,17 @@ impl TaskMessage {
 
     /// Canonical task identifier for this queued message.
     pub fn task_id(&self) -> &str {
-        &self.background_agent_id
+        &self.task_id
     }
 }
 
-/// Aggregated progress snapshot for a task-backed background execution.
+/// Aggregated progress snapshot for a task-backed execution.
 #[derive(Debug, Clone, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct TaskProgress {
-    /// Background agent ID
-    pub background_agent_id: String,
+    /// Task ID
+    pub task_id: String,
     /// Current status
     pub status: TaskStatus,
     /// Current stage label from the latest event
@@ -733,7 +730,6 @@ pub struct TaskProgress {
 #[derive(Serialize)]
 struct TaskProgressSerialize<'a> {
     task_id: &'a str,
-    background_agent_id: &'a str,
     status: &'a TaskStatus,
     stage: Option<&'a str>,
     recent_event: Option<&'a TaskEvent>,
@@ -782,8 +778,7 @@ impl Serialize for TaskProgress {
         S: serde::Serializer,
     {
         TaskProgressSerialize {
-            task_id: &self.background_agent_id,
-            background_agent_id: &self.background_agent_id,
+            task_id: &self.task_id,
             status: &self.status,
             stage: self.stage.as_deref(),
             recent_event: self.recent_event.as_ref(),
@@ -806,13 +801,13 @@ impl<'de> Deserialize<'de> for TaskProgress {
         D: serde::Deserializer<'de>,
     {
         let payload = TaskProgressDeserialize::deserialize(deserializer)?;
-        let background_agent_id = payload
+        let task_id = payload
             .task_id
             .or(payload.background_agent_id)
             .ok_or_else(|| serde::de::Error::missing_field("task_id"))?;
 
         Ok(Self {
-            background_agent_id,
+            task_id,
             status: payload.status,
             stage: payload.stage,
             recent_event: payload.recent_event,
@@ -831,16 +826,16 @@ impl<'de> Deserialize<'de> for TaskProgress {
 impl TaskProgress {
     /// Canonical task identifier for this progress snapshot.
     pub fn task_id(&self) -> &str {
-        &self.background_agent_id
+        &self.task_id
     }
 }
 
-/// Result payload for converting an existing chat session into a background task.
+/// Result payload for converting an existing chat session into a task.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct TaskConversionResult {
-    /// Created or updated background agent task.
+    /// Created or updated task.
     pub task: Task,
     /// Source session ID used for conversion.
     pub source_session_id: String,
@@ -1087,7 +1082,7 @@ pub struct Task {
     pub chat_session_id: String,
     /// Whether the bound chat session was auto-created by task storage.
     ///
-    /// This is used to decide safe cleanup behavior when the background agent is deleted.
+    /// This is used to decide safe cleanup behavior when the task is deleted.
     #[serde(default)]
     pub owns_chat_session: bool,
     /// Input/prompt to send to the agent
@@ -2027,12 +2022,6 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_scope_legacy_alias_deserialization() {
-        let scope: MemoryScope = serde_json::from_str(r#""per_background_agent""#).unwrap();
-        assert_eq!(scope, MemoryScope::PerTask);
-    }
-
-    #[test]
     fn test_background_agent_serialization_with_memory() {
         let task = BackgroundAgent::new(
             "task-123".to_string(),
@@ -2055,7 +2044,7 @@ mod tests {
         let schedule = BackgroundAgentSchedule::default();
         let mut background_agent = BackgroundAgent::new(
             "bg-1".to_string(),
-            "Background Agent".to_string(),
+            "Task".to_string(),
             "agent-1".to_string(),
             schedule,
         );
@@ -2088,7 +2077,7 @@ mod tests {
         assert_eq!(message.task_id(), "task-1");
 
         let progress = TaskProgress {
-            background_agent_id: task.id.clone(),
+            task_id: task.id.clone(),
             status: TaskStatus::Active,
             stage: Some("waiting".to_string()),
             recent_event: None,
@@ -2105,7 +2094,7 @@ mod tests {
     }
 
     #[test]
-    fn test_background_message_serializes_task_id_and_legacy_alias() {
+    fn test_background_message_serializes_task_id() {
         let message = BackgroundMessage::new(
             "task-123".to_string(),
             TaskMessageSource::User,
@@ -2114,7 +2103,7 @@ mod tests {
 
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["task_id"].as_str(), Some("task-123"));
-        assert_eq!(json["background_agent_id"].as_str(), Some("task-123"));
+        assert!(json.get("background_agent_id").is_none());
     }
 
     #[test]
@@ -2132,14 +2121,33 @@ mod tests {
         });
 
         let message: BackgroundMessage = serde_json::from_value(json).unwrap();
-        assert_eq!(message.background_agent_id, "task-123");
+        assert_eq!(message.task_id, "task-123");
         assert_eq!(message.task_id(), "task-123");
     }
 
     #[test]
-    fn test_background_progress_serializes_task_id_and_legacy_alias() {
+    fn test_background_message_deserializes_from_legacy_alias() {
+        let json = serde_json::json!({
+            "id": "msg-1",
+            "background_agent_id": "task-123",
+            "source": "user",
+            "status": "queued",
+            "message": "hello",
+            "created_at": 1234,
+            "delivered_at": null,
+            "consumed_at": null,
+            "error": null
+        });
+
+        let message: BackgroundMessage = serde_json::from_value(json).unwrap();
+        assert_eq!(message.task_id, "task-123");
+        assert_eq!(message.task_id(), "task-123");
+    }
+
+    #[test]
+    fn test_background_progress_serializes_task_id() {
         let progress = BackgroundProgress {
-            background_agent_id: "task-123".to_string(),
+            task_id: "task-123".to_string(),
             status: BackgroundAgentStatus::Running,
             stage: Some("executing".to_string()),
             recent_event: None,
@@ -2155,7 +2163,7 @@ mod tests {
 
         let json = serde_json::to_value(&progress).unwrap();
         assert_eq!(json["task_id"].as_str(), Some("task-123"));
-        assert_eq!(json["background_agent_id"].as_str(), Some("task-123"));
+        assert!(json.get("background_agent_id").is_none());
     }
 
     #[test]
@@ -2176,7 +2184,7 @@ mod tests {
         });
 
         let progress: BackgroundProgress = serde_json::from_value(json).unwrap();
-        assert_eq!(progress.background_agent_id, "task-123");
+        assert_eq!(progress.task_id, "task-123");
         assert_eq!(progress.task_id(), "task-123");
     }
 }

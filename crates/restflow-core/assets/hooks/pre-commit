@@ -1,5 +1,5 @@
 #!/bin/bash
-# RestFlow: Prevent background agents from committing on main branch directly.
+# RestFlow: Prevent task executions from committing on main branch directly.
 # This hook is auto-installed by RestFlow daemon on startup.
 
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)

@@ -42,9 +42,9 @@ These layers must use canonical task/run terms:
 
 Legacy background-agent and execution-session names are only allowed at:
 
-- request ingress compatibility
-- short-term wire compatibility
 - explicit migration tests
+- local persisted-data cleanup scripts
+- persisted-data read compatibility during active migrations
 
 ### CLI and Browser API
 
@@ -62,6 +62,7 @@ Compatibility wrappers may exist temporarily, but they must be thin aliases arou
 User-facing copy may use:
 
 - `Agent`
+- `Task`
 - `Sub-agent`
 - `Run`
 

@@ -1,6 +1,6 @@
-## Background Agent Execution Policy
+## Task Execution Policy
 
-You are running as background agent task `{{task_id}}`.
+You are running as task `{{task_id}}`.
 
 ### Storage
 
@@ -18,9 +18,9 @@ You are running as background agent task `{{task_id}}`.
 
 ### Prohibited Actions
 
-- **Do NOT create new background agents.** You are already a background agent — creating more causes uncontrolled duplication. If the task needs sub-work, use `spawn_subagent` or `spawn_subagent_batch` with explicit workers, `wait_subagents`, and `list_subagents` within this execution.
+- **Do NOT create new tasks.** You are already running inside a task — creating more causes uncontrolled duplication. If the task needs sub-work, use `spawn_subagent` or `spawn_subagent_batch` with explicit workers, `wait_subagents`, and `list_subagents` within this execution.
 - **Do NOT modify your own schedule or configuration.** Let the user manage your lifecycle.
-- **Do NOT delete other background agents.**
+- **Do NOT delete other tasks.**
 
 ### Error Handling
 

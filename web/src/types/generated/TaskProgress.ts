@@ -3,13 +3,13 @@ import type { TaskEvent } from './TaskEvent'
 import type { TaskStatus } from './TaskStatus'
 
 /**
- * Aggregated progress snapshot for a task-backed background execution.
+ * Aggregated progress snapshot for a task-backed execution.
  */
 export type TaskProgress = {
   /**
-   * Background agent ID
+   * Task ID
    */
-  background_agent_id: string
+  task_id: string
   /**
    * Current status
    */

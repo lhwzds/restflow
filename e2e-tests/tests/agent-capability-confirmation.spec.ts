@@ -34,7 +34,7 @@ async function openSessionMenu(page: Page, sessionRow: Locator) {
     await page.keyboard.press('Escape').catch(() => {})
   }
 
-  throw new Error('Failed to open session context menu for background-agent conversion')
+  throw new Error('Failed to open session context menu for task conversion')
 }
 
 test.describe('Agent capability confirmation', () => {
@@ -116,7 +116,7 @@ test.describe('Agent capability confirmation', () => {
 
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await dialog.locator('input').first().fill('Confirmed Background Agent')
+    await dialog.locator('input').first().fill('Confirmed Task')
     await dialog.locator('textarea').fill('Convert after confirmation')
     const convertResponse = page.waitForResponse((response) => {
       if (!response.url().includes('/api/request')) {

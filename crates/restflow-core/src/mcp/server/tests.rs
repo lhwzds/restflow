@@ -2478,10 +2478,7 @@ async fn test_mcp_manage_tasks_stress_path_emits_latency_summary() {
         .expect("progress operation should succeed");
     let progress: serde_json::Value =
         serde_json::from_str(&progress_json).expect("progress response should be valid json");
-    assert_eq!(
-        progress["background_agent_id"].as_str(),
-        Some(task_id.as_str())
-    );
+    assert_eq!(progress["task_id"].as_str(), Some(task_id.as_str()));
 
     let workers = 16usize;
     let loops_per_worker = 6usize;

@@ -401,12 +401,7 @@ pub enum IpcRequest {
         id: String,
         limit: Option<usize>,
     },
-    #[serde(
-        alias = "SubscribeBackgroundAgentEvents",
-        alias = "subscribe_background_agent_events"
-    )]
     SubscribeTaskEvents {
-        #[serde(alias = "background_agent_id")]
         task_id: String,
     },
     SubscribeSessionEvents,
@@ -671,7 +666,7 @@ impl Default for NotificationConfig {
 pub enum MemoryScope {
     #[default]
     SharedAgent,
-    #[serde(rename = "per_task", alias = "per_background_agent")]
+    #[serde(rename = "per_task")]
     PerTask,
 }
 
@@ -1749,24 +1744,6 @@ mod tests {
     }
 
     #[test]
-    fn ipc_request_legacy_background_agent_subscription_alias_maps_to_task_variant() {
-        let request: IpcRequest = serde_json::from_value(serde_json::json!({
-            "type": "SubscribeBackgroundAgentEvents",
-            "data": {
-                "background_agent_id": "task-123"
-            }
-        }))
-        .unwrap();
-
-        assert_eq!(
-            request,
-            IpcRequest::SubscribeTaskEvents {
-                task_id: "task-123".to_string(),
-            }
-        );
-    }
-
-    #[test]
     fn task_from_session_contract_defaults_match_expected_semantics() {
         let contract: TaskFromSessionRequest = serde_json::from_value(serde_json::json!({
             "session_id": "session-1"
@@ -1864,10 +1841,6 @@ mod tests {
         let scope: MemoryScope =
             serde_json::from_value(serde_json::json!("per_task")).expect("task memory scope");
         assert_eq!(scope, MemoryScope::PerTask);
-        let legacy_scope: MemoryScope =
-            serde_json::from_value(serde_json::json!("per_background_agent"))
-                .expect("legacy task memory scope");
-        assert_eq!(legacy_scope, MemoryScope::PerTask);
         assert_eq!(
             serde_json::to_value(scope).expect("serialize task scope"),
             serde_json::json!("per_task")
@@ -1888,35 +1861,6 @@ mod tests {
             IpcRequest::GetExecutionTraceById { id } => assert_eq!(id, "event-1"),
             other => panic!("unexpected request: {other:?}"),
         }
-    }
-
-    #[test]
-    fn subscribe_task_events_accepts_legacy_background_agent_wire_shape() {
-        let request: IpcRequest = serde_json::from_value(serde_json::json!({
-            "type": "SubscribeBackgroundAgentEvents",
-            "data": {
-                "background_agent_id": "task-legacy"
-            }
-        }))
-        .expect("legacy background-agent stream request should deserialize");
-
-        assert_eq!(
-            request,
-            IpcRequest::SubscribeTaskEvents {
-                task_id: "task-legacy".to_string(),
-            }
-        );
-
-        let serialized = serde_json::to_value(&request).expect("serialize canonical request");
-        assert_eq!(
-            serialized,
-            serde_json::json!({
-                "type": "SubscribeTaskEvents",
-                "data": {
-                    "task_id": "task-legacy"
-                }
-            })
-        );
     }
 
     #[test]

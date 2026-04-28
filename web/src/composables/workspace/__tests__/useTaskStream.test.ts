@@ -102,36 +102,6 @@ describe('useTaskStream', () => {
     wrapper.unmount()
   })
 
-  it('accepts legacy background-agent event frames during rollout', async () => {
-    vi.mocked(streamClient).mockReturnValue(
-      createFrames([
-        {
-          stream_type: 'event',
-          data: {
-            event: {
-              background_agent: {
-                task_id: 'task-1',
-                timestamp: 125,
-                kind: { type: 'completed', duration_ms: 25, result: 'legacy-done' },
-              },
-            },
-          },
-        },
-      ]) as ReturnType<typeof streamClient>,
-    )
-
-    const wrapper = createHarness()
-    const vm = wrapper.vm as unknown as UseTaskStreamVm
-
-    await vm.stream.setupListeners()
-    await flushPromises()
-
-    expect(vm.stream.streamState.value.phase).toBe('Completed')
-    expect(vm.stream.streamState.value.result).toBe('legacy-done')
-
-    wrapper.unmount()
-  })
-
   it('records stream errors from the daemon transport', async () => {
     vi.mocked(streamClient).mockReturnValue(
       createFrames([

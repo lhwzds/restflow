@@ -2,11 +2,11 @@
 import type { Task } from './Task'
 
 /**
- * Result payload for converting an existing chat session into a background task.
+ * Result payload for converting an existing chat session into a task.
  */
 export type TaskConversionResult = {
   /**
-   * Created or updated background agent task.
+   * Created or updated task.
    */
   task: Task
   /**

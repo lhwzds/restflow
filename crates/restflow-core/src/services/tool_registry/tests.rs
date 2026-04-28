@@ -1197,9 +1197,7 @@ fn test_task_store_adapter_task_flow() {
     )
     .unwrap();
     assert_eq!(
-        progress
-            .get("background_agent_id")
-            .and_then(|value| value.as_str()),
+        progress.get("task_id").and_then(|value| value.as_str()),
         Some(task_id.as_str())
     );
 

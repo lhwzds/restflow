@@ -161,7 +161,7 @@ describe('SessionList', () => {
       currentRunId: 'run-1',
     })
 
-    expect(wrapper.text()).toContain('Background Agents')
+    expect(wrapper.text()).toContain('Tasks')
     expect(wrapper.get('[data-testid="background-folder-task-1"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="background-run-task-1-run-1"]')).toBeTruthy()
 

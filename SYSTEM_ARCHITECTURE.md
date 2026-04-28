@@ -39,13 +39,13 @@ flowchart TD
     Daemon --> Ipc["IPC server"]
     Daemon --> Mcp["MCP HTTP server"]
     Daemon --> Router["Channel router + chat dispatcher"]
-    Daemon --> Runner["Background agent runner"]
+    Daemon --> Runner["Task runner"]
     Daemon --> Runtime["Runtime event publishing"]
     Daemon --> Services["Service layer"]
 
     Services --> Sessions["sessions / messages"]
     Services --> Traces["tool_traces / execution traces"]
-    Services --> Background["background agents / history"]
+    Services --> Tasks["tasks / runs / history"]
     Services --> Secrets["auth / secrets / config"]
 ```
 
@@ -86,7 +86,7 @@ Notes:
 4. Daemon emits realtime events and persists final state.
 5. Client renders stream and later reads history from the same source of truth.
 
-### 4.2 Background Agent Flow
+### 4.2 Task / Run Flow
 
 1. Task is scheduled/triggered in daemon.
 2. Runner executes task in daemon runtime.
@@ -160,19 +160,19 @@ Provider/model ownership is intentionally split from daemon runtime ownership:
 flowchart LR
     subgraph INPUT["External Input"]
         A["ContractAgentNode"]
-        B["ContractBackgroundAgent requests"]
+        B["ContractTask requests"]
         C["ContractSubagentSpawnRequest"]
     end
 
     subgraph BOUNDARY["Boundary Layer"]
         BA["core::boundary::agent"]
-        BB["core::boundary::background_agent"]
+        BB["core::boundary::background_agent (legacy internal module)"]
         BS["traits::boundary::subagent"]
     end
 
     subgraph DOMAIN["Domain and Runtime"]
         DA["core::AgentNode / ModelRef"]
-        DB["core::BackgroundAgentSpec / Patch"]
+        DB["core::TaskSpec / Patch"]
         SR["SpawnRequest (runtime-only)"]
         SM["SubagentManager"]
     end
@@ -510,7 +510,7 @@ tooling.
 | Group | On-disk shape | Primary purpose | Representative keys | Primary consumers |
 | --- | --- | --- | --- | --- |
 | System | `[system]` | Cross-cutting system policy, retention, and feature flags | `worker_count`, `task_timeout_seconds`, `max_retries`, `chat_session_retention_days`, `log_file_retention_days` | cleanup services, daemon/runtime setup, feature flag loading |
-| Agent | `[agent]` | Agent and sub-agent execution policy | `max_iterations`, `subagent_timeout_secs`, `max_parallel_subagents`, `max_tool_calls`, `tool_timeout_secs` | agent executor, subagent manager, background agent runtime, chat dispatcher |
+| Agent | `[agent]` | Agent and sub-agent execution policy | `max_iterations`, `subagent_timeout_secs`, `max_parallel_subagents`, `max_tool_calls`, `tool_timeout_secs` | agent executor, subagent manager, task runtime, chat dispatcher |
 | API | `[api]` | Default limits for MCP and API-facing operations | `memory_search_limit`, `session_list_limit`, `background_trace_line_limit`, `web_search_num_results` | MCP server handlers, runtime tool registry |
 | Runtime | `[runtime]` | Default daemon runtime behavior | `background_runner_poll_interval_ms`, `background_runner_max_concurrent_tasks`, `chat_max_session_history` | background runner, chat dispatcher |
 | Channel | `[channel]` | External channel integration defaults | `telegram_api_timeout_secs`, `telegram_polling_timeout_secs` | Telegram channel runtime |

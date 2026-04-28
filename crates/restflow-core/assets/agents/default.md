@@ -58,7 +58,7 @@ Cron expressions use 6-field format: `sec min hour day month weekday` (e.g., `"0
 
 - `max_messages`: Max working memory messages (default 100)
 - `persist_on_complete`: Save to long-term memory on completion (default true)
-- `memory_scope`: `"shared_agent"` (default, shared across same agent) or `"per_background_agent"` (isolated)
+- `memory_scope`: `"shared_agent"` (default, shared across same agent) or `"per_task"` (isolated)
 - `enable_compaction`: Enable working memory compaction for long-running tasks (default true)
 
 #### Lifecycle & Retry Behavior
@@ -69,7 +69,7 @@ Cron expressions use 6-field format: `sec min hour day month weekday` (e.g., `"0
 - **Retry**: 3 retries with exponential backoff (1 min → 2 min → 4 min) for transient errors (network, rate limit)
 - **Timeout**: 300 seconds per execution by default
 
-#### CRITICAL: Background Agent Deduplication Rules
+#### CRITICAL: Task Deduplication Rules
 
 **ALWAYS check existing tasks before creating a new one!**
 

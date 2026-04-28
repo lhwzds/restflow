@@ -23,7 +23,7 @@ Use this skill when users report issues like:
 - "agent does not reply"
 - "model not specified"
 - "daemon is running but tasks fail"
-- "background agent finished but no notification"
+- "task finished but no notification"
 
 ## Operating Procedure
 
@@ -32,7 +32,7 @@ Use this skill when users report issues like:
 - Use `manage_ops` with `operation: "background_summary"` for task state summaries.
 - Use `manage_ops` with `operation: "log_tail"` for daemon logs when log evidence is needed.
 - Capture exact error strings from logs and task progress.
-- Record affected agent IDs, background agent IDs, and session IDs.
+- Record affected agent IDs, task IDs, and session IDs.
 
 2. Classify the failure.
 - Model configuration issue.

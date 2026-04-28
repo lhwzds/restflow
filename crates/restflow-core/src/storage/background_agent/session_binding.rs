@@ -215,7 +215,7 @@ impl BackgroundAgentStorage {
             self.list_pending_background_messages(id, usize::MAX)?.len() as u32;
 
         Ok(BackgroundProgress {
-            background_agent_id: task.id.clone(),
+            task_id: task.id.clone(),
             status: task.status,
             stage,
             recent_event,

@@ -358,9 +358,7 @@ fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, ToolEr
         None => Ok(None),
         Some(scope) if scope.is_empty() => Ok(None),
         Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-        Some(scope) if scope == "per_task" || scope == "per_background_agent" => {
-            Ok(Some(MemoryScope::PerTask))
-        }
+        Some(scope) if scope == "per_task" => Ok(Some(MemoryScope::PerTask)),
         Some(scope) => Err(ToolError::Tool(format!("Unknown memory_scope: {}", scope))),
     }
 }
@@ -453,34 +451,6 @@ mod tests {
             approval_id: None,
         })
         .expect("spec should decode");
-
-        assert_eq!(
-            spec.memory.expect("memory").memory_scope,
-            MemoryScope::PerTask
-        );
-    }
-
-    #[test]
-    fn create_request_to_spec_accepts_legacy_memory_scope_alias() {
-        let spec = create_request_to_spec(TaskCreateRequest {
-            name: "nightly".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: None,
-            schedule: ContractTaskSchedule::Interval {
-                interval_ms: 60_000,
-                start_at: None,
-            },
-            input: None,
-            input_template: None,
-            timeout_secs: None,
-            durability_mode: None,
-            memory: None,
-            memory_scope: Some("per_background_agent".to_string()),
-            resource_limits: None,
-            preview: false,
-            approval_id: None,
-        })
-        .expect("legacy value should decode through raw ingress compatibility");
 
         assert_eq!(
             spec.memory.expect("memory").memory_scope,

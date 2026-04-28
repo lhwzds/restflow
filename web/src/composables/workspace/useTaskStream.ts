@@ -125,9 +125,6 @@ export function useTaskStream(trackTaskId: () => string | null) {
     if ('task' in event && event.task) {
       return event.task as TaskStreamEvent
     }
-    if ('background_agent' in event && event.background_agent) {
-      return event.background_agent as TaskStreamEvent
-    }
     return null
   }
 

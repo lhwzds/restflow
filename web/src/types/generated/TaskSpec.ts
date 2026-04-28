@@ -12,7 +12,7 @@ import type { TaskSchedule } from './TaskSchedule'
  */
 export type TaskSpec = {
   /**
-   * Display name of the background agent
+   * Display name of the task
    */
   name: string
   /**
@@ -20,7 +20,7 @@ export type TaskSpec = {
    */
   agent_id: string
   /**
-   * Optional chat session ID bound to this background agent
+   * Optional chat session ID bound to this task
    *
    * When omitted, storage will create and bind a dedicated session.
    */

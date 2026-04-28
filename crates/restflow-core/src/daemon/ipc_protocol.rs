@@ -14,7 +14,6 @@ pub type IpcResponse = ResponseEnvelope<Value>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IpcStreamEvent {
-    #[serde(alias = "background_agent")]
     Task(TaskStreamEvent),
     Session(ChatSessionEvent),
 }
@@ -124,36 +123,6 @@ mod tests {
                 event: IpcStreamEvent::Task(parsed_event),
             } => {
                 assert_eq!(parsed_event.task_id, event.task_id);
-            }
-            _ => panic!("Wrong variant"),
-        }
-    }
-
-    #[test]
-    fn test_task_stream_frame_accepts_legacy_background_agent_field() {
-        let json = serde_json::json!({
-            "stream_type": "Event",
-            "data": {
-                "event": {
-                    "background_agent": {
-                        "task_id": "task-legacy",
-                        "timestamp": 100,
-                        "kind": {
-                            "type": "progress",
-                            "phase": "working",
-                            "percent": 50
-                        }
-                    }
-                }
-            }
-        });
-        let parsed: StreamFrame = serde_json::from_value(json).unwrap();
-
-        match parsed {
-            StreamFrame::Event {
-                event: IpcStreamEvent::Task(event),
-            } => {
-                assert_eq!(event.task_id, "task-legacy");
             }
             _ => panic!("Wrong variant"),
         }

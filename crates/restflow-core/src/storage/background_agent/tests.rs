@@ -1709,7 +1709,7 @@ fn test_background_message_queue_and_progress() {
     assert_eq!(consumed.status, BackgroundMessageStatus::Consumed);
 
     let progress = storage.get_background_agent_progress(&task.id, 5).unwrap();
-    assert_eq!(progress.background_agent_id, task.id);
+    assert_eq!(progress.task_id, task.id);
     assert_eq!(progress.pending_message_count, 0);
 }
 

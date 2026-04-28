@@ -36,7 +36,7 @@ export type Task = {
   /**
    * Whether the bound chat session was auto-created by task storage.
    *
-   * This is used to decide safe cleanup behavior when the background agent is deleted.
+   * This is used to decide safe cleanup behavior when the task is deleted.
    */
   owns_chat_session: boolean
   /**

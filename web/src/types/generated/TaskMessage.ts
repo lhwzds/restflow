@@ -3,7 +3,7 @@ import type { TaskMessageSource } from './TaskMessageSource'
 import type { TaskMessageStatus } from './TaskMessageStatus'
 
 /**
- * A communication message sent to a task-backed background execution.
+ * A communication message sent to a task-backed execution.
  */
 export type TaskMessage = {
   /**
@@ -11,9 +11,9 @@ export type TaskMessage = {
    */
   id: string
   /**
-   * Target background agent ID
+   * Target task ID
    */
-  background_agent_id: string
+  task_id: string
   /**
    * Source of the message
    */

@@ -508,7 +508,7 @@ function runTitleClass(run: FlattenedRunRow): string {
       <div
         class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50"
       >
-        Background Agents
+        Tasks
       </div>
       <div
         v-for="folder in filteredBackgroundFolders"

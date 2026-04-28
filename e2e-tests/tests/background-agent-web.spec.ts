@@ -7,44 +7,42 @@ import {
   trackCreatedBackgroundTask,
 } from "./helpers";
 
-type BackgroundAgentSummary = {
+type TaskSummary = {
   id: string;
   chat_session_id?: string | null;
 };
 
-async function waitForBackgroundAgentBySession(
+async function waitForTaskBySession(
   page: Page,
   sessionId: string,
-): Promise<BackgroundAgentSummary> {
+): Promise<TaskSummary> {
   await expect
     .poll(async () => {
-      const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+      const tasks = await requestIpc<TaskSummary[]>(page, {
         type: "ListTasks",
         data: { status: null },
       });
 
-      return agents.find((agent) => agent.chat_session_id === sessionId) ?? null;
+      return tasks.find((task) => task.chat_session_id === sessionId) ?? null;
     }, {
       timeout: 30000,
       intervals: [250, 500, 1000],
-      message: `Timed out waiting for background agent bound to session ${sessionId}`,
+      message: `Timed out waiting for task bound to session ${sessionId}`,
     })
     .not.toBeNull();
 
-  const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+  const tasks = await requestIpc<TaskSummary[]>(page, {
     type: "ListTasks",
     data: { status: null },
   });
-  const agent = agents.find((item) => item.chat_session_id === sessionId);
-  if (!agent) {
-    throw new Error(
-      `Failed to find background agent for session ${sessionId} after conversion`,
-    );
+  const task = tasks.find((item) => item.chat_session_id === sessionId);
+  if (!task) {
+    throw new Error(`Failed to find task for session ${sessionId} after conversion`);
   }
-  return agent;
+  return task;
 }
 
-test.describe("Background Agent Web Flow", () => {
+test.describe("Task Web Flow", () => {
   test.describe.configure({ mode: "serial" });
 
   test.afterEach(async ({ page }) => {
@@ -75,12 +73,10 @@ test.describe("Background Agent Web Flow", () => {
       await page.keyboard.press("Escape").catch(() => {});
     }
 
-    throw new Error(
-      "Failed to open session context menu for background-agent conversion",
-    );
+    throw new Error("Failed to open session context menu for task conversion");
   }
 
-  test("converts a workspace session into a background agent from the web UI", async ({
+  test("converts a workspace session into a task from the web UI", async ({
     page,
   }) => {
     await goToWorkspace(page);
@@ -97,23 +93,21 @@ test.describe("Background Agent Web Flow", () => {
     await expect(dialog).toBeVisible();
     const nameInput = dialog.locator("input").first();
     await expect(nameInput).toBeVisible();
-    await nameInput.fill(`E2E Background ${Date.now()}`);
-    await dialog
-      .locator("textarea")
-      .fill("Convert this session into a background agent");
+    await nameInput.fill(`E2E Task ${Date.now()}`);
+    await dialog.locator("textarea").fill("Convert this session into a task");
 
     const convertButton = dialog.getByRole("button", { name: "Convert" });
     await expect(convertButton).toBeEnabled();
     await convertButton.click();
     await expect(dialog).not.toBeVisible();
 
-    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
+    const taskId = (await waitForTaskBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
 
     await expect(page.getByTestId(`background-folder-${taskId}`)).toBeVisible();
   });
 
-  test("opens the background agent run trace view from the chat header", async ({
+  test("opens the task run trace view from the chat header", async ({
     page,
   }) => {
     await goToWorkspace(page);
@@ -134,7 +128,7 @@ test.describe("Background Agent Web Flow", () => {
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
-    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
+    const taskId = (await waitForTaskBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
     const runId = `run-${Date.now()}`;
     await page.route("**/api/request", async (route) => {
@@ -250,7 +244,7 @@ test.describe("Background Agent Web Flow", () => {
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
-    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
+    const taskId = (await waitForTaskBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
 
     const runId = `run-${Date.now()}`;
@@ -338,7 +332,7 @@ test.describe("Background Agent Web Flow", () => {
     });
   });
 
-  test("shows the converted task in the background folders section", async ({
+  test("shows the converted task in the task folders section", async ({
     page,
   }) => {
     await goToWorkspace(page);
@@ -354,11 +348,11 @@ test.describe("Background Agent Web Flow", () => {
     await expect(dialog).toBeVisible();
     const taskName = `Folder View ${Date.now()}`;
     await dialog.locator("input").first().fill(taskName);
-    await dialog.locator("textarea").fill("Prepare a folder entry for the background list");
+    await dialog.locator("textarea").fill("Prepare a folder entry for the task list");
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
-    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
+    const taskId = (await waitForTaskBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
 
     const folder = page.getByTestId(`background-folder-${taskId}`);
