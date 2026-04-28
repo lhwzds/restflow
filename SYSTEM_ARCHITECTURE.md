@@ -19,7 +19,7 @@ This avoids split-brain behavior, inconsistent routing logic, and duplicated wri
 
 ## 2. System Invariants
 
-1. Single writer: only daemon writes sessions, tool traces, background task state, and bindings.
+1. Single writer: only daemon writes sessions, tool traces, task/run state, and bindings.
 2. Single execution center: agent execution and routing decisions are daemon-owned.
 3. Single event identity: realtime and persisted events must share stable IDs.
 4. Client isolation: browser/CLI must not add direct storage business paths.
@@ -198,7 +198,7 @@ flowchart LR
 
 Operational notes:
 
-- `AgentNode`, `BackgroundAgent`, and `Subagent` ingress now normalize through dedicated boundary modules instead of ad-hoc `serde_json` conversion in services or tool handlers.
+- `AgentNode`, task, and `Subagent` ingress now normalize through dedicated boundary modules instead of ad-hoc `serde_json` conversion in services or tool handlers.
 - `SpawnRequest` is a runtime-only type. Public subagent ingress must start from `ContractSubagentSpawnRequest` and pass through `traits::boundary::subagent`.
 - `ProviderMeta` remains the source of shared provider defaults. `ZaiCodingPlan` currently defaults to `GLM-5.1` in the shared model catalog.
 
