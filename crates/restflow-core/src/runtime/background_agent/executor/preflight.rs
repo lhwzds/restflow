@@ -17,6 +17,46 @@ impl AgentRuntimeExecutor {
         Ok(result.tool_names)
     }
 
+    pub(super) fn resolve_preflight_available_tool_names(
+        &self,
+        agent_node: &AgentNode,
+        user_input: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let requested_tools = self.resolve_effective_tool_names(agent_node, None, user_input)?;
+        let registry = registry_from_allowlist(
+            Some(&requested_tools),
+            None,
+            Some(secret_resolver_from_storage(&self.storage)),
+            Some(self.storage.as_ref()),
+            None,
+            None,
+            None,
+        )?;
+        let mut available_tools = registry
+            .list()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        for caller_registered in [
+            "spawn_subagent",
+            "spawn_subagent_batch",
+            "wait_subagents",
+            "list_subagents",
+            "switch_model",
+            "process",
+            "reply",
+        ] {
+            if requested_tools.iter().any(|tool| tool == caller_registered)
+                && !available_tools.iter().any(|tool| tool == caller_registered)
+            {
+                available_tools.push(caller_registered.to_string());
+            }
+        }
+
+        Ok(available_tools)
+    }
+
     pub(super) fn build_background_system_prompt(
         &self,
         agent_node: &AgentNode,
@@ -166,7 +206,8 @@ impl AgentRuntimeExecutor {
         user_input: Option<&str>,
     ) -> Result<()> {
         let skills = self.resolve_preflight_skills(agent_node, user_input)?;
-        let available_tools = self.resolve_effective_tool_names(agent_node, None, user_input)?;
+        let available_tools =
+            self.resolve_preflight_available_tool_names(agent_node, user_input)?;
         let mut preflight = run_preflight(
             &skills,
             &available_tools,
