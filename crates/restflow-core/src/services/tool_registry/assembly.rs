@@ -18,7 +18,6 @@ pub fn create_tool_registry(
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
     execution_trace_storage: ExecutionTraceStorage,
-    work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
@@ -36,7 +35,6 @@ pub fn create_tool_registry(
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        work_item_storage,
         secret_storage,
         config_storage,
         agent_storage,
@@ -58,7 +56,6 @@ pub fn create_tool_registry_with_assessor(
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
     execution_trace_storage: ExecutionTraceStorage,
-    work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
@@ -97,7 +94,6 @@ pub fn create_tool_registry_with_assessor(
     let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
     let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
     let ops_provider = Arc::new(OpsProviderAdapter::new(background_agent_storage.clone()));
-    let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage.clone()));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
     let agent_crud_components = build_agent_crud_components(
         agent_storage.clone(),
@@ -228,7 +224,6 @@ pub fn create_tool_registry_with_assessor(
         .with_memory_store(mem_store)
         .with_unified_search(unified_search)
         .with_ops(ops_provider)
-        .with_work_items(work_item_provider)
         .with_auth_profile(auth_store)
         .with_secrets(secret_store_adapter)
         .with_config(Arc::new(ConfigStoreAdapter::new(config_storage.clone())))

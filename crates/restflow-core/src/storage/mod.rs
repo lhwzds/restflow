@@ -20,7 +20,6 @@ pub mod structured_execution_log;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
 pub mod trigger;
-pub mod work_item;
 
 use anyhow::Result;
 use redb::Database;
@@ -53,7 +52,6 @@ pub use structured_execution_log::StructuredExecutionLogStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
-pub use work_item::WorkItemStorage;
 
 /// Central storage manager that initializes all storage subsystems.
 ///
@@ -75,7 +73,6 @@ pub struct Storage {
     pub sessions: SessionStorage,
     pub run_artifacts: RunArtifactStorage,
     pub hooks: HookStorage,
-    pub work_items: WorkItemStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
     /// Primary execution trace storage.
@@ -132,7 +129,6 @@ impl Storage {
         );
         let run_artifacts = RunArtifactStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
-        let work_items = WorkItemStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
@@ -157,7 +153,6 @@ impl Storage {
             sessions,
             run_artifacts,
             hooks,
-            work_items,
             checkpoints,
             pairing,
             execution_traces,

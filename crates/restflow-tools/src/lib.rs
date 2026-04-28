@@ -51,7 +51,7 @@ pub use impls::{
     ProcessTool, PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool,
     ReplyTool, RunPythonTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
     SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool,
-    WebSearchTool, WorkItemTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
+    WebSearchTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
     discover_installed_binary_skill_tools_from,
 };
 

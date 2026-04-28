@@ -264,10 +264,9 @@ mod tests {
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
-        AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ItemQuery, MemoryChunk,
+        AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, MemoryChunk,
         MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
-        TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec, WorkItem,
-        WorkItemPatch, WorkItemSpec,
+        TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
     };
     use restflow_core::storage::SystemConfig;
     use restflow_core::storage::agent::StoredAgent;
@@ -420,30 +419,6 @@ mod tests {
         }
 
         async fn search_sessions(&self, _query: String) -> anyhow::Result<Vec<ChatSessionSummary>> {
-            panic!("unexpected executor call")
-        }
-
-        async fn list_notes(&self, _query: ItemQuery) -> anyhow::Result<Vec<WorkItem>> {
-            panic!("unexpected executor call")
-        }
-
-        async fn get_note(&self, _id: &str) -> anyhow::Result<Option<WorkItem>> {
-            panic!("unexpected executor call")
-        }
-
-        async fn create_note(&self, _spec: WorkItemSpec) -> anyhow::Result<WorkItem> {
-            panic!("unexpected executor call")
-        }
-
-        async fn update_note(&self, _id: &str, _patch: WorkItemPatch) -> anyhow::Result<WorkItem> {
-            panic!("unexpected executor call")
-        }
-
-        async fn delete_note(&self, _id: &str) -> anyhow::Result<()> {
-            panic!("unexpected executor call")
-        }
-
-        async fn list_note_folders(&self) -> anyhow::Result<Vec<String>> {
             panic!("unexpected executor call")
         }
 

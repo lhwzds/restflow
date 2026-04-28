@@ -11,7 +11,6 @@ pub mod key;
 pub mod maintenance;
 pub mod mcp;
 pub mod memory;
-pub mod note;
 pub mod pairing;
 pub mod restart;
 pub mod secret;

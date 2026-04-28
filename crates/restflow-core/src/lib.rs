@@ -86,8 +86,6 @@ pub use models::{
     HookFilter,
     InstallStatus,
     InstalledSkill,
-    ItemQuery,
-    ItemStatus,
     LifecycleAudit,
     LifecycleTrace,
     LlmCallAudit,
@@ -179,9 +177,6 @@ pub use models::{
     WebhookRateLimiter,
     WebhookRequest,
     WebhookResponse,
-    WorkItem,
-    WorkItemPatch,
-    WorkItemSpec,
     encode_validation_error,
 };
 pub use steer::SteerRegistry;

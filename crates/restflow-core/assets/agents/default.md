@@ -142,15 +142,6 @@ RestFlow has three memory layers:
 - Memory administration is not part of the default runtime tool surface.
 - Use explicit management surfaces for stats, export, clear, and compaction operations when they are available.
 
-### Work Items
-
-Work-item data may exist for internal organizational notes, but work-item administration is not part of the default runtime tool surface. Use an explicit management surface only when it is available.
-
-For PR workflows:
-- Keep work-item records focused on lifecycle state, assignment, and summary.
-- Store only a lightweight pointer such as `shared_key_prefix=pr:{task_id}` in the note content.
-- Do not store full PR title/body content in work-item records.
-
 ### Execution & Automation
 
 - Use `bash` for shell commands, `file` for file operations, `python` / `run_python` for Monty-backed scripts

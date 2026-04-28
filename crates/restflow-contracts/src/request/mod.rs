@@ -48,23 +48,6 @@ pub enum IpcRequest {
     DeleteSkill {
         id: String,
     },
-    ListWorkItems {
-        query: ItemQuery,
-    },
-    ListWorkItemFolders,
-    GetWorkItem {
-        id: String,
-    },
-    CreateWorkItem {
-        spec: WorkItemSpec,
-    },
-    UpdateWorkItem {
-        id: String,
-        patch: WorkItemPatch,
-    },
-    DeleteWorkItem {
-        id: String,
-    },
 
     ListTasks {
         status: Option<String>,
@@ -1513,61 +1496,6 @@ pub struct ExecutionLogQuery {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ItemStatus {
-    #[default]
-    Open,
-    InProgress,
-    Done,
-    Archived,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct WorkItemSpec {
-    pub folder: String,
-    pub title: String,
-    pub content: String,
-    #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct WorkItemPatch {
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub content: Option<String>,
-    #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
-    pub status: Option<ItemStatus>,
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-    #[serde(default)]
-    pub assignee: Option<String>,
-    #[serde(default)]
-    pub folder: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct ItemQuery {
-    #[serde(default)]
-    pub folder: Option<String>,
-    #[serde(default)]
-    pub status: Option<ItemStatus>,
-    #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
-    pub tag: Option<String>,
-    #[serde(default)]
-    pub assignee: Option<String>,
-    #[serde(default)]
-    pub search: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalStatus {
@@ -2046,23 +1974,6 @@ mod tests {
             },
             min_score: Some(0.8),
             scoring_preset: Some("balanced".to_string()),
-        };
-        assert_roundtrip(&request);
-    }
-
-    #[test]
-    fn ipc_request_work_item_round_trips() {
-        let request = IpcRequest::UpdateWorkItem {
-            id: "item-1".to_string(),
-            patch: WorkItemPatch {
-                title: Some("updated".to_string()),
-                content: Some("body".to_string()),
-                priority: Some("p1".to_string()),
-                status: Some(ItemStatus::InProgress),
-                tags: Some(vec!["tag".to_string()]),
-                assignee: Some("agent".to_string()),
-                folder: Some("inbox".to_string()),
-            },
         };
         assert_roundtrip(&request);
     }

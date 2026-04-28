@@ -13,10 +13,9 @@ use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{IpcClient, IpcRequest};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ItemQuery, MemoryChunk,
-    MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
-    TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch, TaskProgress, TaskSpec,
-    WorkItem, WorkItemPatch, WorkItemSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, MemoryChunk, MemorySearchResult,
+    MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task, TaskControlAction,
+    TaskConversionResult, TaskMessage, TaskPatch, TaskProgress, TaskSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -202,43 +201,6 @@ impl CommandExecutor for IpcExecutor {
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>> {
         let mut client = self.client.lock().await;
         client.search_sessions(query).await
-    }
-
-    async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
-        let query = to_contract(query)?;
-        self.request_typed(IpcRequest::ListWorkItems { query })
-            .await
-    }
-
-    async fn get_note(&self, id: &str) -> Result<Option<WorkItem>> {
-        self.request_optional(IpcRequest::GetWorkItem { id: id.to_string() })
-            .await
-    }
-
-    async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
-        let spec = to_contract(spec)?;
-        self.request_typed(IpcRequest::CreateWorkItem { spec })
-            .await
-    }
-
-    async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem> {
-        let patch = to_contract(patch)?;
-        self.request_typed(IpcRequest::UpdateWorkItem {
-            id: id.to_string(),
-            patch,
-        })
-        .await
-    }
-
-    async fn delete_note(&self, id: &str) -> Result<()> {
-        let _: OkResponse = self
-            .request_typed(IpcRequest::DeleteWorkItem { id: id.to_string() })
-            .await?;
-        Ok(())
-    }
-
-    async fn list_note_folders(&self) -> Result<Vec<String>> {
-        self.request_typed(IpcRequest::ListWorkItemFolders).await
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {

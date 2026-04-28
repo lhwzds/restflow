@@ -25,8 +25,8 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AppCore,
     models::{
-        ChatSession, ChatSessionSource, ChatSessionSummary, ItemQuery, MemoryChunk,
-        MemorySearchResult, MemoryStats, Secret, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
+        ChatSession, ChatSessionSource, ChatSessionSummary, MemoryChunk, MemorySearchResult,
+        MemoryStats, Secret, Skill,
     },
 };
 use restflow_storage::PairingStorage;
@@ -206,30 +206,6 @@ impl CommandExecutor for DirectExecutor {
             .map(|session| ChatSessionSummary::from(&session))
             .collect();
         Ok(matches)
-    }
-
-    async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
-        self.core.storage.work_items.list_notes(query)
-    }
-
-    async fn get_note(&self, id: &str) -> Result<Option<WorkItem>> {
-        self.core.storage.work_items.get_note(id)
-    }
-
-    async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
-        self.core.storage.work_items.create_note(spec)
-    }
-
-    async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem> {
-        self.core.storage.work_items.update_note(id, patch)
-    }
-
-    async fn delete_note(&self, id: &str) -> Result<()> {
-        self.core.storage.work_items.delete_note(id)
-    }
-
-    async fn list_note_folders(&self) -> Result<Vec<String>> {
-        self.core.storage.work_items.list_folders()
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {

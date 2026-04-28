@@ -7,10 +7,9 @@ use restflow_contracts::{
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, Hook, ItemQuery, MemoryChunk,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, Hook, MemoryChunk,
     MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
-    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec, WorkItem,
-    WorkItemPatch, WorkItemSpec,
+    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -70,13 +69,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession>;
     async fn delete_session(&self, id: &str) -> Result<bool>;
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>>;
-
-    async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>>;
-    async fn get_note(&self, id: &str) -> Result<Option<WorkItem>>;
-    async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem>;
-    async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem>;
-    async fn delete_note(&self, id: &str) -> Result<()>;
-    async fn list_note_folders(&self) -> Result<Vec<String>>;
 
     async fn list_secrets(&self) -> Result<Vec<Secret>>;
     async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;

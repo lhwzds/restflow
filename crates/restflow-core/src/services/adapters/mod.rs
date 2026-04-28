@@ -17,7 +17,6 @@ pub mod session;
 pub mod skill_provider;
 pub mod terminal;
 pub mod unified_search;
-pub mod work_item;
 
 pub use agent::AgentStoreAdapter;
 pub use auth_profile::AuthProfileStorageAdapter;
@@ -32,4 +31,3 @@ pub use session::SessionStorageAdapter;
 pub use skill_provider::{CompositeSkillProvider, SkillStorageProvider, SystemSkillProvider};
 pub use terminal::TerminalStoreAdapter;
 pub use unified_search::UnifiedMemorySearchAdapter;
-pub use work_item::DbWorkItemAdapter;

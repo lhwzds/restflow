@@ -28,8 +28,6 @@ mod system;
 mod tasks;
 #[path = "dispatch/terminals.rs"]
 mod terminals;
-#[path = "dispatch/work_items.rs"]
-mod work_items;
 
 use super::*;
 use crate::boundary::background_agent::{
@@ -78,21 +76,6 @@ impl IpcServer {
                 Self::handle_get_skill_reference(core, skill_id, ref_id).await
             }
             IpcRequest::DeleteSkill { id } => Self::handle_delete_skill(core, id).await,
-            IpcRequest::ListWorkItems { query } => match from_contract(query) {
-                Ok(query) => Self::handle_list_work_items(core, query).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::ListWorkItemFolders => Self::handle_list_work_item_folders(core).await,
-            IpcRequest::GetWorkItem { id } => Self::handle_get_work_item(core, id).await,
-            IpcRequest::CreateWorkItem { spec } => match from_contract(spec) {
-                Ok(spec) => Self::handle_create_work_item(core, spec).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::UpdateWorkItem { id, patch } => match from_contract(patch) {
-                Ok(patch) => Self::handle_update_work_item(core, id, patch).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::DeleteWorkItem { id } => Self::handle_delete_work_item(core, id).await,
             IpcRequest::ListTasks { status } => Self::handle_list_tasks(core, status).await,
             IpcRequest::ListRunnableTasks { current_time } => {
                 Self::handle_list_runnable_tasks(core, current_time).await

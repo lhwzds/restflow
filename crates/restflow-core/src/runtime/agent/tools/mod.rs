@@ -485,11 +485,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(engine)))
                 });
             }
-            "work_items" => {
-                with_storage!(storage, "work_items", builder, |s| {
-                    builder.with_work_items(Arc::new(DbWorkItemAdapter::new(s.work_items.clone())))
-                });
-            }
             "manage_secrets" | "secrets" => {
                 with_storage!(storage, "manage_secrets", builder, |s| {
                     builder.with_secrets(Arc::new(SecretStoreAdapter::new(Arc::new(

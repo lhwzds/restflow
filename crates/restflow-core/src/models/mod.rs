@@ -25,7 +25,6 @@ pub mod terminal_session;
 pub mod trigger;
 pub mod validation;
 pub mod webhook;
-pub mod work_item;
 
 #[cfg(test)]
 mod model_tests;
@@ -68,7 +67,6 @@ pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 pub use run_artifact::{RunArtifact, RunArtifactKind};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
-pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec};
 
 // Export execution trace types (new naming)
 pub use execution_trace::{

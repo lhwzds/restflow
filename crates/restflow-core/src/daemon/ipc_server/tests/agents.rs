@@ -751,38 +751,6 @@ async fn process_set_and_get_secret_round_trip() {
 }
 
 #[tokio::test]
-async fn process_create_work_item_returns_item() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::CreateWorkItem {
-            spec: to_contract(crate::models::WorkItemSpec {
-                folder: "inbox".to_string(),
-                title: "Follow up".to_string(),
-                content: "Review ipc dispatch split".to_string(),
-                priority: Some("p1".to_string()),
-                tags: vec!["ipc".to_string()],
-            })
-            .expect("contract work item spec"),
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let item: crate::models::WorkItem = serde_json::from_value(value).expect("work item");
-            assert_eq!(item.folder, "inbox");
-            assert_eq!(item.title, "Follow up");
-            assert_eq!(item.content, "Review ipc dispatch split");
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn process_create_agent_returns_stored_agent() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

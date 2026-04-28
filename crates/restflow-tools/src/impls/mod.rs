@@ -59,7 +59,6 @@ pub mod transcribe;
 pub mod vision;
 pub mod web_fetch;
 pub mod web_search;
-pub mod work_item;
 
 // Migrated from restflow-core (tool_registry inline tools)
 pub mod manage_ops;
@@ -125,7 +124,6 @@ pub use transcribe::{TranscribeConfig, TranscribeTool};
 pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;
-pub use work_item::WorkItemTool;
 
 // Re-export tool_registry inline migrated tools
 pub use manage_ops::ManageOpsTool;

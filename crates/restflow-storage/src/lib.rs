@@ -34,7 +34,6 @@ pub mod telemetry_metric_sample;
 pub mod terminal_session;
 pub mod trigger;
 pub mod vector;
-pub mod work_item;
 
 mod encryption;
 mod simple_storage;
@@ -70,4 +69,3 @@ pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStats, VectorStorage};
-pub use work_item::WorkItemStorage;

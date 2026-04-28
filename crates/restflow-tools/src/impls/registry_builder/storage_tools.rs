@@ -17,14 +17,13 @@ use crate::impls::session::SessionTool;
 use crate::impls::skill::SkillTool;
 use crate::impls::terminal::TerminalTool;
 use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
-use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore,
     MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider, SessionStore,
-    TaskStore, TerminalStore, UnifiedMemorySearch, WorkItemProvider,
+    TaskStore, TerminalStore, UnifiedMemorySearch,
 };
 
 use super::ToolRegistryBuilder;
@@ -100,12 +99,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_ops(mut self, provider: Arc<dyn OpsProvider>) -> Self {
         self.registry.register(ManageOpsTool::new(provider));
-        self
-    }
-
-    pub fn with_work_items(mut self, provider: Arc<dyn WorkItemProvider>) -> Self {
-        self.registry
-            .register(WorkItemTool::new(provider).with_write(true));
         self
     }
 

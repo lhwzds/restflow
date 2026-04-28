@@ -8,7 +8,6 @@ tags:
 suggested_tools:
   - bash
   - file
-  - work_items
   - memory_search
   - web_search
 ---
@@ -116,12 +115,3 @@ Produce a plan in this exact structure:
 - Keep scope minimal and executable.
 - Use real file paths that exist in the repository.
 - Include tests in every implementation plan.
-- Save the final plan to workspace notes in folder `plans`.
-
-## Output Contract
-
-After producing the plan, save it with `work_items`:
-- Operation: `create`
-- Folder: `plans`
-- Title: `Plan: [Feature Name]`
-- Content: full plan text
