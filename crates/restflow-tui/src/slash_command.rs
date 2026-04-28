@@ -25,6 +25,7 @@ pub enum SlashCommand {
     Stop,
     Help,
     ListSessions,
+    ListSkills,
     ListTasks,
     ListModels,
     ListModelsForProvider {
@@ -72,6 +73,11 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         description: "Resume a previous session",
     },
     SlashCommandSpec {
+        command: "/skill",
+        args: "",
+        description: "Manage skills",
+    },
+    SlashCommandSpec {
         command: "/model",
         args: "",
         description: "Switch the current session model",
@@ -96,6 +102,7 @@ Slash commands:\n\
 /new\n\
 /help\n\
 /resume\n\
+/skill\n\
 /model\n\
 /task";
 
@@ -114,6 +121,7 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
         "/stop" => Ok(SlashCommand::Stop),
         "/help" => Ok(SlashCommand::Help),
         "/resume" | "/session" | "/sessions" => Ok(SlashCommand::ListSessions),
+        "/skill" => Ok(SlashCommand::ListSkills),
         "/model" => {
             let first = parts.next().unwrap_or_default();
             if first.is_empty() {
@@ -333,6 +341,7 @@ mod tests {
         assert!(!specs.contains(&("/stop", "")));
         assert!(specs.contains(&("/help", "")));
         assert!(specs.contains(&("/resume", "")));
+        assert!(specs.contains(&("/skill", "")));
         assert!(specs.contains(&("/model", "")));
         assert!(specs.contains(&("/task", "")));
         assert!(!specs.contains(&("/session", "open <session_id>")));

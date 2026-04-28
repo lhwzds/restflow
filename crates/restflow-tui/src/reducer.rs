@@ -2,7 +2,8 @@ use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
 use super::state::{
-    AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, TaskPickerItem,
+    AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
+    SkillPickerItem, TaskPickerItem,
 };
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
@@ -64,6 +65,24 @@ pub enum ShellAction {
         tasks: Vec<TaskPickerItem>,
         status: String,
     },
+    SkillPickerLoaded {
+        skills: Vec<SkillPickerItem>,
+        status: String,
+    },
+    SkillMentionPickerLoaded {
+        skills: Vec<SkillPickerItem>,
+        status: String,
+    },
+    SkillDetailLoaded {
+        skill: Box<restflow_core::models::Skill>,
+        status: String,
+    },
+    SkillDeleted {
+        skill_id: String,
+        skills: Vec<SkillPickerItem>,
+        status: String,
+    },
+    StartSkillCreatePrompt,
     ProviderPickerLoaded {
         items: Vec<ProviderPickerItem>,
         available_models: Vec<ModelMetadataDTO>,
@@ -124,6 +143,8 @@ pub enum ShellEffect {
     CancelStream { stream_id: String },
     ExecuteSlashCommand(SlashCommand),
     DeleteSession { session_id: String },
+    DeleteSkill { skill_id: String },
+    ListSkillsForMention,
     ListSessionsInline,
     ListRunsInline,
 }
@@ -244,6 +265,42 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.tasks = tasks;
             state.open_task_picker();
             state.status = status;
+        }
+        ShellAction::SkillPickerLoaded { skills, status } => {
+            state.skills = skills;
+            state.skills_loaded = true;
+            state.open_skill_manager();
+            state.status = status;
+        }
+        ShellAction::SkillMentionPickerLoaded { skills, status } => {
+            state.skills = skills;
+            state.skills_loaded = true;
+            if state.composer.current_skill_mention_query().is_some() {
+                state.open_skill_mention_picker();
+                state.sync_skill_mention_picker_to_draft();
+            }
+            state.status = status;
+        }
+        ShellAction::SkillDetailLoaded { skill, status } => {
+            state.composer.clear();
+            state.open_skill_detail(*skill);
+            state.status = status;
+        }
+        ShellAction::SkillDeleted {
+            skill_id,
+            skills,
+            status,
+        } => {
+            state.skills = skills;
+            state.skills_loaded = true;
+            state.open_skill_manager();
+            state.status = status.clone();
+            state.push_info(format!("Deleted skill {skill_id}"));
+        }
+        ShellAction::StartSkillCreatePrompt => {
+            state.clear_overlay();
+            state.composer.replace("Create a new RestFlow skill for: ");
+            state.status = "Describe the skill you want the assistant to create.".to_string();
         }
         ShellAction::ProviderPickerLoaded {
             items,
@@ -467,57 +524,81 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                         state.status = format!("Press d again to delete session {}", session.name);
                     }
                 }
+            } else if matches!(
+                state.overlay,
+                Some(crate::state::OverlayState::SkillManager { .. })
+            ) {
+                match state.selected_skill_manager_item() {
+                    Some(SkillManagerSelection::Skill(skill)) if skill.read_only => {
+                        state.status = format!("Skill {} is read-only", skill.id);
+                    }
+                    Some(SkillManagerSelection::Skill(skill)) => {
+                        if state.is_skill_delete_pending(&skill.id) {
+                            output
+                                .effects
+                                .push(ShellEffect::DeleteSkill { skill_id: skill.id });
+                        } else {
+                            state.mark_skill_delete_pending(skill.id.clone());
+                            state.status = format!("Press d again to delete skill {}", skill.name);
+                        }
+                    }
+                    Some(SkillManagerSelection::Create) | None => {}
+                }
             } else if state.overlay.is_none()
                 || matches!(
                     state.overlay,
-                    Some(crate::state::OverlayState::CommandPicker { .. })
+                    Some(
+                        crate::state::OverlayState::CommandPicker { .. }
+                            | crate::state::OverlayState::SkillMentionPicker { .. }
+                    )
                 )
             {
                 state.composer.insert_char('d');
-                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
+                sync_composer_overlay(state, output);
             }
         }
         Action::InputChar(ch) => {
             if state.overlay.is_none()
                 || matches!(
                     state.overlay,
-                    Some(crate::state::OverlayState::CommandPicker { .. })
+                    Some(
+                        crate::state::OverlayState::CommandPicker { .. }
+                            | crate::state::OverlayState::SkillMentionPicker { .. }
+                    )
                 )
             {
                 state.composer.insert_char(ch);
-                if ch == '/' && state.composer.draft().trim() == "/" {
-                    state.open_command_picker();
-                }
-                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
+                sync_composer_overlay(state, output);
             }
         }
         Action::Paste(text) => {
             if state.overlay.is_none()
                 || matches!(
                     state.overlay,
-                    Some(crate::state::OverlayState::CommandPicker { .. })
+                    Some(
+                        crate::state::OverlayState::CommandPicker { .. }
+                            | crate::state::OverlayState::SkillMentionPicker { .. }
+                    )
                 )
             {
                 for ch in text.chars() {
                     state.composer.insert_char(ch);
                 }
-                if state.composer.draft().trim_start().starts_with('/') {
-                    if state.overlay.is_none() {
-                        state.open_command_picker();
-                    }
-                    state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
-                }
+                sync_composer_overlay(state, output);
             }
         }
         Action::InputBackspace => {
             if state.overlay.is_none()
                 || matches!(
                     state.overlay,
-                    Some(crate::state::OverlayState::CommandPicker { .. })
+                    Some(
+                        crate::state::OverlayState::CommandPicker { .. }
+                            | crate::state::OverlayState::SkillMentionPicker { .. }
+                    )
                 )
             {
                 state.composer.backspace();
-                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
+                sync_composer_overlay(state, output);
             }
         }
         Action::Newline => {
@@ -540,6 +621,16 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                     } else {
                         output.effects.push(ShellEffect::ActivateOverlaySelection);
                     }
+                } else if matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::SkillMentionPicker { .. })
+                ) {
+                    if let Some(skill) = state.selected_skill_mention_item()
+                        && state.composer.replace_current_skill_mention(&skill.id)
+                    {
+                        state.status = format!("Inserted @{}", skill.id);
+                    }
+                    state.clear_overlay();
                 } else {
                     if matches!(
                         state.overlay,
@@ -551,6 +642,11 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                         Some(crate::state::OverlayState::ProviderPicker { .. })
                     ) {
                         state.status = "Loading models...".to_string();
+                    } else if matches!(
+                        state.overlay,
+                        Some(crate::state::OverlayState::SkillManager { .. })
+                    ) {
+                        state.status = "Loading skill...".to_string();
                     }
                     output.effects.push(ShellEffect::ActivateOverlaySelection);
                 }
@@ -606,6 +702,41 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
     }
 }
 
+fn sync_composer_overlay(state: &mut AppState, output: &mut ReducerOutput) {
+    if state.composer.draft().trim_start().starts_with('/') {
+        if state.overlay.is_none() {
+            state.open_command_picker();
+        }
+        state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
+        return;
+    }
+
+    if state.composer.current_skill_mention_query().is_some() {
+        if !matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SkillMentionPicker { .. })
+        ) {
+            state.open_skill_mention_picker();
+        }
+        if !state.skills_loaded {
+            state.status = "Loading skills...".to_string();
+            output.effects.push(ShellEffect::ListSkillsForMention);
+        }
+        state.sync_skill_mention_picker_to_draft();
+        return;
+    }
+
+    if matches!(
+        state.overlay,
+        Some(
+            crate::state::OverlayState::CommandPicker { .. }
+                | crate::state::OverlayState::SkillMentionPicker { .. }
+        )
+    ) {
+        state.clear_overlay();
+    }
+}
+
 fn submit_message_effect(message: String) -> ShellEffect {
     ShellEffect::SubmitMessage {
         message,
@@ -616,6 +747,7 @@ fn submit_message_effect(message: String) -> ShellEffect {
 fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
     match command {
         SlashCommand::NewChat => "Starting new chat...",
+        SlashCommand::ListSkills => "Loading skills...",
         SlashCommand::ListModels => "Loading providers...",
         SlashCommand::ListModelsForProvider { .. } => "Loading models...",
         SlashCommand::SwitchModel { .. } => "Switching model...",
@@ -632,9 +764,9 @@ mod tests {
     };
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
-    use crate::state::{AppState, PendingSessionState};
+    use crate::state::{AppState, PendingSessionState, SkillPickerItem};
     use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-    use restflow_core::models::{ChatSession, ChatSessionSummary};
+    use restflow_core::models::{ChatSession, ChatSessionSummary, Skill, SkillSource};
 
     fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
         ChatSessionSummary {
@@ -702,6 +834,147 @@ mod tests {
             output.effects.as_slice(),
             [ShellEffect::ExecuteSlashCommand(SlashCommand::ListModels)]
         ));
+    }
+
+    #[test]
+    fn skill_slash_command_sets_loading_status_before_effect() {
+        let mut state = AppState::empty();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "/skill".to_string(),
+            },
+        );
+
+        assert_eq!(state.status, "Loading skills...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ExecuteSlashCommand(SlashCommand::ListSkills)]
+        ));
+    }
+
+    #[test]
+    fn skill_picker_loaded_opens_manager_overlay_without_history() {
+        let mut state = AppState::empty();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SkillPickerLoaded {
+                skills: vec![SkillPickerItem {
+                    id: "team".to_string(),
+                    name: "Team".to_string(),
+                    description: Some("Coordinate subagents".to_string()),
+                    source: SkillSource::System,
+                    read_only: true,
+                }],
+                status: "Manage skills".to_string(),
+            },
+        );
+
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SkillManager { selected: 0 })
+        ));
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+    }
+
+    #[test]
+    fn skill_detail_loaded_opens_transient_overlay_without_history() {
+        let mut state = AppState::empty();
+        let mut skill = Skill::new(
+            "team".to_string(),
+            "Team".to_string(),
+            Some("Coordinate subagents".to_string()),
+            None,
+            "# Team".to_string(),
+        );
+        skill.source = SkillSource::System;
+        skill.read_only = true;
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SkillDetailLoaded {
+                skill: Box::new(skill),
+                status: "Showing skill team".to_string(),
+            },
+        );
+
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SkillDetail)
+        ));
+        assert_eq!(
+            state.selected_skill.as_ref().map(|skill| skill.id.as_str()),
+            Some("team")
+        );
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+    }
+
+    #[test]
+    fn submitting_skill_manager_activates_selected_skill() {
+        let mut state = AppState::empty();
+        state.skills = vec![SkillPickerItem {
+            id: "team".to_string(),
+            name: "Team".to_string(),
+            description: Some("Coordinate subagents".to_string()),
+            source: SkillSource::System,
+            read_only: true,
+        }];
+        state.open_skill_manager();
+        state.move_overlay_selection(1);
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert_eq!(state.status, "Loading skill...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ActivateOverlaySelection]
+        ));
+    }
+
+    #[test]
+    fn at_opens_skill_mention_picker_and_loads_skills() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::InputChar('@')));
+
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SkillMentionPicker { selected: 0 })
+        ));
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ListSkillsForMention]
+        ));
+    }
+
+    #[test]
+    fn submitting_skill_mention_inserts_selected_skill_id() {
+        let mut state = AppState::empty();
+        state.skills = vec![SkillPickerItem {
+            id: "team".to_string(),
+            name: "Team".to_string(),
+            description: Some("Coordinate subagents".to_string()),
+            source: SkillSource::System,
+            read_only: true,
+        }];
+        state.skills_loaded = true;
+        state.composer.replace("use @tea");
+        state.open_skill_mention_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert_eq!(state.composer.draft(), "use @team ");
+        assert!(state.overlay.is_none());
     }
 
     #[test]

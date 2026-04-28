@@ -4,7 +4,7 @@ use chrono::Utc;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider,
-    RunSummary,
+    RunSummary, Skill, SkillSource,
 };
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
@@ -31,6 +31,33 @@ pub struct TaskPickerItem {
     pub name: String,
     pub status: String,
     pub next_run_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillPickerItem {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub source: SkillSource,
+    pub read_only: bool,
+}
+
+impl From<Skill> for SkillPickerItem {
+    fn from(skill: Skill) -> Self {
+        Self {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+            read_only: skill.read_only,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkillManagerSelection {
+    Create,
+    Skill(SkillPickerItem),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +228,9 @@ pub enum OverlayState {
     CommandPicker { selected: usize },
     DaemonPicker { selected: usize },
     SessionPicker { selected: usize },
+    SkillManager { selected: usize },
+    SkillMentionPicker { selected: usize },
+    SkillDetail,
     TaskPicker { selected: usize },
     TaskActionPicker { task_id: String, selected: usize },
     ProviderPicker { selected: usize },
@@ -223,6 +253,9 @@ pub struct AppState {
     pub default_agent_id: Option<String>,
     pub thread: SessionThreadState,
     pub sessions: Vec<ChatSessionSummary>,
+    pub skills: Vec<SkillPickerItem>,
+    pub skills_loaded: bool,
+    pub selected_skill: Option<Skill>,
     pub tasks: Vec<TaskPickerItem>,
     pub provider_items: Vec<ProviderPickerItem>,
     pub model_items: Vec<ModelPickerItem>,
@@ -248,6 +281,7 @@ pub struct AppState {
     pub current_stream_id: Option<String>,
     pub startup: Option<StartupState>,
     pending_session_delete_id: Option<String>,
+    pending_skill_delete_id: Option<String>,
     pending_initial_message: Option<String>,
 }
 
@@ -258,6 +292,9 @@ impl AppState {
             default_agent_id: None,
             thread: SessionThreadState::default(),
             sessions: Vec::new(),
+            skills: Vec::new(),
+            skills_loaded: false,
+            selected_skill: None,
             tasks: Vec::new(),
             provider_items: Vec::new(),
             model_items: Vec::new(),
@@ -280,6 +317,7 @@ impl AppState {
             current_stream_id: None,
             startup: None,
             pending_session_delete_id: None,
+            pending_skill_delete_id: None,
             pending_initial_message: None,
         }
     }
@@ -469,11 +507,28 @@ impl AppState {
     pub fn clear_overlay(&mut self) {
         self.overlay = None;
         self.pending_session_delete_id = None;
+        self.pending_skill_delete_id = None;
+        self.selected_skill = None;
     }
 
     #[allow(dead_code)]
     pub fn open_session_picker(&mut self) {
         self.overlay = Some(OverlayState::SessionPicker { selected: 0 });
+    }
+
+    pub fn open_skill_manager(&mut self) {
+        self.selected_skill = None;
+        self.overlay = Some(OverlayState::SkillManager { selected: 0 });
+    }
+
+    pub fn open_skill_mention_picker(&mut self) {
+        self.selected_skill = None;
+        self.overlay = Some(OverlayState::SkillMentionPicker { selected: 0 });
+    }
+
+    pub fn open_skill_detail(&mut self, skill: Skill) {
+        self.selected_skill = Some(skill);
+        self.overlay = Some(OverlayState::SkillDetail);
     }
 
     pub fn open_command_picker(&mut self) {
@@ -518,6 +573,7 @@ impl AppState {
 
     pub fn move_overlay_selection(&mut self, delta: isize) {
         self.pending_session_delete_id = None;
+        self.pending_skill_delete_id = None;
         let len = match self.overlay_item_len() {
             Some(len) if len > 0 => len,
             _ => return,
@@ -526,6 +582,8 @@ impl AppState {
             Some(OverlayState::CommandPicker { selected })
             | Some(OverlayState::DaemonPicker { selected })
             | Some(OverlayState::SessionPicker { selected })
+            | Some(OverlayState::SkillManager { selected })
+            | Some(OverlayState::SkillMentionPicker { selected })
             | Some(OverlayState::TaskPicker { selected })
             | Some(OverlayState::TaskActionPicker { selected, .. })
             | Some(OverlayState::ProviderPicker { selected })
@@ -534,7 +592,7 @@ impl AppState {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
                 *selected = next as usize;
             }
-            Some(OverlayState::Help) | None => {}
+            Some(OverlayState::SkillDetail) | Some(OverlayState::Help) | None => {}
         }
     }
 
@@ -565,6 +623,9 @@ impl AppState {
             }
             OverlayState::DaemonPicker { .. } => Some(2),
             OverlayState::SessionPicker { .. } => Some(self.sessions.len()),
+            OverlayState::SkillManager { .. } => Some(self.skills.len() + 1),
+            OverlayState::SkillMentionPicker { .. } => Some(self.skill_mention_matches().len()),
+            OverlayState::SkillDetail => None,
             OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
             OverlayState::TaskActionPicker { .. } => Some(3),
             OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
@@ -591,12 +652,78 @@ impl AppState {
         }
     }
 
+    pub fn selected_skill_manager_item(&self) -> Option<SkillManagerSelection> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::SkillManager { selected }) if *selected == 0 => {
+                Some(SkillManagerSelection::Create)
+            }
+            Some(OverlayState::SkillManager { selected }) => self
+                .skills
+                .get(selected.saturating_sub(1))
+                .cloned()
+                .map(SkillManagerSelection::Skill),
+            _ => None,
+        }
+    }
+
+    pub fn selected_skill_mention_item(&self) -> Option<SkillPickerItem> {
+        let Some(OverlayState::SkillMentionPicker { selected }) = self.overlay.as_ref() else {
+            return None;
+        };
+        self.skill_mention_matches().get(*selected).cloned()
+    }
+
+    pub fn sync_skill_mention_picker_to_draft(&mut self) {
+        if !matches!(self.overlay, Some(OverlayState::SkillMentionPicker { .. })) {
+            return;
+        }
+        if self.composer.current_skill_mention_query().is_none() {
+            self.clear_overlay();
+            return;
+        }
+        let len = self.skill_mention_matches().len();
+        if len == 0 {
+            return;
+        }
+        if let Some(OverlayState::SkillMentionPicker { selected }) = self.overlay.as_mut() {
+            *selected = (*selected).min(len.saturating_sub(1));
+        }
+    }
+
+    pub fn skill_mention_matches(&self) -> Vec<SkillPickerItem> {
+        let Some(query) = self.composer.current_skill_mention_query() else {
+            return Vec::new();
+        };
+        let query = query.to_lowercase();
+        self.skills
+            .iter()
+            .filter(|skill| {
+                query.is_empty()
+                    || skill.id.to_lowercase().contains(&query)
+                    || skill.name.to_lowercase().contains(&query)
+                    || skill
+                        .description
+                        .as_deref()
+                        .is_some_and(|description| description.to_lowercase().contains(&query))
+            })
+            .cloned()
+            .collect()
+    }
+
     pub fn mark_session_delete_pending(&mut self, session_id: impl Into<String>) {
         self.pending_session_delete_id = Some(session_id.into());
     }
 
     pub fn is_session_delete_pending(&self, session_id: &str) -> bool {
         self.pending_session_delete_id.as_deref() == Some(session_id)
+    }
+
+    pub fn mark_skill_delete_pending(&mut self, skill_id: impl Into<String>) {
+        self.pending_skill_delete_id = Some(skill_id.into());
+    }
+
+    pub fn is_skill_delete_pending(&self, skill_id: &str) -> bool {
+        self.pending_skill_delete_id.as_deref() == Some(skill_id)
     }
 
     pub fn apply_session_delete_result(

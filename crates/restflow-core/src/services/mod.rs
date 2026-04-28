@@ -10,6 +10,7 @@ pub mod operation_assessment;
 pub mod secrets;
 pub mod session;
 pub mod session_policy;
+pub mod skill_mentions;
 pub mod skill_sync;
 pub mod skill_triggers;
 pub mod skills;

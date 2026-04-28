@@ -9,6 +9,7 @@ use crossterm::style::{
 use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use restflow_core::models::SkillSource;
 
 use crate::render::render_shell_bottom_viewport;
 use crate::scrollback::ScrollbackWriter;
@@ -473,6 +474,18 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
         return Some(lines);
     }
 
+    if let Some(lines) = build_skill_mention_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_skill_manager_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_skill_detail_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
     if let Some(lines) = build_task_action_picker_lines(state, width) {
         return Some(lines);
     }
@@ -688,6 +701,275 @@ fn build_task_picker_lines(
             muted_style(),
         ));
     }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_skill_manager_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::SkillManager { selected }) = state.overlay.as_ref() else {
+        return None;
+    };
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Skill Manager", tool_title_style()),
+        Span::styled(
+            "  Up/Down select, Enter details/create, d delete, Esc close",
+            muted_style(),
+        ),
+    ])];
+    let create_selected = *selected == 0;
+    lines.push(Line::from(vec![
+        Span::styled(
+            if create_selected { "› " } else { "  " },
+            if create_selected {
+                tool_title_style()
+            } else {
+                muted_style()
+            },
+        ),
+        Span::styled(
+            "Create Skill",
+            if create_selected {
+                tool_title_style()
+            } else {
+                Style::default().add_modifier(Modifier::BOLD)
+            },
+        ),
+        Span::styled("  Ask the assistant to generate a new skill", muted_style()),
+    ]));
+    if state.skills.is_empty() {
+        lines.push(styled_line("  No installed skills yet.", muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(2).max(1);
+    let rows_per_skill = 2usize;
+    let visible_skills = (visible_capacity / rows_per_skill).max(1);
+    let selected_skill_index = selected
+        .saturating_sub(1)
+        .min(state.skills.len().saturating_sub(1));
+    let start = selected_skill_index
+        .saturating_sub(visible_skills / 2)
+        .min(state.skills.len().saturating_sub(visible_skills));
+    let end = (start + visible_skills).min(state.skills.len());
+    let mut previous_source = None;
+
+    for (index, skill) in state.skills[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = *selected > 0 && index == selected_skill_index;
+        if previous_source != Some(skill.source) {
+            previous_source = Some(skill.source);
+            push_if_space(
+                &mut lines,
+                max_rows,
+                styled_line(
+                    format!("  {}", skill_source_group_label(skill.source)),
+                    muted_style(),
+                ),
+            );
+        }
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let readonly = if skill.read_only { " · read-only" } else { "" };
+        let delete_pending = if is_selected && state.is_skill_delete_pending(&skill.id) {
+            " · press d again to delete"
+        } else {
+            ""
+        };
+        let title = Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(skill.name.clone(), title_style),
+            Span::styled(
+                format!(" · {}{readonly}{delete_pending}", skill.id),
+                muted_style(),
+            ),
+        ]);
+        lines.extend(wrap_styled_line(title, width));
+        let description = skill
+            .description
+            .clone()
+            .unwrap_or_else(|| "No description".to_string());
+        let detail = Line::from(vec![
+            Span::styled("    ", muted_style()),
+            Span::styled(description, muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(detail, width));
+    }
+
+    if end < state.skills.len() {
+        push_if_space(
+            &mut lines,
+            max_rows,
+            styled_line(
+                format!("  ... {} more", state.skills.len() - end),
+                muted_style(),
+            ),
+        );
+    }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_skill_mention_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::SkillMentionPicker { selected }) = state.overlay.as_ref()
+    else {
+        return None;
+    };
+    let matches = state.skill_mention_matches();
+    let query = state
+        .composer
+        .current_skill_mention_query()
+        .unwrap_or_default();
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Skill mentions", tool_title_style()),
+        Span::styled("  Up/Down select, Enter insert, Esc close", muted_style()),
+    ])];
+    if matches.is_empty() {
+        let message = if query.is_empty() {
+            "  No skills installed."
+        } else {
+            "  No matching skills."
+        };
+        lines.push(styled_line(message, muted_style()));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let selected_index = (*selected).min(matches.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_capacity / 2)
+        .min(matches.len().saturating_sub(visible_capacity));
+    let end = (start + visible_capacity).min(matches.len());
+    for (index, skill) in matches[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        let line = Line::from(vec![
+            Span::styled(
+                if is_selected { "› " } else { "  " },
+                if is_selected {
+                    tool_title_style()
+                } else {
+                    muted_style()
+                },
+            ),
+            Span::styled(format!("@{}", skill.id), title_style),
+            Span::styled(format!("  {}", skill.name), muted_style()),
+        ]);
+        lines.extend(wrap_styled_line(line, width));
+    }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_skill_detail_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    if !matches!(state.overlay, Some(crate::state::OverlayState::SkillDetail)) {
+        return None;
+    }
+    let Some(skill) = state.selected_skill.as_ref() else {
+        return Some(vec![
+            Line::from(vec![
+                Span::styled("Skill", tool_title_style()),
+                Span::styled("  Esc close", muted_style()),
+            ]),
+            styled_line("  Skill details are unavailable.", muted_style()),
+        ]);
+    };
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Skill", tool_title_style()),
+        Span::styled("  Esc close", muted_style()),
+    ])];
+    let read_only = if skill.read_only { " · read-only" } else { "" };
+    lines.extend(wrap_styled_line(
+        Line::from(vec![
+            Span::styled("  ", muted_style()),
+            Span::styled(
+                skill.name.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!(" · {}{read_only}", skill.id), muted_style()),
+        ]),
+        width,
+    ));
+    lines.extend(wrap_styled_line(
+        Line::from(vec![
+            Span::styled("  source: ", muted_style()),
+            Span::styled(skill.source.to_string(), muted_style()),
+        ]),
+        width,
+    ));
+    if let Some(description) = skill.description.as_ref().filter(|value| !value.is_empty()) {
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("  description: ", muted_style()),
+                Span::styled(description.clone(), muted_style()),
+            ]),
+            width,
+        ));
+    }
+    if !skill.suggested_tools.is_empty() {
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("  suggested_tools: ", muted_style()),
+                Span::styled(skill.suggested_tools.join(", "), muted_style()),
+            ]),
+            width,
+        ));
+    }
+    if let Some(source_ref) = skill.source_ref.as_ref().filter(|value| !value.is_empty()) {
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("  source_ref: ", muted_style()),
+                Span::styled(source_ref.clone(), muted_style()),
+            ]),
+            width,
+        ));
+    }
+    if skill
+        .suggested_tools
+        .iter()
+        .any(|tool| tool == "spawn_subagent_batch")
+    {
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("  usage: ", muted_style()),
+                Span::styled(
+                    "Use this skill by asking for parallel/team/subagent work.",
+                    muted_style(),
+                ),
+            ]),
+            width,
+        ));
+    }
+
     lines.truncate(max_rows as usize);
     Some(lines)
 }
@@ -971,6 +1253,14 @@ fn model_category_label(category: crate::state::ModelPickerCategory) -> &'static
         crate::state::ModelPickerCategory::Recent => "Recently used",
         crate::state::ModelPickerCategory::Frequent => "Most used",
         crate::state::ModelPickerCategory::Available => "Available with API key",
+    }
+}
+
+fn skill_source_group_label(source: SkillSource) -> &'static str {
+    match source {
+        SkillSource::System => "System skills",
+        SkillSource::User => "User skills",
+        SkillSource::External => "External skills",
     }
 }
 
@@ -1687,10 +1977,10 @@ mod tests {
     use crate::slash_command::SLASH_COMMAND_SPECS;
     use crate::state::{
         AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem, PendingSessionState,
-        PendingUserCell, ProviderPickerItem, TaskPickerItem,
+        PendingUserCell, ProviderPickerItem, SkillPickerItem, TaskPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
-    use restflow_core::models::ChatSessionSummary;
+    use restflow_core::models::{ChatSessionSummary, Skill, SkillSource};
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
@@ -2245,6 +2535,7 @@ mod tests {
         assert!(!rendered.iter().any(|line| line.contains("/start")));
         assert!(!rendered.iter().any(|line| line.contains("/stop")));
         assert!(rendered.iter().any(|line| line.contains("/resume")));
+        assert!(rendered.iter().any(|line| line.contains("/skill")));
         assert!(rendered.iter().any(|line| line.contains("/task")));
         assert!(
             !rendered
@@ -2297,6 +2588,7 @@ mod tests {
                 .any(|line| line.contains("RestFlow terminal shell"))
         );
         assert!(rendered.iter().any(|line| line.contains("/daemon")));
+        assert!(rendered.iter().any(|line| line.contains("/skill")));
         assert!(!rendered.iter().any(|line| line.starts_with("Info")));
     }
 
@@ -2384,6 +2676,85 @@ mod tests {
         assert!(text.contains("/task pause"));
         assert!(text.contains("/task resume"));
         assert!(text.contains("/task stop"));
+    }
+
+    #[test]
+    fn skill_manager_lists_grouped_skills() {
+        let mut state = AppState::empty();
+        state.skills = vec![
+            SkillPickerItem {
+                id: "team".to_string(),
+                name: "Team".to_string(),
+                description: Some("Coordinate parallel subagents".to_string()),
+                source: SkillSource::System,
+                read_only: true,
+            },
+            SkillPickerItem {
+                id: "regex-finder".to_string(),
+                name: "Regex Finder".to_string(),
+                description: Some("Find text with regex".to_string()),
+                source: SkillSource::External,
+                read_only: false,
+            },
+        ];
+        state.open_skill_manager();
+
+        let lines = build_transient_lines(&state, 100, 10);
+        let text = line_texts(&lines).join("\n");
+
+        assert!(text.contains("Skill Manager"));
+        assert!(text.contains("Create Skill"));
+        assert!(text.contains("System skills"));
+        assert!(text.contains("External skills"));
+        assert!(text.contains("Team · team · read-only"));
+        assert!(text.contains("Regex Finder"));
+    }
+
+    #[test]
+    fn skill_mention_picker_lists_matching_skills() {
+        let mut state = AppState::empty();
+        state.skills = vec![SkillPickerItem {
+            id: "team".to_string(),
+            name: "Team".to_string(),
+            description: Some("Coordinate parallel subagents".to_string()),
+            source: SkillSource::System,
+            read_only: true,
+        }];
+        state.composer.replace("use @tea");
+        state.open_skill_mention_picker();
+
+        let lines = build_transient_lines(&state, 100, 10);
+        let text = line_texts(&lines).join("\n");
+
+        assert!(text.contains("Skill mentions"));
+        assert!(text.contains("@team"));
+    }
+
+    #[test]
+    fn skill_detail_renders_metadata_and_subagent_usage_hint() {
+        let mut state = AppState::empty();
+        let mut skill = Skill::new(
+            "team".to_string(),
+            "Team".to_string(),
+            Some("Coordinate short-lived parallel subagents".to_string()),
+            Some(vec!["system".to_string(), "team".to_string()]),
+            "# Team".to_string(),
+        );
+        skill.source = SkillSource::System;
+        skill.read_only = true;
+        skill.source_ref = Some("restflow://system/team".to_string());
+        skill.suggested_tools = vec!["spawn_subagent_batch".to_string()];
+        state.open_skill_detail(skill);
+
+        let lines = build_transient_lines(&state, 120, 10);
+        let text = line_texts(&lines).join("\n");
+
+        assert!(text.contains("Skill"));
+        assert!(text.contains("Team · team · read-only"));
+        assert!(text.contains("source: system"));
+        assert!(text.contains("suggested_tools: spawn_subagent_batch"));
+        assert!(text.contains("source_ref: restflow://system/team"));
+        assert!(text.contains("Use this skill by asking for parallel/team/subagent work."));
     }
 
     #[test]

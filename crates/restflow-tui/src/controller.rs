@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
 use restflow_core::models::{
-    ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
+    ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, SkillSource,
 };
 use restflow_core::storage::agent::StoredAgent;
 
@@ -13,7 +13,7 @@ use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
 use super::state::{
     AppState, ModelPickerCategory, ModelPickerItem, OverlayState, ProviderPickerItem,
-    RunPickerItem, TaskPickerItem,
+    RunPickerItem, SkillManagerSelection, SkillPickerItem, TaskPickerItem,
 };
 use super::transcript::ShellMessage;
 
@@ -88,6 +88,8 @@ impl ShellController {
             ShellEffect::DeleteSession { session_id } => {
                 self.delete_session_actions(session_id).await
             }
+            ShellEffect::DeleteSkill { skill_id } => self.delete_skill_actions(skill_id).await,
+            ShellEffect::ListSkillsForMention => self.skill_mention_picker_actions().await,
             ShellEffect::ListSessionsInline => self.session_picker_actions().await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
             ShellEffect::ClearScreen => Ok(Vec::new()),
@@ -200,6 +202,9 @@ impl ShellController {
                 if matches!(spec.command, "/task") {
                     return self.task_picker_actions().await;
                 }
+                if matches!(spec.command, "/skill") {
+                    return self.skill_picker_actions().await;
+                }
                 if matches!(spec.command, "/model") {
                     return self.provider_picker_actions(state).await;
                 }
@@ -249,6 +254,17 @@ impl ShellController {
                     text: format!("/task {action} {task_id}"),
                 }])
             }
+            Some(OverlayState::SkillManager { .. }) => {
+                let Some(item) = state.selected_skill_manager_item() else {
+                    return Ok(Vec::new());
+                };
+                match item {
+                    SkillManagerSelection::Create => Ok(vec![ShellAction::StartSkillCreatePrompt]),
+                    SkillManagerSelection::Skill(skill) => {
+                        self.skill_detail_actions(skill.id).await
+                    }
+                }
+            }
             Some(OverlayState::ProviderPicker { .. }) => {
                 let Some(item) = state.selected_provider_item() else {
                     return Ok(Vec::new());
@@ -294,7 +310,10 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            Some(OverlayState::Help) | None => Ok(Vec::new()),
+            Some(OverlayState::SkillMentionPicker { .. })
+            | Some(OverlayState::SkillDetail)
+            | Some(OverlayState::Help)
+            | None => Ok(Vec::new()),
         }
     }
 
@@ -395,6 +414,7 @@ impl ShellController {
             }
             SlashCommand::Help => Ok(vec![ShellAction::OpenHelpOverlay]),
             SlashCommand::ListSessions => self.session_picker_actions().await,
+            SlashCommand::ListSkills => self.skill_picker_actions().await,
             SlashCommand::ListTasks => self.task_picker_actions().await,
             SlashCommand::ListModels => self.provider_picker_actions(state).await,
             SlashCommand::ListModelsForProvider { provider } => {
@@ -476,6 +496,68 @@ impl ShellController {
             "Select a task".to_string()
         };
         Ok(vec![ShellAction::TaskPickerLoaded { tasks, status }])
+    }
+
+    async fn skill_picker_actions(&self) -> Result<Vec<ShellAction>> {
+        let skills = self.sorted_skill_items().await?;
+        let status = if skills.is_empty() {
+            "No skills installed.".to_string()
+        } else {
+            "Manage skills".to_string()
+        };
+        Ok(vec![ShellAction::SkillPickerLoaded { skills, status }])
+    }
+
+    async fn skill_mention_picker_actions(&self) -> Result<Vec<ShellAction>> {
+        let skills = self.sorted_skill_items().await?;
+        let status = if skills.is_empty() {
+            "No skills installed.".to_string()
+        } else {
+            "Select a skill mention".to_string()
+        };
+        Ok(vec![ShellAction::SkillMentionPickerLoaded {
+            skills,
+            status,
+        }])
+    }
+
+    async fn sorted_skill_items(&self) -> Result<Vec<SkillPickerItem>> {
+        let mut skills = self
+            .client
+            .list_skills()
+            .await?
+            .into_iter()
+            .map(SkillPickerItem::from)
+            .collect::<Vec<_>>();
+        skills.sort_by(|left, right| {
+            skill_source_order(left.source)
+                .cmp(&skill_source_order(right.source))
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(skills)
+    }
+
+    async fn skill_detail_actions(&self, skill_id: String) -> Result<Vec<ShellAction>> {
+        match self.client.get_skill(&skill_id).await? {
+            Some(skill) => Ok(vec![ShellAction::SkillDetailLoaded {
+                status: format!("Showing skill {}", skill.id),
+                skill: Box::new(skill),
+            }]),
+            None => Ok(vec![ShellAction::StatusUpdated(format!(
+                "Skill not found: {skill_id}"
+            ))]),
+        }
+    }
+
+    async fn delete_skill_actions(&self, skill_id: String) -> Result<Vec<ShellAction>> {
+        self.client.delete_skill(&skill_id).await?;
+        let skills = self.sorted_skill_items().await?;
+        Ok(vec![ShellAction::SkillDeleted {
+            status: format!("Deleted skill {skill_id}"),
+            skill_id,
+            skills,
+        }])
     }
 
     async fn provider_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
@@ -951,6 +1033,14 @@ fn model_category_order(category: ModelPickerCategory) -> u8 {
         ModelPickerCategory::Recent => 0,
         ModelPickerCategory::Frequent => 1,
         ModelPickerCategory::Available => 2,
+    }
+}
+
+fn skill_source_order(source: SkillSource) -> u8 {
+    match source {
+        SkillSource::System => 0,
+        SkillSource::User => 1,
+        SkillSource::External => 2,
     }
 }
 

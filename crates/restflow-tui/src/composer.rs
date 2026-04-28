@@ -18,6 +18,22 @@ impl ComposerState {
         &self.draft
     }
 
+    pub fn current_skill_mention_query(&self) -> Option<String> {
+        self.current_skill_mention_range_and_query()
+            .map(|(_, query)| query)
+    }
+
+    pub fn replace_current_skill_mention(&mut self, skill_id: &str) -> bool {
+        let Some((start, _)) = self.current_skill_mention_range_and_query() else {
+            return false;
+        };
+        let replacement = format!("@{skill_id} ");
+        self.draft.replace_range(start..self.cursor, &replacement);
+        self.cursor = start + replacement.len();
+        self.history_cursor = None;
+        true
+    }
+
     pub fn visible_row_count(&self, width: u16) -> u16 {
         Self::wrapped_lines(&self.draft, width).len() as u16
     }
@@ -174,6 +190,24 @@ impl ComposerState {
         cursor_row.saturating_sub(max_rows.saturating_sub(1))
     }
 
+    fn current_skill_mention_range_and_query(&self) -> Option<(usize, String)> {
+        let prefix = &self.draft[..self.cursor];
+        let start = prefix
+            .char_indices()
+            .rev()
+            .find_map(|(idx, ch)| ch.is_whitespace().then_some(idx + ch.len_utf8()))
+            .unwrap_or(0);
+        let token = &prefix[start..];
+        let query = token.strip_prefix('@')?;
+        if query
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+        {
+            return Some((start, query.to_string()));
+        }
+        None
+    }
+
     fn wrapped_lines(text: &str, width: u16) -> Vec<String> {
         let width = width.max(1) as usize;
         let mut lines = Vec::new();
@@ -253,6 +287,24 @@ mod tests {
         composer.insert_char('l');
         composer.insert_char('p');
         assert_eq!(composer.mode(), ComposerMode::Command);
+    }
+
+    #[test]
+    fn composer_detects_current_skill_mention() {
+        let mut composer = ComposerState::default();
+        composer.replace("please use @tea");
+        assert_eq!(
+            composer.current_skill_mention_query().as_deref(),
+            Some("tea")
+        );
+    }
+
+    #[test]
+    fn composer_replaces_current_skill_mention() {
+        let mut composer = ComposerState::default();
+        composer.replace("please use @tea");
+        assert!(composer.replace_current_skill_mention("team"));
+        assert_eq!(composer.draft(), "please use @team ");
     }
 
     #[test]

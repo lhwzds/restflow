@@ -1,6 +1,9 @@
 use super::*;
+use crate::services::adapters::CompositeSkillProvider;
+use crate::services::skill_mentions::parse_skill_mentions;
 use restflow_ai::StreamDisplayMode;
 use restflow_telemetry::RunAttemptTracker;
+use restflow_traits::skill::{SkillInfo, SkillProvider};
 
 fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
@@ -51,6 +54,42 @@ impl AgentRuntimeExecutor {
             ChatRole::Assistant => Message::assistant(message.content.clone()),
             ChatRole::System => Message::system(message.content.clone()),
         }
+    }
+
+    fn resolve_mentioned_skill_infos(&self, user_input: &str) -> Vec<SkillInfo> {
+        let mentioned_ids = parse_skill_mentions(user_input);
+        if mentioned_ids.is_empty() {
+            return Vec::new();
+        }
+
+        let provider = CompositeSkillProvider::with_storage(self.storage.skills.clone());
+        let skills = provider.list_skills();
+        mentioned_ids
+            .into_iter()
+            .filter_map(|id| skills.iter().find(|skill| skill.id == id).cloned())
+            .collect()
+    }
+
+    fn append_mentioned_skill_directive(
+        mut system_prompt: String,
+        mentioned_skills: &[SkillInfo],
+    ) -> String {
+        if mentioned_skills.is_empty() {
+            return system_prompt;
+        }
+
+        system_prompt.push_str("\n\n## User-Mentioned Skills\n");
+        system_prompt.push_str(
+            "The latest user message explicitly mentioned these skills. Before applying a mentioned skill, call `use_skill` with `action=read` and `id` set to the skill id.\n\n",
+        );
+        for skill in mentioned_skills {
+            let description = skill.description.as_deref().unwrap_or("No description");
+            system_prompt.push_str(&format!(
+                "- {} ({}): {}\n",
+                skill.name, skill.id, description
+            ));
+        }
+        system_prompt
     }
 
     pub(super) fn truncate_ack_message(content: &str) -> String {
@@ -211,7 +250,11 @@ impl AgentRuntimeExecutor {
         stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
-        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let mentioned_skills = self.resolve_mentioned_skill_infos(user_input);
+        let mut effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        if !mentioned_skills.is_empty() && !effective_tools.iter().any(|tool| tool == "use_skill") {
+            effective_tools.push("use_skill".to_string());
+        }
         let agent_defaults = self
             .storage
             .config
@@ -234,7 +277,10 @@ impl AgentRuntimeExecutor {
             reply_sender,
             None,
         )?;
-        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
+        let system_prompt = Self::append_mentioned_skill_directive(
+            build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?,
+            &mentioned_skills,
+        );
 
         let catalog = ModelCatalog::global().await;
         let model_entry = catalog.resolve(model).await;
@@ -837,6 +883,7 @@ mod tests {
     use super::*;
     use restflow_ai::StreamDisplayMode;
     use restflow_telemetry::{RestflowTrace, TelemetryContext};
+    use restflow_traits::skill::{SkillInfo, SkillSource};
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
@@ -883,5 +930,26 @@ mod tests {
         assert_eq!(previous_two, Some(ModelId::Gpt5));
         assert_eq!(attempt_three, 3);
         assert_eq!(previous_three, Some(ModelId::CodexCli));
+    }
+
+    #[test]
+    fn mentioned_skill_directive_lists_ids_without_content() {
+        let prompt = AgentRuntimeExecutor::append_mentioned_skill_directive(
+            "Base prompt".to_string(),
+            &[SkillInfo {
+                id: "team".to_string(),
+                name: "Team".to_string(),
+                description: Some("Coordinate subagents".to_string()),
+                tags: None,
+                source: SkillSource::System,
+                read_only: true,
+                source_ref: None,
+            }],
+        );
+
+        assert!(prompt.contains("User-Mentioned Skills"));
+        assert!(prompt.contains("use_skill"));
+        assert!(prompt.contains("Team (team): Coordinate subagents"));
+        assert!(!prompt.contains("# Team"));
     }
 }

@@ -365,6 +365,25 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn test_storage_shadow_does_not_override_system_skill() {
+        let (core, _env) = create_test_core().await;
+        let shadow = create_test_skill("team", "Shadow Team");
+        core.storage.skills.create(&shadow).unwrap();
+
+        let skills = list_skills(&core).await.unwrap();
+        assert_eq!(skills.iter().filter(|skill| skill.id == "team").count(), 1);
+
+        let team = get_skill(&core, "team")
+            .await
+            .unwrap()
+            .expect("team system skill should be readable");
+        assert_eq!(team.source, SkillSource::System);
+        assert_eq!(team.name, "Team");
+        assert!(team.read_only);
+        assert!(team.content.contains("spawn_subagent_batch"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_and_get_skill() {
         let (core, _env) = create_test_core().await;
 

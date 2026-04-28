@@ -7,7 +7,7 @@ use restflow_core::daemon::{
 };
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Task,
+    ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Skill, Task,
 };
 use restflow_core::paths;
 use restflow_core::storage::agent::{
@@ -175,6 +175,21 @@ impl TuiDaemonClient {
         client
             .request_typed(IpcRequest::ListTasks { status: None })
             .await
+    }
+
+    pub async fn list_skills(&self) -> Result<Vec<Skill>> {
+        let mut client = self.connect().await?;
+        client.list_skills().await
+    }
+
+    pub async fn get_skill(&self, skill_id: &str) -> Result<Option<Skill>> {
+        let mut client = self.connect().await?;
+        client.get_skill(skill_id.to_string()).await
+    }
+
+    pub async fn delete_skill(&self, skill_id: &str) -> Result<()> {
+        let mut client = self.connect().await?;
+        client.delete_skill(skill_id.to_string()).await
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
