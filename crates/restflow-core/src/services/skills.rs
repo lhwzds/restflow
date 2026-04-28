@@ -4,6 +4,7 @@ use crate::{
     AppCore,
     models::{Skill, SkillSource, ValidationError},
     skill_files,
+    storage::skill::SkillStorage,
 };
 use anyhow::{Context, Result};
 use regex::Regex;
@@ -13,17 +14,31 @@ use std::sync::{Arc, OnceLock};
 
 /// List all skills
 pub async fn list_skills(core: &Arc<AppCore>) -> Result<Vec<Skill>> {
+    list_available_skills(&core.storage.skills)
+}
+
+/// List the effective skill catalog visible to runtime validation and preflight.
+pub fn list_available_skills(skill_storage: &SkillStorage) -> Result<Vec<Skill>> {
     let reserved_ids = systemskill_id_set();
     let mut skills = skill_files::list_systemskills().context("Failed to list systemskills")?;
     skills.extend(
-        core.storage
-            .skills
+        skill_storage
             .list()
             .context("Failed to list skills")?
             .into_iter()
             .filter(|skill| !reserved_ids.contains(skill.id.as_str())),
     );
     Ok(skills)
+}
+
+/// Check whether a skill exists in the effective system + storage catalog.
+pub fn skill_exists_in_catalog(skill_storage: &SkillStorage, id: &str) -> Result<bool> {
+    if is_systemskill_id(id) {
+        return Ok(true);
+    }
+    skill_storage
+        .exists(id)
+        .with_context(|| format!("Failed to check skill {}", id))
 }
 
 /// Get a skill by ID

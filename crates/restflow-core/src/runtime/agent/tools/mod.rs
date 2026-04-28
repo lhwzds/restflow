@@ -122,7 +122,6 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_ops",
         "security_query",
         "switch_model",
-        "skill",
         "memory_search",
         "manage_secrets",
         "manage_config",
@@ -779,8 +778,12 @@ mod tests {
     #[test]
     fn test_main_agent_default_tools_are_task_first() {
         let names = main_agent_default_tool_names();
+        assert!(names.contains(&"use_skill".to_string()));
+        assert!(!names.contains(&"skill".to_string()));
         assert!(names.contains(&"manage_tasks".to_string()));
         assert!(!names.contains(&"manage_background_agents".to_string()));
+        assert!(!names.contains(&"manage_teams".to_string()));
+        assert!(!names.contains(&"TeamRuntime".to_string()));
     }
 
     #[test]

@@ -584,4 +584,43 @@ mod tests {
                 .contains("Available read-only operations: list, read, export")
         );
     }
+
+    #[tokio::test]
+    async fn builder_registered_skill_tool_is_read_only() {
+        let registry = crate::impls::ToolRegistryBuilder::new()
+            .with_skill_tool(create_mock_provider())
+            .build();
+
+        let schema = registry
+            .get("skill")
+            .expect("skill tool should be registered")
+            .parameters_schema();
+        let actions = schema["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum should be present");
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.as_str() == Some("create")),
+            "builder-registered skill tool must not expose write actions"
+        );
+
+        let result = registry
+            .execute_safe(
+                "skill",
+                json!({
+                    "action": "create",
+                    "id": "new",
+                    "name": "New",
+                    "content": "# New"
+                }),
+            )
+            .await;
+
+        let err = result.expect_err("expected builder-registered skill create to fail");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, read, export")
+        );
+    }
 }

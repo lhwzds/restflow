@@ -165,14 +165,8 @@ Example — notify on task failure:
   - `action: "read"` — Get skill content by ID
   - Systemskills such as `team` are built in, read-only, and available through the same read path
   - Skill execution is not supported in this tool
-- `skill`: Manage reusable skill definitions
-  - `action: "list"` — List all skills
-  - `action: "read"` — Get skill content by ID
-  - `action: "create"` — Create new skill (name + content required)
-  - `action: "update"` — Update skill by ID
-  - `action: "delete"` — Delete skill by ID
-  - `action: "export"` / `action: "import"` — Export/import with YAML frontmatter
-- Use `manage_marketplace` to browse and install community skills
+- Skill creation, installation, update, and deletion are management operations. Use the CLI/TUI/MCP management surfaces for those changes instead of the default agent runtime.
+- Use `manage_marketplace` to browse community skills when that management tool is explicitly available.
 
 ### Memory System
 

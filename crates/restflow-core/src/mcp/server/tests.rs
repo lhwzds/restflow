@@ -2556,16 +2556,16 @@ async fn test_mcp_manage_tasks_stress_path_emits_latency_summary() {
     });
 
     std::fs::write(
-        artifacts_dir.join("mcp-background-agent-stress-summary.json"),
+        artifacts_dir.join("mcp-manage-tasks-stress-summary.json"),
         serde_json::to_vec_pretty(&summary).expect("failed to serialize mcp stress summary"),
     )
     .expect("failed to write mcp stress summary artifact");
 
     let markdown = format!(
-        "# MCP Background Agent Stress Summary\n\n- Workers: {workers}\n- Loops per worker: {loops_per_worker}\n- Total calls: {total_calls}\n- p50: {p50}ms\n- p95: {p95}ms\n- p99: {p99}ms\n"
+        "# MCP Manage Tasks Stress Summary\n\n- Workers: {workers}\n- Loops per worker: {loops_per_worker}\n- Total calls: {total_calls}\n- p50: {p50}ms\n- p95: {p95}ms\n- p99: {p99}ms\n"
     );
     std::fs::write(
-        artifacts_dir.join("mcp-background-agent-stress-summary.md"),
+        artifacts_dir.join("mcp-manage-tasks-stress-summary.md"),
         markdown,
     )
     .expect("failed to write mcp stress markdown artifact");

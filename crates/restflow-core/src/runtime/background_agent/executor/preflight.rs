@@ -82,7 +82,7 @@ impl AgentRuntimeExecutor {
             build_trigger_context_signature(normalized_input),
         );
 
-        let all_skills = self.storage.skills.list()?;
+        let all_skills = crate::services::skills::list_available_skills(&self.storage.skills)?;
         let version_hash = build_skill_version_hash(&all_skills);
 
         let mut assigned_skill_ids = agent_node.skills.clone().unwrap_or_default();

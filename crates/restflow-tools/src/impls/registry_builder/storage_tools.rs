@@ -59,8 +59,7 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_skill_tool(mut self, provider: Arc<dyn SkillProvider>) -> Self {
-        self.registry
-            .register(SkillTool::new(provider).with_write(true));
+        self.registry.register(SkillTool::new(provider));
         self
     }
 
@@ -72,11 +71,7 @@ impl ToolRegistryBuilder {
         task_id: impl Into<String>,
     ) -> Self {
         self.registry
-            .register(SkillTool::new(provider).with_write(true).with_security(
-                security_gate,
-                agent_id,
-                task_id,
-            ));
+            .register(SkillTool::new(provider).with_security(security_gate, agent_id, task_id));
         self
     }
 

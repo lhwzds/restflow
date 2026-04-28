@@ -1,6 +1,6 @@
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use crate::models::{AgentNode, MemoryConfig, Skill, SkillPreflightPolicyMode};
+use crate::models::{AgentNode, MemoryConfig, Skill, SkillPreflightPolicyMode, SkillSource};
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_traits::store::ReplySender;
@@ -355,6 +355,37 @@ fn test_build_background_system_prompt_does_not_inject_authorized_triggered_skil
     assert!(prompt.contains("Base Prompt"));
     // Skills are now tools, not injected into prompt
     assert!(!prompt.contains("Authorized Content"));
+}
+
+#[test]
+fn test_resolve_preflight_skills_includes_team_systemskill() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = create_test_executor(storage.clone());
+    let shadow = Skill::new(
+        "team".to_string(),
+        "Shadow Team".to_string(),
+        Some("Storage shadow".to_string()),
+        None,
+        "Shadow Content".to_string(),
+    );
+    storage.skills.create(&shadow).unwrap();
+
+    let node = AgentNode {
+        skills: Some(vec!["team".to_string()]),
+        ..AgentNode::new()
+    };
+    let skills = executor.resolve_preflight_skills(&node, None).unwrap();
+
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].id, "team");
+    assert_eq!(skills[0].source, SkillSource::System);
+    assert!(skills[0].read_only);
+    assert_eq!(
+        skills[0].source_ref.as_deref(),
+        Some("restflow://system/team")
+    );
+    assert!(skills[0].content.contains("spawn_subagent_batch"));
+    assert!(!skills[0].content.contains("Shadow Content"));
 }
 
 #[tokio::test]

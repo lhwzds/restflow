@@ -555,7 +555,10 @@ impl AgentNode {
                     errors.push(ValidationError::new("skills", "skill ID must not be empty"));
                     continue;
                 }
-                match core.storage.skills.exists(normalized) {
+                match crate::services::skills::skill_exists_in_catalog(
+                    &core.storage.skills,
+                    normalized,
+                ) {
                     Ok(true) => {}
                     Ok(false) => errors.push(ValidationError::new(
                         "skills",
@@ -599,6 +602,7 @@ mod tests {
     use super::*;
     use crate::models::Provider;
     use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
+    use restflow_test_support::RestflowTestEnv;
 
     #[test]
     fn with_codex_cli_reasoning_effort_sets_trimmed_value() {
@@ -618,6 +622,24 @@ mod tests {
         let bypass = serde_json::to_string(&CodexCliExecutionMode::Bypass).unwrap();
         assert_eq!(safe, "\"safe\"");
         assert_eq!(bypass, "\"bypass\"");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn validate_async_accepts_team_systemskill() {
+        let env = RestflowTestEnv::new();
+        let core = Arc::new(
+            AppCore::new(env.db_path("agent-systemskill.db").to_str().unwrap())
+                .await
+                .unwrap(),
+        );
+        let node = AgentNode {
+            skills: Some(vec!["team".to_string()]),
+            ..AgentNode::new()
+        };
+
+        let result = node.validate_async(&core).await;
+
+        assert!(result.is_ok(), "unexpected validation errors: {result:?}");
     }
 
     #[test]
