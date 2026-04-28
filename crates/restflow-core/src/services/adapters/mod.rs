@@ -6,7 +6,6 @@
 
 pub mod agent;
 pub mod auth_profile;
-pub mod background_agent;
 pub mod config;
 pub mod marketplace;
 pub mod memory;
@@ -15,12 +14,12 @@ pub mod secret;
 pub mod security_query;
 pub mod session;
 pub mod skill_provider;
+pub mod task_store;
 pub mod terminal;
 pub mod unified_search;
 
 pub use agent::AgentStoreAdapter;
 pub use auth_profile::AuthProfileStorageAdapter;
-pub use background_agent::TaskStoreAdapter;
 pub use config::ConfigStoreAdapter;
 pub use marketplace::MarketplaceStoreAdapter;
 pub use memory::DbMemoryStoreAdapter;
@@ -29,5 +28,6 @@ pub use secret::SecretStoreAdapter;
 pub use security_query::SecurityQueryProviderAdapter;
 pub use session::SessionStorageAdapter;
 pub use skill_provider::{CompositeSkillProvider, SkillStorageProvider, SystemSkillProvider};
+pub use task_store::TaskStoreAdapter;
 pub use terminal::TerminalStoreAdapter;
 pub use unified_search::UnifiedMemorySearchAdapter;
