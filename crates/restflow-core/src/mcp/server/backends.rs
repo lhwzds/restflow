@@ -1,8 +1,12 @@
 use super::*;
-use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
+use crate::boundary::background_agent::{
+    core_patch_to_contract, core_patch_to_update_request, core_spec_to_contract,
+    core_spec_to_create_request,
+};
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
 use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::hook_capability::HookCapabilityService;
+use crate::services::operation_assessment::OperationAssessorAdapter;
 
 fn resolve_task_id(
     storage: &crate::storage::BackgroundAgentStorage,
@@ -24,6 +28,13 @@ pub(super) struct CoreBackend {
 impl CoreBackend {
     fn session_service(&self) -> crate::services::session::SessionService {
         crate::services::session::SessionService::from_storage(&self.core.storage)
+    }
+
+    fn task_command_service(&self) -> TaskCommandService {
+        TaskCommandService::from_storage(
+            self.core.storage.as_ref(),
+            Some(Arc::new(OperationAssessorAdapter::new(self.core.clone()))),
+        )
     }
 
     fn get_registry(&self) -> Result<&restflow_traits::registry::ToolRegistry, String> {
@@ -183,38 +194,52 @@ impl McpBackend for CoreBackend {
     }
 
     async fn create_task(&self, spec: TaskSpec) -> Result<Task, String> {
-        self.core
-            .storage
-            .background_agents
-            .create_background_agent(spec)
-            .map_err(|e| e.to_string())
+        let request = core_spec_to_create_request(&spec).map_err(|e| e.to_string())?;
+        let outcome = self
+            .task_command_service()
+            .create_from_request(request, TaskExecutionMode::Direct)
+            .await
+            .map_err(|e| e.to_string())?;
+        TaskCommandService::into_direct_result(outcome).map_err(|e| e.to_string())
     }
 
     async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        self.core
-            .storage
-            .background_agents
-            .update_background_agent(id, patch)
-            .map_err(|e| e.to_string())
+        let request =
+            core_patch_to_update_request(id.to_string(), &patch).map_err(|e| e.to_string())?;
+        let outcome = self
+            .task_command_service()
+            .update_from_request(request, TaskExecutionMode::Direct)
+            .await
+            .map_err(|e| e.to_string())?;
+        TaskCommandService::into_direct_result(outcome).map_err(|e| e.to_string())
     }
 
     async fn delete_task(
         &self,
         request: TaskDeleteRequest,
     ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        let service = TaskCommandService::from_storage(self.core.storage.as_ref(), None);
-        service
+        self.task_command_service()
             .delete_from_request(request, TaskExecutionMode::Guarded)
             .await
             .map_err(|e| e.to_string())
     }
 
     async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
-        self.core
-            .storage
-            .background_agents
-            .control_background_agent(id, action)
-            .map_err(|e| e.to_string())
+        let action = to_contract(action).map_err(|e| e.to_string())?;
+        let outcome = self
+            .task_command_service()
+            .control_from_request(
+                restflow_traits::store::TaskControlRequest {
+                    id: id.to_string(),
+                    action,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        TaskCommandService::into_direct_result(outcome).map_err(|e| e.to_string())
     }
 
     async fn get_task_progress(
@@ -713,5 +738,79 @@ impl McpBackend for IpcBackend {
     async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
         let config: SystemConfig = self.request_typed(IpcRequest::GetConfig).await?;
         Ok(config.api_defaults)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::TaskSchedule;
+
+    #[tokio::test]
+    async fn core_backend_task_mutations_use_command_service_resolution() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let db_path = temp_dir.path().join("mcp-core-backend.db");
+        let core = Arc::new(
+            AppCore::new(db_path.to_str().expect("db path"))
+                .await
+                .expect("core"),
+        );
+        let default_agent_id = core
+            .storage
+            .agents
+            .resolve_default_agent_id()
+            .expect("default agent");
+        let backend = CoreBackend {
+            core,
+            registry: std::sync::OnceLock::new(),
+        };
+
+        let created = backend
+            .create_task(TaskSpec {
+                name: "MCP Core Task".to_string(),
+                agent_id: "default".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("Run from MCP core backend".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .await
+            .expect("create task");
+
+        assert_eq!(created.agent_id, default_agent_id);
+
+        let prefix = created.id[..8].to_string();
+        let updated = backend
+            .update_task(
+                &prefix,
+                TaskPatch {
+                    name: Some("Updated MCP Core Task".to_string()),
+                    agent_id: Some("default".to_string()),
+                    ..TaskPatch::default()
+                },
+            )
+            .await
+            .expect("update task by prefix");
+
+        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.agent_id, default_agent_id);
+        assert_eq!(updated.name, "Updated MCP Core Task");
+
+        let paused = backend
+            .control_task(&prefix, TaskControlAction::Pause)
+            .await
+            .expect("control task by prefix");
+
+        assert_eq!(paused.id, created.id);
+        assert_eq!(paused.status, TaskStatus::Paused);
     }
 }
