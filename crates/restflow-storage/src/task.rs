@@ -1,56 +1,173 @@
-//! Agent Task storage - byte-level API for agent task persistence.
+//! Task storage - byte-level API for durable task persistence.
 //!
-//! Provides low-level storage operations for scheduled agent tasks and their
+//! Provides low-level storage operations for durable tasks and their
 //! execution events using the redb embedded database.
 
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{
+    Database, Key, ReadableDatabase, ReadableTable, TableDefinition, TableHandle, Value,
+    WriteTransaction,
+};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::range_utils::prefix_range;
 
-const BACKGROUND_AGENT_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_agents");
-const BACKGROUND_AGENT_EVENT_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_agent_events");
+const TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("tasks");
+const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_events");
 /// Index table: task_id -> event_id (for listing events by task)
-const BACKGROUND_AGENT_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_event_index");
+const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_event_index");
 /// Index table: status:task_id -> task_id (for listing tasks by status)
-const BACKGROUND_AGENT_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_status_index");
+const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_status_index");
 /// Reverse index: task_id -> status:task_id (for direct status cleanup)
-const BACKGROUND_AGENT_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_status_lookup");
+const TASK_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_status_lookup");
 /// Background execution attempt payload table.
-const BACKGROUND_AGENT_RUN_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_agent_runs");
+const TASK_RUN_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_runs");
 /// Index table: task_id:run_id -> run_id
-const BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_run_task_index");
+const TASK_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_run_task_index");
 /// Index table: task_id -> run_id for the single active run of one task.
-const BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_active_run_index");
-/// Background message payload table
-const BACKGROUND_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_messages");
+const TASK_ACTIVE_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_active_run_index");
+/// Task message payload table
+const TASK_MESSAGE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_messages");
 /// Index table: task_id:message_id -> message_id
-const BACKGROUND_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_message_task_index");
+const TASK_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_message_task_index");
 /// Index table: status:task_id:message_id -> message_id
-const BACKGROUND_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_message_status_index");
+const TASK_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_message_status_index");
 /// Reverse index: message_id -> status:task_id:message_id
-const BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
+const TASK_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_message_status_lookup");
+
+const LEGACY_TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("background_agents");
+const LEGACY_TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_agent_events");
+const LEGACY_TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_event_index");
+const LEGACY_TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_status_index");
+const LEGACY_TASK_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_status_lookup");
+const LEGACY_TASK_RUN_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_agent_runs");
+const LEGACY_TASK_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_run_task_index");
+const LEGACY_TASK_ACTIVE_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_active_run_index");
+const LEGACY_TASK_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_messages");
+const LEGACY_TASK_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_message_task_index");
+const LEGACY_TASK_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_message_status_index");
+const LEGACY_TASK_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("background_message_status_lookup");
 
-/// Low-level agent task storage with byte-level API
+/// Low-level task storage with byte-level API.
 #[derive(Clone)]
-pub struct BackgroundAgentStorage {
+pub struct TaskStorage {
     db: Arc<Database>,
 }
 
-impl BackgroundAgentStorage {
+impl TaskStorage {
+    fn migrate_legacy_tables(write_txn: &WriteTransaction) -> Result<()> {
+        let existing_tables = write_txn
+            .list_tables()?
+            .map(|table| table.name().to_string())
+            .collect::<HashSet<_>>();
+
+        Self::rename_legacy_table(write_txn, &existing_tables, LEGACY_TASK_TABLE, TASK_TABLE)?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_EVENT_TABLE,
+            TASK_EVENT_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_EVENT_INDEX_TABLE,
+            TASK_EVENT_INDEX_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_STATUS_INDEX_TABLE,
+            TASK_STATUS_INDEX_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_STATUS_LOOKUP_TABLE,
+            TASK_STATUS_LOOKUP_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_RUN_TABLE,
+            TASK_RUN_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_RUN_TASK_INDEX_TABLE,
+            TASK_RUN_TASK_INDEX_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_ACTIVE_RUN_INDEX_TABLE,
+            TASK_ACTIVE_RUN_INDEX_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_MESSAGE_TABLE,
+            TASK_MESSAGE_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_MESSAGE_TASK_INDEX_TABLE,
+            TASK_MESSAGE_TASK_INDEX_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_MESSAGE_STATUS_INDEX_TABLE,
+            TASK_MESSAGE_STATUS_INDEX_TABLE,
+        )?;
+        Self::rename_legacy_table(
+            write_txn,
+            &existing_tables,
+            LEGACY_TASK_MESSAGE_STATUS_LOOKUP_TABLE,
+            TASK_MESSAGE_STATUS_LOOKUP_TABLE,
+        )?;
+
+        Ok(())
+    }
+
+    fn rename_legacy_table<K, V>(
+        write_txn: &WriteTransaction,
+        existing_tables: &HashSet<String>,
+        legacy: TableDefinition<K, V>,
+        current: TableDefinition<K, V>,
+    ) -> Result<()>
+    where
+        K: Key + 'static,
+        V: Value + 'static,
+    {
+        if existing_tables.contains(legacy.name()) && !existing_tables.contains(current.name()) {
+            write_txn.rename_table(legacy, current)?;
+        }
+        Ok(())
+    }
+
     fn parse_chat_session_id(data: &[u8]) -> Result<Option<String>> {
         let value: serde_json::Value =
             serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
@@ -114,7 +231,7 @@ impl BackgroundAgentStorage {
         let payload_task_id = Self::parse_run_task_id(data)?;
         if payload_task_id != task_id {
             anyhow::bail!(
-                "background run '{}' payload task_id '{}' does not match '{}'",
+                "task run '{}' payload task_id '{}' does not match '{}'",
                 run_id,
                 payload_task_id,
                 task_id
@@ -124,7 +241,7 @@ impl BackgroundAgentStorage {
         let payload_status = Self::parse_run_status(data)?;
         if payload_status != status {
             anyhow::bail!(
-                "background run '{}' payload status '{}' does not match '{}'",
+                "task run '{}' payload status '{}' does not match '{}'",
                 run_id,
                 payload_status,
                 status
@@ -141,7 +258,7 @@ impl BackgroundAgentStorage {
     ) -> Result<()> {
         if table.get(task_id)?.is_none() {
             anyhow::bail!(
-                "background run '{}' references missing background task '{}'",
+                "task run '{}' references missing background task '{}'",
                 run_id,
                 task_id
             );
@@ -235,22 +352,23 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Create a new BackgroundAgentStorage instance
+    /// Create a new TaskStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
         let write_txn = db.begin_write()?;
-        write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
-        write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
-        write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
-        write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
-        write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-        write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+        Self::migrate_legacy_tables(&write_txn)?;
+        write_txn.open_table(TASK_TABLE)?;
+        write_txn.open_table(TASK_EVENT_TABLE)?;
+        write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+        write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
+        write_txn.open_table(TASK_RUN_TABLE)?;
+        write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
+        write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
+        write_txn.open_table(TASK_MESSAGE_TABLE)?;
+        write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
+        write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
+        write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
         write_txn.commit()?;
 
         Ok(Self { db })
@@ -262,7 +380,7 @@ impl BackgroundAgentStorage {
     pub fn put_task_raw(&self, id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let mut table = write_txn.open_table(TASK_TABLE)?;
             table.insert(id, data)?;
         }
         write_txn.commit()?;
@@ -273,13 +391,13 @@ impl BackgroundAgentStorage {
     pub fn put_task_raw_with_status(&self, id: &str, status: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let mut table = write_txn.open_table(TASK_TABLE)?;
             let chat_session_id = Self::extract_chat_session_id(data);
             Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
             table.insert(id, data)?;
 
-            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
             if let Some(previous_key) = status_lookup.get(id)? {
                 status_index.remove(previous_key.value())?;
             }
@@ -302,13 +420,13 @@ impl BackgroundAgentStorage {
     ) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let mut table = write_txn.open_table(TASK_TABLE)?;
             let chat_session_id = Self::extract_chat_session_id(data);
             Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
             table.insert(id, data)?;
 
-            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
             if let Some(previous_key) = status_lookup.get(id)? {
                 status_index.remove(previous_key.value())?;
             } else if old_status != new_status {
@@ -339,7 +457,7 @@ impl BackgroundAgentStorage {
         data: &[u8],
     ) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
-        let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+        let mut table = write_txn.open_table(TASK_TABLE)?;
         let Some(existing) = table.get(id)? else {
             drop(table);
             write_txn.abort()?;
@@ -359,8 +477,8 @@ impl BackgroundAgentStorage {
         table.insert(id, data)?;
         drop(table);
 
-        let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-        let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+        let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
         if let Some(previous_key) = status_lookup.get(id)? {
             status_index.remove(previous_key.value())?;
         } else if current_status != new_status {
@@ -380,7 +498,7 @@ impl BackgroundAgentStorage {
     /// Get raw agent task data by ID
     pub fn get_task_raw(&self, id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+        let table = read_txn.open_table(TASK_TABLE)?;
 
         if let Some(value) = table.get(id)? {
             Ok(Some(value.value().to_vec()))
@@ -392,7 +510,7 @@ impl BackgroundAgentStorage {
     /// List all raw agent task data
     pub fn list_tasks_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+        let table = read_txn.open_table(TASK_TABLE)?;
 
         let mut tasks = Vec::new();
         for item in table.iter()? {
@@ -406,8 +524,8 @@ impl BackgroundAgentStorage {
     /// List tasks by status using the status index
     pub fn list_tasks_by_status_indexed(&self, status: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let status_index = read_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-        let task_table = read_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+        let status_index = read_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        let task_table = read_txn.open_table(TASK_TABLE)?;
 
         let prefix = format!("{}:", status);
         let (start, end) = prefix_range(&prefix);
@@ -428,13 +546,12 @@ impl BackgroundAgentStorage {
     pub fn delete_task(&self, id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let mut table = write_txn.open_table(TASK_TABLE)?;
             let existed = table.remove(id)?.is_some();
 
-            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
-            let mut active_run_index =
-                write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
+            let mut active_run_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
             if let Some(previous_key) = status_lookup.get(id)? {
                 status_index.remove(previous_key.value())?;
             }
@@ -451,13 +568,12 @@ impl BackgroundAgentStorage {
     pub fn delete_task_with_status(&self, id: &str, status: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let mut table = write_txn.open_table(TASK_TABLE)?;
             let existed = table.remove(id)?.is_some();
 
-            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
-            let mut active_run_index =
-                write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
+            let mut active_run_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
             if let Some(previous_key) = status_lookup.get(id)? {
                 status_index.remove(previous_key.value())?;
             } else {
@@ -477,14 +593,14 @@ impl BackgroundAgentStorage {
     pub fn delete_task_cascade(&self, id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut task_table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let mut task_table = write_txn.open_table(TASK_TABLE)?;
             let existed = task_table.get(id)?.is_some();
 
             let prefix = format!("{}:", id);
             let (start, end) = prefix_range(&prefix);
 
-            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
-            let mut event_index = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
+            let mut event_index = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
             let mut event_keys = Vec::new();
             for item in event_index.range(start.as_str()..end.as_str())? {
                 let (key, value) = item?;
@@ -495,10 +611,9 @@ impl BackgroundAgentStorage {
                 event_table.remove(event_id.as_str())?;
             }
 
-            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
-            let mut run_task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
-            let mut active_run_index =
-                write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
+            let mut run_task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
+            let mut active_run_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
             let mut run_keys = Vec::new();
             for item in run_task_index.range(start.as_str()..end.as_str())? {
                 let (key, value) = item?;
@@ -510,13 +625,11 @@ impl BackgroundAgentStorage {
             }
             active_run_index.remove(id)?;
 
-            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
-            let mut message_task_index =
-                write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
-            let mut message_status_index =
-                write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
+            let mut message_task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut message_status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
             let mut message_status_lookup =
-                write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+                write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
             let mut message_keys = Vec::new();
             for item in message_task_index.range(start.as_str()..end.as_str())? {
                 let (key, value) = item?;
@@ -531,10 +644,8 @@ impl BackgroundAgentStorage {
                 message_table.remove(message_id.as_str())?;
             }
 
-            let mut task_status_index =
-                write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let mut task_status_lookup =
-                write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            let mut task_status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut task_status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
             if let Some(status_key) = task_status_lookup.get(id)? {
                 task_status_index.remove(status_key.value())?;
             }
@@ -550,14 +661,14 @@ impl BackgroundAgentStorage {
         Ok(existed)
     }
 
-    /// Store raw background run data with a task index entry.
+    /// Store raw task run data with a task index entry.
     pub fn put_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
             run_table.insert(run_id, data)?;
 
-            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
             let task_key = format!("{}:{}", task_id, run_id);
             task_index.insert(task_key.as_str(), run_id)?;
         }
@@ -565,7 +676,7 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Store raw background run data and keep the active-run index consistent.
+    /// Store raw task run data and keep the active-run index consistent.
     pub fn put_run_raw_with_status(
         &self,
         run_id: &str,
@@ -577,19 +688,19 @@ impl BackgroundAgentStorage {
 
         let write_txn = self.db.begin_write()?;
         {
-            let task_table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let task_table = write_txn.open_table(TASK_TABLE)?;
             Self::ensure_task_exists(&task_table, task_id, run_id)?;
             drop(task_table);
 
-            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
-            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
-            let mut active_index = write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
+            let mut active_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
 
             if let Some(existing) = run_table.get(run_id)? {
                 let existing_task_id = Self::parse_run_task_id(existing.value())?;
                 if existing_task_id != task_id {
                     anyhow::bail!(
-                        "background run '{}' is indexed under task '{}', not '{}'",
+                        "task run '{}' is indexed under task '{}', not '{}'",
                         run_id,
                         existing_task_id,
                         task_id
@@ -613,14 +724,14 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Update raw background run data while preserving the task index.
+    /// Update raw task run data while preserving the task index.
     pub fn update_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
             run_table.insert(run_id, data)?;
 
-            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
             let task_key = format!("{}:{}", task_id, run_id);
             task_index.insert(task_key.as_str(), run_id)?;
         }
@@ -628,7 +739,7 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Update raw background run data while preserving task index and active-run consistency.
+    /// Update raw task run data while preserving task index and active-run consistency.
     pub fn update_run_raw_with_status(
         &self,
         run_id: &str,
@@ -641,17 +752,17 @@ impl BackgroundAgentStorage {
 
         let write_txn = self.db.begin_write()?;
         {
-            let task_table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let task_table = write_txn.open_table(TASK_TABLE)?;
             Self::ensure_task_exists(&task_table, task_id, run_id)?;
             drop(task_table);
 
-            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
             let current_status = match run_table.get(run_id)? {
                 Some(existing) => {
                     let existing_task_id = Self::parse_run_task_id(existing.value())?;
                     if existing_task_id != task_id {
                         anyhow::bail!(
-                            "background run '{}' is indexed under task '{}', not '{}'",
+                            "task run '{}' is indexed under task '{}', not '{}'",
                             run_id,
                             existing_task_id,
                             task_id
@@ -662,8 +773,8 @@ impl BackgroundAgentStorage {
                 None => old_status.to_string(),
             };
 
-            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
-            let mut active_index = write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
+            let mut active_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
 
             Self::reconcile_active_run_slot(
                 &mut active_index,
@@ -690,17 +801,17 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Get raw background run data by ID.
+    /// Get raw task run data by ID.
     pub fn get_run_raw(&self, run_id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
         Ok(run_table.get(run_id)?.map(|value| value.value().to_vec()))
     }
 
-    /// List all raw background run payloads.
+    /// List all raw task run payloads.
     pub fn list_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
         let mut runs = Vec::new();
         for item in run_table.iter()? {
             let (key, value) = item?;
@@ -709,11 +820,11 @@ impl BackgroundAgentStorage {
         Ok(runs)
     }
 
-    /// List raw background run payloads for one task.
+    /// List raw task run payloads for one task.
     pub fn list_runs_by_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let task_index = read_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
-        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let task_index = read_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
+        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
 
         let prefix = format!("{}:", task_id);
         let (start, end) = prefix_range(&prefix);
@@ -731,8 +842,8 @@ impl BackgroundAgentStorage {
     /// Return the active run payload referenced by the task-level active-run index.
     pub fn get_active_run_raw(&self, task_id: &str) -> Result<Option<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let active_index = read_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
-        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let active_index = read_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
+        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
 
         let Some(run_id) = active_index.get(task_id)? else {
             return Ok(None);
@@ -748,7 +859,7 @@ impl BackgroundAgentStorage {
     pub fn clear_active_run_raw(&self, task_id: &str) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut active_index = write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            let mut active_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
             active_index.remove(task_id)?;
         }
         write_txn.commit()?;
@@ -758,8 +869,8 @@ impl BackgroundAgentStorage {
     /// List all active run payloads referenced by the task-level active-run index.
     pub fn list_active_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let active_index = read_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
-        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let active_index = read_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
+        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
         let mut runs = Vec::new();
 
         for item in active_index.iter()? {
@@ -773,10 +884,10 @@ impl BackgroundAgentStorage {
         Ok(runs)
     }
 
-    // ============== Background Message Operations ==============
+    // ============== Task Message Operations ==============
 
-    /// Store raw background message data with task/status indices.
-    pub fn put_background_message_raw_with_status(
+    /// Store raw task message data with task/status indices.
+    pub fn put_task_message_raw_with_status(
         &self,
         message_id: &str,
         task_id: &str,
@@ -785,15 +896,15 @@ impl BackgroundAgentStorage {
     ) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
             message_table.insert(message_id, data)?;
 
-            let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
             let task_key = format!("{}:{}", task_id, message_id);
             task_index.insert(task_key.as_str(), message_id)?;
 
-            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
             if let Some(previous_key) = status_lookup.get(message_id)? {
                 status_index.remove(previous_key.value())?;
             }
@@ -805,8 +916,8 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Update raw background message data and keep status index consistent.
-    pub fn update_background_message_raw_with_status(
+    /// Update raw task message data and keep status index consistent.
+    pub fn update_task_message_raw_with_status(
         &self,
         message_id: &str,
         task_id: &str,
@@ -816,11 +927,11 @@ impl BackgroundAgentStorage {
     ) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
             message_table.insert(message_id, data)?;
 
-            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
             if let Some(previous_key) = status_lookup.get(message_id)? {
                 status_index.remove(previous_key.value())?;
             } else if old_status != new_status {
@@ -836,10 +947,10 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
-    /// Get raw background message data by ID.
-    pub fn get_background_message_raw(&self, message_id: &str) -> Result<Option<Vec<u8>>> {
+    /// Get raw task message data by ID.
+    pub fn get_task_message_raw(&self, message_id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+        let table = read_txn.open_table(TASK_MESSAGE_TABLE)?;
 
         if let Some(value) = table.get(message_id)? {
             Ok(Some(value.value().to_vec()))
@@ -848,14 +959,11 @@ impl BackgroundAgentStorage {
         }
     }
 
-    /// List raw background messages for a task.
-    pub fn list_background_messages_for_task_raw(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<(String, Vec<u8>)>> {
+    /// List raw task messages for a task.
+    pub fn list_task_messages_for_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let task_index = read_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
-        let message_table = read_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+        let task_index = read_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
+        let message_table = read_txn.open_table(TASK_MESSAGE_TABLE)?;
 
         let prefix = format!("{}:", task_id);
         let (start, end) = prefix_range(&prefix);
@@ -872,15 +980,15 @@ impl BackgroundAgentStorage {
         Ok(messages)
     }
 
-    /// List raw background messages for a task by status.
-    pub fn list_background_messages_by_status_for_task_raw(
+    /// List raw task messages for a task by status.
+    pub fn list_task_messages_by_status_for_task_raw(
         &self,
         task_id: &str,
         status: &str,
     ) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let status_index = read_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-        let message_table = read_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+        let status_index = read_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
+        let message_table = read_txn.open_table(TASK_MESSAGE_TABLE)?;
 
         let prefix = format!("{}:{}:", status, task_id);
         let (start, end) = prefix_range(&prefix);
@@ -897,8 +1005,8 @@ impl BackgroundAgentStorage {
         Ok(messages)
     }
 
-    /// Delete one background message and related indices.
-    pub fn delete_background_message(
+    /// Delete one task message and related indices.
+    pub fn delete_task_message(
         &self,
         message_id: &str,
         task_id: &str,
@@ -906,15 +1014,15 @@ impl BackgroundAgentStorage {
     ) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
             let existed = message_table.remove(message_id)?.is_some();
 
-            let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
             let task_key = format!("{}:{}", task_id, message_id);
             task_index.remove(task_key.as_str())?;
 
-            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
             if let Some(previous_key) = status_lookup.get(message_id)? {
                 status_index.remove(previous_key.value())?;
             } else {
@@ -929,9 +1037,9 @@ impl BackgroundAgentStorage {
         Ok(existed)
     }
 
-    /// Delete all background messages for a task.
-    pub fn delete_background_messages_for_task(&self, task_id: &str) -> Result<u32> {
-        let messages = self.list_background_messages_for_task_raw(task_id)?;
+    /// Delete all task messages for a task.
+    pub fn delete_task_messages_for_task(&self, task_id: &str) -> Result<u32> {
+        let messages = self.list_task_messages_for_task_raw(task_id)?;
         let count = messages.len() as u32;
 
         if count == 0 {
@@ -940,10 +1048,10 @@ impl BackgroundAgentStorage {
 
         let write_txn = self.db.begin_write()?;
         {
-            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
-            let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
-            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
+            let mut task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
 
             for (message_id, data) in &messages {
                 message_table.remove(message_id.as_str())?;
@@ -972,11 +1080,11 @@ impl BackgroundAgentStorage {
     pub fn put_event_raw(&self, event_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
             event_table.insert(event_id, data)?;
 
             // Create composite index key: task_id:timestamp:event_id for ordered retrieval
-            let mut index_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
             let index_key = format!("{}:{}", task_id, event_id);
             index_table.insert(index_key.as_str(), event_id)?;
         }
@@ -987,7 +1095,7 @@ impl BackgroundAgentStorage {
     /// Get raw task event data by ID
     pub fn get_event_raw(&self, event_id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+        let table = read_txn.open_table(TASK_EVENT_TABLE)?;
 
         if let Some(value) = table.get(event_id)? {
             Ok(Some(value.value().to_vec()))
@@ -999,8 +1107,8 @@ impl BackgroundAgentStorage {
     /// List all events for a specific task
     pub fn list_events_for_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let index_table = read_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
-        let event_table = read_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+        let index_table = read_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+        let event_table = read_txn.open_table(TASK_EVENT_TABLE)?;
 
         let prefix = format!("{}:", task_id);
         let (start, end) = prefix_range(&prefix);
@@ -1021,11 +1129,11 @@ impl BackgroundAgentStorage {
     pub fn delete_event(&self, event_id: &str, task_id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
             let existed = event_table.remove(event_id)?.is_some();
 
             // Remove from index
-            let mut index_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
             let index_key = format!("{}:{}", task_id, event_id);
             index_table.remove(index_key.as_str())?;
 
@@ -1047,8 +1155,8 @@ impl BackgroundAgentStorage {
 
         let write_txn = self.db.begin_write()?;
         {
-            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
-            let mut index_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
+            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
 
             for (event_id, _) in &events {
                 event_table.remove(event_id.as_str())?;
@@ -1100,11 +1208,87 @@ mod tests {
         .into_bytes()
     }
 
-    fn create_test_storage() -> BackgroundAgentStorage {
+    fn create_test_storage() -> TaskStorage {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        BackgroundAgentStorage::new(db).unwrap()
+        TaskStorage::new(db).unwrap()
+    }
+
+    #[test]
+    fn test_migrates_legacy_tables_to_task_tables() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        {
+            let db = Arc::new(Database::create(&db_path).unwrap());
+            let write_txn = db.begin_write().unwrap();
+            {
+                let mut task_table = write_txn.open_table(LEGACY_TASK_TABLE).unwrap();
+                let task_data: &[u8] = b"legacy-task";
+                task_table.insert("task-1", &task_data).unwrap();
+            }
+            {
+                let mut message_table = write_txn.open_table(LEGACY_TASK_MESSAGE_TABLE).unwrap();
+                let message_data: &[u8] = b"legacy-message";
+                message_table.insert("msg-1", &message_data).unwrap();
+            }
+            {
+                let mut message_index = write_txn
+                    .open_table(LEGACY_TASK_MESSAGE_TASK_INDEX_TABLE)
+                    .unwrap();
+                message_index.insert("task-1:msg-1", "msg-1").unwrap();
+            }
+            write_txn.open_table(LEGACY_TASK_EVENT_TABLE).unwrap();
+            write_txn.open_table(LEGACY_TASK_EVENT_INDEX_TABLE).unwrap();
+            write_txn
+                .open_table(LEGACY_TASK_STATUS_INDEX_TABLE)
+                .unwrap();
+            write_txn
+                .open_table(LEGACY_TASK_STATUS_LOOKUP_TABLE)
+                .unwrap();
+            write_txn.open_table(LEGACY_TASK_RUN_TABLE).unwrap();
+            write_txn
+                .open_table(LEGACY_TASK_RUN_TASK_INDEX_TABLE)
+                .unwrap();
+            write_txn
+                .open_table(LEGACY_TASK_ACTIVE_RUN_INDEX_TABLE)
+                .unwrap();
+            write_txn
+                .open_table(LEGACY_TASK_MESSAGE_STATUS_INDEX_TABLE)
+                .unwrap();
+            write_txn
+                .open_table(LEGACY_TASK_MESSAGE_STATUS_LOOKUP_TABLE)
+                .unwrap();
+            write_txn.commit().unwrap();
+        }
+
+        let db = Arc::new(Database::open(&db_path).unwrap());
+        let storage = TaskStorage::new(db.clone()).unwrap();
+
+        assert_eq!(
+            storage.get_task_raw("task-1").unwrap().as_deref(),
+            Some(&b"legacy-task"[..])
+        );
+        assert_eq!(
+            storage
+                .list_task_messages_for_task_raw("task-1")
+                .unwrap()
+                .first()
+                .map(|(_, data)| data.as_slice()),
+            Some(&b"legacy-message"[..])
+        );
+
+        let read_txn = db.begin_read().unwrap();
+        let tables = read_txn
+            .list_tables()
+            .unwrap()
+            .map(|table| table.name().to_string())
+            .collect::<HashSet<_>>();
+        assert!(tables.contains(TASK_TABLE.name()));
+        assert!(tables.contains(TASK_MESSAGE_TABLE.name()));
+        assert!(!tables.contains(LEGACY_TASK_TABLE.name()));
+        assert!(!tables.contains(LEGACY_TASK_MESSAGE_TABLE.name()));
     }
 
     #[test]
@@ -1470,24 +1654,24 @@ mod tests {
     }
 
     #[test]
-    fn test_put_and_get_background_message_raw() {
+    fn test_put_and_get_task_message_raw() {
         let storage = create_test_storage();
         let data = br#"{"id":"msg-1","status":"queued"}"#;
 
         storage
-            .put_background_message_raw_with_status("msg-1", "task-1", "queued", data)
+            .put_task_message_raw_with_status("msg-1", "task-1", "queued", data)
             .unwrap();
 
-        let raw = storage.get_background_message_raw("msg-1").unwrap();
+        let raw = storage.get_task_message_raw("msg-1").unwrap();
         assert!(raw.is_some());
         assert_eq!(raw.unwrap(), data);
     }
 
     #[test]
-    fn test_list_background_messages_for_task_raw() {
+    fn test_list_task_messages_for_task_raw() {
         let storage = create_test_storage();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-1",
                 "task-1",
                 "queued",
@@ -1495,7 +1679,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-2",
                 "task-1",
                 "delivered",
@@ -1503,7 +1687,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-3",
                 "task-2",
                 "queued",
@@ -1511,11 +1695,9 @@ mod tests {
             )
             .unwrap();
 
-        let task1 = storage
-            .list_background_messages_for_task_raw("task-1")
-            .unwrap();
+        let task1 = storage.list_task_messages_for_task_raw("task-1").unwrap();
         let queued_task1 = storage
-            .list_background_messages_by_status_for_task_raw("task-1", "queued")
+            .list_task_messages_by_status_for_task_raw("task-1", "queued")
             .unwrap();
 
         assert_eq!(task1.len(), 2);
@@ -1523,10 +1705,10 @@ mod tests {
     }
 
     #[test]
-    fn test_update_background_message_raw_with_status() {
+    fn test_update_task_message_raw_with_status() {
         let storage = create_test_storage();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-1",
                 "task-1",
                 "queued",
@@ -1534,7 +1716,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .update_background_message_raw_with_status(
+            .update_task_message_raw_with_status(
                 "msg-1",
                 "task-1",
                 "queued",
@@ -1544,20 +1726,20 @@ mod tests {
             .unwrap();
 
         let queued = storage
-            .list_background_messages_by_status_for_task_raw("task-1", "queued")
+            .list_task_messages_by_status_for_task_raw("task-1", "queued")
             .unwrap();
         let delivered = storage
-            .list_background_messages_by_status_for_task_raw("task-1", "delivered")
+            .list_task_messages_by_status_for_task_raw("task-1", "delivered")
             .unwrap();
         assert!(queued.is_empty());
         assert_eq!(delivered.len(), 1);
     }
 
     #[test]
-    fn test_delete_background_messages_for_task() {
+    fn test_delete_task_messages_for_task() {
         let storage = create_test_storage();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-1",
                 "task-1",
                 "queued",
@@ -1565,7 +1747,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-2",
                 "task-1",
                 "delivered",
@@ -1573,7 +1755,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-3",
                 "task-2",
                 "queued",
@@ -1581,46 +1763,38 @@ mod tests {
             )
             .unwrap();
 
-        let deleted = storage
-            .delete_background_messages_for_task("task-1")
-            .unwrap();
+        let deleted = storage.delete_task_messages_for_task("task-1").unwrap();
         assert_eq!(deleted, 2);
 
-        let remaining_task1 = storage
-            .list_background_messages_for_task_raw("task-1")
-            .unwrap();
-        let remaining_task2 = storage
-            .list_background_messages_for_task_raw("task-2")
-            .unwrap();
+        let remaining_task1 = storage.list_task_messages_for_task_raw("task-1").unwrap();
+        let remaining_task2 = storage.list_task_messages_for_task_raw("task-2").unwrap();
         assert!(remaining_task1.is_empty());
         assert_eq!(remaining_task2.len(), 1);
     }
 
     #[test]
-    fn test_delete_background_messages_for_task_removes_status_index_for_non_json_payload() {
+    fn test_delete_task_messages_for_task_removes_status_index_for_non_json_payload() {
         let storage = create_test_storage();
         storage
-            .put_background_message_raw_with_status("msg-1", "task-1", "queued", b"raw-msg-1")
+            .put_task_message_raw_with_status("msg-1", "task-1", "queued", b"raw-msg-1")
             .unwrap();
         storage
-            .put_background_message_raw_with_status("msg-2", "task-1", "queued", b"raw-msg-2")
+            .put_task_message_raw_with_status("msg-2", "task-1", "queued", b"raw-msg-2")
             .unwrap();
 
         assert_eq!(
             storage
-                .list_background_messages_by_status_for_task_raw("task-1", "queued")
+                .list_task_messages_by_status_for_task_raw("task-1", "queued")
                 .unwrap()
                 .len(),
             2
         );
 
-        let deleted = storage
-            .delete_background_messages_for_task("task-1")
-            .unwrap();
+        let deleted = storage.delete_task_messages_for_task("task-1").unwrap();
         assert_eq!(deleted, 2);
         assert!(
             storage
-                .list_background_messages_by_status_for_task_raw("task-1", "queued")
+                .list_task_messages_by_status_for_task_raw("task-1", "queued")
                 .unwrap()
                 .is_empty()
         );
@@ -1832,7 +2006,7 @@ mod tests {
             .unwrap();
 
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-1",
                 "task-1",
                 "queued",
@@ -1840,7 +2014,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-2",
                 "task-1",
                 "delivered",
@@ -1848,7 +2022,7 @@ mod tests {
             )
             .unwrap();
         storage
-            .put_background_message_raw_with_status(
+            .put_task_message_raw_with_status(
                 "msg-3",
                 "task-2",
                 "queued",
@@ -1865,7 +2039,7 @@ mod tests {
         assert!(storage.get_active_run_raw("task-1").unwrap().is_none());
         assert_eq!(
             storage
-                .list_background_messages_for_task_raw("task-1")
+                .list_task_messages_for_task_raw("task-1")
                 .unwrap()
                 .len(),
             0
@@ -1880,7 +2054,7 @@ mod tests {
         );
         assert_eq!(
             storage
-                .list_background_messages_for_task_raw("task-2")
+                .list_task_messages_for_task_raw("task-2")
                 .unwrap()
                 .len(),
             1

@@ -1512,11 +1512,11 @@ impl TaskRunner {
     }
 
     async fn forward_pending_messages(&self, task_id: &str) {
-        let pending_messages = match self.storage.list_pending_background_messages(task_id, 32) {
+        let pending_messages = match self.storage.list_pending_task_messages(task_id, 32) {
             Ok(messages) => messages,
             Err(e) => {
                 warn!(
-                    "Failed to list pending background messages for task {}: {}",
+                    "Failed to list pending task messages for task {}: {}",
                     task_id, e
                 );
                 return;
@@ -1534,9 +1534,9 @@ impl TaskRunner {
             );
 
             let sent = self.steer_registry.steer(task_id, steer_message).await;
-            if sent && let Err(e) = self.storage.mark_background_message_consumed(&queued.id) {
+            if sent && let Err(e) = self.storage.mark_task_message_consumed(&queued.id) {
                 warn!(
-                    "Failed to mark background message {} as consumed: {}",
+                    "Failed to mark task message {} as consumed: {}",
                     queued.id, e
                 );
             }
@@ -1624,7 +1624,7 @@ impl TaskRunner {
             None
         };
 
-        // Start a lightweight message pump so queued background messages can be
+        // Start a lightweight message pump so queued task messages can be
         // injected into the running agent loop.
         let pump_cancel = CancellationToken::new();
         let mut message_pump = if matches!(task.execution_mode, ExecutionMode::Api) {
@@ -1644,17 +1644,16 @@ impl TaskRunner {
                         _ = ticker.tick() => {}
                     }
 
-                    let pending_messages =
-                        match storage.list_pending_background_messages(&task_id, 32) {
-                            Ok(messages) => messages,
-                            Err(e) => {
-                                warn!(
-                                    "Failed to list pending background messages for task {}: {}",
-                                    task_id, e
-                                );
-                                continue;
-                            }
-                        };
+                    let pending_messages = match storage.list_pending_task_messages(&task_id, 32) {
+                        Ok(messages) => messages,
+                        Err(e) => {
+                            warn!(
+                                "Failed to list pending task messages for task {}: {}",
+                                task_id, e
+                            );
+                            continue;
+                        }
+                    };
 
                     if pending_messages.is_empty() {
                         continue;
@@ -1669,10 +1668,9 @@ impl TaskRunner {
                         let steer_message = SteerMessage::message(queued.message.clone(), source);
 
                         let sent = steer_registry.steer(&task_id, steer_message).await;
-                        if sent && let Err(e) = storage.mark_background_message_consumed(&queued.id)
-                        {
+                        if sent && let Err(e) = storage.mark_task_message_consumed(&queued.id) {
                             warn!(
-                                "Failed to mark background message {} as consumed: {}",
+                                "Failed to mark task message {} as consumed: {}",
                                 queued.id, e
                             );
                         }

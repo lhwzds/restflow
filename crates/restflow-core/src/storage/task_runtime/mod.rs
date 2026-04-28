@@ -17,10 +17,10 @@ use uuid::Uuid;
 
 use super::{AgentStorage, ChatSessionStorage, CheckpointStorage, ExecutionTraceStorage};
 
-/// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
+/// Typed agent task storage wrapper around restflow-storage::TaskStorage.
 #[derive(Clone)]
 pub struct TaskStorage {
-    inner: restflow_storage::BackgroundAgentStorage,
+    inner: restflow_storage::TaskStorage,
     checkpoints: CheckpointStorage,
     agents: AgentStorage,
     chat_sessions: ChatSessionStorage,
@@ -228,7 +228,7 @@ impl TaskStorage {
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
-            inner: restflow_storage::BackgroundAgentStorage::new(db.clone())?,
+            inner: restflow_storage::TaskStorage::new(db.clone())?,
             checkpoints,
             agents: AgentStorage::new(db.clone())?,
             chat_sessions: ChatSessionStorage::new(db)?,

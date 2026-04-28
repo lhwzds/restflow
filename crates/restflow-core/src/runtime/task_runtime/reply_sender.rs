@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(messages[0].message, "Received, starting now.");
 
         let pending = storage
-            .list_pending_background_messages(&task.id, 10)
+            .list_pending_task_messages(&task.id, 10)
             .expect("list pending");
         assert!(pending.is_empty());
     }

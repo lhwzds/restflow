@@ -199,8 +199,7 @@ impl TaskStorage {
         let stage = recent_event
             .as_ref()
             .map(|event| Self::event_stage_label(&event.event_type));
-        let pending_message_count =
-            self.list_pending_background_messages(id, usize::MAX)?.len() as u32;
+        let pending_message_count = self.list_pending_task_messages(id, usize::MAX)?.len() as u32;
 
         Ok(TaskProgress {
             task_id: task.id.clone(),

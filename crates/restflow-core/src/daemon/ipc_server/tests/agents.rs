@@ -72,8 +72,8 @@ fn configure_default_agent(core: &Arc<AppCore>) -> String {
     default_id
 }
 
-fn raw_task_storage(core: &Arc<AppCore>) -> restflow_storage::BackgroundAgentStorage {
-    restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap()
+fn raw_task_storage(core: &Arc<AppCore>) -> restflow_storage::TaskStorage {
+    restflow_storage::TaskStorage::new(core.storage.get_db()).unwrap()
 }
 
 fn insert_task_with_id(core: &Arc<AppCore>, id: &str) -> crate::models::Task {

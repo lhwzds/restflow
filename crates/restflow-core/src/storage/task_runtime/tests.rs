@@ -924,7 +924,7 @@ fn test_delete_task() {
     let events = storage.list_events_for_task(&task.id).unwrap();
     assert!(events.is_empty());
 
-    // Background messages should also be gone
+    // Task messages should also be gone
     let messages = storage.list_task_messages(&task.id, 10).unwrap();
     assert!(messages.is_empty());
 }
@@ -1670,19 +1670,17 @@ fn test_background_message_queue_and_progress() {
         .unwrap();
     assert_eq!(queued.status, TaskMessageStatus::Queued);
 
-    let pending = storage
-        .list_pending_background_messages(&task.id, 10)
-        .unwrap();
+    let pending = storage.list_pending_task_messages(&task.id, 10).unwrap();
     assert_eq!(pending.len(), 1);
 
     let delivered = storage
-        .mark_background_message_delivered(&queued.id)
+        .mark_task_message_delivered(&queued.id)
         .unwrap()
         .unwrap();
     assert_eq!(delivered.status, TaskMessageStatus::Delivered);
 
     let consumed = storage
-        .mark_background_message_consumed(&queued.id)
+        .mark_task_message_consumed(&queued.id)
         .unwrap()
         .unwrap();
     assert_eq!(consumed.status, TaskMessageStatus::Consumed);
@@ -1709,9 +1707,7 @@ fn test_log_task_reply_is_not_queued() {
     assert!(reply.delivered_at.is_some());
     assert!(reply.consumed_at.is_some());
 
-    let pending = storage
-        .list_pending_background_messages(&task.id, 10)
-        .unwrap();
+    let pending = storage.list_pending_task_messages(&task.id, 10).unwrap();
     assert!(pending.is_empty());
 }
 
