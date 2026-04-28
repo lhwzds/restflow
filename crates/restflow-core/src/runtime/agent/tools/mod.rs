@@ -763,8 +763,6 @@ mod tests {
         assert!(!names.contains(&"manage_secrets".to_string()));
         assert!(!names.contains(&"task_list".to_string()));
         assert!(!names.contains(&"manage_background_agents".to_string()));
-        assert!(!names.contains(&"manage_teams".to_string()));
-        assert!(!names.contains(&"TeamRuntime".to_string()));
     }
 
     #[test]

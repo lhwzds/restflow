@@ -316,6 +316,12 @@ mod tests {
     }
 
     #[test]
+    fn rejects_team_as_slash_command() {
+        let error = parse_slash_command("/team").expect_err("team is a systemskill mention");
+        assert!(error.to_string().contains("Unknown command: /team"));
+    }
+
+    #[test]
     fn parses_new_chat_aliases() {
         assert_eq!(
             parse_slash_command("/new").expect("parse"),
@@ -344,6 +350,7 @@ mod tests {
         assert!(specs.contains(&("/skill", "")));
         assert!(specs.contains(&("/model", "")));
         assert!(specs.contains(&("/task", "")));
+        assert!(!specs.contains(&("/team", "")));
         assert!(!specs.contains(&("/session", "open <session_id>")));
         assert!(!specs.contains(&("/runs", "")));
         assert!(!specs.contains(&("/run", "open <run_id>")));
