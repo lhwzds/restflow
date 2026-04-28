@@ -1,12 +1,12 @@
 //! TaskStore adapter backed by legacy BackgroundAgentStorage persistence.
 
-use crate::boundary::background_agent::parse_control_action;
+use crate::boundary::task::parse_control_action;
 use crate::models::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, Task, TaskMessageSource,
     TaskStatus,
 };
-use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::session::SessionService;
+use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 use crate::storage::{AgentStorage, BackgroundAgentStorage, RunArtifactStorage};
 use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
@@ -507,7 +507,7 @@ mod tests {
             _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "create_background_agent",
+                "create_task",
                 OperationAssessmentIntent::Save,
             ))
         }
@@ -517,7 +517,7 @@ mod tests {
             _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "convert_session_to_background_agent",
+                "convert_session_to_task",
                 OperationAssessmentIntent::Save,
             ))
         }
@@ -527,7 +527,7 @@ mod tests {
             _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "update_background_agent",
+                "update_task",
                 OperationAssessmentIntent::Save,
             ))
         }
@@ -537,7 +537,7 @@ mod tests {
             _request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "delete_background_agent",
+                "delete_task",
                 OperationAssessmentIntent::Save,
                 vec![],
             ))
@@ -548,7 +548,7 @@ mod tests {
             _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "control_background_agent",
+                "control_task",
                 OperationAssessmentIntent::Run,
             ))
         }
@@ -617,7 +617,7 @@ mod tests {
             _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "create_background_agent",
+                "create_task",
                 OperationAssessmentIntent::Save,
                 vec![],
             ))
@@ -628,7 +628,7 @@ mod tests {
             _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "convert_session_to_background_agent",
+                "convert_session_to_task",
                 OperationAssessmentIntent::Save,
                 vec![],
             ))
@@ -639,7 +639,7 @@ mod tests {
             _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "update_background_agent",
+                "update_task",
                 OperationAssessmentIntent::Save,
                 vec![],
             ))
@@ -650,7 +650,7 @@ mod tests {
             _request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "delete_background_agent",
+                "delete_task",
                 OperationAssessmentIntent::Save,
                 vec![],
             ))
@@ -661,7 +661,7 @@ mod tests {
             _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "control_background_agent",
+                "control_task",
                 OperationAssessmentIntent::Run,
                 vec![],
             ))
@@ -821,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_background_agent_accepts_default_agent_alias() {
+    fn test_create_task_accepts_default_agent_alias() {
         let (adapter, _dir, _guard) = setup();
         let created = adapter
             .create_task(TaskCreateRequest {
@@ -845,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_session_to_background_agent_binds_existing_session() {
+    fn test_convert_session_to_task_binds_existing_session() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
 
@@ -890,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_background_agent_returns_confirmation_required_for_warning_assessment() {
+    fn test_create_task_returns_confirmation_required_for_warning_assessment() {
         let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
         let agent_id = get_agent_id(&adapter);
 
@@ -948,9 +948,9 @@ mod tests {
             })
             .expect_err("conversion should fail when no input can be derived");
         assert!(
-            error.to_string().contains(
-                crate::services::background_agent_conversion::MISSING_CONVERSION_INPUT_ERROR
-            ),
+            error
+                .to_string()
+                .contains(crate::services::task_conversion::MISSING_CONVERSION_INPUT_ERROR),
             "unexpected error: {error}"
         );
     }
@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_background_agent() {
+    fn test_delete_task() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let request = TaskCreateRequest {
@@ -1038,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_background_agent_returns_resolved_id_for_prefix() {
+    fn test_delete_task_returns_resolved_id_for_prefix() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter
@@ -1084,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_background_agent_returns_confirmation_required_for_warning_assessment() {
+    fn test_update_task_returns_confirmation_required_for_warning_assessment() {
         let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
         let agent_id = get_agent_id(&adapter);
         let created = adapter
@@ -1155,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn test_control_background_agent_returns_confirmation_required_for_warning_assessment() {
+    fn test_control_task_returns_confirmation_required_for_warning_assessment() {
         let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
         let agent_id = get_agent_id(&adapter);
         let created = adapter

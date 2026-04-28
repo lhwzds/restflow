@@ -30,7 +30,7 @@ mod tasks;
 mod terminals;
 
 use super::*;
-use crate::boundary::background_agent::{
+use crate::boundary::task::{
     contract_convert_request_to_store, contract_patch_to_core, contract_spec_to_core,
 };
 use crate::daemon::request_mapper::{

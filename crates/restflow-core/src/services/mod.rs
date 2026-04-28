@@ -1,7 +1,5 @@
 pub mod adapters;
 pub mod agent;
-pub mod background_agent_command;
-pub mod background_agent_conversion;
 pub mod cleanup;
 pub mod config;
 pub mod execution_console;
@@ -14,4 +12,6 @@ pub mod skill_mentions;
 pub mod skill_sync;
 pub mod skill_triggers;
 pub mod skills;
+pub mod task_command;
+pub mod task_conversion;
 pub mod tool_registry;

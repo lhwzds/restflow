@@ -321,7 +321,7 @@ async fn process_get_background_agent_returns_internal_error_when_resolution_sca
 }
 
 #[tokio::test]
-async fn process_update_background_agent_resolves_unique_prefix() {
+async fn process_update_task_resolves_unique_prefix() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let task = insert_background_agent_with_id(&core, "prefix-update-1");
@@ -352,7 +352,7 @@ async fn process_update_background_agent_resolves_unique_prefix() {
 }
 
 #[tokio::test]
-async fn process_create_background_agent_accepts_default_agent_alias() {
+async fn process_create_task_accepts_default_agent_alias() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let default_agent_id = configure_default_agent(&core);
@@ -382,7 +382,7 @@ async fn process_create_background_agent_accepts_default_agent_alias() {
 }
 
 #[tokio::test]
-async fn process_update_background_agent_accepts_default_agent_alias() {
+async fn process_update_task_accepts_default_agent_alias() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let default_agent_id = configure_default_agent(&core);
@@ -414,7 +414,7 @@ async fn process_update_background_agent_accepts_default_agent_alias() {
 }
 
 #[tokio::test]
-async fn process_delete_background_agent_rejects_ambiguous_prefix() {
+async fn process_delete_task_rejects_ambiguous_prefix() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     for id in ["dup-delete-1", "dup-delete-2"] {
@@ -492,7 +492,7 @@ async fn process_list_background_agent_messages_returns_internal_error_when_reso
 }
 
 #[tokio::test]
-async fn process_control_background_agent_resolves_unique_prefix() {
+async fn process_control_task_resolves_unique_prefix() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let task = insert_background_agent_with_id(&core, "prefix-control-1");

@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn operation_assessment_serializes_with_approval_id() {
         let assessment = OperationAssessment::warning_with_confirmation(
-            "delete_background_agent",
+            "delete_task",
             OperationAssessmentIntent::Save,
             vec![OperationAssessmentIssue {
                 code: "warning".to_string(),

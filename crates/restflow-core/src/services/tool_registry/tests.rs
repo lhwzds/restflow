@@ -88,7 +88,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         _request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
-            "create_background_agent",
+            "create_task",
             OperationAssessmentIntent::Save,
         ))
     }
@@ -98,7 +98,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         _request: restflow_traits::store::TaskConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
-            "convert_session_to_background_agent",
+            "convert_session_to_task",
             OperationAssessmentIntent::Save,
         ))
     }
@@ -108,7 +108,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         _request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
-            "update_background_agent",
+            "update_task",
             OperationAssessmentIntent::Save,
         ))
     }
@@ -118,7 +118,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         _request: TaskDeleteRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::warning_with_confirmation(
-            "delete_background_agent",
+            "delete_task",
             OperationAssessmentIntent::Save,
             vec![],
         ))
@@ -129,7 +129,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         _request: TaskControlRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
-            "control_background_agent",
+            "control_task",
             OperationAssessmentIntent::Run,
         ))
     }

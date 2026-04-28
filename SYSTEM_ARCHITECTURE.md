@@ -166,7 +166,7 @@ flowchart LR
 
     subgraph BOUNDARY["Boundary Layer"]
         BA["core::boundary::agent"]
-        BB["core::boundary::background_agent (legacy internal module)"]
+        BB["core::boundary::task"]
         BS["traits::boundary::subagent"]
     end
 

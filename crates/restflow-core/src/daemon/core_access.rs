@@ -3,7 +3,7 @@ use super::ipc_protocol::IpcRequest;
 use super::launcher::ensure_daemon_running;
 use super::request_mapper::to_contract;
 use crate::AppCore;
-use crate::boundary::background_agent::core_spec_to_contract;
+use crate::boundary::task::core_spec_to_contract;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentSpec, BackgroundAgentStatus, Skill,
 };

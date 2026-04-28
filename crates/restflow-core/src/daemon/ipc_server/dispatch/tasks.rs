@@ -1,14 +1,10 @@
 use super::super::runtime::parse_task_status;
 use super::super::*;
-use crate::boundary::background_agent::{
-    core_patch_to_update_request, core_spec_to_create_request,
-};
+use crate::boundary::task::{core_patch_to_update_request, core_spec_to_create_request};
 use crate::daemon::request_mapper::to_contract;
-use crate::services::background_agent_command::{
-    TaskCommandError, TaskCommandService, TaskExecutionMode,
-};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::operation_assessment::assessment_summary;
+use crate::services::task_command::{TaskCommandError, TaskCommandService, TaskExecutionMode};
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::ApprovalHandledResponse;
 use restflow_traits::TaskCommandOutcome;

@@ -15,9 +15,7 @@ use restflow_core::models::{
     TaskPatch, TaskSchedule, TaskSpec,
 };
 #[cfg(test)]
-use restflow_core::services::background_agent_conversion::{
-    derive_conversion_input, derive_conversion_name,
-};
+use restflow_core::services::task_conversion::{derive_conversion_input, derive_conversion_name};
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,

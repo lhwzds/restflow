@@ -1,12 +1,12 @@
 use super::*;
-use crate::boundary::background_agent::{
+use crate::boundary::task::{
     core_patch_to_contract, core_patch_to_update_request, core_spec_to_contract,
     core_spec_to_create_request,
 };
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
-use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::hook_capability::HookCapabilityService;
 use crate::services::operation_assessment::OperationAssessorAdapter;
+use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 
 fn resolve_task_id(
     storage: &crate::storage::BackgroundAgentStorage,

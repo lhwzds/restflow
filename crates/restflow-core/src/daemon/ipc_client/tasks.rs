@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
+use crate::boundary::task::{core_patch_to_contract, core_spec_to_contract};
 #[cfg(unix)]
 use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]

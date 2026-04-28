@@ -1,4 +1,4 @@
-use crate::boundary::background_agent::{
+use crate::boundary::task::{
     convert_session_request_to_options, create_request_to_spec, parse_control_action,
     update_request_to_patch,
 };
@@ -7,13 +7,11 @@ use crate::models::{
     Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskMessageSource, TaskPatch,
     TaskProgress, TaskSpec,
 };
-use crate::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, build_convert_session_spec,
-};
 use crate::services::operation_assessment::{
     assessment_requires_confirmation, assessment_summary, ensure_assessment_confirmed,
 };
 use crate::services::session::SessionService;
+use crate::services::task_conversion::{ConvertSessionSpecOptions, build_convert_session_spec};
 use crate::storage::{AgentStorage, BackgroundAgentStorage, Storage};
 use restflow_contracts::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 use restflow_tools::ToolError;
@@ -287,7 +285,7 @@ impl TaskCommandService {
     }
 
     pub fn resolve_default_or_existing_agent_id(&self, id_or_alias: &str) -> CommandResult<String> {
-        crate::boundary::background_agent::resolve_agent_id_alias(
+        crate::boundary::task::resolve_agent_id_alias(
             id_or_alias,
             || self.agents.resolve_default_agent_id(),
             |trimmed| self.agents.resolve_existing_agent_id(trimmed),
@@ -679,7 +677,7 @@ mod tests {
             _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "create_background_agent",
+                "create_task",
                 OperationAssessmentIntent::Save,
             ))
         }
@@ -689,7 +687,7 @@ mod tests {
             _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "convert_session_to_background_agent",
+                "convert_session_to_task",
                 OperationAssessmentIntent::Save,
             ))
         }
@@ -699,7 +697,7 @@ mod tests {
             _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "update_background_agent",
+                "update_task",
                 OperationAssessmentIntent::Save,
             ))
         }
@@ -709,7 +707,7 @@ mod tests {
             request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "delete_background_agent",
+                "delete_task",
                 OperationAssessmentIntent::Save,
                 vec![restflow_traits::OperationAssessmentIssue {
                     code: "destructive_delete".to_string(),
@@ -725,7 +723,7 @@ mod tests {
             _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
-                "control_background_agent",
+                "control_task",
                 OperationAssessmentIntent::Run,
             ))
         }
@@ -804,7 +802,7 @@ mod tests {
             _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "create_background_agent",
+                "create_task",
                 OperationAssessmentIntent::Save,
                 vec![restflow_traits::OperationAssessmentIssue {
                     code: "warn".to_string(),
@@ -820,7 +818,7 @@ mod tests {
             _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "convert_session_to_background_agent",
+                "convert_session_to_task",
                 OperationAssessmentIntent::Save,
                 vec![restflow_traits::OperationAssessmentIssue {
                     code: "warn".to_string(),
@@ -836,7 +834,7 @@ mod tests {
             _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "update_background_agent",
+                "update_task",
                 OperationAssessmentIntent::Save,
                 vec![restflow_traits::OperationAssessmentIssue {
                     code: "warn".to_string(),
@@ -852,7 +850,7 @@ mod tests {
             request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "delete_background_agent",
+                "delete_task",
                 OperationAssessmentIntent::Save,
                 vec![restflow_traits::OperationAssessmentIssue {
                     code: "destructive_delete".to_string(),
@@ -868,7 +866,7 @@ mod tests {
             _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
-                "control_background_agent",
+                "control_task",
                 OperationAssessmentIntent::Run,
                 vec![restflow_traits::OperationAssessmentIssue {
                     code: "warn".to_string(),
@@ -1174,7 +1172,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::Preview { assessment } => {
-                assert_eq!(assessment.operation, "convert_session_to_background_agent");
+                assert_eq!(assessment.operation, "convert_session_to_task");
             }
             other => panic!("expected preview outcome, got {other:?}"),
         }
@@ -1236,7 +1234,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::ConfirmationRequired { assessment } => {
-                assert_eq!(assessment.operation, "create_background_agent");
+                assert_eq!(assessment.operation, "create_task");
                 assert!(assessment.requires_confirmation);
             }
             other => panic!("expected confirmation_required outcome, got {other:?}"),
@@ -1297,7 +1295,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::ConfirmationRequired { assessment } => {
-                assert_eq!(assessment.operation, "update_background_agent");
+                assert_eq!(assessment.operation, "update_task");
                 assert!(assessment.requires_confirmation);
             }
             other => panic!("expected confirmation_required outcome, got {other:?}"),
@@ -1350,7 +1348,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::ConfirmationRequired { assessment } => {
-                assert_eq!(assessment.operation, "control_background_agent");
+                assert_eq!(assessment.operation, "control_task");
                 assert!(assessment.requires_confirmation);
             }
             other => panic!("expected confirmation_required outcome, got {other:?}"),
@@ -1391,7 +1389,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::ConfirmationRequired { assessment } => {
-                assert_eq!(assessment.operation, "convert_session_to_background_agent");
+                assert_eq!(assessment.operation, "convert_session_to_task");
                 assert!(assessment.requires_confirmation);
             }
             other => panic!("expected confirmation_required outcome, got {other:?}"),
@@ -1438,7 +1436,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::Preview { assessment } => {
-                assert_eq!(assessment.operation, "delete_background_agent");
+                assert_eq!(assessment.operation, "delete_task");
                 assert!(assessment.requires_confirmation);
                 assert!(assessment.approval_id.is_some());
                 assert_eq!(
@@ -1496,7 +1494,7 @@ mod tests {
 
         match result {
             TaskCommandOutcome::ConfirmationRequired { assessment } => {
-                assert_eq!(assessment.operation, "delete_background_agent");
+                assert_eq!(assessment.operation, "delete_task");
                 assert!(assessment.requires_confirmation);
                 assert_eq!(
                     assessment.warnings[0].message,

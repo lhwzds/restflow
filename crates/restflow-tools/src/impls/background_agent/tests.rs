@@ -48,7 +48,7 @@ impl AgentOperationAssessor for MockAssessor {
         _request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
-            "create_background_agent",
+            "create_task",
             OperationAssessmentIntent::Save,
         ))
     }
@@ -58,7 +58,7 @@ impl AgentOperationAssessor for MockAssessor {
         _request: TaskConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
-            "convert_session_to_background_agent",
+            "convert_session_to_task",
             OperationAssessmentIntent::Save,
         ))
     }
@@ -68,7 +68,7 @@ impl AgentOperationAssessor for MockAssessor {
         _request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
-            "update_background_agent",
+            "update_task",
             OperationAssessmentIntent::Save,
         ))
     }
@@ -78,7 +78,7 @@ impl AgentOperationAssessor for MockAssessor {
         _request: TaskDeleteRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::warning_with_confirmation(
-            "delete_background_agent",
+            "delete_task",
             OperationAssessmentIntent::Save,
             vec![],
         ))
@@ -89,7 +89,7 @@ impl AgentOperationAssessor for MockAssessor {
         _request: TaskControlRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
-            "control_background_agent",
+            "control_task",
             OperationAssessmentIntent::Run,
         ))
     }
@@ -174,7 +174,7 @@ impl TaskStore for MockStore {
             return Ok(json!({
                 "status": "preview",
                 "assessment": {
-                    "operation": "create_background_agent"
+                    "operation": "create_task"
                 }
             }));
         }
@@ -191,7 +191,7 @@ impl TaskStore for MockStore {
             return Ok(json!({
                 "status": "preview",
                 "assessment": {
-                    "operation": "convert_session_to_background_agent"
+                    "operation": "convert_session_to_task"
                 }
             }));
         }
@@ -215,7 +215,7 @@ impl TaskStore for MockStore {
             return Ok(json!({
                 "status": "preview",
                 "assessment": {
-                    "operation": "update_background_agent"
+                    "operation": "update_task"
                 }
             }));
         }
@@ -233,7 +233,7 @@ impl TaskStore for MockStore {
             return Ok(json!({
                 "status": "preview",
                 "assessment": {
-                    "operation": "delete_background_agent",
+                    "operation": "delete_task",
                     "approval_id": "confirm-delete"
                 }
             }));
@@ -242,7 +242,7 @@ impl TaskStore for MockStore {
             return Ok(json!({
                 "status": "confirmation_required",
                 "assessment": {
-                    "operation": "delete_background_agent",
+                    "operation": "delete_task",
                     "approval_id": "confirm-delete"
                 }
             }));
@@ -265,7 +265,7 @@ impl TaskStore for MockStore {
             return Ok(json!({
                 "status": "preview",
                 "assessment": {
-                    "operation": "control_background_agent"
+                    "operation": "control_task"
                 }
             }));
         }
@@ -342,7 +342,7 @@ impl TaskStore for ConfirmationCreateStore {
             return Ok(json!({
                 "status": "confirmation_required",
                 "assessment": {
-                    "operation": "create_background_agent",
+                    "operation": "create_task",
                     "approval_id": "confirm-create"
                 }
             }));
@@ -588,10 +588,7 @@ async fn test_create_preview_returns_store_outcome() {
         .unwrap();
     assert!(output.success);
     assert_eq!(output.result["status"], "preview");
-    assert_eq!(
-        output.result["assessment"]["operation"],
-        "create_background_agent"
-    );
+    assert_eq!(output.result["assessment"]["operation"], "create_task");
 }
 
 #[tokio::test]
@@ -607,10 +604,7 @@ async fn test_delete_preview_returns_store_outcome() {
         .unwrap();
     assert!(output.success);
     assert_eq!(output.result["status"], "preview");
-    assert_eq!(
-        output.result["assessment"]["operation"],
-        "delete_background_agent"
-    );
+    assert_eq!(output.result["assessment"]["operation"], "delete_task");
 }
 
 #[tokio::test]
@@ -851,7 +845,7 @@ async fn test_stop_uses_control_not_delete() {
         .await
         .unwrap();
     assert!(output.success);
-    // Stop should call control_background_agent with action "stop", not delete
+    // Stop should call control_task with action "stop", not delete
     // MockStore returns { id, action } for control operations
     assert_eq!(
         output

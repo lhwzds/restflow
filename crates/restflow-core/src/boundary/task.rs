@@ -3,7 +3,7 @@ use crate::models::{
     DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits,
     TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
 };
-use crate::services::background_agent_conversion::default_conversion_schedule;
+use crate::services::task_conversion::default_conversion_schedule;
 use restflow_contracts::request::{
     DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
     MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,

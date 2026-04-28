@@ -15,7 +15,7 @@ use crate::auth::{
 };
 use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDefinitionLookup;
-use crate::services::background_agent_conversion::derive_conversion_input;
+use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,

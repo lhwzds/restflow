@@ -8,8 +8,8 @@ use crate::registry::{
     SkillSearchResult, SkillSortOrder,
 };
 use crate::runtime::channel::transcribe_media_file;
-use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::operation_assessment::OperationAssessorAdapter;
+use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 use anyhow::Result;
 use axum::Json;
 use axum::Router;
@@ -400,15 +400,13 @@ async fn api_convert_session_to_task(
     State(state): State<DaemonHttpState>,
     Json(request): Json<restflow_contracts::request::TaskFromSessionRequest>,
 ) -> std::result::Result<Json<TaskConversionResult>, (StatusCode, Json<ErrorPayload>)> {
-    let store_request = crate::boundary::background_agent::contract_convert_request_to_store(
-        request,
-    )
-    .map_err(|error| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorPayload::new(400, error.to_string(), None)),
-        )
-    })?;
+    let store_request =
+        crate::boundary::task::contract_convert_request_to_store(request).map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorPayload::new(400, error.to_string(), None)),
+            )
+        })?;
 
     let outcome = TaskCommandService::from_storage(
         state.core.storage.as_ref(),
