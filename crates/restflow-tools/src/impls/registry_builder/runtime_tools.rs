@@ -8,7 +8,7 @@ use crate::impls::use_skill::UseSkillTool;
 use crate::impls::wait_subagents::WaitSubagentsTool;
 use crate::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
-use restflow_traits::store::{KvStore, WorkItemProvider};
+use restflow_traits::store::WorkItemProvider;
 use restflow_traits::{SubagentManager, SubagentSpawner};
 
 use super::ToolRegistryBuilder;
@@ -21,16 +21,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_spawn_subagent(mut self, manager: Arc<dyn SubagentManager>) -> Self {
         self.registry.register(SpawnSubagentTool::new(manager));
-        self
-    }
-
-    pub fn with_spawn_subagent_with_store(
-        mut self,
-        manager: Arc<dyn SubagentManager>,
-        kv_store: Arc<dyn KvStore>,
-    ) -> Self {
-        self.registry
-            .register(SpawnSubagentTool::new(manager).with_kv_store(kv_store));
         self
     }
 

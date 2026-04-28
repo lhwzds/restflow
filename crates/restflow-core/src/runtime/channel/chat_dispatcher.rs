@@ -232,7 +232,7 @@ impl ChatSessionManager {
 
         // Re-check after acquiring lock (another task may have created it)
         let sessions = self.storage.chat_sessions.list_all()?;
-        if let Some(session) = sessions
+        if let Some(mut session) = sessions
             .iter()
             .find(|s| {
                 s.source_channel == source_channel
@@ -240,65 +240,9 @@ impl ChatSessionManager {
             })
             .cloned()
         {
-            let mut session = session;
-            if let Some(channel_key) = binding_channel
-                && let Err(err) =
-                    self.upsert_channel_binding(channel_key, conversation_id, &session.id)
-            {
-                warn!(
-                    session_id = %session.id,
-                    channel = channel_key,
-                    conversation_id = %conversation_id,
-                    error = %err,
-                    "Failed to backfill channel-session binding for existing source session"
-                );
-            }
             self.maybe_rebind_to_forced_default(&mut session)?;
             debug!(
                 "Found existing session {} for {:?} conversation {}",
-                session.id, channel_type, conversation_id
-            );
-            return Ok(session);
-        }
-
-        // Rebind migrated legacy sessions (`external_legacy` / missing source) when possible.
-        if let Some(source_channel) = source_channel
-            && let Some(mut session) = sessions
-                .iter()
-                .find(|s| {
-                    s.source_conversation_id.as_deref() == Some(conversation_id)
-                        && matches!(
-                            s.source_channel,
-                            None | Some(ChatSessionSource::ExternalLegacy)
-                        )
-                })
-                .cloned()
-        {
-            if session.source_channel != Some(source_channel) {
-                session.source_channel = Some(source_channel);
-                if let Err(err) = self.storage.chat_sessions.save(&session) {
-                    warn!(
-                        "Failed to persist source channel rebind for session {}: {}",
-                        session.id, err
-                    );
-                }
-            }
-            if let Some(channel_key) = binding_channel
-                && let Err(err) =
-                    self.upsert_channel_binding(channel_key, conversation_id, &session.id)
-            {
-                warn!(
-                    session_id = %session.id,
-                    channel = channel_key,
-                    conversation_id = %conversation_id,
-                    error = %err,
-                    "Failed to backfill channel-session binding for migrated legacy session"
-                );
-            }
-            self.maybe_rebind_to_forced_default(&mut session)?;
-
-            debug!(
-                "Reused migrated legacy session {} for {:?} conversation {}",
                 session.id, channel_type, conversation_id
             );
             return Ok(session);
@@ -523,7 +467,7 @@ impl ChatSessionManager {
             .agent
             .model
             .map(|m| m.as_serialized_str().to_string())
-            .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string()))
+            .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()))
     }
 
     fn maybe_rebind_to_forced_default(&self, session: &mut ChatSession) -> Result<()> {
@@ -1321,47 +1265,6 @@ mod tests {
         assert_eq!(session.provider, "anthropic");
         assert_eq!(session.model, ModelId::ClaudeSonnet4_5.as_str());
         unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_rebinds_external_legacy_source_channel() {
-        let (storage, _temp_dir) = create_test_storage();
-
-        use crate::models::AgentNode;
-        storage
-            .agents
-            .create_agent("Test Agent".to_string(), AgentNode::new())
-            .unwrap();
-        let agents = storage.agents.list_agents().unwrap();
-        let agent_id = agents[0].id.clone();
-
-        let legacy = ChatSession::new(
-            agent_id.clone(),
-            ModelId::Gpt5.as_serialized_str().to_string(),
-        )
-        .with_name("conv-legacy")
-        .with_source(ChatSessionSource::ExternalLegacy, "conv-legacy");
-        storage.chat_sessions.create(&legacy).unwrap();
-
-        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
-        let session = manager
-            .get_or_create_session(ChannelType::Telegram, "conv-legacy", "user-1")
-            .await
-            .unwrap();
-
-        assert_eq!(session.id, legacy.id);
-        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
-        assert_eq!(
-            session.source_conversation_id.as_deref(),
-            Some("conv-legacy")
-        );
-
-        let persisted = storage
-            .chat_sessions
-            .get(&legacy.id)
-            .unwrap()
-            .expect("session should exist");
-        assert_eq!(persisted.source_channel, Some(ChatSessionSource::Telegram));
     }
 
     #[tokio::test]

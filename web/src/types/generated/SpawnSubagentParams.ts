@@ -19,13 +19,13 @@ export type SpawnSubagentParams = {
   /**
    * Task description for single spawn, or transient fallback task for batch spawn.
    *
-   * Required for single spawn. Optional for team management operations.
+   * Required for single spawn. Optional when per-worker tasks are provided.
    */
   task?: string
   /**
-   * Transient per-instance task list for batch or team spawn.
+   * Transient per-instance task list for batch spawn.
    *
-   * Tasks are assigned in worker order and are never persisted in saved teams.
+   * Tasks are assigned in worker order.
    */
   tasks?: Array<string>
   /**
@@ -78,16 +78,6 @@ export type SpawnSubagentParams = {
    * When provided, this tool enters batch mode and spawns one or more workers.
    */
   workers?: Array<BatchSubagentSpec>
-  /**
-   * Optional team name for batch mode spawn.
-   */
-  team?: string
-  /**
-   * Optionally persist the provided workers as a named team during spawn.
-   *
-   * To save a team without spawning, use `operation = "save_team"` and `team`.
-   */
-  save_as_team?: string
   /**
    * If true, validate and preview capability warnings/blockers without executing.
    */

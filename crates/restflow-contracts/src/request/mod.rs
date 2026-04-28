@@ -113,9 +113,6 @@ pub enum IpcRequest {
         id: String,
     },
     RunCleanup,
-    MigrateSessionSources {
-        dry_run: bool,
-    },
 
     ListSecrets,
     GetSecret {
@@ -360,7 +357,6 @@ pub enum IpcRequest {
         id: String,
         updates: ProfileUpdate,
     },
-    DiscoverAuth,
     EnableAuthProfile {
         id: String,
     },
@@ -431,6 +427,18 @@ pub enum IpcRequest {
         task_id: String,
     },
     SubscribeSessionEvents,
+    ListRunArtifacts {
+        #[serde(default)]
+        run_id: Option<String>,
+        #[serde(default)]
+        task_id: Option<String>,
+    },
+    SwitchSessionModel {
+        session_id: String,
+        model_ref: WireModelRef,
+        #[serde(default)]
+        reason: Option<String>,
+    },
 
     GetSystemInfo,
     GetAvailableModels,
@@ -564,14 +572,6 @@ pub struct RunSpawnRequest {
     pub trace_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_scope_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_member_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub leader_member_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1146,6 +1146,15 @@ pub enum SkillStatus {
     Draft,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillSource {
+    System,
+    #[default]
+    User,
+    External,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Skill {
     pub id: String,
@@ -1181,6 +1190,12 @@ pub struct Skill {
     pub storage_mode: StorageMode,
     #[serde(default)]
     pub is_synced: bool,
+    #[serde(default)]
+    pub source: SkillSource,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -1735,10 +1750,6 @@ mod tests {
             parent_run_id: Some("run-1".to_string()),
             trace_session_id: Some("session-1".to_string()),
             trace_scope_id: Some("scope-1".to_string()),
-            team_run_id: None,
-            team_member_id: None,
-            leader_member_id: None,
-            team_role: None,
         };
 
         assert_roundtrip(&request);

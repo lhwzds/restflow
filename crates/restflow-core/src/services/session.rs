@@ -74,13 +74,6 @@ impl SessionService {
     }
 
     pub fn apply_effective_source(&self, session: &mut ChatSession) -> Result<()> {
-        if self
-            .sessions
-            .list_bindings_by_session(&session.id)?
-            .is_empty()
-        {
-            let _ = self.sessions.ensure_binding_from_legacy_source(session)?;
-        }
         let (source, conversation_id) = self.effective_source(session)?;
         session.source_channel = Some(source);
         session.source_conversation_id = conversation_id;
@@ -398,9 +391,6 @@ impl SessionService {
         self.policy
             .ensure_external_rebuild_allowed(&source_session)?;
 
-        let _ = self
-            .sessions
-            .ensure_binding_from_legacy_source(&source_session)?;
         let (source_channel, conversation_id) = self.effective_source(&source_session)?;
         let conversation_id = conversation_id
             .as_deref()
@@ -531,7 +521,10 @@ impl SessionService {
         if conversation_id.is_empty() {
             anyhow::bail!("External session is missing conversation_id");
         }
-        if source_channel == ChatSessionSource::Workspace {
+        if matches!(
+            source_channel,
+            ChatSessionSource::Workspace | ChatSessionSource::Background
+        ) {
             anyhow::bail!("Session is not externally managed");
         }
 
@@ -731,6 +724,15 @@ mod tests {
         session.source_channel = Some(ChatSessionSource::Telegram);
         session.source_conversation_id = Some("conv-1".to_string());
         storage.chat_sessions.update(&session).unwrap();
+        storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "conv-1",
+                &session.id,
+            ))
+            .unwrap();
 
         assert_eq!(
             service.management_owner(&session).unwrap(),
@@ -756,18 +758,6 @@ mod tests {
         assert_eq!(updated.name, "Updated");
         let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
         assert_eq!(reloaded.name, "Updated");
-    }
-
-    #[test]
-    fn apply_effective_source_backfills_legacy_binding() {
-        let (_storage, service, mut session) = setup();
-        session.source_channel = Some(ChatSessionSource::Telegram);
-        session.source_conversation_id = Some("chat-1".to_string());
-
-        service.apply_effective_source(&mut session).unwrap();
-
-        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
-        assert_eq!(session.source_conversation_id.as_deref(), Some("chat-1"));
     }
 
     #[test]

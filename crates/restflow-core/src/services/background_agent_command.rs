@@ -54,9 +54,6 @@ pub enum TaskExecutionMode {
     Direct,
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentExecutionMode = TaskExecutionMode;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskCommandError {
     Validation(String),
@@ -64,9 +61,6 @@ pub enum TaskCommandError {
     Conflict(String),
     Internal(String),
 }
-
-#[doc(hidden)]
-pub type BackgroundAgentCommandError = TaskCommandError;
 
 impl std::fmt::Display for TaskCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -163,9 +157,6 @@ pub struct TaskCommandService {
     session_service: SessionService,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 }
-
-#[doc(hidden)]
-pub type BackgroundAgentCommandService = TaskCommandService;
 
 impl TaskCommandService {
     pub fn new(
@@ -652,10 +643,8 @@ mod tests {
         AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     };
     use restflow_traits::store::{
-        AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
-        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-        BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest, TaskControlRequest,
-        TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
+        AgentCreateRequest, AgentUpdateRequest, TaskControlRequest, TaskConvertSessionRequest,
+        TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
     };
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -685,9 +674,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_create(
+        async fn assess_task_create(
             &self,
-            _request: BackgroundAgentCreateRequest,
+            _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "create_background_agent",
@@ -695,9 +684,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_convert_session(
+        async fn assess_task_convert_session(
             &self,
-            _request: BackgroundAgentConvertSessionRequest,
+            _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "convert_session_to_background_agent",
@@ -705,9 +694,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_update(
+        async fn assess_task_update(
             &self,
-            _request: BackgroundAgentUpdateRequest,
+            _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "update_background_agent",
@@ -715,9 +704,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_delete(
+        async fn assess_task_delete(
             &self,
-            request: BackgroundAgentDeleteRequest,
+            request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "delete_background_agent",
@@ -731,9 +720,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_control(
+        async fn assess_task_control(
             &self,
-            _request: BackgroundAgentControlRequest,
+            _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
                 "control_background_agent",
@@ -741,7 +730,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_template(
+        async fn assess_task_template(
             &self,
             operation: &str,
             intent: OperationAssessmentIntent,
@@ -810,9 +799,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_create(
+        async fn assess_task_create(
             &self,
-            _request: BackgroundAgentCreateRequest,
+            _request: TaskCreateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "create_background_agent",
@@ -826,9 +815,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_convert_session(
+        async fn assess_task_convert_session(
             &self,
-            _request: BackgroundAgentConvertSessionRequest,
+            _request: TaskConvertSessionRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "convert_session_to_background_agent",
@@ -842,9 +831,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_update(
+        async fn assess_task_update(
             &self,
-            _request: BackgroundAgentUpdateRequest,
+            _request: TaskUpdateRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "update_background_agent",
@@ -858,9 +847,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_delete(
+        async fn assess_task_delete(
             &self,
-            request: BackgroundAgentDeleteRequest,
+            request: TaskDeleteRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "delete_background_agent",
@@ -874,9 +863,9 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_control(
+        async fn assess_task_control(
             &self,
-            _request: BackgroundAgentControlRequest,
+            _request: TaskControlRequest,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
                 "control_background_agent",
@@ -890,7 +879,7 @@ mod tests {
             ))
         }
 
-        async fn assess_background_agent_template(
+        async fn assess_task_template(
             &self,
             operation: &str,
             intent: OperationAssessmentIntent,
@@ -1030,51 +1019,6 @@ mod tests {
             Ok(OperationAssessment::ok(operation, intent))
         }
 
-        async fn assess_background_agent_create(
-            &self,
-            _request: BackgroundAgentCreateRequest,
-        ) -> std::result::Result<OperationAssessment, ToolError> {
-            panic!("background create should not be called")
-        }
-
-        async fn assess_background_agent_convert_session(
-            &self,
-            _request: BackgroundAgentConvertSessionRequest,
-        ) -> std::result::Result<OperationAssessment, ToolError> {
-            panic!("background convert should not be called")
-        }
-
-        async fn assess_background_agent_update(
-            &self,
-            _request: BackgroundAgentUpdateRequest,
-        ) -> std::result::Result<OperationAssessment, ToolError> {
-            panic!("background update should not be called")
-        }
-
-        async fn assess_background_agent_delete(
-            &self,
-            _request: BackgroundAgentDeleteRequest,
-        ) -> std::result::Result<OperationAssessment, ToolError> {
-            panic!("background delete should not be called")
-        }
-
-        async fn assess_background_agent_control(
-            &self,
-            _request: BackgroundAgentControlRequest,
-        ) -> std::result::Result<OperationAssessment, ToolError> {
-            panic!("background control should not be called")
-        }
-
-        async fn assess_background_agent_template(
-            &self,
-            _operation: &str,
-            _intent: OperationAssessmentIntent,
-            _agent_ids: Vec<String>,
-            _template_mode: bool,
-        ) -> std::result::Result<OperationAssessment, ToolError> {
-            panic!("background template should not be called")
-        }
-
         async fn assess_subagent_spawn(
             &self,
             _operation: &str,
@@ -1161,9 +1105,8 @@ mod tests {
     }
 
     #[test]
-    fn task_command_aliases_legacy_background_agent_names() {
+    fn task_command_types_are_canonical() {
         let (service, _session, _temp_dir) = setup();
-        let _: &TaskCommandService = &service;
         let _: &TaskCommandService = &service;
         let _: TaskExecutionMode = TaskExecutionMode::Guarded;
         let _: TaskExecutionMode = TaskExecutionMode::Direct;
@@ -1174,7 +1117,7 @@ mod tests {
         let (service, session, _dir) = setup();
         let result = service
             .convert_session(
-                BackgroundAgentConvertSessionRequest {
+                TaskConvertSessionRequest {
                     session_id: session.id.clone(),
                     name: Some("Converted Session".to_string()),
                     schedule: None,
@@ -1210,7 +1153,7 @@ mod tests {
         let (service, session, _dir) = setup();
         let result = service
             .convert_session(
-                BackgroundAgentConvertSessionRequest {
+                TaskConvertSessionRequest {
                     session_id: session.id,
                     name: Some("Preview Convert".to_string()),
                     schedule: None,
@@ -1243,7 +1186,7 @@ mod tests {
         let (service, _session, _dir) = setup();
         let err = service
             .create_from_request(
-                BackgroundAgentCreateRequest {
+                TaskCreateRequest {
                     name: "   ".to_string(),
                     agent_id: "default".to_string(),
                     chat_session_id: None,
@@ -1271,7 +1214,7 @@ mod tests {
 
         let result = service
             .create_from_request(
-                BackgroundAgentCreateRequest {
+                TaskCreateRequest {
                     name: "Create Guarded Warning".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
@@ -1328,7 +1271,7 @@ mod tests {
 
         let result = service
             .update_from_request(
-                BackgroundAgentUpdateRequest {
+                TaskUpdateRequest {
                     id: task.id.clone(),
                     name: Some("Should Not Persist".to_string()),
                     description: None,
@@ -1394,7 +1337,7 @@ mod tests {
 
         let result = service
             .control_from_request(
-                BackgroundAgentControlRequest {
+                TaskControlRequest {
                     id: task.id.clone(),
                     action: "pause".to_string(),
                     preview: false,
@@ -1427,7 +1370,7 @@ mod tests {
 
         let result = service
             .convert_session(
-                BackgroundAgentConvertSessionRequest {
+                TaskConvertSessionRequest {
                     session_id: session.id.clone(),
                     name: Some("Convert Guarded Warning".to_string()),
                     schedule: None,
@@ -1483,7 +1426,7 @@ mod tests {
 
         let result = service
             .delete_from_request(
-                BackgroundAgentDeleteRequest {
+                TaskDeleteRequest {
                     id: task.id.clone(),
                     preview: true,
                     approval_id: None,
@@ -1541,7 +1484,7 @@ mod tests {
 
         let result = service
             .delete_from_request(
-                BackgroundAgentDeleteRequest {
+                TaskDeleteRequest {
                     id: task.id.clone(),
                     preview: false,
                     approval_id: None,
@@ -1598,7 +1541,7 @@ mod tests {
 
         let preview = service
             .delete_from_request(
-                BackgroundAgentDeleteRequest {
+                TaskDeleteRequest {
                     id: task.id.clone(),
                     preview: true,
                     approval_id: None,
@@ -1617,7 +1560,7 @@ mod tests {
 
         let result = service
             .delete_from_request(
-                BackgroundAgentDeleteRequest {
+                TaskDeleteRequest {
                     id: task.id.clone(),
                     preview: false,
                     approval_id: Some(token),
@@ -1670,7 +1613,7 @@ mod tests {
 
         let result = service
             .delete_from_request(
-                BackgroundAgentDeleteRequest {
+                TaskDeleteRequest {
                     id: task.id.clone(),
                     preview: false,
                     approval_id: None,
@@ -1698,7 +1641,7 @@ mod tests {
 
         let result = service
             .create_from_request(
-                BackgroundAgentCreateRequest {
+                TaskCreateRequest {
                     name: "Create Direct Warning".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
@@ -1748,7 +1691,7 @@ mod tests {
 
         let result = service
             .update_from_request(
-                BackgroundAgentUpdateRequest {
+                TaskUpdateRequest {
                     id: task.id.clone(),
                     name: Some("Updated Name".to_string()),
                     description: None,
@@ -1803,7 +1746,7 @@ mod tests {
 
         let result = service
             .control_from_request(
-                BackgroundAgentControlRequest {
+                TaskControlRequest {
                     id: task.id.clone(),
                     action: "pause".to_string(),
                     preview: false,
@@ -1825,7 +1768,7 @@ mod tests {
 
         let result = service
             .convert_session(
-                BackgroundAgentConvertSessionRequest {
+                TaskConvertSessionRequest {
                     session_id: session.id.clone(),
                     name: Some("Converted Direct Warning".to_string()),
                     schedule: None,
@@ -2031,7 +1974,7 @@ mod tests {
 
         let err = service
             .delete_from_request(
-                BackgroundAgentDeleteRequest {
+                TaskDeleteRequest {
                     id: task.id,
                     preview: true,
                     approval_id: None,

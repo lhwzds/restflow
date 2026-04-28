@@ -122,7 +122,7 @@ pub(crate) fn check_agent_has_external_channel_sessions(
 
         // Legacy fallback: session source fields may still exist before full migration.
         match session.source_channel {
-            Some(ChatSessionSource::Workspace) | None => {}
+            Some(ChatSessionSource::Workspace | ChatSessionSource::Background) | None => {}
             Some(ChatSessionSource::Telegram) => {
                 if let Some(conversation_id) = legacy_conversation_id.clone() {
                     let binding = crate::models::ChannelSessionBinding::new(
@@ -158,9 +158,6 @@ pub(crate) fn check_agent_has_external_channel_sessions(
                     let _ = channel_session_bindings.upsert(&binding);
                 }
                 sources.insert("slack".to_string());
-            }
-            Some(ChatSessionSource::ExternalLegacy) => {
-                sources.insert("external_legacy".to_string());
             }
         }
     }
@@ -556,14 +553,6 @@ mod tests {
         assert!(msg.contains("Cannot delete agent"));
         assert!(msg.contains("external channel sessions"));
         assert!(msg.contains("telegram"));
-
-        let binding = core
-            .storage
-            .channel_session_bindings
-            .get_by_route("telegram", None, "chat-1")
-            .unwrap()
-            .expect("legacy source route should be backfilled");
-        assert_eq!(binding.session_id, session.id);
     }
 
     #[tokio::test]

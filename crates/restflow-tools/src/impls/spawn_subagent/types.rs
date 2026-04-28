@@ -20,14 +20,14 @@ pub struct SpawnSubagentParams {
 
     /// Task description for single spawn, or transient fallback task for batch spawn.
     ///
-    /// Required for single spawn. Optional for team management operations.
+    /// Required for single spawn. Optional when per-worker tasks are provided.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
 
-    /// Transient per-instance task list for batch or team spawn.
+    /// Transient per-instance task list for batch spawn.
     ///
-    /// Tasks are assigned in worker order and are never persisted in saved teams.
+    /// Tasks are assigned in worker order.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub tasks: Option<Vec<String>>,
@@ -93,18 +93,6 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub workers: Option<Vec<BatchSubagentSpec>>,
 
-    /// Optional team name for batch mode spawn.
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub team: Option<String>,
-
-    /// Optionally persist the provided workers as a named team during spawn.
-    ///
-    /// To save a team without spawning, use `operation = "save_team"` and `team`.
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub save_as_team: Option<String>,
-
     /// If true, validate and preview capability warnings/blockers without executing.
     #[serde(default)]
     pub preview: bool,
@@ -152,10 +140,6 @@ struct RawSpawnSubagentParams {
     #[serde(default)]
     workers: Option<Vec<BatchSubagentSpec>>,
     #[serde(default)]
-    team: Option<String>,
-    #[serde(default)]
-    save_as_team: Option<String>,
-    #[serde(default)]
     preview: bool,
     #[serde(default)]
     approval_id: Option<String>,
@@ -184,8 +168,6 @@ impl<'de> Deserialize<'de> for SpawnSubagentParams {
             inline_allowed_tools: raw.inline_allowed_tools,
             inline_max_iterations: raw.inline_max_iterations,
             workers: raw.workers,
-            team: raw.team,
-            save_as_team: raw.save_as_team,
             preview: raw.preview,
             approval_id: raw.approval_id,
         })

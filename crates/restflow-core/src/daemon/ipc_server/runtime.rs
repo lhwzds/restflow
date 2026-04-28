@@ -38,7 +38,6 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
         core.storage.chat_sessions.clone(),
         core.storage.channel_session_bindings.clone(),
         core.storage.execution_traces.clone(),
-        core.storage.kv_store.clone(),
         core.storage.work_items.clone(),
         core.storage.secrets.clone(),
         core.storage.config.clone(),
@@ -46,7 +45,7 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
         core.storage.background_agents.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
-        core.storage.deliverables.clone(),
+        core.storage.run_artifacts.clone(),
         None,
         None,
         None,
@@ -481,10 +480,7 @@ pub(super) fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) ->
 }
 
 pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
-    let config = AuthManagerConfig {
-        auto_discover: false,
-        ..AuthManagerConfig::default()
-    };
+    let config = AuthManagerConfig::default();
     let db = core.storage.get_db();
     let secrets = Arc::new(core.storage.secrets.clone());
     let profile_storage = AuthProfileStorage::new(db)?;
@@ -493,7 +489,7 @@ pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfil
     Ok(manager)
 }
 
-pub(super) fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> {
+pub(super) fn parse_task_status(status: &str) -> Result<BackgroundAgentStatus> {
     match status.to_lowercase().as_str() {
         "active" => Ok(BackgroundAgentStatus::Active),
         "paused" => Ok(BackgroundAgentStatus::Paused),
@@ -501,10 +497,7 @@ pub(super) fn parse_background_agent_status(status: &str) -> Result<BackgroundAg
         "completed" => Ok(BackgroundAgentStatus::Completed),
         "failed" => Ok(BackgroundAgentStatus::Failed),
         "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
-        _ => Err(anyhow::anyhow!(
-            "Unknown background agent status: {}",
-            status
-        )),
+        _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
     }
 }
 

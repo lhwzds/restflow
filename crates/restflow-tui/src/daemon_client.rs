@@ -1,18 +1,19 @@
 use anyhow::{Result, bail};
-use restflow_contracts::ToolExecutionResult;
-use restflow_contracts::request::ChildRunListQuery;
+use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
 use restflow_core::daemon::ChatSessionEvent;
 use restflow_core::daemon::{
-    DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available, start_daemon_with_config,
+    DaemonConfig, IpcClient, IpcRequest, StreamFrame, is_daemon_available,
+    start_daemon_with_config, stop_daemon,
 };
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionThread, RunListQuery, RunSummary, Task,
+    ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Task,
 };
 use restflow_core::paths;
 use restflow_core::storage::agent::{
     DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
 };
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
@@ -22,19 +23,6 @@ use super::event_loop::AppEvent;
 #[derive(Clone)]
 pub struct TuiDaemonClient {
     socket_path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SessionSelection<'a> {
-    Existing(&'a str),
-    New,
-}
-
-fn session_selection(session_override: Option<&str>) -> SessionSelection<'_> {
-    match session_override {
-        Some(session_id) => SessionSelection::Existing(session_id),
-        None => SessionSelection::New,
-    }
 }
 
 impl TuiDaemonClient {
@@ -65,6 +53,10 @@ impl TuiDaemonClient {
         }
 
         bail!("RestFlow daemon did not become ready in time.")
+    }
+
+    pub async fn stop_daemon(&self) -> Result<bool> {
+        tokio::task::spawn_blocking(stop_daemon).await?
     }
 
     async fn connect(&self) -> Result<IpcClient> {
@@ -126,22 +118,32 @@ impl TuiDaemonClient {
 
     pub async fn resolve_or_create_session(
         &self,
-        agent: &StoredAgent,
+        _agent: &StoredAgent,
         session_override: Option<&str>,
     ) -> Result<Option<ChatSession>> {
-        match session_selection(session_override) {
-            SessionSelection::Existing(session_id) => {
+        match session_override {
+            Some(session_id) => {
                 let mut client = self.connect().await?;
                 client.get_session(session_id.to_string()).await.map(Some)
             }
-            SessionSelection::New => {
-                let mut client = self.connect().await?;
-                client
-                    .create_session(Some(agent.id.clone()), None, None, None)
-                    .await
-                    .map(Some)
-            }
+            None => Ok(None),
         }
+    }
+
+    pub async fn create_session_for_agent(
+        &self,
+        agent_id: &str,
+        model: Option<&str>,
+    ) -> Result<ChatSession> {
+        let mut client = self.connect().await?;
+        client
+            .create_session(
+                Some(agent_id.to_string()),
+                model.map(ToOwned::to_owned),
+                None,
+                None,
+            )
+            .await
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -149,9 +151,66 @@ impl TuiDaemonClient {
         client.list_sessions().await
     }
 
+    pub async fn list_available_models(&self) -> Result<Vec<ModelMetadataDTO>> {
+        let mut client = self.connect().await?;
+        client.request_typed(IpcRequest::GetAvailableModels).await
+    }
+
+    pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
+        let mut client = self.connect().await?;
+        let tasks: Vec<Task> = client
+            .request_typed(IpcRequest::ListTasks { status: None })
+            .await?;
+        Ok(tasks
+            .into_iter()
+            .filter_map(|task| {
+                let session_id = task.chat_session_id.trim();
+                (!session_id.is_empty()).then(|| session_id.to_string())
+            })
+            .collect())
+    }
+
+    pub async fn list_tasks(&self) -> Result<Vec<Task>> {
+        let mut client = self.connect().await?;
+        client
+            .request_typed(IpcRequest::ListTasks { status: None })
+            .await
+    }
+
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client.get_session(session_id.to_string()).await
+    }
+
+    pub async fn switch_session_model(
+        &self,
+        session_id: &str,
+        provider: &str,
+        model: &str,
+    ) -> Result<ChatSession> {
+        let mut client = self.connect().await?;
+        client
+            .request_typed(IpcRequest::SwitchSessionModel {
+                session_id: session_id.to_string(),
+                model_ref: WireModelRef {
+                    provider: provider.to_string(),
+                    model: model.to_string(),
+                },
+                reason: Some("tui model picker".to_string()),
+            })
+            .await
+    }
+
+    pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
+        let mut client = self.connect().await?;
+        client.delete_session(session_id.to_string()).await
+    }
+
+    pub async fn cancel_chat_stream(&self, stream_id: &str) -> Result<bool> {
+        let mut client = self.connect().await?;
+        client
+            .cancel_chat_session_stream(stream_id.to_string())
+            .await
     }
 
     pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {
@@ -194,15 +253,6 @@ impl TuiDaemonClient {
                 action: action.to_string(),
             })
             .await
-    }
-
-    pub async fn execute_runtime_tool(
-        &self,
-        name: &str,
-        input: serde_json::Value,
-    ) -> Result<ToolExecutionResult> {
-        let mut client = self.connect().await?;
-        client.execute_tool(name.to_string(), input).await
     }
 
     pub fn spawn_session_events(
@@ -268,6 +318,7 @@ impl TuiDaemonClient {
         &self,
         session_id: String,
         input: String,
+        stream_id: String,
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
@@ -279,7 +330,6 @@ impl TuiDaemonClient {
                     return;
                 }
             };
-            let stream_id = uuid::Uuid::new_v4().to_string();
             let result = ipc
                 .execute_chat_session_stream(
                     session_id.clone(),
@@ -297,23 +347,5 @@ impl TuiDaemonClient {
                 let _ = tx.send(AppEvent::Error(format!("Chat stream failed: {error}")));
             }
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{SessionSelection, session_selection};
-
-    #[test]
-    fn default_chat_session_selection_creates_new_session() {
-        assert_eq!(session_selection(None), SessionSelection::New);
-    }
-
-    #[test]
-    fn explicit_chat_session_selection_reuses_existing_session() {
-        assert_eq!(
-            session_selection(Some("session-123")),
-            SessionSelection::Existing("session-123")
-        );
     }
 }

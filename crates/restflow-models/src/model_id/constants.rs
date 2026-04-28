@@ -9,6 +9,11 @@ impl ModelId {
     pub const Gpt5Pro: Self = Self("gpt-5-pro");
     pub const Gpt5_1: Self = Self("gpt-5-1");
     pub const Gpt5_2: Self = Self("gpt-5-2");
+    pub const Gpt5_4: Self = Self("gpt-5-4");
+    pub const Gpt5_4Mini: Self = Self("gpt-5-4-mini");
+    pub const Gpt5_4Nano: Self = Self("gpt-5-4-nano");
+    pub const Gpt5_5: Self = Self("gpt-5-5");
+    pub const Gpt5_5Pro: Self = Self("gpt-5-5-pro");
     pub const ClaudeOpus4_6: Self = Self("claude-opus-4-6");
     pub const ClaudeSonnet4_5: Self = Self("claude-sonnet-4-5");
     pub const ClaudeHaiku4_5: Self = Self("claude-haiku-4-5");
@@ -17,6 +22,8 @@ impl ModelId {
     pub const ClaudeCodeHaiku: Self = Self("claude-code-haiku");
     pub const DeepseekChat: Self = Self("deepseek-chat");
     pub const DeepseekReasoner: Self = Self("deepseek-reasoner");
+    pub const DeepseekV4Pro: Self = Self("deepseek-v4-pro");
+    pub const DeepseekV4Flash: Self = Self("deepseek-v4-flash");
     pub const Gemini25Pro: Self = Self("gemini-2-5-pro");
     pub const Gemini25Flash: Self = Self("gemini-2-5-flash");
     pub const Gemini3Pro: Self = Self("gemini-3-pro");
@@ -63,6 +70,8 @@ impl ModelId {
     pub const MiniMaxM27CodingPlanHighspeed: Self = Self("minimax-coding-plan-m2-7-highspeed");
     pub const Gpt5_4Codex: Self = Self("gpt-5.4");
     pub const Gpt5_4MiniCodex: Self = Self("gpt-5.4-mini");
+    pub const Gpt5_5Codex: Self = Self("gpt-5.5");
+    pub const Gpt5_5ProCodex: Self = Self("gpt-5.5-pro");
     pub const Gpt5Codex: Self = Self("gpt-5-codex");
     pub const Gpt5_1Codex: Self = Self("gpt-5.1-codex");
     pub const Gpt5_2Codex: Self = Self("gpt-5.2-codex");

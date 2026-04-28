@@ -5,15 +5,12 @@ use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
 };
 use restflow_traits::store::{
-    BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, TaskStore,
+    MANAGE_TASK_OPERATIONS_CSV, TaskArtifactListRequest, TaskControlRequest,
+    TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
+    TaskUpdateRequest,
 };
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 struct MockStore;
@@ -22,10 +19,6 @@ struct MockAssessor;
 #[derive(Default)]
 struct ConfirmationCreateStore {
     create_calls: Mutex<usize>,
-}
-#[derive(Default)]
-struct MockKvStore {
-    entries: Mutex<HashMap<String, String>>,
 }
 
 #[async_trait]
@@ -50,9 +43,9 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
-    async fn assess_background_agent_create(
+    async fn assess_task_create(
         &self,
-        _request: BackgroundAgentCreateRequest,
+        _request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
             "create_background_agent",
@@ -60,9 +53,9 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
-    async fn assess_background_agent_convert_session(
+    async fn assess_task_convert_session(
         &self,
-        _request: BackgroundAgentConvertSessionRequest,
+        _request: TaskConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
             "convert_session_to_background_agent",
@@ -70,9 +63,9 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
-    async fn assess_background_agent_update(
+    async fn assess_task_update(
         &self,
-        _request: BackgroundAgentUpdateRequest,
+        _request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
             "update_background_agent",
@@ -80,9 +73,9 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
-    async fn assess_background_agent_delete(
+    async fn assess_task_delete(
         &self,
-        _request: BackgroundAgentDeleteRequest,
+        _request: TaskDeleteRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::warning_with_confirmation(
             "delete_background_agent",
@@ -91,9 +84,9 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
-    async fn assess_background_agent_control(
+    async fn assess_task_control(
         &self,
-        _request: BackgroundAgentControlRequest,
+        _request: TaskControlRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
             "control_background_agent",
@@ -101,7 +94,7 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
-    async fn assess_background_agent_template(
+    async fn assess_task_template(
         &self,
         operation: &str,
         intent: OperationAssessmentIntent,
@@ -142,26 +135,19 @@ fn writable_tool() -> TaskTool {
         .with_assessor(Arc::new(MockAssessor))
 }
 
-fn writable_team_tool(kv_store: Arc<dyn KvStore>) -> TaskTool {
-    TaskTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true)
-        .with_assessor(Arc::new(MockAssessor))
-}
-
 #[test]
-fn task_tool_from_task_store_keeps_background_agent_compat() {
+fn task_tool_from_task_store_keeps_canonical_store() {
     let task_store: Arc<dyn TaskStore> = Arc::new(MockStore);
     let tool = TaskTool::from_task_store(task_store);
 
-    let _: Arc<dyn BackgroundAgentStore> = tool.store.clone();
+    let _: Arc<dyn TaskStore> = tool.store.clone();
 }
 
 #[test]
-fn background_agent_constructor_preserves_status_through_bridge() {
+fn task_tool_constructor_preserves_canonical_store() {
     let tool = TaskTool::new(Arc::new(MockStore));
 
-    let _: Arc<dyn BackgroundAgentStore> = tool.store.clone();
+    let _: Arc<dyn TaskStore> = tool.store.clone();
 }
 
 #[test]
@@ -171,80 +157,19 @@ fn task_tool_uses_manage_tasks_name() {
 }
 
 #[test]
-fn background_agent_tool_keeps_legacy_name() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
-    assert_eq!(Tool::name(&tool), "manage_background_agents");
+fn task_tool_schema_is_openai_function_compatible() {
+    let schema = tool_parameters_schema();
+
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["required"], json!(["operation"]));
+    assert!(schema.get("oneOf").is_none());
+    assert!(schema.get("anyOf").is_none());
+    assert!(schema.get("allOf").is_none());
+    assert!(schema.get("enum").is_none());
 }
 
-impl KvStore for MockKvStore {
-    fn get_entry(&self, key: &str) -> Result<Value> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(value) = entries.get(key) {
-            Ok(json!({
-                "found": true,
-                "key": key,
-                "value": value
-            }))
-        } else {
-            Err(ToolError::Tool(format!("entry not found: {}", key)))
-        }
-    }
-
-    fn set_entry(
-        &self,
-        key: &str,
-        content: &str,
-        _visibility: Option<&str>,
-        _content_type: Option<&str>,
-        _type_hint: Option<&str>,
-        _tags: Option<Vec<String>>,
-        _accessor_id: Option<&str>,
-    ) -> Result<Value> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        entries.insert(key.to_string(), content.to_string());
-        Ok(json!({ "success": true, "key": key }))
-    }
-
-    fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> Result<Value> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let deleted = entries.remove(key).is_some();
-        Ok(json!({ "deleted": deleted, "key": key }))
-    }
-
-    fn list_entries(&self, namespace: Option<&str>) -> Result<Value> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = namespace.map(|value| format!("{value}:"));
-        let list = entries
-            .iter()
-            .filter(|(key, _)| {
-                prefix
-                    .as_ref()
-                    .map(|value| key.starts_with(value))
-                    .unwrap_or(true)
-            })
-            .map(|(key, value)| json!({ "key": key, "value": value }))
-            .collect::<Vec<_>>();
-        Ok(json!({
-            "count": list.len(),
-            "entries": list
-        }))
-    }
-}
-
-impl BackgroundAgentStore for MockStore {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+impl TaskStore for MockStore {
+    fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -261,10 +186,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn convert_session_to_background_agent(
-        &self,
-        request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<Value> {
+    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -288,7 +210,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -306,7 +228,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -334,11 +256,11 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+    fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
         Ok(json!([{"id": "task-1"}]))
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
         if request.preview {
             return Ok(json!({
                 "status": "preview",
@@ -356,10 +278,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "event_limit": request.event_limit.unwrap_or(10),
@@ -367,10 +286,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "message": request.message,
@@ -378,10 +294,7 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "msg-1",
             "task_id": request.id,
@@ -389,10 +302,7 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn list_background_agent_deliverables(
-        &self,
-        request: BackgroundAgentDeliverableListRequest,
-    ) -> Result<Value> {
+    fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "d-1",
             "task_id": request.id,
@@ -400,10 +310,7 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn list_background_agent_traces(
-        &self,
-        request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
         Ok(json!([{
             "id": request.id,
             "trace_id": "trace-001",
@@ -411,10 +318,7 @@ impl BackgroundAgentStore for MockStore {
         }]))
     }
 
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
         Ok(json!({
             "trace_id": request.trace_id,
             "line_limit": request.line_limit.unwrap_or(200),
@@ -426,8 +330,8 @@ impl BackgroundAgentStore for MockStore {
     }
 }
 
-impl BackgroundAgentStore for ConfirmationCreateStore {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+impl TaskStore for ConfirmationCreateStore {
+    fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
         let mut create_calls = self
             .create_calls
             .lock()
@@ -451,26 +355,23 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         }))
     }
 
-    fn convert_session_to_background_agent(
-        &self,
-        _request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<Value> {
+    fn convert_session_to_task(&self, _request: TaskConvertSessionRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_task(&self, _request: TaskUpdateRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn delete_background_agent(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_task(&self, _request: TaskDeleteRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+    fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": {
@@ -480,61 +381,40 @@ impl BackgroundAgentStore for ConfirmationCreateStore {
         }))
     }
 
-    fn get_background_agent_progress(
-        &self,
-        _request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_task_progress(&self, _request: TaskProgressRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn send_background_agent_message(
-        &self,
-        _request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_task_message(&self, _request: TaskMessageRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agent_messages(
-        &self,
-        _request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_task_messages(&self, _request: TaskMessageListRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agent_deliverables(
-        &self,
-        _request: BackgroundAgentDeliverableListRequest,
-    ) -> Result<Value> {
+    fn list_task_artifacts(&self, _request: TaskArtifactListRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn list_background_agent_traces(
-        &self,
-        _request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
         panic!("not expected")
     }
 
-    fn read_background_agent_trace(
-        &self,
-        _request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_task_trace(&self, _request: TaskTraceReadRequest) -> Result<Value> {
         panic!("not expected")
     }
 }
 
-impl BackgroundAgentStore for FailingListStore {
-    fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
+impl TaskStore for FailingListStore {
+    fn create_task(&self, _request: TaskCreateRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": "task-1" }
         }))
     }
 
-    fn convert_session_to_background_agent(
-        &self,
-        request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<Value> {
+    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": {
@@ -549,35 +429,32 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+    fn update_task(&self, _request: TaskUpdateRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": "task-1", "updated": true }
         }))
     }
 
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": request.id, "deleted": true }
         }))
     }
 
-    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+    fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
         Err(crate::ToolError::Tool("store offline".to_string()))
     }
 
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
         Ok(json!({
             "status": "executed",
             "result": { "id": request.id, "action": request.action }
         }))
     }
 
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> Result<Value> {
+    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "event_limit": request.event_limit.unwrap_or(10),
@@ -585,10 +462,7 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> Result<Value> {
+    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value> {
         Ok(json!({
             "id": request.id,
             "message": request.message,
@@ -596,10 +470,7 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value> {
+    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "msg-1",
             "task_id": request.id,
@@ -607,10 +478,7 @@ impl BackgroundAgentStore for FailingListStore {
         }]))
     }
 
-    fn list_background_agent_deliverables(
-        &self,
-        request: BackgroundAgentDeliverableListRequest,
-    ) -> Result<Value> {
+    fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value> {
         Ok(json!([{
             "id": "d-1",
             "task_id": request.id,
@@ -618,17 +486,11 @@ impl BackgroundAgentStore for FailingListStore {
         }]))
     }
 
-    fn list_background_agent_traces(
-        &self,
-        _request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value> {
+    fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
         Ok(json!([]))
     }
 
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value> {
+    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
         Ok(json!({
             "trace_id": request.trace_id,
             "line_limit": request.line_limit.unwrap_or(200),
@@ -639,14 +501,14 @@ impl BackgroundAgentStore for FailingListStore {
 
 #[tokio::test]
 async fn test_list_tasks() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
     assert!(output.success);
 }
 
 #[tokio::test]
 async fn test_write_guard() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let result = tool
         .execute(json!({
             "operation": "create",
@@ -668,7 +530,7 @@ async fn test_write_guard() {
 
 #[tokio::test]
 async fn test_invalid_input_message() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "id": "task-1"
@@ -680,7 +542,7 @@ async fn test_invalid_input_message() {
         output
             .error
             .expect("expected error")
-            .contains(MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV)
+            .contains(MANAGE_TASK_OPERATIONS_CSV)
     );
 }
 
@@ -785,7 +647,7 @@ async fn test_delete_accepts_approval_id_for_replay() {
 
 #[tokio::test]
 async fn test_create_rejects_invalid_durability_mode_payload() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let output = tool
         .execute(json!({
             "operation": "create",
@@ -892,7 +754,7 @@ async fn test_convert_session_defaults_run_now_to_false() {
 
 #[tokio::test]
 async fn test_promote_to_background_requires_session_id() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let err = tool
         .execute(json!({
             "operation": "promote_to_background"
@@ -907,17 +769,17 @@ async fn test_promote_to_background_requires_session_id() {
 
 #[tokio::test]
 async fn test_list_store_error_is_wrapped() {
-    let tool = BackgroundAgentTool::new(Arc::new(FailingListStore));
+    let tool = TaskTool::new(Arc::new(FailingListStore));
     let result = tool.execute(json!({ "operation": "list" })).await;
     let err = result.expect_err("expected wrapped store error");
     let err_text = err.to_string();
-    assert!(err_text.contains("Failed to list background agent"));
+    assert!(err_text.contains("Failed to list tasks"));
     assert!(err_text.contains("store offline"));
 }
 
 #[tokio::test]
 async fn test_progress_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "progress",
@@ -930,11 +792,11 @@ async fn test_progress_operation() {
 }
 
 #[tokio::test]
-async fn test_list_deliverables_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+async fn test_list_artifacts_operation() {
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
-            "operation": "list_deliverables",
+            "operation": "list_artifacts",
             "id": "task-1"
         }))
         .await
@@ -944,7 +806,7 @@ async fn test_list_deliverables_operation() {
 
 #[tokio::test]
 async fn test_list_traces_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "list_traces",
@@ -959,7 +821,7 @@ async fn test_list_traces_operation() {
 
 #[tokio::test]
 async fn test_read_trace_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    let tool = TaskTool::new(Arc::new(MockStore));
     let output = tool
         .execute(json!({
             "operation": "read_trace",
@@ -980,7 +842,7 @@ async fn test_read_trace_operation() {
 
 #[tokio::test]
 async fn test_stop_uses_control_not_delete() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let output = tool
         .execute(json!({
             "operation": "stop",
@@ -1003,7 +865,7 @@ async fn test_stop_uses_control_not_delete() {
 
 #[tokio::test]
 async fn test_start_uses_control_with_start_action() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
     let output = tool
         .execute(json!({
             "operation": "start",
@@ -1087,239 +949,4 @@ async fn test_run_batch_replays_per_task_confirmation() {
     assert_eq!(output.result["total"], 2);
     assert_eq!(output.result["tasks"][0]["task_id"], "task-2");
     assert_eq!(output.result["tasks"][1]["task_id"], "task-4");
-}
-
-#[tokio::test]
-async fn test_team_management_round_trip() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
-
-    let save = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "TeamA",
-            "workers": [
-                { "agent_id": "agent-1", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(save.success);
-    assert_eq!(save.result["operation"], "save_team");
-
-    let list = tool
-        .execute(json!({
-            "operation": "list_teams"
-        }))
-        .await
-        .unwrap();
-    assert!(list.success);
-    assert_eq!(list.result["operation"], "list_teams");
-    assert_eq!(
-        list.result["teams"].as_array().map(|items| items.len()),
-        Some(1)
-    );
-
-    let get = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "TeamA"
-        }))
-        .await
-        .unwrap();
-    assert!(get.success);
-    assert_eq!(get.result["operation"], "get_team");
-    assert_eq!(get.result["team"], "TeamA");
-    assert_eq!(get.result["member_groups"], 1);
-    assert_eq!(get.result["total_instances"], 2);
-    assert_eq!(
-        get.result["members"].as_array().map(|items| items.len()),
-        Some(1)
-    );
-    assert!(
-        get.result["members"][0].get("input").is_none()
-            || get.result["members"][0]["input"].is_null()
-    );
-
-    let delete_preview = tool
-        .execute(json!({
-            "operation": "delete_team",
-            "team": "TeamA",
-            "preview": true
-        }))
-        .await
-        .unwrap();
-    assert!(delete_preview.success);
-    assert_eq!(delete_preview.result["status"], "preview");
-    let token = delete_preview.result["assessment"]["approval_id"]
-        .as_str()
-        .expect("delete team preview approval id")
-        .to_string();
-
-    let delete = tool
-        .execute(json!({
-            "operation": "delete_team",
-            "team": "TeamA",
-            "approval_id": token
-        }))
-        .await
-        .unwrap();
-    assert!(delete.success);
-    assert_eq!(delete.result["operation"], "delete_team");
-}
-
-#[tokio::test]
-async fn test_run_batch_from_saved_team() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
-
-    tool.execute(json!({
-        "operation": "save_team",
-        "team": "TeamB",
-        "workers": [
-            { "agent_id": "agent-1", "count": 2 }
-        ]
-    }))
-    .await
-    .unwrap();
-
-    let output = tool
-        .execute(json!({
-            "operation": "run_batch",
-            "team": "TeamB",
-            "inputs": ["alpha", "beta"]
-        }))
-        .await
-        .unwrap();
-    assert!(output.success);
-    assert_eq!(output.result["operation"], "run_batch");
-    assert_eq!(output.result["total"], 2);
-}
-
-#[tokio::test]
-async fn test_run_batch_save_as_team_strips_runtime_inputs() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
-
-    let saved = tool
-        .execute(json!({
-            "operation": "run_batch",
-            "save_as_team": "TeamC",
-            "agent_id": "agent-1",
-            "workers": [
-                { "count": 2, "inputs": ["alpha", "beta"] }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(saved.success);
-
-    let get = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "TeamC"
-        }))
-        .await
-        .unwrap();
-    assert!(get.success);
-    assert!(
-        get.result["members"][0].get("inputs").is_none()
-            || get.result["members"][0]["inputs"].is_null()
-    );
-    assert_eq!(get.result["members"][0]["count"], 2);
-}
-
-#[tokio::test]
-async fn test_run_batch_rejects_workers_and_team_combined() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "run_batch",
-            "team": "TeamD",
-            "workers": [
-                { "agent_id": "agent-1", "count": 1 }
-            ],
-            "input": "task"
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'workers' or 'team'")
-    );
-}
-
-#[tokio::test]
-async fn test_save_team_rejects_runtime_input_fields() {
-    let kv_store = Arc::new(MockKvStore::default());
-    let tool = writable_team_tool(kv_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "PromptfulTeam",
-            "workers": [
-                { "agent_id": "agent-1", "input": "do work" }
-            ]
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("stores worker structure only")
-    );
-}
-
-#[tokio::test]
-async fn test_get_team_rejects_legacy_worker_payload() {
-    let kv_store = Arc::new(MockKvStore::default());
-    kv_store
-        .set_entry(
-            "background_agent_team:LegacyTeam",
-            &json!({
-                "version": 1,
-                "name": "LegacyTeam",
-                "workers": [
-                    {
-                        "agent_id": "agent-1",
-                        "inputs": ["alpha", "beta"]
-                    }
-                ],
-                "created_at": 1,
-                "updated_at": 2
-            })
-            .to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .expect("store legacy team");
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true)
-        .with_assessor(Arc::new(MockAssessor));
-
-    let error = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "LegacyTeam"
-        }))
-        .await
-        .expect_err("legacy payload should fail to decode");
-
-    assert!(
-        error
-            .to_string()
-            .contains("Failed to decode team 'LegacyTeam'")
-    );
 }

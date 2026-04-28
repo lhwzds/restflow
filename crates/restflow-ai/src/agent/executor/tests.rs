@@ -1697,29 +1697,6 @@ impl Tool for PromoteTaskCaptureTool {
     }
 }
 
-/// A legacy background-agent-shaped tool that returns input as output so tests
-/// can verify the alias still receives runtime injection.
-struct PromoteBackgroundCaptureTool;
-
-#[async_trait]
-impl Tool for PromoteBackgroundCaptureTool {
-    fn name(&self) -> &str {
-        "manage_background_agents"
-    }
-
-    fn description(&self) -> &str {
-        "Capture manage_background_agents input payload"
-    }
-
-    fn parameters_schema(&self) -> Value {
-        serde_json::json!({"type": "object"})
-    }
-
-    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
-        Ok(ToolOutput::success(input))
-    }
-}
-
 struct SubagentReadCaptureTool {
     tool_name: &'static str,
 }
@@ -2308,14 +2285,14 @@ async fn test_promote_to_background_injects_chat_session_id() {
 #[tokio::test]
 async fn test_promote_to_background_overrides_explicit_session_id() {
     let mut tools = ToolRegistry::new();
-    tools.register(PromoteBackgroundCaptureTool);
+    tools.register(PromoteTaskCaptureTool);
 
     let llm = Arc::new(MockLlmClient::new(vec![]));
     let executor = AgentExecutor::new(llm, Arc::new(tools));
 
     let calls = vec![ToolCall {
         id: "promote_call".to_string(),
-        name: "manage_background_agents".to_string(),
+        name: "manage_tasks".to_string(),
         arguments: serde_json::json!({
             "operation": "promote_to_background",
             "session_id": "session-explicit",

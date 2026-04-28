@@ -20,7 +20,7 @@ async fn execute_named_control(
         approval_id,
     };
     let result = TaskStore::control_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to {verb} background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to {verb} task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }

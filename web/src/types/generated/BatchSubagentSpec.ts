@@ -17,15 +17,14 @@ export type BatchSubagentSpec = {
   /**
    * Optional transient per-spec task override.
    *
-   * If omitted, top-level `task` is used. This field is never persisted in saved teams.
+   * If omitted, top-level `task` is used.
    */
   task?: string
   /**
    * Optional transient per-instance task list.
    *
    * When provided, each spawned instance uses the corresponding entry in this list.
-   * This allows one worker spec to fan out with distinct prompts. This field is never
-   * persisted in saved teams.
+   * This allows one worker spec to fan out with distinct prompts.
    */
   tasks?: Array<string>
   /**

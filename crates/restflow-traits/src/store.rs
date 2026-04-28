@@ -27,10 +27,6 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "convert_session",
     "promote_to_background",
     "run_batch",
-    "save_team",
-    "list_teams",
-    "get_team",
-    "delete_team",
     "update",
     "delete",
     "list",
@@ -38,40 +34,24 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "progress",
     "send_message",
     "list_messages",
-    "list_deliverables",
+    "list_artifacts",
     "list_traces",
     "read_trace",
     "pause",
+    "start",
     "resume",
     "stop",
     "run",
 ];
 
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = MANAGE_TASK_OPERATIONS;
+pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, update, delete, list, control, progress, send_message, list_messages, list_artifacts, list_traces, read_trace, pause, start, resume, stop, run";
 
-pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, stop, run";
+pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from explicit workers and optionally trigger run_now), run (trigger now), pause/start/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = MANAGE_TASK_OPERATIONS_CSV;
-
-pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
-
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = MANAGE_TASKS_TOOL_DESCRIPTION;
 pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_NAME: &str = "manage_background_agents";
-
-pub fn canonical_task_tool_name(tool_name: &str) -> Option<&'static str> {
-    match tool_name {
-        MANAGE_TASKS_TOOL_NAME | MANAGE_BACKGROUND_AGENTS_TOOL_NAME => Some(MANAGE_TASKS_TOOL_NAME),
-        _ => None,
-    }
-}
 
 pub fn is_task_management_tool_name(tool_name: &str) -> bool {
-    canonical_task_tool_name(tool_name).is_some()
-}
-
-pub fn is_legacy_task_tool_name(tool_name: &str) -> bool {
-    tool_name == MANAGE_BACKGROUND_AGENTS_TOOL_NAME
+    tool_name == MANAGE_TASKS_TOOL_NAME
 }
 
 // ── MemoryStore ──────────────────────────────────────────────────────
@@ -285,23 +265,6 @@ pub struct TaskMessageListRequest {
     pub limit: Option<usize>,
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentCreateRequest = TaskCreateRequest;
-#[doc(hidden)]
-pub type BackgroundAgentConvertSessionRequest = TaskConvertSessionRequest;
-#[doc(hidden)]
-pub type BackgroundAgentUpdateRequest = TaskUpdateRequest;
-#[doc(hidden)]
-pub type BackgroundAgentControlRequest = TaskControlRequest;
-#[doc(hidden)]
-pub type BackgroundAgentDeleteRequest = TaskDeleteRequest;
-#[doc(hidden)]
-pub type BackgroundAgentProgressRequest = TaskProgressRequest;
-#[doc(hidden)]
-pub type BackgroundAgentMessageRequest = TaskMessageRequest;
-#[doc(hidden)]
-pub type BackgroundAgentMessageListRequest = TaskMessageListRequest;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,7 +272,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn background_agent_requests_round_trip_with_approval_id() {
+    fn task_mutation_requests_round_trip_with_approval_id() {
         let create: TaskCreateRequest = serde_json::from_value(json!({
             "name": "Task",
             "agent_id": "agent-1",
@@ -356,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn task_request_aliases_round_trip_with_approval_id() {
+    fn task_create_and_delete_requests_round_trip_with_approval_id() {
         let create: TaskCreateRequest = serde_json::from_value(json!({
             "name": "Task",
             "agent_id": "agent-1",
@@ -379,122 +342,80 @@ mod tests {
     }
 
     #[test]
-    fn task_management_tool_names_resolve_to_canonical_name() {
-        assert_eq!(
-            canonical_task_tool_name(MANAGE_TASKS_TOOL_NAME),
-            Some(MANAGE_TASKS_TOOL_NAME)
-        );
-        assert_eq!(
-            canonical_task_tool_name(MANAGE_BACKGROUND_AGENTS_TOOL_NAME),
-            Some(MANAGE_TASKS_TOOL_NAME)
-        );
+    fn task_management_tool_name_accepts_only_canonical_name() {
         assert!(is_task_management_tool_name(MANAGE_TASKS_TOOL_NAME));
-        assert!(is_task_management_tool_name(
-            MANAGE_BACKGROUND_AGENTS_TOOL_NAME
-        ));
-        assert!(is_legacy_task_tool_name(MANAGE_BACKGROUND_AGENTS_TOOL_NAME));
-        assert!(!is_legacy_task_tool_name(MANAGE_TASKS_TOOL_NAME));
+        assert!(!is_task_management_tool_name("manage_background_agents"));
         assert!(!is_task_management_tool_name("manage_agents"));
     }
 
     #[derive(Default)]
-    struct MockBackgroundAgentStore {
+    struct MockTaskStore {
         calls: Arc<Mutex<Vec<&'static str>>>,
     }
 
-    impl MockBackgroundAgentStore {
+    impl MockTaskStore {
         fn calls(&self) -> Vec<&'static str> {
             self.calls.lock().expect("calls lock").clone()
         }
     }
 
-    impl BackgroundAgentStore for MockBackgroundAgentStore {
-        fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
-            self.calls
-                .lock()
-                .expect("calls lock")
-                .push("create_background_agent");
+    impl TaskStore for MockTaskStore {
+        fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
+            self.calls.lock().expect("calls lock").push("create_task");
             assert_eq!(request.name, "Task");
             Ok(json!({"ok": true}))
         }
 
-        fn convert_session_to_background_agent(
-            &self,
-            _request: BackgroundAgentConvertSessionRequest,
-        ) -> Result<Value> {
+        fn convert_session_to_task(&self, _request: TaskConvertSessionRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+        fn update_task(&self, _request: TaskUpdateRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn delete_background_agent(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
+        fn delete_task(&self, _request: TaskDeleteRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agents(&self, status: Option<String>) -> Result<Value> {
-            self.calls
-                .lock()
-                .expect("calls lock")
-                .push("list_background_agents");
+        fn list_tasks(&self, status: Option<String>) -> Result<Value> {
+            self.calls.lock().expect("calls lock").push("list_tasks");
             assert_eq!(status.as_deref(), Some("active"));
             Ok(json!([{"id": "task-1"}]))
         }
 
-        fn control_background_agent(
-            &self,
-            _request: BackgroundAgentControlRequest,
-        ) -> Result<Value> {
+        fn control_task(&self, _request: TaskControlRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn get_background_agent_progress(
-            &self,
-            _request: BackgroundAgentProgressRequest,
-        ) -> Result<Value> {
+        fn get_task_progress(&self, _request: TaskProgressRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn send_background_agent_message(
-            &self,
-            _request: BackgroundAgentMessageRequest,
-        ) -> Result<Value> {
+        fn send_task_message(&self, _request: TaskMessageRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agent_messages(
-            &self,
-            _request: BackgroundAgentMessageListRequest,
-        ) -> Result<Value> {
+        fn list_task_messages(&self, _request: TaskMessageListRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agent_deliverables(
-            &self,
-            _request: BackgroundAgentDeliverableListRequest,
-        ) -> Result<Value> {
+        fn list_task_artifacts(&self, _request: TaskArtifactListRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn list_background_agent_traces(
-            &self,
-            _request: BackgroundAgentTraceListRequest,
-        ) -> Result<Value> {
+        fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
             panic!("not expected")
         }
 
-        fn read_background_agent_trace(
-            &self,
-            _request: BackgroundAgentTraceReadRequest,
-        ) -> Result<Value> {
+        fn read_task_trace(&self, _request: TaskTraceReadRequest) -> Result<Value> {
             panic!("not expected")
         }
     }
 
     #[test]
-    fn task_store_forwards_to_background_agent_store() {
-        let store = MockBackgroundAgentStore::default();
+    fn task_store_dispatches_task_operations() {
+        let store = MockTaskStore::default();
 
         let create_result = TaskStore::create_task(
             &store,
@@ -523,17 +444,15 @@ mod tests {
         let list_result = TaskStore::list_tasks(&store, Some("active".to_string()))
             .expect("list_tasks should forward");
         assert_eq!(list_result.as_array().map(|items| items.len()), Some(1));
-        assert_eq!(
-            store.calls(),
-            vec!["create_background_agent", "list_background_agents"]
-        );
+        assert_eq!(store.calls(), vec!["create_task", "list_tasks"]);
     }
 
     #[test]
-    fn task_store_trait_object_forwards_to_background_agent_store() {
-        let store: Arc<dyn BackgroundAgentStore> = Arc::new(MockBackgroundAgentStore::default());
+    fn task_store_trait_object_dispatches_task_operations() {
+        let store: Arc<dyn TaskStore> = Arc::new(MockTaskStore::default());
 
-        let result = TaskStore::list_tasks(store.as_ref(), Some("active".to_string()))
+        let result = store
+            .list_tasks(Some("active".to_string()))
             .expect("list_tasks should forward through trait object");
 
         assert_eq!(result.as_array().map(|items| items.len()), Some(1));
@@ -541,7 +460,7 @@ mod tests {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskDeliverableListRequest {
+pub struct TaskArtifactListRequest {
     pub id: String,
 }
 
@@ -560,110 +479,19 @@ pub struct TaskTraceReadRequest {
     pub line_limit: Option<usize>,
 }
 
-#[doc(hidden)]
-pub type BackgroundAgentDeliverableListRequest = TaskDeliverableListRequest;
-#[doc(hidden)]
-pub type BackgroundAgentTraceListRequest = TaskTraceListRequest;
-#[doc(hidden)]
-pub type BackgroundAgentTraceReadRequest = TaskTraceReadRequest;
-
-pub trait BackgroundAgentStore: Send + Sync {
-    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
-    fn convert_session_to_background_agent(
-        &self,
-        request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<Value>;
-    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
-    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value>;
-    fn list_background_agents(&self, status: Option<String>) -> Result<Value>;
-    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value>;
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> Result<Value>;
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> Result<Value>;
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> Result<Value>;
-    fn list_background_agent_deliverables(
-        &self,
-        request: BackgroundAgentDeliverableListRequest,
-    ) -> Result<Value>;
-    fn list_background_agent_traces(
-        &self,
-        request: BackgroundAgentTraceListRequest,
-    ) -> Result<Value>;
-    fn read_background_agent_trace(
-        &self,
-        request: BackgroundAgentTraceReadRequest,
-    ) -> Result<Value>;
-}
-
-pub trait TaskStore: BackgroundAgentStore + Send + Sync {
-    fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
-        self.create_background_agent(request)
-    }
-
-    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value> {
-        self.convert_session_to_background_agent(request)
-    }
-
-    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value> {
-        self.update_background_agent(request)
-    }
-
-    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value> {
-        self.delete_background_agent(request)
-    }
-
-    fn list_tasks(&self, status: Option<String>) -> Result<Value> {
-        self.list_background_agents(status)
-    }
-
-    fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
-        self.control_background_agent(request)
-    }
-
-    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value> {
-        self.get_background_agent_progress(request)
-    }
-
-    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value> {
-        self.send_background_agent_message(request)
-    }
-
-    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
-        self.list_background_agent_messages(request)
-    }
-
-    fn list_task_deliverables(&self, request: TaskDeliverableListRequest) -> Result<Value> {
-        self.list_background_agent_deliverables(request)
-    }
-
-    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
-        self.list_background_agent_traces(request)
-    }
-
-    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
-        self.read_background_agent_trace(request)
-    }
-}
-
-impl<T: ?Sized> TaskStore for T where T: BackgroundAgentStore + Send + Sync {}
-
-pub mod compat {
-    pub use super::{
-        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-        BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-        BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-        BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
-        BackgroundAgentUpdateRequest, MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
-    };
+pub trait TaskStore: Send + Sync {
+    fn create_task(&self, request: TaskCreateRequest) -> Result<Value>;
+    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value>;
+    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value>;
+    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value>;
+    fn list_tasks(&self, status: Option<String>) -> Result<Value>;
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value>;
+    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value>;
+    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value>;
+    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value>;
+    fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value>;
+    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value>;
+    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value>;
 }
 
 // ── SessionStore ─────────────────────────────────────────────────────
@@ -785,27 +613,9 @@ pub struct AuthProfileTestRequest {
 
 pub trait AuthProfileStore: Send + Sync {
     fn list_profiles(&self) -> Result<Value>;
-    fn discover_profiles(&self) -> Result<Value>;
     fn add_profile(&self, request: AuthProfileCreateRequest) -> Result<Value>;
     fn remove_profile(&self, id: &str) -> Result<Value>;
     fn test_profile(&self, request: AuthProfileTestRequest) -> Result<Value>;
-}
-
-// ── DeliverableStore ─────────────────────────────────────────────────
-
-pub trait DeliverableStore: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
-    fn save_deliverable(
-        &self,
-        task_id: &str,
-        execution_id: &str,
-        deliverable_type: &str,
-        title: &str,
-        content: &str,
-        file_path: Option<&str>,
-        content_type: Option<&str>,
-        metadata: Option<Value>,
-    ) -> Result<Value>;
 }
 
 // ── WorkItemProvider ─────────────────────────────────────────────────
@@ -981,26 +791,6 @@ pub trait UnifiedMemorySearch: Send + Sync {
         limit: u32,
         offset: u32,
     ) -> Result<Value>;
-}
-
-// ── KvStore ─────────────────────────────────────────────────────────
-
-#[allow(clippy::too_many_arguments)]
-pub trait KvStore: Send + Sync {
-    fn get_entry(&self, key: &str) -> Result<Value>;
-    #[allow(clippy::too_many_arguments)]
-    fn set_entry(
-        &self,
-        key: &str,
-        content: &str,
-        visibility: Option<&str>,
-        content_type: Option<&str>,
-        type_hint: Option<&str>,
-        tags: Option<Vec<String>>,
-        accessor_id: Option<&str>,
-    ) -> Result<Value>;
-    fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> Result<Value>;
-    fn list_entries(&self, namespace: Option<&str>) -> Result<Value>;
 }
 
 // ── MarketplaceStore ────────────────────────────────────────────────

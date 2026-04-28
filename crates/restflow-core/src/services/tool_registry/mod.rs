@@ -8,7 +8,7 @@ use crate::models::ModelId;
 use crate::process::ProcessRegistry;
 use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{
-    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_kv_store, build_task_store_components,
+    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_task_store_components,
     populate_known_tools_from_registry, register_bash_execution_tool, register_binary_skill_tools,
     register_file_execution_tool, register_http_execution_tool, register_management_tools,
     register_python_execution_tools, register_send_email_execution_tool,
@@ -20,8 +20,8 @@ use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
-    ConfigStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
-    TerminalSessionStorage, TriggerStorage, WorkItemStorage,
+    ConfigStorage, ExecutionTraceStorage, MemoryStorage, SecretStorage, TerminalSessionStorage,
+    TriggerStorage, WorkItemStorage,
 };
 use restflow_ai::AgentState;
 use restflow_ai::agent::{
@@ -71,8 +71,7 @@ use self::config::{
     load_registry_defaults, load_subagent_config,
 };
 use self::subagent_backend::{
-    build_direct_service_subagent_manager, build_service_subagent_manager,
-    build_service_subagent_runtime_bundle,
+    build_service_subagent_manager, build_service_subagent_runtime_bundle,
 };
 
 pub use self::assembly::{create_tool_registry, create_tool_registry_with_assessor};

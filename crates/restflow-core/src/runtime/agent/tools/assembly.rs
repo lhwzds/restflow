@@ -1,26 +1,26 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use crate::services::adapters::{AgentStoreAdapter, KvStoreAdapter, TaskStoreAdapter};
+use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
 use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, DeliverableStorage, KvStoreStorage, SecretStorage,
-    SkillStorage,
+    AgentStorage, BackgroundAgentStorage, RunArtifactStorage, SecretStorage, SkillStorage,
 };
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
     BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, PythonTool,
-    RunPythonTool, SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
+    RunPythonTool, SpawnSubagentBatchTool, SpawnSubagentTool, ToolRegistryBuilder,
+    WaitSubagentsTool, discover_installed_binary_skill_tools,
 };
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
-use restflow_traits::store::{AgentStore, KvStore, TaskStore};
+use restflow_traits::store::{AgentStore, TaskStore};
 
-pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 8] = [
+pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
     ("http", "http_request"),
     ("email", "send_email"),
     ("telegram", "telegram_send"),
@@ -28,7 +28,6 @@ pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 8] = [
     ("slack", "slack_send"),
     ("use_skill", "skill"),
     ("python", "run_python"),
-    ("manage_background_agents", "manage_tasks"),
 ];
 
 pub(crate) struct AgentCrudComponents {
@@ -38,7 +37,6 @@ pub(crate) struct AgentCrudComponents {
 
 pub(crate) struct TaskStoreComponents {
     pub store: Arc<dyn TaskStore>,
-    pub kv_store: Arc<dyn KvStore>,
 }
 
 pub(crate) fn register_bash_execution_tool(
@@ -67,7 +65,7 @@ pub(crate) fn register_file_execution_tool(
     agent_id: &str,
     task_id: &str,
 ) -> ToolRegistryBuilder {
-    if let Some(gate) = security_gate {
+    if let Some(gate) = security_gate.clone() {
         let tool = config
             .into_file_tool_with_tracker(builder.tracker())
             .with_security(gate, agent_id, task_id);
@@ -136,7 +134,7 @@ pub(crate) fn register_binary_skill_tools(
     agent_id: &str,
     task_id: &str,
 ) -> ToolRegistryBuilder {
-    if let Some(gate) = security_gate {
+    if let Some(gate) = security_gate.clone() {
         builder
             .registry
             .register(BinarySkillNewTool::new().with_security(gate.clone(), agent_id, task_id));
@@ -158,6 +156,16 @@ pub(crate) fn register_binary_skill_tools(
         builder.registry.register(BinarySkillReadTool::new());
         builder.registry.register(BinarySkillRunTool::new());
         builder.registry.register(BinarySkillUpdateTool::new());
+    }
+    if let Ok(tools) = discover_installed_binary_skill_tools() {
+        for tool in tools {
+            let tool = if let Some(gate) = security_gate.clone() {
+                tool.with_security(gate, agent_id, task_id)
+            } else {
+                tool
+            };
+            builder.registry.register(tool);
+        }
     }
     builder
 }
@@ -188,13 +196,6 @@ pub(crate) fn build_runtime_assessor(storage: &Storage) -> Arc<dyn AgentOperatio
     Arc::new(OperationAssessorAdapter::from_storage(storage))
 }
 
-pub(crate) fn build_kv_store(
-    kv_store_storage: KvStoreStorage,
-    accessor_id: Option<String>,
-) -> Arc<dyn KvStore> {
-    Arc::new(KvStoreAdapter::new(kv_store_storage, accessor_id))
-}
-
 pub(crate) fn build_agent_crud_components(
     agent_storage: AgentStorage,
     skill_storage: SkillStorage,
@@ -215,15 +216,14 @@ pub(crate) fn build_agent_crud_components(
 pub(crate) fn build_task_store_components(
     background_agent_storage: BackgroundAgentStorage,
     agent_storage: AgentStorage,
-    deliverable_storage: DeliverableStorage,
+    run_artifact_storage: RunArtifactStorage,
     session_service: SessionService,
-    kv_store: Arc<dyn KvStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     let mut store = TaskStoreAdapter::new(
         background_agent_storage,
         agent_storage,
-        deliverable_storage,
+        run_artifact_storage,
         session_service,
     );
     if let Some(assessor) = assessor {
@@ -232,7 +232,6 @@ pub(crate) fn build_task_store_components(
 
     TaskStoreComponents {
         store: Arc::new(store),
-        kv_store,
     }
 }
 
@@ -240,9 +239,7 @@ pub(crate) fn register_management_tools(
     mut builder: ToolRegistryBuilder,
     agent_store: Option<Arc<dyn AgentStore>>,
     task_store: Option<Arc<dyn TaskStore>>,
-    kv_store: Option<Arc<dyn KvStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
-    register_legacy_alias: bool,
 ) -> ToolRegistryBuilder {
     if let Some(agent_store) = agent_store {
         builder = if let Some(assessor) = assessor.clone() {
@@ -252,19 +249,11 @@ pub(crate) fn register_management_tools(
         };
     }
 
-    if let (Some(task_store), Some(kv_store)) = (task_store, kv_store) {
+    if let Some(task_store) = task_store {
         builder = if let Some(assessor) = assessor.clone() {
-            builder.with_task_and_kv_and_assessor(task_store.clone(), kv_store.clone(), assessor)
+            builder.with_task_and_assessor(task_store.clone(), assessor)
         } else {
-            builder.with_task_and_kv(task_store.clone(), kv_store.clone())
-        };
-
-        if register_legacy_alias {
-            builder = if let Some(assessor) = assessor {
-                builder.with_legacy_task_alias_and_kv_and_assessor(task_store, kv_store, assessor)
-            } else {
-                builder.with_legacy_task_alias_and_kv(task_store, kv_store)
-            };
+            builder.with_task(task_store.clone())
         };
     }
 
@@ -274,33 +263,30 @@ pub(crate) fn register_management_tools(
 pub(crate) fn register_subagent_management_tools(
     registry: &mut ToolRegistry,
     manager: Arc<dyn SubagentManager>,
-    kv_store: Option<Arc<dyn KvStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) {
     let mut spawn_tool = SpawnSubagentTool::new(manager.clone());
-    if let Some(kv_store) = kv_store {
-        spawn_tool = spawn_tool.with_kv_store(kv_store);
-    }
+    let mut batch_tool = SpawnSubagentBatchTool::new(manager.clone());
     if let Some(assessor) = assessor {
-        spawn_tool = spawn_tool.with_assessor(assessor);
+        spawn_tool = spawn_tool.with_assessor(assessor.clone());
+        batch_tool = batch_tool.with_assessor(assessor);
     }
 
     registry.register(spawn_tool);
+    registry.register(batch_tool);
     registry.register(WaitSubagentsTool::new(manager.clone()));
     registry.register(ListSubagentsTool::new(manager));
 }
 
 pub(crate) fn build_task_store_runtime_components(
     storage: &Storage,
-    kv_store: Arc<dyn KvStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
     build_task_store_components(
         storage.background_agents.clone(),
         storage.agents.clone(),
-        storage.deliverables.clone(),
+        storage.run_artifacts.clone(),
         SessionService::from_storage(storage),
-        kv_store,
         assessor,
     )
 }

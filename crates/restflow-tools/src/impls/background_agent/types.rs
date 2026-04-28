@@ -38,34 +38,10 @@ pub(super) struct BackgroundBatchWorkerSpec {
     pub resource_limits: Option<ContractResourceLimits>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct StoredBackgroundBatchWorkerSpec {
-    #[serde(default)]
-    pub agent_id: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default = "default_worker_count")]
-    pub count: u32,
-    #[serde(default)]
-    pub chat_session_id: Option<String>,
-    #[serde(default)]
-    pub schedule: Option<ContractTaskSchedule>,
-    #[serde(default)]
-    pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub durability_mode: Option<ContractDurabilityMode>,
-    #[serde(default)]
-    pub memory: Option<ContractMemoryConfig>,
-    #[serde(default)]
-    pub memory_scope: Option<String>,
-    #[serde(default)]
-    pub resource_limits: Option<ContractResourceLimits>,
-}
-
 pub(super) fn workers_schema() -> Value {
     json!({
         "type": "array",
-        "description": "Worker specs for run_batch and save_team.",
+        "description": "Worker specs for run_batch.",
         "items": {
             "type": "object",
             "properties": {
@@ -227,10 +203,6 @@ pub(super) enum TaskAction {
         #[serde(default)]
         workers: Option<Vec<BackgroundBatchWorkerSpec>>,
         #[serde(default)]
-        team: Option<String>,
-        #[serde(default)]
-        save_as_team: Option<String>,
-        #[serde(default)]
         input_template: Option<String>,
         #[serde(default)]
         chat_session_id: Option<String>,
@@ -248,25 +220,6 @@ pub(super) enum TaskAction {
         resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        approval_id: Option<String>,
-    },
-    SaveTeam {
-        team: String,
-        workers: Vec<BackgroundBatchWorkerSpec>,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        approval_id: Option<String>,
-    },
-    ListTeams,
-    GetTeam {
-        team: String,
-    },
-    DeleteTeam {
-        team: String,
         #[serde(default)]
         preview: bool,
         #[serde(default)]
@@ -296,7 +249,7 @@ pub(super) enum TaskAction {
         #[serde(default)]
         limit: Option<usize>,
     },
-    ListDeliverables {
+    ListArtifacts {
         id: String,
     },
     ListTraces {

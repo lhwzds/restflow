@@ -67,6 +67,10 @@ export type SkillManifest = {
    */
   source: SkillSource
   /**
+   * Optional source reference for display or diagnostics
+   */
+  source_ref?: string | null
+  /**
    * Icon URL or data URI
    */
   icon: string | null

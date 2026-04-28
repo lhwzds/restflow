@@ -171,28 +171,9 @@ pub enum Commands {
     },
 
     /// Task management
-    #[command(visible_alias = "background-agent")]
     Task {
         #[command(subcommand)]
         command: TaskCommands,
-    },
-
-    /// Team runtime management
-    Team {
-        #[command(subcommand)]
-        command: TeamCommands,
-    },
-
-    /// Shared space key-value store
-    Shared {
-        #[command(subcommand)]
-        command: SharedCommands,
-    },
-
-    /// Deliverable management
-    Deliverable {
-        #[command(subcommand)]
-        command: DeliverableCommands,
     },
 
     /// Trigger management
@@ -333,26 +314,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_team_start_command() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "team",
-            "start",
-            "--team",
-            "demo",
-            "--assignment",
-            "investigate",
-        ])
-        .expect("parse team start");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Team {
-                command: super::TeamCommands::Start { .. }
-            })
-        ));
-    }
-
-    #[test]
     fn parses_task_list_command() {
         let cli = Cli::try_parse_from(["restflow", "task", "list"]).expect("parse task list");
         assert!(matches!(
@@ -361,115 +322,6 @@ mod tests {
                 command: super::TaskCommands::List { .. }
             })
         ));
-    }
-
-    #[test]
-    fn parses_task_legacy_background_agent_list_alias() {
-        let cli = Cli::try_parse_from(["restflow", "background-agent", "list"]);
-        assert!(matches!(
-            cli,
-            Ok(Cli {
-                command: Some(super::Commands::Task {
-                    command: super::TaskCommands::List { .. }
-                }),
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_task_legacy_background_agent_convert_session_alias() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "convert-session",
-            "session-123",
-        ]);
-        assert!(matches!(
-            cli,
-            Ok(Cli {
-                command: Some(super::Commands::Task {
-                    command: super::TaskCommands::ConvertSession { .. }
-                }),
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_task_legacy_background_agent_create_alias() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "create",
-            "--name",
-            "guarded-task",
-            "--agent",
-            "default",
-            "--schedule",
-            "interval",
-            "--schedule-value",
-            "60000",
-        ])
-        .expect("parse background-agent create");
-
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Task {
-                command: super::TaskCommands::Create { .. }
-            })
-        ));
-    }
-
-    #[test]
-    fn rejects_legacy_background_agent_create_guard_flags() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "create",
-            "--name",
-            "guarded-task",
-            "--agent",
-            "default",
-            "--schedule",
-            "interval",
-            "--schedule-value",
-            "60000",
-            "--preview",
-        ]);
-        assert!(cli.is_err());
-    }
-
-    #[test]
-    fn rejects_legacy_background_agent_create_confirm_flag() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "create",
-            "--name",
-            "guarded-task",
-            "--agent",
-            "default",
-            "--schedule",
-            "interval",
-            "--schedule-value",
-            "60000",
-            "--confirm",
-            "token-123",
-        ]);
-        assert!(cli.is_err());
-    }
-
-    #[test]
-    fn rejects_legacy_background_agent_convert_session_preview_flag() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "background-agent",
-            "convert-session",
-            "session-123",
-            "--preview",
-        ]);
-        assert!(cli.is_err());
     }
 
     #[test]
@@ -522,23 +374,6 @@ mod tests {
             cli.command,
             Some(super::Commands::Maintenance {
                 command: super::MaintenanceCommands::Cleanup
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_maintenance_migrate_session_sources_command() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "maintenance",
-            "migrate-session-sources",
-            "--dry-run",
-        ])
-        .expect("parse migrate session sources");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Maintenance {
-                command: super::MaintenanceCommands::MigrateSessionSources { dry_run: true }
             })
         ));
     }
@@ -723,71 +558,6 @@ pub enum HookCommands {
 }
 
 #[derive(Subcommand)]
-pub enum TeamCommands {
-    /// Start one runtime team from a saved template or explicit members
-    Start {
-        /// Saved subagent team template name
-        #[arg(long)]
-        team: Option<String>,
-
-        /// Explicit worker agent IDs (repeatable)
-        #[arg(long = "member")]
-        member: Vec<String>,
-
-        /// Initial assignment (repeatable)
-        #[arg(long = "assignment")]
-        assignment: Vec<String>,
-
-        /// Single initial assignment convenience alias
-        #[arg(long)]
-        task: Option<String>,
-    },
-
-    /// Inspect team runtime state
-    State { team_run_id: String },
-
-    /// List durable team mailbox messages
-    Messages { team_run_id: String },
-
-    /// Send one team mailbox message
-    Send {
-        team_run_id: String,
-        #[arg(long, default_value = "leader")]
-        from: String,
-        #[arg(long)]
-        to: Option<String>,
-        #[arg(long)]
-        message: String,
-    },
-
-    /// List runtime assignments
-    Assignments { team_run_id: String },
-
-    /// Assign one task to one team member
-    Assign {
-        team_run_id: String,
-        #[arg(long)]
-        member: String,
-        #[arg(long)]
-        task: String,
-    },
-
-    /// Approve one pending team approval
-    Approve {
-        team_run_id: String,
-        approval_id: String,
-    },
-
-    /// Reject one pending team approval
-    Reject {
-        team_run_id: String,
-        approval_id: String,
-        #[arg(long)]
-        reason: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum DaemonCommands {
     /// Start daemon
     Start {
@@ -875,9 +645,9 @@ pub enum SkillCommands {
     /// Search marketplace
     Search { query: String },
 
-    /// Install a skill from marketplace, git, or local sources
+    /// Install a skill from marketplace, git, local, package, or official binary sources
     Install {
-        /// Source: marketplace id, git URL, local path, or .skill package
+        /// Source: marketplace id, git URL, local path, .skill package, or official binary skill
         source: String,
 
         /// Subpath within a git repository
@@ -1042,18 +812,12 @@ pub enum KeyCommands {
         /// Key ID
         id: String,
     },
-
-    /// Auto-discover keys from environment and files
-    Discover,
 }
 
 #[derive(Subcommand)]
 pub enum AuthCommands {
     /// Show authentication status
     Status,
-
-    /// Discover credentials from all sources
-    Discover,
 
     /// List all credential profiles
     List,
@@ -1096,13 +860,6 @@ pub enum ConfigCommands {
 pub enum MaintenanceCommands {
     /// Run storage cleanup immediately
     Cleanup,
-
-    /// Migrate legacy `channel:*` chat sessions to explicit source metadata
-    MigrateSessionSources {
-        /// Print migration stats without writing changes
-        #[arg(long)]
-        dry_run: bool,
-    },
 }
 
 #[derive(Subcommand)]
@@ -1488,51 +1245,6 @@ pub enum TaskCommands {
 
         /// Message content
         message: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum SharedCommands {
-    /// List shared space entries
-    List {
-        /// Namespace prefix filter
-        #[arg(short, long)]
-        namespace: Option<String>,
-    },
-
-    /// Get a shared space entry
-    Get {
-        /// Key (format: namespace:name)
-        key: String,
-    },
-
-    /// Set a shared space entry
-    Set {
-        /// Key (format: namespace:name)
-        key: String,
-
-        /// Value
-        value: String,
-
-        /// Visibility: public, shared, private
-        #[arg(long, default_value = "shared")]
-        visibility: String,
-    },
-
-    /// Delete a shared space entry
-    Delete {
-        /// Key (format: namespace:name)
-        key: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum DeliverableCommands {
-    /// List deliverables for a task
-    List {
-        /// Task ID
-        #[arg(short = 't', long = "task")]
-        task_id: String,
     },
 }
 

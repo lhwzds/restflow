@@ -12,7 +12,6 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_traits::store::KvStore;
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
@@ -22,7 +21,6 @@ use types::SpawnSubagentParams as ParsedSpawnSubagentParams;
 /// spawn_subagent tool for the shared agent execution engine.
 pub struct SpawnSubagentTool {
     manager: Arc<dyn SubagentManager>,
-    kv_store: Option<Arc<dyn KvStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 }
 
@@ -30,14 +28,8 @@ impl SpawnSubagentTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self {
             manager,
-            kv_store: None,
             assessor: None,
         }
-    }
-
-    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
-        self.kv_store = Some(kv_store);
-        self
     }
 
     pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {

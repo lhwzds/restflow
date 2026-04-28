@@ -121,6 +121,16 @@ export function useTaskStream(trackTaskId: () => string | null) {
     }
   }
 
+  function extractTaskStreamEvent(event: Record<string, unknown>): TaskStreamEvent | null {
+    if ('task' in event && event.task) {
+      return event.task as TaskStreamEvent
+    }
+    if ('background_agent' in event && event.background_agent) {
+      return event.background_agent as TaskStreamEvent
+    }
+    return null
+  }
+
   async function setupListeners(): Promise<void> {
     const taskId = trackTaskId()
     if (!taskId || streamAbortController) return
@@ -135,12 +145,10 @@ export function useTaskStream(trackTaskId: () => string | null) {
         },
         { signal: streamAbortController.signal },
       )) {
-        if (
-          frame.stream_type === 'event' &&
-          'background_agent' in frame.data.event &&
-          frame.data.event.background_agent
-        ) {
-          handleStreamEvent(frame.data.event.background_agent)
+        if (frame.stream_type === 'event') {
+          const event = extractTaskStreamEvent(frame.data.event as Record<string, unknown>)
+          if (!event) continue
+          handleStreamEvent(event)
           continue
         }
 

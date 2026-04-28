@@ -75,6 +75,15 @@ impl ModelId {
         for model in Self::all() {
             specs.push(model.as_model_spec());
 
+            // OpenAI 5.4 API models use serialized IDs to avoid colliding with
+            // Codex CLI IDs, but runtime switching should accept the public API
+            // names for OpenAI provider usage.
+            if matches!(model.provider(), Provider::OpenAI)
+                && model.as_str() != model.as_serialized_str()
+            {
+                specs.push(model.model_spec_named(model.as_str()));
+            }
+
             // Claude Code aliases are matched by `as_str()` at runtime as well.
             if model.is_claude_code() {
                 specs.push(model.model_spec_named(model.as_str()));

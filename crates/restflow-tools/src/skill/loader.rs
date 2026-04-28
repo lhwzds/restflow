@@ -29,12 +29,18 @@ mod tests {
                     name: "Skill A".to_string(),
                     description: Some("First skill".to_string()),
                     tags: None,
+                    source: SkillSource::User,
+                    read_only: false,
+                    source_ref: None,
                 },
                 SkillInfo {
                     id: "skill-b".to_string(),
                     name: "Skill B".to_string(),
                     description: Some("Second skill".to_string()),
                     tags: None,
+                    source: SkillSource::User,
+                    read_only: false,
+                    source_ref: None,
                 },
             ]
         }
@@ -45,11 +51,17 @@ mod tests {
                     id: "skill-a".to_string(),
                     name: "Skill A".to_string(),
                     content: "Do A".to_string(),
+                    source: SkillSource::User,
+                    read_only: false,
+                    source_ref: None,
                 }),
                 "skill-b" => Some(SkillContent {
                     id: "skill-b".to_string(),
                     name: "Skill B".to_string(),
                     content: "Do B".to_string(),
+                    source: SkillSource::User,
+                    read_only: false,
+                    source_ref: None,
                 }),
                 _ => None,
             }

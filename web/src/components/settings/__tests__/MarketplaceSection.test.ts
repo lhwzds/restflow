@@ -82,7 +82,8 @@ const fixtureManifest: MarketplaceSearchItem['manifest'] = {
     supported_os: [],
     min_restflow_version: null,
   },
-  source: { type: 'marketplace', url: 'https://example.com' },
+  source: 'external',
+  source_ref: 'https://example.com',
   icon: null,
   readme: null,
   changelog: null,
@@ -303,6 +304,8 @@ describe('MarketplaceSection', () => {
         auto_complete: false,
         storage_mode: 'DatabaseOnly',
         is_synced: false,
+        source: 'external',
+        source_ref: 'mcp_github:skill-1@1.0.0',
         created_at: 0,
         updated_at: 0,
       } as Skill,
@@ -316,7 +319,7 @@ describe('MarketplaceSection', () => {
     await updateButton!.trigger('click')
     await flushPromises()
 
-    expect(mockedUpdate).toHaveBeenCalledWith('skill-1', 'marketplace')
+    expect(mockedUpdate).toHaveBeenCalledWith('skill-1', 'github')
     expect(toastSuccessMock).toHaveBeenCalledWith('settings.marketplace.updateSuccess')
   })
 

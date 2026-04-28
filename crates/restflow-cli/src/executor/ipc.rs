@@ -1,9 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, ClearResponse, IdResponse, OkResponse, PairingApprovalResponse,
     PairingOwnerResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse, request::TaskFromSessionRequest,
+    request::TaskFromSessionRequest,
 };
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -13,10 +13,10 @@ use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{IpcClient, IpcRequest};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, ItemQuery,
-    MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, SharedEntry,
-    Skill, Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch, TaskProgress,
-    TaskSpec, WorkItem, WorkItemPatch, WorkItemSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ItemQuery, MemoryChunk,
+    MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
+    TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch, TaskProgress, TaskSpec,
+    WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -428,14 +428,6 @@ impl CommandExecutor for IpcExecutor {
         self.request_typed(IpcRequest::RunCleanup).await
     }
 
-    async fn migrate_session_sources(
-        &self,
-        dry_run: bool,
-    ) -> Result<SessionSourceMigrationResponse> {
-        self.request_typed(IpcRequest::MigrateSessionSources { dry_run })
-            .await
-    }
-
     // Task operations - use IPC client methods
     async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>> {
         let mut client = self.client.lock().await;
@@ -509,41 +501,5 @@ impl CommandExecutor for IpcExecutor {
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {
         let mut client = self.client.lock().await;
         client.get_execution_run_timeline(run_id.to_string()).await
-    }
-
-    async fn execute_runtime_tool(
-        &self,
-        name: &str,
-        input: serde_json::Value,
-    ) -> Result<restflow_contracts::ToolExecutionResult> {
-        let mut client = self.client.lock().await;
-        client.execute_tool(name.to_string(), input).await
-    }
-
-    // Shared Space operations - not yet in IPC protocol
-    async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn set_kv_store(
-        &self,
-        _key: &str,
-        _value: &str,
-        _visibility: &str,
-    ) -> Result<SharedEntry> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn delete_kv_store(&self, _key: &str) -> Result<bool> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    // Deliverable operations
-    async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>> {
-        bail!("Deliverable operations are not yet available via CLI. Use MCP tools instead.")
     }
 }

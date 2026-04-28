@@ -11,14 +11,9 @@ export type SpawnSubagentBatchParams = {
    */
   operation: SpawnSubagentBatchOperation
   /**
-   * Team name for `save_team`, `get_team`, `delete_team`, or `spawn` from saved team.
-   */
-  team?: string
-  /**
    * Batch member specs.
    *
-   * For `spawn`, either `specs` or `team` must be provided.
-   * For `save_team`, `specs` is required.
+   * For `spawn`, `specs` is required.
    */
   specs?: Array<BatchSubagentSpec>
   /**
@@ -28,8 +23,7 @@ export type SpawnSubagentBatchParams = {
   /**
    * Transient per-instance task list for this spawn.
    *
-   * When provided, tasks are assigned across all instances in spec order and are not
-   * persisted in saved teams.
+   * When provided, tasks are assigned across all instances in spec order.
    */
   tasks?: Array<string>
   /**
@@ -40,10 +34,6 @@ export type SpawnSubagentBatchParams = {
    * Timeout in seconds for wait and as fallback spawn timeout.
    */
   timeout_secs?: bigint
-  /**
-   * Optionally persist the provided specs as a named team during `spawn`.
-   */
-  save_as_team?: string
   /**
    * Optional parent run ID for context propagation (runtime-injected).
    */

@@ -1,827 +1,207 @@
-use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
-use restflow_traits::{
-    TeamApprovalStatus, TeamAssignmentStatus, TeamMemberStatus, TeamMessageKind, TeamRole,
-};
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::text::Span;
+use ratatui::widgets::{Block, Borders, Paragraph, Widget, Wrap};
 
-use super::state::{AppState, OverlayState, TeamOverlayTab};
-use super::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
-
-const HEADER_HEIGHT: u16 = 2;
-const FOOTER_HEIGHT: u16 = 1;
 const COMPOSER_BORDER_HEIGHT: u16 = 2;
-const COMPOSER_MIN_VISIBLE_ROWS: u16 = 1;
-const COMPOSER_MAX_VISIBLE_ROWS: u16 = 6;
 
-pub fn render(frame: &mut Frame<'_>, state: &AppState) {
-    if state.is_startup_mode() {
-        render_startup(frame, state);
-        return;
-    }
-
-    let bottom_height = composer_pane_height(state, frame.area().width);
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(HEADER_HEIGHT),
-            Constraint::Min(1),
-            Constraint::Length(bottom_height),
-        ])
-        .split(frame.area());
-
-    render_header(frame, layout[0], state);
-    render_transcript(frame, layout[1], state);
-    render_composer(frame, layout[2], state);
-
-    if let Some(overlay) = &state.overlay {
-        render_overlay(frame, centered_rect(frame.area()), state, overlay);
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShellBottomViewport {
+    pub lines: Vec<Line<'static>>,
+    pub cursor_x: u16,
+    pub cursor_y: u16,
 }
 
-fn render_startup(frame: &mut Frame<'_>, state: &AppState) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(HEADER_HEIGHT), Constraint::Min(8)])
-        .split(frame.area());
+pub(crate) fn render_shell_bottom_viewport(
+    width: u16,
+    transient_lines: Vec<Line<'static>>,
+    prompt_lines: &[Line<'static>],
+    prompt_cursor_column: u16,
+    prompt_cursor_row: u16,
+    footer: &str,
+) -> ShellBottomViewport {
+    let prompt_height = prompt_lines.len() as u16 + COMPOSER_BORDER_HEIGHT;
+    let transient_height = transient_lines.len() as u16;
+    let height = (transient_height + prompt_height).max(1);
+    let area = Rect::new(0, 0, width, height);
+    let mut buffer = Buffer::empty(area);
 
-    render_header(frame, layout[0], state);
-
-    let startup = state.startup_state().expect("startup state");
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "RestFlow daemon is not running",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::default(),
-    ];
-
-    if startup.starting_daemon {
-        lines.push(Line::from("Starting daemon..."));
-    } else {
-        lines.push(Line::from("Enter  Start Daemon"));
-        lines.push(Line::from("Esc    Exit"));
-        lines.push(Line::default());
-        lines.push(Line::from(
-            "Use `restflow daemon start` for manual control.",
-        ));
-    }
-
-    if let Some(error) = startup.error.as_ref() {
-        lines.push(Line::default());
-        lines.push(Line::from(Span::styled(
-            error.clone(),
-            Style::default().fg(Color::Red),
-        )));
-    }
-
-    frame.render_widget(
-        Paragraph::new(lines)
-            .alignment(Alignment::Left)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("Startup")),
-        centered_rect(layout[1]),
-    );
-}
-
-fn render_header(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(12),
-            Constraint::Min(20),
-            Constraint::Length(24),
-        ])
-        .split(area);
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            "RestFlow",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )])),
-        chunks[0],
-    );
-
-    let agent = state
-        .default_agent_name
-        .clone()
-        .unwrap_or_else(|| "No Agent".to_string());
-    let session = state
-        .current_session()
-        .map(|session| session.name.clone())
-        .unwrap_or_else(|| "No Session".to_string());
-    frame.render_widget(
-        Paragraph::new(Line::from(format!("{agent} · {session}"))),
-        chunks[1],
-    );
-
-    frame.render_widget(
-        Paragraph::new(shell_status_text(state)).alignment(Alignment::Right),
-        chunks[2],
-    );
-}
-
-fn render_transcript(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let cells = state.transcript_cells_for_render();
-    let lines = if cells.is_empty() {
-        Vec::new()
-    } else {
-        let cell_lines = cells
-            .iter()
-            .flat_map(render_transcript_cell)
-            .collect::<Vec<_>>();
-        bottom_anchor_lines(
-            cell_lines,
-            area.height as usize,
-            state.transcript_scroll as usize,
-        )
-    };
-
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left),
-        area,
-    );
-}
-
-fn render_transcript_cell(cell: &TranscriptCell) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-
-    let mut title_spans = vec![Span::styled(
-        cell.title.clone(),
-        Style::default()
-            .fg(cell_color(cell))
-            .add_modifier(Modifier::BOLD),
-    )];
-    if let Some(subtitle) = &cell.subtitle {
-        title_spans.push(Span::raw(" "));
-        title_spans.push(Span::styled(
-            subtitle.clone(),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    lines.push(Line::from(title_spans));
-
-    let indent = match cell.group {
-        MessageGroup::Conversation | MessageGroup::RuntimeNotice | MessageGroup::ToolActivity => {
-            "  "
+    for (row, line) in transient_lines.into_iter().enumerate() {
+        if row as u16 >= transient_height {
+            break;
         }
-    };
-    let body_lines = visible_body_lines(cell.body.as_str());
-    for line in &body_lines {
-        lines.push(Line::from(vec![Span::raw(indent), Span::raw(line.clone())]));
+        line.render(Rect::new(0, row as u16, width, 1), &mut buffer);
     }
 
-    if body_lines.is_empty() {
-        lines.push(Line::from("  "));
-    }
+    let prompt_area = Rect::new(0, transient_height, width, prompt_height);
+    let footer_title = truncate_display_width(footer, width.saturating_sub(4));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title_bottom(format!(" {footer_title} "));
+    Paragraph::new(prompt_lines.to_vec())
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .render(prompt_area, &mut buffer);
 
-    lines.push(Line::default());
+    ShellBottomViewport {
+        lines: buffer_to_styled_lines(&buffer),
+        cursor_x: (1 + prompt_cursor_column).min(width.saturating_sub(2)),
+        cursor_y: transient_height + 1 + prompt_cursor_row,
+    }
+}
+
+fn truncate_display_width(value: &str, width: u16) -> String {
+    let width = width as usize;
+    let mut out = String::new();
+    let mut current = 0usize;
+    for ch in value.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        current += ch_width;
+    }
+    out
+}
+
+fn buffer_to_styled_lines(buffer: &Buffer) -> Vec<Line<'static>> {
+    let mut lines = Vec::with_capacity(buffer.area.height as usize);
+    for y in 0..buffer.area.height {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut x = 0;
+        let last_content_x = last_content_cell_x(buffer, y);
+        if last_content_x.is_none() {
+            lines.push(Line::from(""));
+            continue;
+        }
+        while x < buffer.area.width {
+            if let Some(cell) = buffer.cell((x, y))
+                && !cell.skip
+            {
+                if last_content_x.is_some_and(|last| x > last) {
+                    break;
+                }
+                let symbol = cell.symbol();
+                push_symbol(&mut spans, symbol, cell.style());
+                x += unicode_width::UnicodeWidthStr::width(symbol).max(1) as u16;
+                continue;
+            }
+            x += 1;
+        }
+        lines.push(Line::from(spans));
+    }
     lines
 }
 
-fn visible_body_lines(body: &str) -> Vec<String> {
-    body.lines()
-        .skip_while(|line| line.trim().is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let composer_visible_rows = composer_visible_rows(state, area.width);
-    let composer_height = composer_visible_rows + COMPOSER_BORDER_HEIGHT;
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(composer_height),
-            Constraint::Length(FOOTER_HEIGHT),
-        ])
-        .split(area);
-
-    let composer_lines = state
-        .composer
-        .visible_lines(
-            composer_content_width(chunks[0].width),
-            composer_visible_rows,
-        )
-        .into_iter()
-        .map(Line::from)
-        .collect::<Vec<_>>();
-
-    frame.render_widget(
-        Paragraph::new(composer_lines)
-            .block(Block::default().borders(Borders::ALL))
-            .wrap(Wrap { trim: false }),
-        chunks[0],
-    );
-
-    frame.render_widget(
-        Paragraph::new(Line::from(footer_status_line(state))).block(Block::default()),
-        chunks[1],
-    );
-
-    let (cursor_column, cursor_row) = state.composer.cursor_position(
-        composer_content_width(chunks[0].width),
-        composer_visible_rows,
-    );
-    let cursor_x = chunks[0].x + 1 + cursor_column;
-    let cursor_y = chunks[0].y + 1 + cursor_row;
-    frame.set_cursor_position((
-        cursor_x.min(chunks[0].right().saturating_sub(2)),
-        cursor_y.min(chunks[0].bottom().saturating_sub(2)),
-    ));
-}
-
-fn composer_content_width(area_width: u16) -> u16 {
-    area_width.saturating_sub(2).max(1)
-}
-
-fn composer_visible_rows(state: &AppState, total_width: u16) -> u16 {
-    state
-        .composer
-        .visible_row_count(composer_content_width(total_width))
-        .clamp(COMPOSER_MIN_VISIBLE_ROWS, COMPOSER_MAX_VISIBLE_ROWS)
-}
-
-fn composer_pane_height(state: &AppState, total_width: u16) -> u16 {
-    composer_visible_rows(state, total_width) + COMPOSER_BORDER_HEIGHT + FOOTER_HEIGHT
-}
-
-fn footer_status_line(state: &AppState) -> String {
-    let Some(session) = state.current_session() else {
-        return state.status.clone();
-    };
-
-    let provider = session.provider.trim();
-    let model = session.model.trim();
-    match (provider, model.is_empty()) {
-        (provider, false) if !provider.is_empty() => format!("{provider} · {model}"),
-        (_, false) => model.to_string(),
-        _ => state.status.clone(),
-    }
-}
-
-fn bottom_anchor_lines(
-    lines: Vec<Line<'static>>,
-    height: usize,
-    scroll_from_bottom: usize,
-) -> Vec<Line<'static>> {
-    if height == 0 {
-        return Vec::new();
-    }
-    let total = lines.len();
-    let end = total.saturating_sub(scroll_from_bottom);
-    let start = end.saturating_sub(height);
-    let mut visible = lines[start..end].to_vec();
-    if visible.len() < height {
-        let mut padding = vec![Line::default(); height - visible.len()];
-        padding.append(&mut visible);
-        return padding;
-    }
-    visible
-}
-
-fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState, overlay: &OverlayState) {
-    frame.render_widget(Clear, area);
-    match overlay {
-        OverlayState::SessionPicker { selected } => render_list_overlay(
-            frame,
-            area,
-            overlay_title(overlay),
-            state
-                .sessions
-                .iter()
-                .enumerate()
-                .map(|(index, session)| {
-                    let prefix = if index == *selected { "▸ " } else { "  " };
-                    format!("{prefix}{}", session.name)
-                })
-                .collect(),
-            "No sessions yet",
-            overlay_hint(overlay),
-        ),
-        OverlayState::RunPicker { selected } => render_list_overlay(
-            frame,
-            area,
-            overlay_title(overlay),
-            state
-                .run_picker_items()
-                .into_iter()
-                .enumerate()
-                .map(|(index, item)| {
-                    let prefix = if index == *selected { "▸ " } else { "  " };
-                    let super::state::RunPickerItem::Run {
-                        run_id,
-                        title,
-                        status,
-                    } = item;
-                    format!("{prefix}{title} · {status} · {}", short_id(&run_id))
-                })
-                .collect(),
-            "No runs in this session",
-            overlay_hint(overlay),
-        ),
-        OverlayState::ApprovalPicker { selected } => render_list_overlay(
-            frame,
-            area,
-            overlay_title(overlay),
-            state
-                .current_team_approvals
-                .iter()
-                .enumerate()
-                .map(|(index, approval)| {
-                    let prefix = if index == *selected { "▸ " } else { "  " };
-                    format!(
-                        "{prefix}{} · {} · #{}",
-                        approval.member_id,
-                        approval.content,
-                        short_id(&approval.approval_id)
-                    )
-                })
-                .collect(),
-            "No pending approvals",
-            overlay_hint(overlay),
-        ),
-        OverlayState::TeamView { tab, scroll } => {
-            render_team_overlay(frame, area, state, *tab, *scroll)
+fn last_content_cell_x(buffer: &Buffer, y: u16) -> Option<u16> {
+    let mut last = None;
+    for x in 0..buffer.area.width {
+        if let Some(cell) = buffer.cell((x, y))
+            && !cell.skip
+            && !cell.symbol().trim_end_matches(' ').is_empty()
+        {
+            last = Some(x);
         }
-        OverlayState::Help => render_help_overlay(frame, area),
     }
+    last
 }
 
-fn render_list_overlay(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    title: &str,
-    items: Vec<String>,
-    empty_state: &str,
-    hint: &str,
-) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(2)])
-        .split(area);
-
-    if items.is_empty() {
-        frame.render_widget(
-            Paragraph::new(empty_state)
-                .block(Block::default().borders(Borders::ALL).title(title))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: false }),
-            chunks[0],
-        );
-    } else {
-        frame.render_widget(
-            List::new(items.into_iter().map(ListItem::new).collect::<Vec<_>>())
-                .block(Block::default().borders(Borders::ALL).title(title)),
-            chunks[0],
-        );
+fn push_symbol(spans: &mut Vec<Span<'static>>, symbol: &str, style: Style) {
+    if let Some(last) = spans.last_mut()
+        && last.style == style
+    {
+        last.content.to_mut().push_str(symbol);
+        return;
     }
-
-    frame.render_widget(
-        Paragraph::new(hint).block(Block::default().borders(Borders::TOP)),
-        chunks[1],
-    );
+    spans.push(Span::styled(symbol.to_string(), style));
 }
 
-fn render_team_overlay(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    tab: TeamOverlayTab,
-    scroll: u16,
-) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(2)])
-        .split(area);
-
-    let mut lines = vec![team_tab_line(tab), Line::default()];
-    lines.extend(match tab {
-        TeamOverlayTab::Members => {
-            if let Some(team) = state.current_team_state.as_ref() {
-                team.members
-                    .iter()
-                    .map(|member| {
-                        Line::from(format!(
-                            "{} · {} · {}",
-                            member.member_id,
-                            team_role_label(member.role),
-                            team_member_status_label(member.status)
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vec![Line::from("No team context loaded")]
-            }
-        }
-        TeamOverlayTab::Messages => {
-            if state.current_team_messages.is_empty() {
-                vec![Line::from("No team messages")]
-            } else {
-                state
-                    .current_team_messages
-                    .iter()
-                    .map(|message| {
-                        let destination = message.to_member_id.as_deref().unwrap_or("everyone");
-                        Line::from(format!(
-                            "{} · {} → {} · {}",
-                            team_message_kind_label(message.kind),
-                            message.from_member_id,
-                            destination,
-                            message.content
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-            }
-        }
-        TeamOverlayTab::Assignments => {
-            if state.current_team_assignments.is_empty() {
-                vec![Line::from("No team assignments")]
-            } else {
-                state
-                    .current_team_assignments
-                    .iter()
-                    .map(|assignment| {
-                        Line::from(format!(
-                            "{} · {} · {}",
-                            assignment.assignee_member_id,
-                            team_assignment_status_label(assignment.status),
-                            assignment.content
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-            }
-        }
-        TeamOverlayTab::Approvals => {
-            if state.current_team_approvals.is_empty() {
-                vec![Line::from("No pending approvals")]
-            } else {
-                state
-                    .current_team_approvals
-                    .iter()
-                    .map(|approval| {
-                        Line::from(format!(
-                            "#{} · {} · {}",
-                            approval.approval_id,
-                            team_approval_status_label(approval.status),
-                            approval.content
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-            }
-        }
-    });
-
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title("Team"))
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0)),
-        chunks[0],
-    );
-    frame.render_widget(
-        Paragraph::new(overlay_hint(&OverlayState::TeamView { tab, scroll }))
-            .block(Block::default().borders(Borders::TOP)),
-        chunks[1],
-    );
-}
-
-fn render_help_overlay(frame: &mut Frame<'_>, area: Rect) {
-    let lines = vec![
-        Line::from("Ctrl+P  Switch Session"),
-        Line::from("Ctrl+R  Open Run"),
-        Line::from("Ctrl+A  Pending Approvals"),
-        Line::from("Ctrl+G  Team"),
-        Line::from("Enter   Send / Select"),
-        Line::from("Ctrl+J  New Line"),
-        Line::from("Esc     Close / Back"),
-        Line::from("?       Keyboard Shortcuts"),
-    ];
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Keyboard Shortcuts"),
-            )
-            .wrap(Wrap { trim: false }),
-        area,
-    );
-}
-
-fn shell_status_text(state: &AppState) -> String {
-    if let Some(startup) = state.startup_state() {
-        return if startup.starting_daemon {
-            "Starting Daemon".to_string()
-        } else {
-            "Daemon Offline".to_string()
-        };
-    }
-
-    match state.overlay.as_ref() {
-        Some(OverlayState::SessionPicker { .. }) => "Switching Session".to_string(),
-        Some(OverlayState::RunPicker { .. }) => "Opening Run".to_string(),
-        Some(OverlayState::ApprovalPicker { .. }) => "Pending Approvals".to_string(),
-        Some(OverlayState::TeamView { .. }) => "Viewing Team".to_string(),
-        Some(OverlayState::Help) => "Keyboard Shortcuts".to_string(),
-        None if state.is_streaming => "Streaming".to_string(),
-        None if state.focus_label().starts_with("run:") => "Viewing Run".to_string(),
-        None if !state.current_team_approvals.is_empty() => "Pending Approvals".to_string(),
-        None => "Idle".to_string(),
-    }
-}
-
-fn short_id(value: &str) -> String {
-    value.chars().take(8).collect()
-}
-
-fn overlay_title(overlay: &OverlayState) -> &'static str {
-    match overlay {
-        OverlayState::SessionPicker { .. } => "Switch Session",
-        OverlayState::RunPicker { .. } => "Open Run",
-        OverlayState::ApprovalPicker { .. } => "Pending Approvals",
-        OverlayState::TeamView { .. } => "Team",
-        OverlayState::Help => "Keyboard Shortcuts",
-    }
-}
-
-fn overlay_hint(overlay: &OverlayState) -> &'static str {
-    match overlay {
-        OverlayState::SessionPicker { .. } | OverlayState::RunPicker { .. } => {
-            "Enter Select · Esc Close · ↑↓ Move"
-        }
-        OverlayState::ApprovalPicker { .. } => "Enter Approve · R Reject · Esc Close · ↑↓ Move",
-        OverlayState::TeamView { .. } => "Esc Close · ↑↓ Scroll · ←→ Tabs",
-        OverlayState::Help => "Esc Close",
-    }
-}
-
-fn cell_color(cell: &TranscriptCell) -> Color {
-    match cell.kind {
-        TranscriptCellKind::User => Color::Yellow,
-        TranscriptCellKind::Assistant => Color::Green,
-        TranscriptCellKind::System => Color::Blue,
-        TranscriptCellKind::Notice => Color::Cyan,
-        TranscriptCellKind::Tool => Color::Magenta,
-    }
-}
-
-fn team_tab_line(active: TeamOverlayTab) -> Line<'static> {
-    let tabs = [
-        (TeamOverlayTab::Members, "Members"),
-        (TeamOverlayTab::Messages, "Messages"),
-        (TeamOverlayTab::Assignments, "Assignments"),
-        (TeamOverlayTab::Approvals, "Approvals"),
-    ];
-
-    let mut spans = Vec::new();
-    for (index, (tab, label)) in tabs.into_iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::raw(" · "));
-        }
-        spans.push(Span::styled(
-            label,
-            if tab == active {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Gray)
-            },
-        ));
-    }
-    Line::from(spans)
-}
-
-fn team_role_label(role: TeamRole) -> &'static str {
-    match role {
-        TeamRole::Leader => "Leader",
-        TeamRole::Member => "Member",
-    }
-}
-
-fn team_member_status_label(status: TeamMemberStatus) -> &'static str {
-    match status {
-        TeamMemberStatus::Idle => "Idle",
-        TeamMemberStatus::Pending => "Pending",
-        TeamMemberStatus::Running => "Running",
-        TeamMemberStatus::WaitingApproval => "Waiting Approval",
-        TeamMemberStatus::Completed => "Completed",
-        TeamMemberStatus::Failed => "Failed",
-        TeamMemberStatus::Cancelled => "Cancelled",
-    }
-}
-
-fn team_assignment_status_label(status: TeamAssignmentStatus) -> &'static str {
-    match status {
-        TeamAssignmentStatus::Pending => "Pending",
-        TeamAssignmentStatus::InProgress => "In Progress",
-        TeamAssignmentStatus::Completed => "Completed",
-        TeamAssignmentStatus::Failed => "Failed",
-        TeamAssignmentStatus::Cancelled => "Cancelled",
-    }
-}
-
-fn team_approval_status_label(status: TeamApprovalStatus) -> &'static str {
-    match status {
-        TeamApprovalStatus::Pending => "Pending",
-        TeamApprovalStatus::Approved => "Approved",
-        TeamApprovalStatus::Rejected => "Rejected",
-    }
-}
-
-fn team_message_kind_label(kind: TeamMessageKind) -> &'static str {
-    match kind {
-        TeamMessageKind::Note => "Note",
-        TeamMessageKind::ApprovalRequest => "Approval",
-        TeamMessageKind::ApprovalResolution => "Resolution",
-        TeamMessageKind::Assignment => "Assignment",
-    }
-}
-
-fn centered_rect(area: Rect) -> Rect {
-    let popup = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(15),
-            Constraint::Percentage(70),
-            Constraint::Percentage(15),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(15),
-            Constraint::Percentage(70),
-            Constraint::Percentage(15),
-        ])
-        .split(popup[1])[1]
+#[cfg(test)]
+fn line_text(line: &Line<'_>) -> String {
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        bottom_anchor_lines, cell_color, composer_pane_height, composer_visible_rows,
-        footer_status_line, overlay_title, render_transcript_cell, shell_status_text, short_id,
-    };
-    use crate::state::{AppState, OverlayState, ThreadFocus};
-    use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
-    use ratatui::style::Color;
+    use ratatui::style::{Color, Style};
     use ratatui::text::Line;
 
+    use super::line_text;
+    use super::render_shell_bottom_viewport;
+
     #[test]
-    fn status_text_prefers_streaming() {
-        let mut state = AppState::empty();
-        state.is_streaming = true;
-        assert_eq!(shell_status_text(&state), "Streaming");
+    fn bottom_viewport_keeps_footer_and_borders() {
+        let prompt_lines = vec![Line::from("hello")];
+        let rendered =
+            render_shell_bottom_viewport(20, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
+
+        assert_eq!(rendered.lines.len(), 3);
+        assert!(line_text(&rendered.lines[0]).starts_with('┌'));
+        assert!(line_text(&rendered.lines[1]).starts_with('│'));
+        assert!(line_text(&rendered.lines[2]).starts_with('└'));
+        assert!(line_text(&rendered.lines[2]).contains("openai"));
     }
 
     #[test]
-    fn status_text_uses_run_focus() {
-        let mut state = AppState::empty();
-        state.thread.focus = ThreadFocus::Run {
-            run_id: "run-1".to_string(),
-        };
-        assert_eq!(shell_status_text(&state), "Viewing Run");
+    fn bottom_viewport_preserves_cjk_without_spacer_cells() {
+        let prompt_lines = vec![Line::from("帮我打开浏览器")];
+        let rendered =
+            render_shell_bottom_viewport(32, Vec::new(), &prompt_lines, 0, 0, "openai · gpt-5");
+
+        assert!(line_text(&rendered.lines[1]).contains("帮我打开浏览器"));
+        assert!(!line_text(&rendered.lines[1]).contains("帮 我"));
     }
 
     #[test]
-    fn overlay_titles_are_user_facing() {
-        assert_eq!(
-            overlay_title(&OverlayState::RunPicker { selected: 0 }),
-            "Open Run"
+    fn bottom_viewport_places_cursor_after_transient_lines() {
+        let prompt_lines = vec![Line::from("hello")];
+        let rendered = render_shell_bottom_viewport(
+            24,
+            vec![Line::from("Agent · typing…")],
+            &prompt_lines,
+            2,
+            0,
+            "model",
         );
-        assert_eq!(overlay_title(&OverlayState::Help), "Keyboard Shortcuts");
+
+        assert_eq!(rendered.cursor_x, 3);
+        assert_eq!(rendered.cursor_y, 2);
     }
 
     #[test]
-    fn short_id_truncates_visible_identifiers() {
-        assert_eq!(short_id("1234567890abcdef"), "12345678");
-        assert_eq!(short_id("short"), "short");
-    }
-
-    #[test]
-    fn bottom_anchor_lines_keeps_tail_visible() {
-        let lines = vec![
-            Line::from("a"),
-            Line::from("b"),
-            Line::from("c"),
-            Line::from("d"),
-        ];
-        let visible = bottom_anchor_lines(lines, 3, 0);
-        let strings = visible
-            .into_iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(strings, vec!["b", "c", "d"]);
-    }
-
-    #[test]
-    fn bottom_anchor_lines_pads_top_when_short() {
-        let visible = bottom_anchor_lines(vec![Line::from("hello")], 3, 0);
-        let strings = visible
-            .into_iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(strings, vec!["", "", "hello"]);
-    }
-
-    #[test]
-    fn active_assistant_cell_uses_assistant_color() {
-        let cell = TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "RestFlow".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "hello".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
-        };
-        assert_eq!(cell_color(&cell), Color::Green);
-    }
-
-    #[test]
-    fn startup_status_overrides_shell_status() {
-        let mut state = AppState::empty();
-        state.enter_startup(None, None);
-        assert_eq!(shell_status_text(&state), "Daemon Offline");
-        state.status = "Starting daemon...".to_string();
-        assert_eq!(shell_status_text(&state), "Starting Daemon");
-    }
-
-    #[test]
-    fn transcript_render_skips_leading_blank_lines_in_body() {
-        let cell = TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Default Assistant".to_string(),
-            subtitle: None,
-            body: "\n\n\nI received \"123\".".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: false,
-        };
-
-        let lines = render_transcript_cell(&cell)
-            .into_iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>();
-
-        assert_eq!(lines[0], "Default Assistant");
-        assert_eq!(lines[1], "  I received \"123\".");
-        assert_eq!(lines[2], "");
-    }
-
-    #[test]
-    fn composer_uses_single_visible_row_for_short_input() {
-        let mut state = AppState::empty();
-        state.composer.insert_char('h');
-
-        assert_eq!(composer_visible_rows(&state, 80), 1);
-        assert_eq!(composer_pane_height(&state, 80), 4);
-    }
-
-    #[test]
-    fn composer_caps_visible_rows_at_six() {
-        let mut state = AppState::empty();
-        for line in ["1", "2", "3", "4", "5", "6", "7"] {
-            state
-                .composer
-                .insert_char(line.chars().next().expect("char"));
-            state.composer.insert_newline();
-        }
-
-        assert_eq!(composer_visible_rows(&state, 80), 6);
-        assert_eq!(composer_pane_height(&state, 80), 9);
-    }
-
-    #[test]
-    fn footer_status_line_prefers_provider_and_model_when_session_exists() {
-        let mut state = AppState::empty();
-        let session = restflow_core::models::ChatSession::new(
-            "agent-1".to_string(),
-            "minimax-coding-plan-m2-5".to_string(),
+    fn bottom_viewport_preserves_line_style() {
+        let prompt_lines = vec![Line::from("hello")];
+        let rendered = render_shell_bottom_viewport(
+            24,
+            vec![Line::from("Agent").style(Style::default().fg(Color::Yellow))],
+            &prompt_lines,
+            0,
+            0,
+            "model",
         );
-        state.set_current_session(session);
-        state.status = "Connected to daemon".to_string();
 
-        assert_eq!(
-            footer_status_line(&state),
-            "minimax-coding-plan · minimax-coding-plan-m2-5"
-        );
+        assert_eq!(rendered.lines[0].spans[0].style.fg, Some(Color::Yellow));
     }
 
     #[test]
-    fn footer_status_line_falls_back_to_state_status_without_session() {
-        let mut state = AppState::empty();
-        state.status = "Starting daemon...".to_string();
+    fn bottom_viewport_does_not_emit_full_width_blank_rows() {
+        let prompt_lines = vec![Line::from("hello")];
+        let rendered = render_shell_bottom_viewport(
+            24,
+            vec![Line::from(""), Line::from("message")],
+            &prompt_lines,
+            0,
+            0,
+            "model",
+        );
 
-        assert_eq!(footer_status_line(&state), "Starting daemon...");
+        assert_eq!(line_text(&rendered.lines[0]), "");
+        assert_eq!(line_text(&rendered.lines[1]), "message");
     }
 }

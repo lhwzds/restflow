@@ -19,8 +19,8 @@ use crate::services::background_agent_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,
-    DeliverableStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
-    SkillStorage, Storage, TerminalSessionStorage, TriggerStorage, WorkItemStorage,
+    ExecutionTraceStorage, MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage,
+    TerminalSessionStorage, TriggerStorage, WorkItemStorage,
 };
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -50,14 +50,13 @@ struct AssessmentContext {
     chat_sessions: crate::storage::ChatSessionStorage,
     channel_session_bindings: ChannelSessionBindingStorage,
     execution_traces: ExecutionTraceStorage,
-    kv_store: KvStoreStorage,
     work_items: WorkItemStorage,
     config: ConfigStorage,
     agents: AgentStorage,
     background_agents: BackgroundAgentStorage,
     triggers: TriggerStorage,
     terminal_sessions: TerminalSessionStorage,
-    deliverables: DeliverableStorage,
+    run_artifacts: RunArtifactStorage,
 }
 
 impl AssessmentContext {
@@ -74,14 +73,13 @@ impl AssessmentContext {
             chat_sessions: storage.chat_sessions.clone(),
             channel_session_bindings: storage.channel_session_bindings.clone(),
             execution_traces: storage.execution_traces.clone(),
-            kv_store: storage.kv_store.clone(),
             work_items: storage.work_items.clone(),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
             background_agents: storage.background_agents.clone(),
             triggers: storage.triggers.clone(),
             terminal_sessions: storage.terminal_sessions.clone(),
-            deliverables: storage.deliverables.clone(),
+            run_artifacts: storage.run_artifacts.clone(),
         }
     }
 }
@@ -120,29 +118,11 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
-    async fn assess_background_agent_create(
-        &self,
-        request: restflow_traits::store::BackgroundAgentCreateRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_create_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
     async fn assess_task_create(
         &self,
         request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_task_create_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_background_agent_convert_session(
-        &self,
-        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_convert_session_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -156,29 +136,11 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
-    async fn assess_background_agent_update(
-        &self,
-        request: restflow_traits::store::BackgroundAgentUpdateRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_update_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
     async fn assess_task_update(
         &self,
         request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_task_update_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_background_agent_delete(
-        &self,
-        request: restflow_traits::store::BackgroundAgentDeleteRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_delete_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -192,15 +154,6 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
-    async fn assess_background_agent_control(
-        &self,
-        request: restflow_traits::store::BackgroundAgentControlRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_control_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
     async fn assess_task_control(
         &self,
         request: TaskControlRequest,
@@ -208,24 +161,6 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         assess_task_control_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_background_agent_template(
-        &self,
-        operation: &str,
-        intent: OperationAssessmentIntent,
-        agent_ids: Vec<String>,
-        template_mode: bool,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_template_with_context(
-            &self.context,
-            operation,
-            intent,
-            agent_ids,
-            template_mode,
-        )
-        .await
-        .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_task_template(
@@ -340,15 +275,14 @@ fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessme
 }
 
 async fn build_auth(context: &AssessmentContext) -> Result<AuthProfileManager> {
-    let config = AuthManagerConfig {
-        auto_discover: false,
-        ..AuthManagerConfig::default()
-    };
     let secrets = Arc::new(context.secrets.clone());
     let profile_storage = AuthProfileStorage::new(context.db.clone())?;
-    let manager = AuthProfileManager::with_storage(config, secrets, Some(profile_storage));
+    let manager = AuthProfileManager::with_storage(
+        AuthManagerConfig::default(),
+        secrets,
+        Some(profile_storage),
+    );
     manager.initialize().await?;
-    let _ = manager.discover().await;
     Ok(manager)
 }
 
@@ -476,7 +410,6 @@ async fn validate_agent_async(
         context.chat_sessions.clone(),
         context.channel_session_bindings.clone(),
         context.execution_traces.clone(),
-        context.kv_store.clone(),
         context.work_items.clone(),
         context.secrets.clone(),
         context.config.clone(),
@@ -484,7 +417,7 @@ async fn validate_agent_async(
         context.background_agents.clone(),
         context.triggers.clone(),
         context.terminal_sessions.clone(),
-        context.deliverables.clone(),
+        context.run_artifacts.clone(),
         None,
         None,
         None,
@@ -730,13 +663,6 @@ pub async fn assess_task_create(
     assess_task_create_with_context(&context, request).await
 }
 
-pub async fn assess_background_agent_create(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentCreateRequest,
-) -> Result<OperationAssessment> {
-    assess_task_create(core, request).await
-}
-
 async fn assess_task_create_with_context(
     context: &AssessmentContext,
     request: TaskCreateRequest,
@@ -760,13 +686,6 @@ pub async fn assess_task_convert_session(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_convert_session_with_context(&context, request).await
-}
-
-pub async fn assess_background_agent_convert_session(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
-) -> Result<OperationAssessment> {
-    assess_task_convert_session(core, request).await
 }
 
 async fn assess_task_convert_session_with_context(
@@ -820,13 +739,6 @@ pub async fn assess_task_update(
     assess_task_update_with_context(&context, request).await
 }
 
-pub async fn assess_background_agent_update(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentUpdateRequest,
-) -> Result<OperationAssessment> {
-    assess_task_update(core, request).await
-}
-
 async fn assess_task_update_with_context(
     context: &AssessmentContext,
     request: TaskUpdateRequest,
@@ -861,13 +773,6 @@ pub async fn assess_task_delete(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_delete_with_context(&context, request).await
-}
-
-pub async fn assess_background_agent_delete(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentDeleteRequest,
-) -> Result<OperationAssessment> {
-    assess_task_delete(core, request).await
 }
 
 async fn assess_task_delete_with_context(
@@ -905,13 +810,6 @@ pub async fn assess_task_control(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_control_with_context(&context, request).await
-}
-
-pub async fn assess_background_agent_control(
-    core: &Arc<AppCore>,
-    request: restflow_traits::store::BackgroundAgentControlRequest,
-) -> Result<OperationAssessment> {
-    assess_task_control(core, request).await
 }
 
 async fn assess_task_control_with_context(
@@ -955,16 +853,6 @@ pub async fn assess_task_template(
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
     assess_task_template_with_context(&context, operation, intent, agent_ids, template_mode).await
-}
-
-pub async fn assess_background_agent_template(
-    core: &Arc<AppCore>,
-    operation: &str,
-    intent: OperationAssessmentIntent,
-    agent_ids: Vec<String>,
-    template_mode: bool,
-) -> Result<OperationAssessment> {
-    assess_task_template(core, operation, intent, agent_ids, template_mode).await
 }
 
 async fn assess_task_template_with_context(
@@ -1151,7 +1039,7 @@ mod tests {
     use crate::prompt_files;
     use crate::services::agent::create_agent;
     use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
-    use restflow_traits::{BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest};
+    use restflow_traits::{TaskConvertSessionRequest, TaskDeleteRequest};
     use tempfile::tempdir;
 
     struct AgentsDirEnvGuard {
@@ -1376,7 +1264,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_defaults_run_now_to_save() {
+    async fn assess_task_convert_session_defaults_run_now_to_save() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1396,9 +1284,9 @@ mod tests {
             .create(&session)
             .expect("session");
 
-        let assessment = assess_background_agent_convert_session(
+        let assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1420,7 +1308,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_blocks_when_input_cannot_be_derived() {
+    async fn assess_task_convert_session_blocks_when_input_cannot_be_derived() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1439,9 +1327,9 @@ mod tests {
             .create(&session)
             .expect("session");
 
-        let assessment = assess_background_agent_convert_session(
+        let assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1466,7 +1354,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_approval_id_is_bound_to_session() {
+    async fn assess_task_convert_session_approval_id_is_bound_to_session() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1499,9 +1387,9 @@ mod tests {
             .create(&second_session)
             .expect("second session");
 
-        let first_assessment = assess_background_agent_convert_session(
+        let first_assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: first_session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1518,9 +1406,9 @@ mod tests {
         )
         .await
         .expect("first assessment");
-        let second_assessment = assess_background_agent_convert_session(
+        let second_assessment = assess_task_convert_session(
             &core,
-            BackgroundAgentConvertSessionRequest {
+            TaskConvertSessionRequest {
                 session_id: second_session.id.clone(),
                 name: None,
                 schedule: None,
@@ -1544,7 +1432,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_approval_id_is_stable_for_same_session() {
+    async fn assess_task_convert_session_approval_id_is_stable_for_same_session() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1567,7 +1455,7 @@ mod tests {
             .create(&session)
             .expect("session");
 
-        let request = BackgroundAgentConvertSessionRequest {
+        let request = TaskConvertSessionRequest {
             session_id: session.id.clone(),
             name: None,
             schedule: None,
@@ -1582,10 +1470,10 @@ mod tests {
             approval_id: None,
         };
 
-        let first_assessment = assess_background_agent_convert_session(&core, request.clone())
+        let first_assessment = assess_task_convert_session(&core, request.clone())
             .await
             .expect("first assessment");
-        let second_assessment = assess_background_agent_convert_session(&core, request)
+        let second_assessment = assess_task_convert_session(&core, request)
             .await
             .expect("second assessment");
 
@@ -1594,7 +1482,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_delete_returns_warning_with_bound_token() {
+    async fn assess_task_delete_returns_warning_with_bound_token() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1626,9 +1514,9 @@ mod tests {
             })
             .expect("task");
 
-        let assessment = assess_background_agent_delete(
+        let assessment = assess_task_delete(
             &core,
-            BackgroundAgentDeleteRequest {
+            TaskDeleteRequest {
                 id: task.id.clone(),
                 preview: true,
                 approval_id: None,
@@ -1644,7 +1532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_task_convert_session_matches_background_behavior() {
+    async fn assess_task_convert_session_adapter_uses_task_path() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,

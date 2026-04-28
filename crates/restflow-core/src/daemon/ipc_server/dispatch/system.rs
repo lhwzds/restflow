@@ -1,24 +1,33 @@
-use super::super::runtime::build_auth_manager;
 use super::super::*;
-use crate::auth::{provider_available, secret_or_env_exists};
-use crate::models::{ModelId, ModelMetadataDTO, Provider, provider_display_order};
+use crate::auth::secret_or_env_exists;
+use crate::models::{
+    ModelId, ModelMetadataDTO, Provider, provider_allows_secret_env, provider_display_order,
+};
 
 fn is_catalog_model(model: ModelId) -> bool {
-    !model.is_opencode_cli() && !model.is_gemini_cli()
+    !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
 }
 
-async fn available_providers(core: &Arc<AppCore>) -> Result<Vec<Provider>, String> {
-    let auth_manager = build_auth_manager(core)
-        .await
-        .map_err(|err| err.to_string())?;
-    let _ = auth_manager.discover().await;
+fn is_legacy_openai_model(model: ModelId) -> bool {
+    matches!(
+        model,
+        ModelId::Gpt5
+            | ModelId::Gpt5Mini
+            | ModelId::Gpt5Nano
+            | ModelId::Gpt5Pro
+            | ModelId::Gpt5_1
+            | ModelId::Gpt5_2
+    )
+}
 
+fn available_providers(core: &Arc<AppCore>) -> Vec<Provider> {
     let mut providers = Vec::new();
     for provider in Provider::all().iter().copied() {
-        let available = provider_available(&auth_manager, provider, |key| {
-            secret_or_env_exists(&core.storage.secrets, key)
-        })
-        .await;
+        let available = provider == Provider::Codex
+            || provider_allows_secret_env(provider)
+                && provider
+                    .api_key_env_candidates()
+                    .any(|key| secret_or_env_exists(&core.storage.secrets, key));
 
         if available {
             providers.push(provider);
@@ -26,11 +35,11 @@ async fn available_providers(core: &Arc<AppCore>) -> Result<Vec<Provider>, Strin
     }
 
     providers.sort_by_key(|provider| provider_display_order(*provider));
-    Ok(providers)
+    providers
 }
 
-async fn available_model_catalog(core: &Arc<AppCore>) -> Result<Vec<ModelMetadataDTO>, String> {
-    let providers = available_providers(core).await?;
+fn available_model_catalog(core: &Arc<AppCore>) -> Vec<ModelMetadataDTO> {
+    let providers = available_providers(core);
     let mut models = ModelId::all_with_metadata()
         .into_iter()
         .filter(|metadata| is_catalog_model(metadata.model))
@@ -43,7 +52,7 @@ async fn available_model_catalog(core: &Arc<AppCore>) -> Result<Vec<ModelMetadat
             .then_with(|| left.name.cmp(&right.name))
     });
 
-    Ok(models)
+    models
 }
 
 impl IpcServer {
@@ -74,10 +83,7 @@ impl IpcServer {
     }
 
     pub(super) async fn handle_get_available_models(core: &Arc<AppCore>) -> IpcResponse {
-        match available_model_catalog(core).await {
-            Ok(models) => IpcResponse::success(models),
-            Err(err) => IpcResponse::error(500, err),
-        }
+        IpcResponse::success(available_model_catalog(core))
     }
 
     pub(super) async fn handle_list_mcp_servers() -> IpcResponse {

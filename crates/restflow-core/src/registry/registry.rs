@@ -17,8 +17,8 @@ use crate::models::{
 
 use super::gating::GatingChecker;
 use super::provider::{
-    BuiltinSkillProvider, LocalSkillProvider, SkillProvider, SkillProviderError, SkillSearchQuery,
-    SkillSearchResult,
+    LocalSkillProvider, SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult,
+    SystemSkillRegistryProvider,
 };
 use super::resolver::{DependencyError, DependencyResolver, InstallPlan};
 
@@ -67,8 +67,8 @@ impl SkillRegistry {
         let mut providers: Vec<Arc<dyn SkillProvider>> = vec![
             // Add local provider
             Arc::new(LocalSkillProvider::new(config.skills_dir.clone())),
-            // Add builtin provider
-            Arc::new(BuiltinSkillProvider::new()),
+            // Add systemskill provider
+            Arc::new(SystemSkillRegistryProvider::new()),
         ];
 
         // Sort by priority (descending)

@@ -1,10 +1,8 @@
 use crate::{Result, ToolError};
-use restflow_traits::RuntimeTaskPayload;
 use restflow_traits::boundary::subagent::spawn_request_from_contract;
 
 use super::SpawnSubagentBatchTool;
 use super::resolve::preview_request_from_spec;
-use super::team::structural_count;
 use super::types::BatchSubagentSpec;
 
 pub(super) fn total_instances(specs: &[BatchSubagentSpec]) -> Result<usize> {
@@ -58,33 +56,6 @@ pub(super) fn total_instances(specs: &[BatchSubagentSpec]) -> Result<usize> {
     Ok(total)
 }
 
-pub(super) fn validate_save_team_request(
-    task: Option<&str>,
-    tasks: Option<&[String]>,
-    specs: &[BatchSubagentSpec],
-) -> Result<()> {
-    RuntimeTaskPayload {
-        task: task.map(str::to_string),
-        tasks: tasks.map(|items| items.to_vec()),
-    }
-    .validate("task", "tasks")
-    .map_err(ToolError::Tool)?;
-    if task.is_some() || tasks.is_some() {
-        return Err(ToolError::Tool(
-            "save_team stores worker structure only. Remove top-level 'task'/'tasks' and pass prompts during spawn.".to_string(),
-        ));
-    }
-    for (spec_index, spec) in specs.iter().enumerate() {
-        if spec.task.is_some() || spec.tasks.is_some() {
-            return Err(ToolError::Tool(format!(
-                "save_team stores worker structure only. Remove 'task'/'tasks' from spec index {} and pass prompts during spawn.",
-                spec_index
-            )));
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn validate_structural_specs(
     tool: &SpawnSubagentBatchTool,
     specs: &[BatchSubagentSpec],
@@ -95,6 +66,19 @@ pub(super) fn validate_structural_specs(
             spawn_request_from_contract(&tool.available_agents(), preview_request_from_spec(spec))?;
     }
     Ok(())
+}
+
+fn structural_count(spec: &BatchSubagentSpec, spec_index: usize) -> Result<u32> {
+    if spec.count == 0 {
+        return Err(ToolError::Tool(format!(
+            "Spec index {} count must be >= 1.",
+            spec_index
+        )));
+    }
+    Ok(spec
+        .tasks
+        .as_ref()
+        .map_or(spec.count, |tasks| tasks.len() as u32))
 }
 
 fn resolve_instance_tasks(

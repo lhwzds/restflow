@@ -2,7 +2,6 @@ use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{ChatRole, ChatSession};
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::runtime::background_agent::StreamEventKind;
-use restflow_traits::{TeamMessage, TeamMessageKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -29,13 +28,6 @@ pub enum ShellMessage {
         result: String,
     },
     TaskNotice {
-        content: String,
-    },
-    ApprovalNotice {
-        approval_id: Option<String>,
-        content: String,
-    },
-    TeamNotice {
         content: String,
     },
     InfoNotice {
@@ -81,9 +73,28 @@ impl TranscriptCell {
         )
     }
 
+    #[cfg(test)]
     pub fn append_chunk(&mut self, chunk: &str) -> bool {
         match self.kind {
             TranscriptCellKind::Assistant if self.is_active => {
+                let normalized_chunk = chunk.trim_start_matches(['\r', '\n']);
+                if chunk == self.body
+                    || normalized_chunk == self.body
+                    || (!normalized_chunk.trim().is_empty()
+                        && normalized_chunk.trim() == self.body.trim())
+                    || self.body.starts_with(chunk)
+                    || self.body.starts_with(normalized_chunk)
+                {
+                    return true;
+                }
+                if chunk.starts_with(&self.body) {
+                    self.body = chunk.to_string();
+                    return true;
+                }
+                if normalized_chunk.starts_with(&self.body) {
+                    self.body = normalized_chunk.to_string();
+                    return true;
+                }
                 self.body.push_str(chunk);
                 true
             }
@@ -101,6 +112,35 @@ impl TranscriptCell {
             _ => false,
         }
     }
+
+    pub fn tool_call_id(&self) -> Option<&str> {
+        if self.kind != TranscriptCellKind::Tool {
+            return None;
+        }
+        self.subtitle
+            .as_deref()
+            .and_then(|subtitle| subtitle.strip_prefix('#'))
+    }
+
+    pub fn merge_tool_result(&mut self, success: bool, result: &str) -> bool {
+        if self.kind != TranscriptCellKind::Tool {
+            return false;
+        }
+        let label = if success { "Output" } else { "Error" };
+        let marker = format!("\n{label}:");
+        let base = self
+            .body
+            .find("\nOutput:")
+            .or_else(|| self.body.find("\nError:"))
+            .map(|index| self.body[..index].trim_end().to_string())
+            .unwrap_or_else(|| self.body.trim_end().to_string());
+        self.body = if base.is_empty() {
+            format!("{label}: {}", result.trim())
+        } else {
+            format!("{base}{marker} {}", result.trim())
+        };
+        true
+    }
 }
 
 impl ShellMessage {
@@ -111,11 +151,9 @@ impl ShellMessage {
             | Self::AssistantStream { .. }
             | Self::SystemMessage { .. } => MessageGroup::Conversation,
             Self::ToolCall { .. } | Self::ToolResult { .. } => MessageGroup::ToolActivity,
-            Self::TaskNotice { .. }
-            | Self::ApprovalNotice { .. }
-            | Self::TeamNotice { .. }
-            | Self::InfoNotice { .. }
-            | Self::ErrorNotice { .. } => MessageGroup::RuntimeNotice,
+            Self::TaskNotice { .. } | Self::InfoNotice { .. } | Self::ErrorNotice { .. } => {
+                MessageGroup::RuntimeNotice
+            }
         }
     }
 }
@@ -187,7 +225,7 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
             kind: TranscriptCellKind::Tool,
             title: format!("Tool · {name}"),
             subtitle: Some(format!("#{call_id}")),
-            body: arguments.clone(),
+            body: format!("Input: {}", arguments.trim()),
             group: message.group(),
             is_active: false,
         },
@@ -203,32 +241,17 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
                 "Tool Error".to_string()
             },
             subtitle: Some(format!("#{call_id}")),
-            body: result.clone(),
+            body: if *success {
+                format!("Output: {}", result.trim())
+            } else {
+                format!("Error: {}", result.trim())
+            },
             group: message.group(),
             is_active: false,
         },
         ShellMessage::TaskNotice { content } => TranscriptCell {
             kind: TranscriptCellKind::Notice,
             title: "Task".to_string(),
-            subtitle: None,
-            body: content.clone(),
-            group: message.group(),
-            is_active: false,
-        },
-        ShellMessage::ApprovalNotice {
-            approval_id,
-            content,
-        } => TranscriptCell {
-            kind: TranscriptCellKind::Notice,
-            title: "Approval".to_string(),
-            subtitle: approval_id.as_ref().map(|id| format!("#{id}")),
-            body: content.clone(),
-            group: message.group(),
-            is_active: false,
-        },
-        ShellMessage::TeamNotice { content } => TranscriptCell {
-            kind: TranscriptCellKind::Notice,
-            title: "Team".to_string(),
             subtitle: None,
             body: content.clone(),
             group: message.group(),
@@ -371,42 +394,6 @@ pub fn message_from_task_event(event: &TaskStreamEvent) -> ShellMessage {
     ShellMessage::TaskNotice { content }
 }
 
-pub fn message_from_team_message(message: &TeamMessage) -> ShellMessage {
-    match message.kind {
-        TeamMessageKind::ApprovalRequest => ShellMessage::ApprovalNotice {
-            approval_id: extract_approval_id(&message.content),
-            content: format!(
-                "{} requested approval: {}",
-                message.from_member_id, message.content
-            ),
-        },
-        TeamMessageKind::ApprovalResolution => ShellMessage::TeamNotice {
-            content: format!(
-                "Approval resolved by {}: {}",
-                message.from_member_id, message.content
-            ),
-        },
-        TeamMessageKind::Assignment => ShellMessage::TeamNotice {
-            content: format!(
-                "Assignment from {} to {:?}: {}",
-                message.from_member_id, message.to_member_id, message.content
-            ),
-        },
-        TeamMessageKind::Note => ShellMessage::TeamNotice {
-            content: format!("{}: {}", message.from_member_id, message.content),
-        },
-    }
-}
-
-fn extract_approval_id(content: &str) -> Option<String> {
-    content
-        .split_whitespace()
-        .last()
-        .map(|segment| segment.trim_matches(|ch| ch == '(' || ch == ')'))
-        .filter(|segment| !segment.is_empty())
-        .map(ToOwned::to_owned)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -432,6 +419,48 @@ mod tests {
         assert_eq!(cell.body, "hello");
         assert!(!cell.is_active);
         assert!(cell.subtitle.is_none());
+    }
+
+    #[test]
+    fn stream_append_ignores_duplicate_full_chunk() {
+        let mut cell = cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: "OK".to_string(),
+            },
+            "Agent",
+        );
+
+        assert!(cell.append_chunk("OK"));
+
+        assert_eq!(cell.body, "OK");
+    }
+
+    #[test]
+    fn stream_append_ignores_duplicate_payload_with_leading_newlines() {
+        let mut cell = cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: "OK".to_string(),
+            },
+            "Agent",
+        );
+
+        assert!(cell.append_chunk("\n\nOK"));
+
+        assert_eq!(cell.body, "OK");
+    }
+
+    #[test]
+    fn stream_append_replaces_with_cumulative_chunk() {
+        let mut cell = cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: "hello".to_string(),
+            },
+            "Agent",
+        );
+
+        assert!(cell.append_chunk("hello world"));
+
+        assert_eq!(cell.body, "hello world");
     }
 
     #[test]

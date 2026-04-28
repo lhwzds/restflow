@@ -3,18 +3,14 @@ use std::sync::Arc;
 use crate::impls::TaskTool;
 use crate::impls::agent_crud::AgentCrudTool;
 use crate::impls::auth_profile::AuthProfileTool;
-use crate::impls::background_agent::BackgroundAgentTool;
 use crate::impls::config::ConfigTool;
 use crate::impls::diagnostics::DiagnosticsTool;
-use crate::impls::kv_store::KvStoreTool;
 use crate::impls::manage_ops::ManageOpsTool;
-use crate::impls::manage_teams::ManageTeamsTool;
 use crate::impls::marketplace::MarketplaceTool;
 use crate::impls::memory_mgmt::MemoryManagementTool;
 use crate::impls::memory_store::{
     DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
 };
-use crate::impls::save_deliverable::SaveDeliverableTool;
 use crate::impls::secrets::SecretsTool;
 use crate::impls::security_query::SecurityQueryTool;
 use crate::impls::session::SessionTool;
@@ -25,12 +21,11 @@ use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
 use restflow_traits::AgentOperationAssessor;
-use restflow_traits::TeamCoordinator;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
-    AgentStore, AuthProfileStore, ConfigStore, DeliverableStore, DiagnosticsProvider, KvStore,
-    MarketplaceStore, MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider,
-    SessionStore, TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
+    AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore,
+    MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider, SessionStore,
+    TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
 
 use super::ToolRegistryBuilder;
@@ -38,25 +33,13 @@ use super::configs::SecretsConfig;
 
 fn build_task_tool(
     store: Arc<dyn TaskStore>,
-    kv_store: Option<Arc<dyn KvStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskTool {
     let mut tool = TaskTool::from_task_store(store);
-    if let Some(kv_store) = kv_store {
-        tool = tool.with_kv_store(kv_store);
-    }
     if let Some(assessor) = assessor {
         tool = tool.with_assessor(assessor);
     }
     tool.with_write(true)
-}
-
-fn build_legacy_task_alias_tool(
-    store: Arc<dyn TaskStore>,
-    kv_store: Option<Arc<dyn KvStore>>,
-    assessor: Option<Arc<dyn AgentOperationAssessor>>,
-) -> BackgroundAgentTool {
-    BackgroundAgentTool::from_task_tool(build_task_tool(store, kv_store, assessor))
 }
 
 impl ToolRegistryBuilder {
@@ -112,11 +95,6 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_deliverable(mut self, store: Arc<dyn DeliverableStore>) -> Self {
-        self.registry.register(SaveDeliverableTool::new(store));
-        self
-    }
-
     pub fn with_unified_search(mut self, search: Arc<dyn UnifiedMemorySearch>) -> Self {
         self.registry.register(UnifiedMemorySearchTool::new(search));
         self
@@ -124,21 +102,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_ops(mut self, provider: Arc<dyn OpsProvider>) -> Self {
         self.registry.register(ManageOpsTool::new(provider));
-        self
-    }
-
-    pub fn with_manage_teams(
-        mut self,
-        coordinator: Arc<dyn TeamCoordinator>,
-        kv_store: Arc<dyn KvStore>,
-    ) -> Self {
-        self.registry
-            .register(ManageTeamsTool::new(coordinator, kv_store));
-        self
-    }
-
-    pub fn with_kv_store(mut self, store: Arc<dyn KvStore>) -> Self {
-        self.registry.register(KvStoreTool::new(store, None));
         self
     }
 
@@ -197,58 +160,17 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_task(mut self, store: Arc<dyn TaskStore>) -> Self {
-        self.registry.register(build_task_tool(store, None, None));
+        self.registry.register(build_task_tool(store, None));
         self
     }
 
-    pub fn with_legacy_task_alias(mut self, store: Arc<dyn TaskStore>) -> Self {
-        self.registry
-            .register(build_legacy_task_alias_tool(store, None, None));
-        self
-    }
-
-    pub fn with_task_and_kv(
+    pub fn with_task_and_assessor(
         mut self,
         store: Arc<dyn TaskStore>,
-        kv_store: Arc<dyn KvStore>,
-    ) -> Self {
-        self.registry
-            .register(build_task_tool(store, Some(kv_store), None));
-        self
-    }
-
-    pub fn with_legacy_task_alias_and_kv(
-        mut self,
-        store: Arc<dyn TaskStore>,
-        kv_store: Arc<dyn KvStore>,
-    ) -> Self {
-        self.registry
-            .register(build_legacy_task_alias_tool(store, Some(kv_store), None));
-        self
-    }
-
-    pub fn with_task_and_kv_and_assessor(
-        mut self,
-        store: Arc<dyn TaskStore>,
-        kv_store: Arc<dyn KvStore>,
         assessor: Arc<dyn AgentOperationAssessor>,
     ) -> Self {
         self.registry
-            .register(build_task_tool(store, Some(kv_store), Some(assessor)));
-        self
-    }
-
-    pub fn with_legacy_task_alias_and_kv_and_assessor(
-        mut self,
-        store: Arc<dyn TaskStore>,
-        kv_store: Arc<dyn KvStore>,
-        assessor: Arc<dyn AgentOperationAssessor>,
-    ) -> Self {
-        self.registry.register(build_legacy_task_alias_tool(
-            store,
-            Some(kv_store),
-            Some(assessor),
-        ));
+            .register(build_task_tool(store, Some(assessor)));
         self
     }
 

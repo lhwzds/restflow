@@ -49,30 +49,6 @@ pub trait TaskTrigger: Send + Sync {
     ///
     /// Returns true if there was a pending approval to handle
     async fn handle_task_approval(&self, task_id: &str, approved: bool) -> Result<bool>;
-
-    async fn list_background_agents(&self) -> Result<Vec<Task>> {
-        self.list_tasks().await
-    }
-
-    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<Task> {
-        self.find_and_run_task(name_or_id).await
-    }
-
-    async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
-        self.stop_task(task_id).await
-    }
-
-    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
-        self.send_message_to_task(task_id, input).await
-    }
-
-    async fn handle_background_agent_approval(
-        &self,
-        task_id: &str,
-        approved: bool,
-    ) -> Result<bool> {
-        self.handle_task_approval(task_id, approved).await
-    }
 }
 
 #[cfg(test)]

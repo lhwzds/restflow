@@ -44,7 +44,7 @@ impl SwitchModelTool {
         let provider_raw = requested_provider.expect("requested_provider checked above");
         let provider = parse_provider_selector(provider_raw).ok_or_else(|| {
             ToolError::Tool(format!(
-                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, minimax, minimax-coding-plan, zai, zai-coding-plan, claude-code, openai-codex, gemini-cli"
+                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, minimax, minimax-coding-plan, zai, zai-coding-plan, openai-codex, gemini-cli"
             ))
         })?;
 
@@ -105,7 +105,7 @@ impl Tool for SwitchModelTool {
             "properties": {
                 "provider": {
                     "type": "string",
-                    "description": "Provider selector (e.g. openai, anthropic, claude-code, openai-codex, gemini-cli)"
+                    "description": "Provider selector (e.g. openai, anthropic, openai-codex, gemini-cli)"
                 },
                 "model": {
                     "type": "string",
@@ -378,38 +378,6 @@ mod tests {
                 .to_string()
                 .contains("does not belong to provider 'anthropic'"),
             "unexpected error: {error}"
-        );
-    }
-
-    #[tokio::test]
-    async fn execute_supports_claude_code_provider_for_claude_code_models() {
-        let factory = Arc::new(MockFactory::new(
-            vec!["claude-sonnet-4-5", "claude-code-sonnet"],
-            vec![
-                ("claude-sonnet-4-5", LlmProvider::Anthropic),
-                ("claude-code-sonnet", LlmProvider::Anthropic),
-            ],
-            vec![(LlmProvider::Anthropic, "anthropic-key")],
-            vec![],
-        ));
-        let (tool, llm) = build_tool(factory.clone());
-
-        let output = tool
-            .execute(json!({
-                "provider": "claude-code",
-                "model": "claude-code-sonnet"
-            }))
-            .await
-            .expect("switch should succeed");
-
-        assert!(output.success);
-        assert_eq!(llm.current_model(), "claude-code-sonnet");
-        assert_eq!(
-            factory.calls(),
-            vec![(
-                "claude-code-sonnet".to_string(),
-                Some("anthropic-key".to_string())
-            )]
         );
     }
 

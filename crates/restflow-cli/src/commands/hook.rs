@@ -260,14 +260,14 @@ mod tests {
     use restflow_contracts::request::TaskFromSessionRequest;
     use restflow_contracts::{
         CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-        RouteBindingResponse, SessionSourceMigrationResponse,
+        RouteBindingResponse,
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
-        AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, ItemQuery,
-        MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret,
-        SharedEntry, Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress,
-        TaskSpec, WorkItem, WorkItemPatch, WorkItemSpec,
+        AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ItemQuery, MemoryChunk,
+        MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
+        TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec, WorkItem,
+        WorkItemPatch, WorkItemSpec,
     };
     use restflow_core::storage::SystemConfig;
     use restflow_core::storage::agent::StoredAgent;
@@ -568,13 +568,6 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn migrate_session_sources(
-            &self,
-            _dry_run: bool,
-        ) -> anyhow::Result<SessionSourceMigrationResponse> {
-            panic!("unexpected executor call")
-        }
-
         async fn list_tasks(&self, _status: Option<String>) -> anyhow::Result<Vec<Task>> {
             panic!("unexpected executor call")
         }
@@ -636,42 +629,6 @@ mod tests {
             &self,
             _run_id: &str,
         ) -> anyhow::Result<ExecutionTimeline> {
-            panic!("unexpected executor call")
-        }
-
-        async fn execute_runtime_tool(
-            &self,
-            _name: &str,
-            _input: serde_json::Value,
-        ) -> anyhow::Result<restflow_contracts::ToolExecutionResult> {
-            panic!("unexpected executor call")
-        }
-
-        async fn list_kv_store(
-            &self,
-            _namespace: Option<&str>,
-        ) -> anyhow::Result<Vec<SharedEntry>> {
-            panic!("unexpected executor call")
-        }
-
-        async fn get_kv_store(&self, _key: &str) -> anyhow::Result<Option<SharedEntry>> {
-            panic!("unexpected executor call")
-        }
-
-        async fn set_kv_store(
-            &self,
-            _key: &str,
-            _value: &str,
-            _visibility: &str,
-        ) -> anyhow::Result<SharedEntry> {
-            panic!("unexpected executor call")
-        }
-
-        async fn delete_kv_store(&self, _key: &str) -> anyhow::Result<bool> {
-            panic!("unexpected executor call")
-        }
-
-        async fn list_deliverables(&self, _task_id: &str) -> anyhow::Result<Vec<Deliverable>> {
             panic!("unexpected executor call")
         }
     }

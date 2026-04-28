@@ -117,7 +117,7 @@ pub enum ApiKeyConfig {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentNode {
-    /// AI model to use for this agent (None = auto-select based on auth profile)
+    /// AI model to use for this agent (None = auto-select based on configured credentials)
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelId>,
@@ -510,7 +510,6 @@ impl AgentNode {
             core.storage.chat_sessions.clone(),
             core.storage.channel_session_bindings.clone(),
             core.storage.execution_traces.clone(),
-            core.storage.kv_store.clone(),
             core.storage.work_items.clone(),
             core.storage.secrets.clone(),
             core.storage.config.clone(),
@@ -518,7 +517,7 @@ impl AgentNode {
             core.storage.background_agents.clone(),
             core.storage.triggers.clone(),
             core.storage.terminal_sessions.clone(),
-            core.storage.deliverables.clone(),
+            core.storage.run_artifacts.clone(),
             None,
             None,
             None,

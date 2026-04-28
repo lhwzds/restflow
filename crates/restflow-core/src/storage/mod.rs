@@ -9,12 +9,11 @@ pub mod background_agent;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
-pub mod deliverable;
 pub mod execution_trace;
 pub mod hook;
-pub mod kv_store;
 pub mod memory;
 pub mod provider_health_snapshot;
+pub mod run_artifact;
 pub mod session;
 pub mod skill;
 pub mod structured_execution_log;
@@ -28,8 +27,6 @@ use redb::Database;
 use restflow_storage::MemoryIndex;
 use std::path::Path;
 use std::sync::Arc;
-
-use crate::models::{ChannelSessionBinding, ChatSessionSource};
 
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
@@ -45,12 +42,11 @@ pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
-pub use deliverable::DeliverableStorage;
 pub use execution_trace::ExecutionTraceStorage;
 pub use hook::HookStorage;
-pub use kv_store::KvStoreStorage;
 pub use memory::MemoryStorage;
 pub use provider_health_snapshot::ProviderHealthSnapshotStorage;
+pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
 pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
@@ -72,13 +68,12 @@ pub struct Storage {
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
-    pub kv_store: KvStoreStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub channel_session_bindings: ChannelSessionBindingStorage,
     pub sessions: SessionStorage,
-    pub deliverables: DeliverableStorage,
+    pub run_artifacts: RunArtifactStorage,
     pub hooks: HookStorage,
     pub work_items: WorkItemStorage,
     pub checkpoints: CheckpointStorage,
@@ -113,8 +108,6 @@ impl Storage {
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
-        let kv_store_raw = restflow_storage::KvStoreStorage::new(db.clone())?;
-        let kv_store = KvStoreStorage::new(kv_store_raw);
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let index = if path == ":memory:" {
             Some(Arc::new(MemoryIndex::in_memory()?))
@@ -132,16 +125,12 @@ impl Storage {
         memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let channel_session_bindings = ChannelSessionBindingStorage::new(db.clone())?;
-        backfill_channel_session_bindings_from_legacy_sources(
-            &chat_sessions,
-            &channel_session_bindings,
-        )?;
         let sessions = SessionStorage::new(
             chat_sessions.clone(),
             channel_session_bindings.clone(),
             ExecutionTraceStorage::new(db.clone())?,
         );
-        let deliverables = DeliverableStorage::new(db.clone())?;
+        let run_artifacts = RunArtifactStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let work_items = WorkItemStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
@@ -161,13 +150,12 @@ impl Storage {
             secrets,
             daemon_state,
             skills,
-            kv_store,
             terminal_sessions,
             memory,
             chat_sessions,
             channel_session_bindings,
             sessions,
-            deliverables,
+            run_artifacts,
             hooks,
             work_items,
             checkpoints,
@@ -183,89 +171,5 @@ impl Storage {
     /// Get a reference to the underlying database.
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
-    }
-}
-
-fn backfill_channel_session_bindings_from_legacy_sources(
-    chat_sessions: &ChatSessionStorage,
-    channel_session_bindings: &ChannelSessionBindingStorage,
-) -> Result<usize> {
-    let sessions = chat_sessions.list_all()?;
-    let mut created = 0usize;
-
-    for session in sessions {
-        let channel_key = match session.source_channel {
-            Some(ChatSessionSource::Telegram) => Some("telegram"),
-            Some(ChatSessionSource::Discord) => Some("discord"),
-            Some(ChatSessionSource::Slack) => Some("slack"),
-            Some(ChatSessionSource::Workspace) | Some(ChatSessionSource::ExternalLegacy) | None => {
-                None
-            }
-        };
-        let Some(channel_key) = channel_key else {
-            continue;
-        };
-
-        let Some(conversation_id) = session
-            .source_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            continue;
-        };
-
-        if channel_session_bindings
-            .get_by_route(channel_key, None, conversation_id)?
-            .is_some()
-        {
-            continue;
-        }
-
-        let binding =
-            ChannelSessionBinding::new(channel_key, None, conversation_id.to_string(), session.id);
-        channel_session_bindings.upsert(&binding)?;
-        created += 1;
-    }
-
-    Ok(created)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::ChatSession;
-    use tempfile::tempdir;
-
-    #[test]
-    fn backfill_legacy_channel_session_bindings_is_idempotent() {
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("storage-backfill.db");
-        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-
-        let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-            .with_source(ChatSessionSource::Telegram, "chat-backfill");
-        storage.chat_sessions.create(&session).unwrap();
-
-        let created = backfill_channel_session_bindings_from_legacy_sources(
-            &storage.chat_sessions,
-            &storage.channel_session_bindings,
-        )
-        .unwrap();
-        assert_eq!(created, 1);
-
-        let binding = storage
-            .channel_session_bindings
-            .get_by_route("telegram", None, "chat-backfill")
-            .unwrap()
-            .expect("binding should be created");
-        assert_eq!(binding.session_id, session.id);
-
-        let created_again = backfill_channel_session_bindings_from_legacy_sources(
-            &storage.chat_sessions,
-            &storage.channel_session_bindings,
-        )
-        .unwrap();
-        assert_eq!(created_again, 0);
     }
 }

@@ -27,12 +27,8 @@ impl RestFlowMcpServer {
             | "progress"
             | "send_message"
             | "list_messages"
-            | "list_deliverables"
-            | "run_batch"
-            | "save_team"
-            | "list_teams"
-            | "get_team"
-            | "delete_team" => self.execute_task_runtime_tool(&params).await?,
+            | "list_artifacts"
+            | "run_batch" => self.execute_task_runtime_tool(&params).await?,
             "list_traces" => {
                 let defaults = self.load_api_defaults().await?;
                 let limit = params
@@ -242,14 +238,6 @@ impl RestFlowMcpServer {
                 .unwrap_or_else(|| "manage_tasks tool failed".to_string()));
         }
         Ok(tool_result.result)
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn handle_manage_background_agents(
-        &self,
-        params: ManageBackgroundAgentsParams,
-    ) -> Result<String, String> {
-        self.handle_manage_tasks(params).await
     }
 }
 

@@ -49,10 +49,6 @@ impl IpcClient {
             .await
     }
 
-    pub async fn discover_auth(&mut self) -> Result<crate::auth::DiscoverySummary> {
-        self.request_typed(IpcRequest::DiscoverAuth).await
-    }
-
     pub async fn enable_auth_profile(&mut self, id: String) -> Result<()> {
         let _: OkResponse = self
             .request_typed(IpcRequest::EnableAuthProfile { id })

@@ -19,10 +19,10 @@
     "background": "后台",
     "sessionSource": {
       "workspace": "工作区",
+      "background": "后台",
       "telegram": "Telegram",
       "discord": "Discord",
-      "slack": "Slack",
-      "externalLegacy": "外部"
+      "slack": "Slack"
     },
     "tabs": {
       "sessions": "会话",
@@ -153,7 +153,6 @@
     "auth": {
       "title": "认证配置",
       "description": "管理 LLM 供应商的认证凭据",
-      "discover": "自动发现",
       "addProfile": "添加配置",
       "addProfileTitle": "添加认证配置",
       "addProfileDescription": "为 LLM 供应商手动添加 API Key",
@@ -181,7 +180,7 @@
       "disable": "禁用",
       "enable": "启用",
       "noProfilesFound": "未找到认证配置",
-      "noProfilesHint": "点击「自动发现」查找凭据，或点击「添加配置」手动添加"
+      "noProfilesHint": "手动添加认证配置，或先在 Secrets 里设置供应商 API Key"
     },
     "secrets": {
       "title": "密钥",

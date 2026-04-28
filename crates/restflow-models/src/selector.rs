@@ -237,8 +237,8 @@ mod tests {
             Some(ModelId::CodexCli)
         );
         assert_eq!(
-            parse_model_reference("claude-code:sonnet"),
-            Some(ModelId::ClaudeCodeSonnet)
+            parse_model_reference("codex:gpt-5.5-codex"),
+            Some(ModelId::Gpt5_5Codex)
         );
     }
 

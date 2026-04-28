@@ -14,7 +14,7 @@ use std::sync::{Mutex, OnceLock};
 use tracing::{debug, warn};
 
 use self::assembly::{
-    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_kv_store, build_runtime_assessor,
+    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_runtime_assessor,
     build_task_store_runtime_components, populate_known_tools_from_registry,
     register_bash_execution_tool, register_binary_skill_tools, register_file_execution_tool,
     register_http_execution_tool, register_management_tools, register_python_execution_tools,
@@ -29,8 +29,7 @@ use restflow_traits::SubagentManager;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
-    DiagnosticsProvider, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASKS_TOOL_NAME,
-    is_legacy_task_tool_name, is_task_management_tool_name,
+    DiagnosticsProvider, MANAGE_TASKS_TOOL_NAME, is_task_management_tool_name,
 };
 
 // Re-export tool types from restflow-tools
@@ -111,6 +110,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "transcribe",
         "vision",
         "spawn_subagent",
+        "spawn_subagent_batch",
         "wait_subagents",
         "list_subagents",
         "use_skill",
@@ -124,13 +124,11 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "switch_model",
         "skill",
         "memory_search",
-        "kv_store",
         "manage_secrets",
         "manage_config",
         "manage_sessions",
         "manage_memory",
         "manage_auth_profiles",
-        "save_deliverable",
         "edit",
         "multiedit",
         "patch",
@@ -214,21 +212,16 @@ pub fn registry_from_allowlist_with_security_gate(
 
     let wants_manage_agents = wants_named_tool(tool_names, "manage_agents");
     let wants_manage_tasks = wants_named_tool(tool_names, MANAGE_TASKS_TOOL_NAME);
-    let wants_manage_tasks_alias = tool_names.iter().any(|name| is_legacy_task_tool_name(name));
-    let wants_manage_task_tools = wants_manage_tasks || wants_manage_tasks_alias;
-    let wants_spawn_subagent = tool_names.iter().any(|name| name == "spawn_subagent");
+    let wants_manage_task_tools = wants_manage_tasks;
+    let wants_spawn_subagent = tool_names
+        .iter()
+        .any(|name| name == "spawn_subagent" || name == "spawn_subagent_batch");
     let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
     let wants_guarded_assessor =
         wants_manage_agents || wants_manage_task_tools || wants_spawn_subagent;
-    let wants_shared_kv_store =
-        wants_manage_task_tools || wants_spawn_subagent || wants_named_tool(tool_names, "kv_store");
-
     let shared_assessor =
         storage.and_then(|value| wants_guarded_assessor.then(|| build_runtime_assessor(value)));
-    let shared_kv_store = storage.and_then(|value| {
-        wants_shared_kv_store.then(|| build_kv_store(value.kv_store.clone(), None))
-    });
     let agent_crud_components = storage.and_then(|value| {
         wants_manage_agents.then(|| {
             build_agent_crud_components(
@@ -240,15 +233,8 @@ pub fn registry_from_allowlist_with_security_gate(
         })
     });
     let task_components = storage.and_then(|value| {
-        wants_manage_task_tools.then(|| {
-            build_task_store_runtime_components(
-                value,
-                shared_kv_store
-                    .clone()
-                    .expect("shared kv store should exist for task tools"),
-                shared_assessor.clone(),
-            )
-        })
+        wants_manage_task_tools
+            .then(|| build_task_store_runtime_components(value, shared_assessor.clone()))
     });
 
     let mut builder = ToolRegistryBuilder::new();
@@ -434,11 +420,11 @@ pub fn registry_from_allowlist_with_security_gate(
             }
 
             // --- Subagent tools ---
-            "spawn_subagent" | "wait_subagents" | "list_subagents" => {}
+            "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents" => {}
             "use_skill" => {
                 if let Some(storage) = storage {
                     let provider: Arc<dyn SkillProvider> =
-                        Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+                        Arc::new(CompositeSkillProvider::with_storage(storage.skills.clone()));
                     builder = if let Some(gate) = security_gate.clone() {
                         builder.with_use_skill_with_security(
                             provider,
@@ -491,7 +477,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "skill" => {
                 with_storage!(storage, "skill", builder, |s| {
-                    let provider = Arc::new(SkillStorageProvider::new(s.skills.clone()));
+                    let provider = Arc::new(CompositeSkillProvider::with_storage(s.skills.clone()));
                     if let Some(gate) = security_gate.clone() {
                         builder.with_skill_tool_with_security(
                             provider,
@@ -510,13 +496,6 @@ pub fn registry_from_allowlist_with_security_gate(
                         UnifiedSearchEngine::new(s.memory.clone(), s.chat_sessions.clone());
                     builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(engine)))
                 });
-            }
-            "kv_store" => {
-                if let Some(kv_store) = &shared_kv_store {
-                    builder = builder.with_kv_store(kv_store.clone());
-                } else {
-                    debug!(tool_name = "kv_store", "Storage missing, skipping");
-                }
             }
             "work_items" => {
                 with_storage!(storage, "work_items", builder, |s| {
@@ -570,14 +549,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     });
                 }
             }
-            "save_deliverable" => {
-                with_storage!(storage, "save_deliverable", builder, |s| {
-                    builder.with_deliverable(Arc::new(DeliverableStoreAdapter::new(
-                        s.deliverables.clone(),
-                    )))
-                });
-            }
-
             // --- Search tools ---
             "glob" => {
                 builder = builder.with_glob_and_base_dir(workspace_root.map(Path::to_path_buf));
@@ -648,7 +619,7 @@ pub fn registry_from_allowlist_with_security_gate(
     if let Some(storage) = storage {
         if !allowlisted_skill_ids.is_empty() {
             let provider: Arc<dyn SkillProvider> =
-                Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+                Arc::new(CompositeSkillProvider::with_storage(storage.skills.clone()));
             register_allowlisted_skill_tools(
                 &mut builder.registry,
                 provider,
@@ -675,11 +646,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 task_components
                     .as_ref()
                     .map(|components| components.store.clone()),
-                task_components
-                    .as_ref()
-                    .map(|components| components.kv_store.clone()),
                 shared_assessor.clone(),
-                wants_manage_tasks_alias,
             );
         } else {
             if wants_manage_agents {
@@ -687,12 +654,6 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             if wants_manage_tasks {
                 debug!(tool_name = "manage_tasks", "Storage missing, skipping");
-            }
-            if wants_manage_tasks_alias {
-                debug!(
-                    tool_name = MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
-                    "Storage missing, skipping"
-                );
             }
         }
     }
@@ -707,11 +668,6 @@ pub fn registry_from_allowlist_with_security_gate(
             register_subagent_management_tools(
                 &mut registry,
                 manager.clone(),
-                if wants_spawn_subagent {
-                    shared_kv_store.clone()
-                } else {
-                    None
-                },
                 if wants_spawn_subagent {
                     shared_assessor.clone()
                 } else {
@@ -844,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn test_manage_background_agents_alias_registered_with_storage() {
+    fn test_manage_background_agents_alias_is_not_registered() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-tools-alias.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -854,8 +810,8 @@ mod tests {
         let registry =
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
                 .unwrap();
-        assert!(registry.has("manage_tasks"));
-        assert!(registry.has("manage_background_agents"));
+        assert!(!registry.has("manage_tasks"));
+        assert!(!registry.has("manage_background_agents"));
     }
 
     #[test]
@@ -1147,59 +1103,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manage_background_agents_alias_executes_task_runtime_path() {
-        let dir = tempdir().expect("temp dir should be created");
-        let db_path = dir.path().join("registry-bg-runtime-alias.db");
-        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-            .expect("storage should be created");
-        let prompts_dir = dir.path().join("agents");
-        std::fs::create_dir_all(&prompts_dir).expect("prompts dir should be created");
-
-        let previous_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
-        let agent_id = storage
-            .agents
-            .create_agent("Runtime Owner".to_string(), AgentNode::default())
-            .expect("agent should be created")
-            .id;
-        unsafe {
-            match previous_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-            }
-        }
-
-        let names = vec!["manage_background_agents".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
-                .expect("registry should be built");
-        assert!(
-            registry.has("manage_tasks"),
-            "canonical task tool should be registered for alias ingress"
-        );
-        let output = registry
-            .get("manage_background_agents")
-            .expect("manage_background_agents alias should be registered")
-            .execute(json!({
-                "operation": "create",
-                "name": "Runtime Alias Preview Task",
-                "agent_id": agent_id,
-                "input": "Run checks",
-                "schedule": {
-                    "type": "interval",
-                    "interval_ms": 60000,
-                    "start_at": null
-                },
-                "preview": true
-            }))
-            .await
-            .expect("alias should execute through task runtime path");
-
-        assert!(output.success);
-        assert_eq!(output.result["status"], "preview");
-    }
-
-    #[tokio::test]
     async fn test_manage_agents_runtime_registry_injects_shared_assessor_and_aliases() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-agent-runtime.db");
@@ -1236,7 +1139,7 @@ mod tests {
                 "operation": "create",
                 "name": "Runtime Preview Agent",
                 "agent": {
-                    "tools": ["http", "email", "python", "manage_background_agents"]
+                    "tools": ["http", "email", "python", "manage_tasks"]
                 },
                 "preview": true
             }))

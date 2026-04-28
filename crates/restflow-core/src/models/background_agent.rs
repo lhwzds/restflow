@@ -427,7 +427,7 @@ pub struct TaskSpec {
     /// Optional resource limits for this task
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
-    /// Upstream task IDs that must provide deliverables before execution
+    /// Upstream task IDs that must provide artifacts before execution
     #[serde(default)]
     pub prerequisites: Vec<String>,
     /// Optional continuation policy for long-horizon execution

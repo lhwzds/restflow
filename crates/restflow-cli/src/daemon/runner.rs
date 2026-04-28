@@ -88,7 +88,6 @@ impl CliTaskRunner {
             }
         }
         auth_manager.initialize().await?;
-        auth_manager.discover().await?;
 
         // Create task runtime components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
@@ -581,7 +580,7 @@ mod tests {
             .storage
             .background_agents
             .create_background_agent(TaskSpec {
-                name: "Background Agent Test".to_string(),
+                name: "Task Test".to_string(),
                 agent_id: default_agent.id,
                 chat_session_id: None,
                 description: Some("test".to_string()),
@@ -597,7 +596,7 @@ mod tests {
                 prerequisites: Vec::new(),
                 continuation: None,
             })
-            .expect("failed to create background agent");
+            .expect("failed to create task");
 
         let trigger = CliTaskTrigger::new(
             core.clone(),
@@ -622,7 +621,7 @@ mod tests {
             setup_task_trigger().await;
 
         trigger
-            .send_message_to_background_agent(&task.id, "hello from main agent")
+            .send_message_to_task(&task.id, "hello from main agent")
             .await
             .expect("failed to send input");
 
@@ -643,7 +642,7 @@ mod tests {
             setup_task_trigger().await;
 
         let handled = trigger
-            .handle_background_agent_approval(&task.id, true)
+            .handle_task_approval(&task.id, true)
             .await
             .expect("approval handling failed");
         assert!(handled);

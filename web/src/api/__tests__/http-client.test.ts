@@ -103,9 +103,7 @@ describe('http-client', () => {
       ),
     )
 
-    await expect(fetchJson('/api/background-agents/convert-session')).rejects.toBeInstanceOf(
-      BackendError,
-    )
+    await expect(fetchJson('/api/tasks/convert-session')).rejects.toBeInstanceOf(BackendError)
   })
 
   it('parses NDJSON stream frames', async () => {

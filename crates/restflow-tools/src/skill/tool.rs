@@ -95,6 +95,9 @@ impl Tool for SkillAsTool {
                 "name": content.name,
                 "content": content.content,
                 "input": user_input,
+                "source": content.source,
+                "read_only": content.read_only,
+                "source_ref": content.source_ref,
             }))),
             None => Ok(ToolOutput::error(format!(
                 "Skill '{}' not found",
@@ -118,6 +121,9 @@ mod tests {
                 name: "Test Skill".to_string(),
                 description: Some("A test skill".to_string()),
                 tags: None,
+                source: SkillSource::User,
+                read_only: false,
+                source_ref: None,
             }]
         }
 
@@ -127,6 +133,9 @@ mod tests {
                     id: "test-skill".to_string(),
                     name: "Test Skill".to_string(),
                     content: "# Test Skill\nDo something useful.".to_string(),
+                    source: SkillSource::User,
+                    read_only: false,
+                    source_ref: None,
                 })
             } else {
                 None
@@ -188,6 +197,9 @@ mod tests {
             name: "Nope".to_string(),
             description: None,
             tags: None,
+            source: SkillSource::User,
+            read_only: false,
+            source_ref: None,
         };
         let tool = SkillAsTool::new(info, provider);
 

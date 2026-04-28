@@ -11,7 +11,7 @@ import type { SkillPreflightPolicyMode } from './SkillPreflightPolicyMode'
  */
 export type AgentNode = {
   /**
-   * AI model to use for this agent (None = auto-select based on auth profile)
+   * AI model to use for this agent (None = auto-select based on configured credentials)
    */
   model?: ModelId
   /**

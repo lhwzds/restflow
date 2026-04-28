@@ -362,14 +362,14 @@ impl ChatSessionMetadata {
 pub enum ChatSessionSource {
     /// Created from workspace UI / local API entrypoints.
     Workspace,
+    /// Created for durable background task execution.
+    Background,
     /// Created from Telegram inbound messages.
     Telegram,
     /// Created from Discord inbound messages.
     Discord,
     /// Created from Slack inbound messages.
     Slack,
-    /// Migrated from legacy `channel:*` naming without precise channel type.
-    ExternalLegacy,
 }
 
 /// A chat session containing conversation history with an agent.

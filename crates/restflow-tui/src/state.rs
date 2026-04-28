@@ -1,17 +1,19 @@
 use std::collections::HashSet;
 
+use chrono::Utc;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
-use restflow_core::runtime::TaskStreamEvent;
-use restflow_traits::{
-    PendingTeamApproval, TeamAssignment, TeamMessage, TeamMessageKind, TeamState,
+use restflow_core::models::{
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider,
+    RunSummary,
 };
+use restflow_core::runtime::TaskStreamEvent;
+use restflow_core::storage::agent::StoredAgent;
 
 use super::composer::ComposerState;
 use super::transcript::{
     ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
     message_from_session_event, message_from_stream_frame, message_from_task_event,
-    message_from_team_message, messages_from_session, transcript_cells,
+    messages_from_session, transcript_cells,
 };
 
 #[derive(Debug, Clone)]
@@ -24,7 +26,110 @@ pub enum RunPickerItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskPickerItem {
+    pub task_id: String,
+    pub name: String,
+    pub status: String,
+    pub next_run_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPickerCategory {
+    Recent,
+    Frequent,
+    Available,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPickerItem {
+    pub provider: String,
+    pub label: String,
+    pub category: ModelPickerCategory,
+    pub usage_count: usize,
+    pub last_used_at: Option<i64>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelPickerItem {
+    pub provider: String,
+    pub model: String,
+    pub name: String,
+    pub category: ModelPickerCategory,
+    pub usage_count: usize,
+    pub last_used_at: Option<i64>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingSessionState {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub provider: String,
+    pub model: String,
+    pub model_name: String,
+}
+
+impl PendingSessionState {
+    pub fn from_agent(agent: &StoredAgent) -> Self {
+        let model = agent
+            .agent
+            .model
+            .map(|model| model.as_serialized_str().to_string())
+            .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string());
+        Self::new(agent.id.clone(), agent.name.clone(), model)
+    }
+
+    pub fn new(agent_id: String, agent_name: String, model: String) -> Self {
+        let (provider, model) = ChatSession::resolve_model_identity(&model);
+        let model_name = model_display_name(&model);
+        Self {
+            agent_id,
+            agent_name,
+            provider,
+            model,
+            model_name,
+        }
+    }
+
+    pub fn update_model(&mut self, provider: String, model: String, model_name: String) {
+        self.provider = provider;
+        self.model = model;
+        self.model_name = model_name;
+    }
+
+    pub fn model_label(&self) -> String {
+        let model = display_model_for_provider(&self.provider, &self.model);
+        if self.provider.trim().is_empty() {
+            model
+        } else {
+            format!("{} · {}", self.provider, model)
+        }
+    }
+}
+
+fn display_model_for_provider(provider: &str, model: &str) -> String {
+    Provider::from_canonical_str(provider.trim())
+        .and_then(|provider| ModelId::for_provider_and_model(provider, model))
+        .or_else(|| ModelId::from_serialized_str(model))
+        .map(|model_id| model_id.as_str().to_string())
+        .unwrap_or_else(|| model.to_string())
+}
+
+fn model_display_name(model: &str) -> String {
+    ModelId::from_serialized_str(model)
+        .map(|model_id| model_id.metadata().name.to_string())
+        .unwrap_or_else(|| model.to_string())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingUserCell {
+    pub base_cell_index: usize,
+    pub cell: TranscriptCell,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchoredRuntimeCell {
     pub base_cell_index: usize,
     pub cell: TranscriptCell,
 }
@@ -91,21 +196,16 @@ impl SessionThreadState {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TeamOverlayTab {
-    Members,
-    Messages,
-    Assignments,
-    Approvals,
-}
-
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum OverlayState {
+    CommandPicker { selected: usize },
+    DaemonPicker { selected: usize },
     SessionPicker { selected: usize },
+    TaskPicker { selected: usize },
+    TaskActionPicker { task_id: String, selected: usize },
+    ProviderPicker { selected: usize },
+    ModelPicker { provider: String, selected: usize },
     RunPicker { selected: usize },
-    ApprovalPicker { selected: usize },
-    TeamView { tab: TeamOverlayTab, scroll: u16 },
     Help,
 }
 
@@ -122,26 +222,33 @@ pub struct AppState {
     pub default_agent_name: Option<String>,
     pub default_agent_id: Option<String>,
     pub thread: SessionThreadState,
-    pub current_team_state: Option<TeamState>,
-    pub current_team_messages: Vec<TeamMessage>,
-    pub current_team_assignments: Vec<TeamAssignment>,
-    pub current_team_approvals: Vec<PendingTeamApproval>,
     pub sessions: Vec<ChatSessionSummary>,
+    pub tasks: Vec<TaskPickerItem>,
+    pub provider_items: Vec<ProviderPickerItem>,
+    pub model_items: Vec<ModelPickerItem>,
+    pub available_models: Vec<ModelMetadataDTO>,
+    pub pending_session: Option<PendingSessionState>,
     // Conversation cells are rebuilt from persisted session messages and should stay stable.
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
-    pub runtime_cells: Vec<TranscriptCell>,
+    pub runtime_cells: Vec<AnchoredRuntimeCell>,
     // Active cell is the single in-flight assistant response while streaming.
     pub active_cell: Option<TranscriptCell>,
+    pub active_turn_cells: Vec<TranscriptCell>,
+    active_typing_started_at_ms: Option<i64>,
+    active_assistant_stream_body: String,
+    active_tool_call_ids: HashSet<String>,
+    active_tool_result_ids: HashSet<String>,
     pub pending_user_cells: Vec<PendingUserCell>,
     pub overlay: Option<OverlayState>,
-    pub transcript_scroll: u16,
     pub composer: ComposerState,
+    pub message_scroll_from_bottom: usize,
     pub status: String,
     pub is_streaming: bool,
+    pub current_stream_id: Option<String>,
     pub startup: Option<StartupState>,
+    pending_session_delete_id: Option<String>,
     pending_initial_message: Option<String>,
-    seen_team_message_ids: HashSet<String>,
 }
 
 impl AppState {
@@ -150,23 +257,30 @@ impl AppState {
             default_agent_name: None,
             default_agent_id: None,
             thread: SessionThreadState::default(),
-            current_team_state: None,
-            current_team_messages: Vec::new(),
-            current_team_assignments: Vec::new(),
-            current_team_approvals: Vec::new(),
             sessions: Vec::new(),
+            tasks: Vec::new(),
+            provider_items: Vec::new(),
+            model_items: Vec::new(),
+            available_models: Vec::new(),
+            pending_session: None,
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
             active_cell: None,
+            active_turn_cells: Vec::new(),
+            active_typing_started_at_ms: None,
+            active_assistant_stream_body: String::new(),
+            active_tool_call_ids: HashSet::new(),
+            active_tool_result_ids: HashSet::new(),
             pending_user_cells: Vec::new(),
             overlay: None,
-            transcript_scroll: 0,
             composer: ComposerState::default(),
+            message_scroll_from_bottom: 0,
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
+            current_stream_id: None,
             startup: None,
+            pending_session_delete_id: None,
             pending_initial_message: None,
-            seen_team_message_ids: HashSet::new(),
         }
     }
 
@@ -199,6 +313,49 @@ impl AppState {
         self.pending_initial_message = message;
     }
 
+    pub fn set_pending_session(&mut self, pending_session: Option<PendingSessionState>) {
+        self.pending_session = pending_session;
+    }
+
+    pub fn set_pending_session_from_agent(&mut self, agent: &StoredAgent) {
+        self.pending_session = Some(PendingSessionState::from_agent(agent));
+    }
+
+    pub fn update_pending_session_model(
+        &mut self,
+        provider: String,
+        model: String,
+        model_name: String,
+    ) -> bool {
+        if self.pending_session.is_none()
+            && let Some(agent_id) = self.default_agent_id.clone()
+        {
+            let agent_name = self
+                .default_agent_name
+                .clone()
+                .unwrap_or_else(|| "Agent".to_string());
+            self.pending_session = Some(PendingSessionState::new(
+                agent_id,
+                agent_name,
+                model.clone(),
+            ));
+        }
+        let Some(pending_session) = self.pending_session.as_mut() else {
+            return false;
+        };
+        pending_session.update_model(provider, model, model_name);
+        true
+    }
+
+    pub fn current_model_identity(&self) -> Option<(&str, &str)> {
+        if let Some(session) = self.current_session() {
+            return Some((session.provider.as_str(), session.model.as_str()));
+        }
+        self.pending_session
+            .as_ref()
+            .map(|session| (session.provider.as_str(), session.model.as_str()))
+    }
+
     pub fn take_pending_initial_message(&mut self) -> Option<String> {
         self.pending_initial_message.take()
     }
@@ -208,6 +365,7 @@ impl AppState {
         agent_override: Option<String>,
         session_override: Option<String>,
     ) {
+        self.pending_session = None;
         self.startup = Some(StartupState {
             starting_daemon: false,
             error: None,
@@ -230,18 +388,14 @@ impl AppState {
     }
 
     pub fn set_current_session(&mut self, session: ChatSession) {
-        let session_changed = self.current_session_id() != Some(session.id.as_str());
         self.thread.set_session(session.clone());
-        if session_changed {
-            self.clear_team_context();
-        }
-        self.seen_team_message_ids.clear();
+        self.pending_session = None;
         self.runtime_cells.clear();
-        self.active_cell = None;
+        self.clear_active_response();
+        self.reset_message_scroll();
         self.pending_user_cells.clear();
         self.conversation_cells =
             transcript_cells(&messages_from_session(&session), self.assistant_name());
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn refresh_current_session(&mut self, session: ChatSession) {
@@ -252,12 +406,51 @@ impl AppState {
 
     pub fn clear_current_session(&mut self, notice: impl Into<String>) {
         self.thread.clear_session();
-        self.clear_team_context();
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
-        self.active_cell = None;
+        self.clear_active_response();
+        self.reset_message_scroll();
         self.pending_user_cells.clear();
         self.push_info(notice);
+    }
+
+    pub fn start_new_chat(&mut self) {
+        let pending_session = self
+            .pending_session
+            .clone()
+            .or_else(|| {
+                self.thread.session.as_ref().map(|session| {
+                    PendingSessionState::new(
+                        session.agent_id.clone(),
+                        self.default_agent_name
+                            .clone()
+                            .unwrap_or_else(|| "Agent".to_string()),
+                        session.model.clone(),
+                    )
+                })
+            })
+            .or_else(|| {
+                self.default_agent_id.clone().map(|agent_id| {
+                    PendingSessionState::new(
+                        agent_id,
+                        self.default_agent_name
+                            .clone()
+                            .unwrap_or_else(|| "Agent".to_string()),
+                        ModelId::Gpt5_4.as_serialized_str().to_string(),
+                    )
+                })
+            });
+
+        self.thread.clear_session();
+        self.conversation_cells.clear();
+        self.runtime_cells.clear();
+        self.clear_active_response();
+        self.reset_message_scroll();
+        self.pending_user_cells.clear();
+        self.pending_session = pending_session;
+        self.clear_overlay();
+        self.composer.clear();
+        self.is_streaming = false;
     }
 
     pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
@@ -275,25 +468,42 @@ impl AppState {
 
     pub fn clear_overlay(&mut self) {
         self.overlay = None;
-    }
-
-    fn clear_team_context(&mut self) {
-        self.current_team_state = None;
-        self.current_team_messages.clear();
-        self.current_team_assignments.clear();
-        self.current_team_approvals.clear();
-        self.seen_team_message_ids.clear();
-        if matches!(
-            self.overlay,
-            Some(OverlayState::TeamView { .. }) | Some(OverlayState::ApprovalPicker { .. })
-        ) {
-            self.overlay = None;
-        }
+        self.pending_session_delete_id = None;
     }
 
     #[allow(dead_code)]
     pub fn open_session_picker(&mut self) {
         self.overlay = Some(OverlayState::SessionPicker { selected: 0 });
+    }
+
+    pub fn open_command_picker(&mut self) {
+        self.overlay = Some(OverlayState::CommandPicker { selected: 0 });
+    }
+
+    pub fn open_daemon_picker(&mut self) {
+        self.overlay = Some(OverlayState::DaemonPicker { selected: 0 });
+    }
+
+    pub fn open_task_picker(&mut self) {
+        self.overlay = Some(OverlayState::TaskPicker { selected: 0 });
+    }
+
+    pub fn open_task_action_picker(&mut self, task_id: impl Into<String>) {
+        self.overlay = Some(OverlayState::TaskActionPicker {
+            task_id: task_id.into(),
+            selected: 0,
+        });
+    }
+
+    pub fn open_provider_picker(&mut self) {
+        self.overlay = Some(OverlayState::ProviderPicker { selected: 0 });
+    }
+
+    pub fn open_model_picker(&mut self, provider: impl Into<String>) {
+        self.overlay = Some(OverlayState::ModelPicker {
+            provider: provider.into(),
+            selected: 0,
+        });
     }
 
     #[allow(dead_code)]
@@ -302,65 +512,65 @@ impl AppState {
     }
 
     #[allow(dead_code)]
-    pub fn open_approval_picker(&mut self) {
-        self.overlay = Some(OverlayState::ApprovalPicker { selected: 0 });
-    }
-
-    #[allow(dead_code)]
-    pub fn open_team_overlay(&mut self) {
-        self.overlay = Some(OverlayState::TeamView {
-            tab: TeamOverlayTab::Members,
-            scroll: 0,
-        });
-    }
-
-    #[allow(dead_code)]
     pub fn open_help_overlay(&mut self) {
         self.overlay = Some(OverlayState::Help);
     }
 
     pub fn move_overlay_selection(&mut self, delta: isize) {
+        self.pending_session_delete_id = None;
         let len = match self.overlay_item_len() {
             Some(len) if len > 0 => len,
             _ => return,
         };
         match self.overlay.as_mut() {
-            Some(OverlayState::SessionPicker { selected })
-            | Some(OverlayState::RunPicker { selected })
-            | Some(OverlayState::ApprovalPicker { selected }) => {
+            Some(OverlayState::CommandPicker { selected })
+            | Some(OverlayState::DaemonPicker { selected })
+            | Some(OverlayState::SessionPicker { selected })
+            | Some(OverlayState::TaskPicker { selected })
+            | Some(OverlayState::TaskActionPicker { selected, .. })
+            | Some(OverlayState::ProviderPicker { selected })
+            | Some(OverlayState::ModelPicker { selected, .. })
+            | Some(OverlayState::RunPicker { selected }) => {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
                 *selected = next as usize;
-            }
-            Some(OverlayState::TeamView { scroll, .. }) => {
-                let next = (*scroll as i16 + delta as i16).max(0) as u16;
-                *scroll = next;
             }
             Some(OverlayState::Help) | None => {}
         }
     }
 
-    #[allow(dead_code)]
-    pub fn cycle_team_tab(&mut self, forward: bool) {
-        if let Some(OverlayState::TeamView { tab, .. }) = self.overlay.as_mut() {
-            *tab = match (*tab, forward) {
-                (TeamOverlayTab::Members, true) => TeamOverlayTab::Messages,
-                (TeamOverlayTab::Messages, true) => TeamOverlayTab::Assignments,
-                (TeamOverlayTab::Assignments, true) => TeamOverlayTab::Approvals,
-                (TeamOverlayTab::Approvals, true) => TeamOverlayTab::Members,
-                (TeamOverlayTab::Members, false) => TeamOverlayTab::Approvals,
-                (TeamOverlayTab::Messages, false) => TeamOverlayTab::Members,
-                (TeamOverlayTab::Assignments, false) => TeamOverlayTab::Messages,
-                (TeamOverlayTab::Approvals, false) => TeamOverlayTab::Assignments,
-            };
+    pub fn sync_command_picker_to_draft(
+        &mut self,
+        commands: &[super::slash_command::SlashCommandSpec],
+    ) {
+        let Some(OverlayState::CommandPicker { selected }) = self.overlay.as_mut() else {
+            return;
+        };
+        let draft = self.composer.draft().trim();
+        if !draft.starts_with('/') {
+            self.overlay = None;
+            return;
+        }
+        if let Some(index) = commands
+            .iter()
+            .position(|spec| spec.command.starts_with(draft))
+        {
+            *selected = index;
         }
     }
 
     pub fn overlay_item_len(&self) -> Option<usize> {
         match self.overlay.as_ref()? {
+            OverlayState::CommandPicker { .. } => {
+                Some(super::slash_command::SLASH_COMMAND_SPECS.len())
+            }
+            OverlayState::DaemonPicker { .. } => Some(2),
             OverlayState::SessionPicker { .. } => Some(self.sessions.len()),
+            OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
+            OverlayState::TaskActionPicker { .. } => Some(3),
+            OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
+            OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
-            OverlayState::ApprovalPicker { .. } => Some(self.current_team_approvals.len()),
-            OverlayState::TeamView { .. } | OverlayState::Help => None,
+            OverlayState::Help => None,
         }
     }
 
@@ -370,6 +580,99 @@ impl AppState {
                 .sessions
                 .get(*selected)
                 .map(|session| session.id.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn selected_session_summary(&self) -> Option<&ChatSessionSummary> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::SessionPicker { selected }) => self.sessions.get(*selected),
+            _ => None,
+        }
+    }
+
+    pub fn mark_session_delete_pending(&mut self, session_id: impl Into<String>) {
+        self.pending_session_delete_id = Some(session_id.into());
+    }
+
+    pub fn is_session_delete_pending(&self, session_id: &str) -> bool {
+        self.pending_session_delete_id.as_deref() == Some(session_id)
+    }
+
+    pub fn apply_session_delete_result(
+        &mut self,
+        session_id: &str,
+        sessions: Vec<ChatSessionSummary>,
+    ) {
+        self.sessions = sessions;
+        self.pending_session_delete_id = None;
+        if self.current_session_id() == Some(session_id) {
+            self.clear_current_session("Deleted current session.");
+        }
+        if self.sessions.is_empty()
+            && matches!(self.overlay, Some(OverlayState::SessionPicker { .. }))
+        {
+            self.overlay = None;
+            return;
+        }
+        if let Some(OverlayState::SessionPicker { selected }) = self.overlay.as_mut() {
+            *selected = (*selected).min(self.sessions.len().saturating_sub(1));
+        }
+    }
+
+    pub fn selected_command_index(&self) -> Option<usize> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::CommandPicker { selected }) => Some(*selected),
+            _ => None,
+        }
+    }
+
+    pub fn selected_daemon_action(&self) -> Option<&'static str> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::DaemonPicker { selected: 0 }) => Some("start"),
+            Some(OverlayState::DaemonPicker { selected: 1 }) => Some("stop"),
+            _ => None,
+        }
+    }
+
+    pub fn selected_task_id(&self) -> Option<&str> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::TaskPicker { selected }) => {
+                self.tasks.get(*selected).map(|task| task.task_id.as_str())
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_task_action(&self) -> Option<(String, &'static str)> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::TaskActionPicker { task_id, selected }) => {
+                let action = match *selected {
+                    0 => "pause",
+                    1 => "resume",
+                    2 => "stop",
+                    _ => return None,
+                };
+                Some((task_id.clone(), action))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_provider_item(&self) -> Option<ProviderPickerItem> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::ProviderPicker { selected }) => {
+                self.provider_items.get(*selected).cloned()
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_model_item(&self) -> Option<ModelPickerItem> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::ModelPicker { selected, .. }) => {
+                self.model_items.get(*selected).cloned()
+            }
             _ => None,
         }
     }
@@ -403,16 +706,233 @@ impl AppState {
     }
 
     pub fn push_message(&mut self, message: ShellMessage) {
+        if matches!(
+            message,
+            ShellMessage::ToolCall { .. } | ShellMessage::ToolResult { .. }
+        ) {
+            self.push_tool_message(message);
+            return;
+        }
+
         let cell = cell_from_message(&message, self.assistant_name());
         if cell.is_conversation_cell() {
             self.conversation_cells.push(cell);
         } else {
-            self.runtime_cells.push(cell);
+            self.runtime_cells.push(AnchoredRuntimeCell {
+                base_cell_index: self.conversation_cells.len(),
+                cell,
+            });
         }
-        self.transcript_scroll_to_bottom();
+    }
+
+    fn finalize_active_cell(&mut self) {
+        self.finish_active_assistant_segment();
+        let live_cells = std::mem::take(&mut self.active_turn_cells);
+        self.active_assistant_stream_body.clear();
+        self.active_tool_call_ids.clear();
+        self.active_tool_result_ids.clear();
+        self.current_stream_id = None;
+        let mut base_cell_index = self.conversation_cells.len();
+        for mut cell in live_cells {
+            match cell.kind {
+                TranscriptCellKind::Assistant if !cell.body.trim().is_empty() => {
+                    let _ = cell.finalize();
+                    self.conversation_cells.push(cell);
+                    base_cell_index = self.conversation_cells.len();
+                }
+                TranscriptCellKind::Tool => {
+                    self.runtime_cells.push(AnchoredRuntimeCell {
+                        base_cell_index,
+                        cell,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn clear_active_response(&mut self) {
+        self.active_cell = None;
+        self.active_turn_cells.clear();
+        self.active_typing_started_at_ms = None;
+        self.active_assistant_stream_body.clear();
+        self.active_tool_call_ids.clear();
+        self.active_tool_result_ids.clear();
+    }
+
+    fn finish_active_assistant_segment(&mut self) {
+        let Some(mut active_cell) = self.active_cell.take() else {
+            return;
+        };
+        self.active_typing_started_at_ms = None;
+        self.active_assistant_stream_body.clear();
+        active_cell.body = active_cell.body.trim_end().to_string();
+        if !active_cell.body.trim().is_empty() {
+            let _ = active_cell.finalize();
+            self.active_turn_cells.push(active_cell);
+        }
+    }
+
+    pub fn start_assistant_typing(&mut self) {
+        if self.active_cell.is_none() {
+            self.active_cell = Some(cell_from_message(
+                &ShellMessage::AssistantStream {
+                    content: String::new(),
+                },
+                self.assistant_name(),
+            ));
+        }
+        if self.active_typing_started_at_ms.is_none() {
+            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        }
+        let _ = self.update_active_typing_indicator();
+    }
+
+    pub fn cancel_active_response(&mut self) {
+        self.finalize_active_cell();
+        self.is_streaming = false;
+        self.current_stream_id = None;
+    }
+
+    pub fn update_active_typing_indicator(&mut self) -> bool {
+        self.update_active_typing_indicator_at(Utc::now().timestamp_millis())
+    }
+
+    fn update_active_typing_indicator_at(&mut self, now_ms: i64) -> bool {
+        let Some(active_cell) = self.active_cell.as_mut() else {
+            return false;
+        };
+        if !active_cell.is_active {
+            return false;
+        }
+        let started_at = *self.active_typing_started_at_ms.get_or_insert(now_ms);
+        let elapsed_ms = now_ms.saturating_sub(started_at);
+        let elapsed_secs = elapsed_ms / 1000;
+        let frame = match (elapsed_ms / 250) % 4 {
+            0 => "typing",
+            1 => "typing.",
+            2 => "typing..",
+            _ => "typing...",
+        };
+        let next = format!("{frame:<9} {elapsed_secs}s");
+        if active_cell.subtitle.as_deref() == Some(next.as_str()) {
+            return false;
+        }
+        active_cell.subtitle = Some(next);
+        true
+    }
+
+    fn push_tool_message(&mut self, message: ShellMessage) {
+        if self.active_cell.is_some() || self.is_streaming || !self.pending_user_cells.is_empty() {
+            match &message {
+                ShellMessage::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
+                } => {
+                    self.append_tool_call_to_active(call_id, name, arguments);
+                    return;
+                }
+                ShellMessage::ToolResult {
+                    call_id,
+                    success,
+                    result,
+                } => {
+                    self.append_tool_result_to_active(call_id, *success, result);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        match &message {
+            ShellMessage::ToolCall { call_id, .. }
+                if self
+                    .runtime_cells
+                    .iter()
+                    .any(|entry| entry.cell.tool_call_id() == Some(call_id.as_str())) =>
+            {
+                return;
+            }
+            ShellMessage::ToolCall { .. } => {}
+            ShellMessage::ToolResult {
+                call_id,
+                success,
+                result,
+            } => {
+                if let Some(entry) = self
+                    .runtime_cells
+                    .iter_mut()
+                    .find(|entry| entry.cell.tool_call_id() == Some(call_id.as_str()))
+                {
+                    let _ = entry.cell.merge_tool_result(*success, result);
+                    return;
+                }
+            }
+            _ => {}
+        }
+
+        let cell = cell_from_message(&message, self.assistant_name());
+        self.runtime_cells.push(AnchoredRuntimeCell {
+            base_cell_index: self.conversation_cells.len(),
+            cell,
+        });
+    }
+
+    fn ensure_active_assistant_cell(&mut self) {
+        if self.active_cell.is_none() {
+            self.active_cell = Some(cell_from_message(
+                &ShellMessage::AssistantStream {
+                    content: String::new(),
+                },
+                self.assistant_name(),
+            ));
+        }
+        if self.active_typing_started_at_ms.is_none() {
+            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        }
+        let _ = self.update_active_typing_indicator();
+    }
+
+    fn append_tool_call_to_active(&mut self, call_id: &str, name: &str, arguments: &str) {
+        if !self.active_tool_call_ids.insert(call_id.to_string()) {
+            return;
+        }
+        self.finish_active_assistant_segment();
+        self.active_turn_cells.push(cell_from_message(
+            &ShellMessage::ToolCall {
+                call_id: call_id.to_string(),
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            },
+            self.assistant_name(),
+        ));
+    }
+
+    fn append_tool_result_to_active(&mut self, call_id: &str, success: bool, result: &str) {
+        if !self.active_tool_result_ids.insert(call_id.to_string()) {
+            return;
+        }
+        if let Some(cell) = self
+            .active_turn_cells
+            .iter_mut()
+            .find(|cell| cell.tool_call_id() == Some(call_id))
+        {
+            let _ = cell.merge_tool_result(success, result);
+            return;
+        }
+        self.active_turn_cells.push(cell_from_message(
+            &ShellMessage::ToolResult {
+                call_id: call_id.to_string(),
+                success,
+                result: result.to_string(),
+            },
+            self.assistant_name(),
+        ));
     }
 
     pub fn push_local_user_message(&mut self, content: String) {
+        self.reset_message_scroll();
         let base_cell_index = self.conversation_cells.len();
         let cell = cell_from_message(
             &ShellMessage::UserMessage { content },
@@ -422,12 +942,10 @@ impl AppState {
             base_cell_index,
             cell,
         });
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn replace_session_projection(&mut self, messages: Vec<ShellMessage>) {
         self.conversation_cells = transcript_cells(&messages, self.assistant_name());
-        self.transcript_scroll_to_bottom();
     }
 
     pub fn push_info(&mut self, content: impl Into<String>) {
@@ -442,44 +960,16 @@ impl AppState {
         });
     }
 
-    pub fn record_team_message(&mut self, message: &TeamMessage) {
-        if self
-            .seen_team_message_ids
-            .insert(message.message_id.clone())
-        {
-            self.push_message(message_from_team_message(message));
-        }
+    pub fn scroll_message_up(&mut self, rows: usize) {
+        self.message_scroll_from_bottom = self.message_scroll_from_bottom.saturating_add(rows);
     }
 
-    pub fn apply_team_snapshot(
-        &mut self,
-        team_state: Option<TeamState>,
-        messages: Vec<TeamMessage>,
-        assignments: Vec<TeamAssignment>,
-        status: impl Into<String>,
-        open_overlay: bool,
-    ) {
-        self.current_team_state = team_state;
-        self.current_team_messages = messages;
-        self.current_team_assignments = assignments;
-        let team_messages = self.current_team_messages.clone();
-        for message in &team_messages {
-            self.record_team_message(message);
-        }
-        self.rebuild_pending_approvals();
-        self.status = status.into();
-        if open_overlay {
-            self.open_team_overlay();
-        }
+    pub fn scroll_message_down(&mut self, rows: usize) {
+        self.message_scroll_from_bottom = self.message_scroll_from_bottom.saturating_sub(rows);
     }
 
-    pub fn transcript_scroll_to_bottom(&mut self) {
-        self.transcript_scroll = 0;
-    }
-
-    pub fn scroll_transcript(&mut self, delta: i16) {
-        let next = (self.transcript_scroll as i16 - delta).max(0) as u16;
-        self.transcript_scroll = next;
+    pub fn reset_message_scroll(&mut self) {
+        self.message_scroll_from_bottom = 0;
     }
 
     fn append_assistant_stream_chunk(&mut self, chunk: &str) {
@@ -487,33 +977,31 @@ impl AppState {
             return;
         }
 
-        if self
-            .active_cell
-            .as_mut()
-            .is_some_and(|cell| cell.append_chunk(chunk))
-        {
-            self.transcript_scroll_to_bottom();
+        if self.active_typing_started_at_ms.is_none() {
+            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        }
+
+        let Some(delta) = assistant_stream_delta(&mut self.active_assistant_stream_body, chunk)
+        else {
+            return;
+        };
+
+        if delta.trim().is_empty() {
             return;
         }
 
-        if chunk.trim().is_empty() {
-            return;
+        self.ensure_active_assistant_cell();
+        if let Some(active_cell) = self.active_cell.as_mut() {
+            append_active_text(&mut active_cell.body, &delta);
         }
-
-        self.runtime_cells.clear();
-        self.active_cell = Some(cell_from_message(
-            &ShellMessage::AssistantStream {
-                content: chunk.to_string(),
-            },
-            self.assistant_name(),
-        ));
-        self.transcript_scroll_to_bottom();
+        let _ = self.update_active_typing_indicator();
     }
 
     pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
         match frame {
             StreamFrame::Start { stream_id } => {
                 self.is_streaming = true;
+                self.current_stream_id = Some(stream_id.clone());
                 self.status = format!("Streaming response ({stream_id})");
             }
             StreamFrame::Ack { content } => {
@@ -526,13 +1014,8 @@ impl AppState {
             }
             StreamFrame::Done { total_tokens } => {
                 self.is_streaming = false;
-                if let Some(mut active_cell) = self.active_cell.take()
-                    && !active_cell.body.trim().is_empty()
-                {
-                    let _ = active_cell.finalize();
-                    self.conversation_cells.push(active_cell);
-                    self.transcript_scroll_to_bottom();
-                }
+                self.current_stream_id = None;
+                self.finalize_active_cell();
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
                     None => "Stream finished".to_string(),
@@ -543,7 +1026,7 @@ impl AppState {
                     if matches!(message, ShellMessage::ErrorNotice { .. }) {
                         self.is_streaming = false;
                         self.status = "Stream failed".to_string();
-                        self.active_cell = None;
+                        self.cancel_active_response();
                     }
                     self.push_message(message);
                 }
@@ -561,41 +1044,18 @@ impl AppState {
         self.push_message(message_from_task_event(&event));
     }
 
-    pub fn rebuild_pending_approvals(&mut self) {
-        self.current_team_approvals = self
-            .current_team_messages
-            .iter()
-            .filter(|message| message.kind == TeamMessageKind::ApprovalRequest)
-            .map(|message| PendingTeamApproval {
-                team_run_id: message.team_run_id.clone(),
-                approval_id: message
-                    .content
-                    .split_whitespace()
-                    .last()
-                    .unwrap_or_default()
-                    .trim_matches(|ch| ch == '(' || ch == ')')
-                    .to_string(),
-                member_id: message.from_member_id.clone(),
-                tool_name: "unknown".to_string(),
-                content: message.content.clone(),
-                status: restflow_traits::TeamApprovalStatus::Pending,
-                requested_at: message.created_at,
-                resolved_at: None,
-                resolution_reason: None,
-            })
-            .collect();
-    }
-
     #[allow(dead_code)]
     pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
         let mut cells = Vec::with_capacity(
             self.conversation_cells.len()
                 + self.pending_user_cells.len()
                 + self.runtime_cells.len()
+                + self.active_turn_cells.len()
                 + usize::from(self.active_cell.is_some()),
         );
 
         let mut pending = self.pending_user_cells.iter().peekable();
+        let mut runtime = self.runtime_cells.iter().peekable();
         for (index, cell) in self.conversation_cells.iter().enumerate() {
             while let Some(entry) = pending.peek() {
                 if entry.base_cell_index <= index {
@@ -605,6 +1065,33 @@ impl AppState {
                     break;
                 }
             }
+
+            if runtime
+                .peek()
+                .is_some_and(|entry| entry.base_cell_index == index)
+                && cell.kind == TranscriptCellKind::User
+            {
+                cells.push(cell.clone());
+                while let Some(entry) = runtime.peek() {
+                    if entry.base_cell_index == index {
+                        cells.push(entry.cell.clone());
+                        runtime.next();
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            while let Some(entry) = runtime.peek() {
+                if entry.base_cell_index == index {
+                    cells.push(entry.cell.clone());
+                    runtime.next();
+                } else {
+                    break;
+                }
+            }
+
             cells.push(cell.clone());
         }
 
@@ -612,7 +1099,10 @@ impl AppState {
             cells.push(entry.cell.clone());
         }
 
-        cells.extend(self.runtime_cells.clone());
+        for entry in runtime {
+            cells.push(entry.cell.clone());
+        }
+        cells.extend(self.active_turn_cells.iter().cloned());
         if let Some(active_cell) = self.active_cell.clone() {
             cells.push(active_cell);
         }
@@ -634,12 +1124,50 @@ impl AppState {
     }
 }
 
+fn assistant_stream_delta(current: &mut String, chunk: &str) -> Option<String> {
+    let normalized = chunk.trim_start_matches(['\r', '\n']);
+    if chunk == current
+        || normalized == current
+        || (!normalized.trim().is_empty() && normalized.trim() == current.trim())
+        || current.starts_with(chunk)
+        || current.starts_with(normalized)
+    {
+        return None;
+    }
+
+    if let Some(delta) = chunk.strip_prefix(current.as_str()) {
+        *current = chunk.to_string();
+        return Some(delta.to_string());
+    }
+
+    if let Some(delta) = normalized.strip_prefix(current.as_str()) {
+        *current = normalized.to_string();
+        return Some(delta.to_string());
+    }
+
+    let delta = if current.is_empty() {
+        normalized
+    } else {
+        chunk
+    };
+    current.push_str(delta);
+    Some(delta.to_string())
+}
+
+fn append_active_text(body: &mut String, text: &str) {
+    let text = if body.is_empty() {
+        text.trim_start_matches(['\r', '\n'])
+    } else {
+        text
+    };
+    body.push_str(text);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AppState, OverlayState};
     use crate::transcript::{TranscriptCellKind, transcript_cells};
     use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-    use restflow_traits::{TeamMessage, TeamMessageKind};
 
     #[test]
     fn app_state_session_picker_uses_overlay() {
@@ -674,6 +1202,125 @@ mod tests {
     }
 
     #[test]
+    fn assistant_typing_indicator_animates_with_elapsed_time() {
+        let mut state = AppState::empty();
+        state.start_assistant_typing();
+        let started_at = state.active_typing_started_at_ms.expect("typing start");
+
+        state.update_active_typing_indicator_at(started_at);
+        let initial = state
+            .active_cell
+            .as_ref()
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("subtitle")
+            .to_string();
+        assert_eq!(initial, "typing    0s");
+
+        state.update_active_typing_indicator_at(started_at + 500);
+        let animated = state
+            .active_cell
+            .as_ref()
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("subtitle")
+            .to_string();
+        assert_eq!(animated, "typing..  0s");
+
+        state.update_active_typing_indicator_at(started_at + 1_250);
+        let elapsed = state
+            .active_cell
+            .as_ref()
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("subtitle");
+        assert_eq!(elapsed, "typing.   1s");
+    }
+
+    #[test]
+    fn tool_frames_render_as_live_runtime_cells_in_the_active_turn() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Checking...".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"cmd": "pwd"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"cwd\":\"/tmp\"}".to_string(),
+            success: true,
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "Done.".to_string(),
+        });
+
+        assert!(state.active_cell.is_some());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert_eq!(state.active_turn_cells.len(), 2);
+        let active = state.active_cell.as_ref().expect("active assistant");
+        assert_eq!(active.kind, TranscriptCellKind::Assistant);
+        assert!(state.active_turn_cells[0].body.contains("Checking..."));
+        assert!(active.body.contains("Done."));
+        assert_eq!(state.active_turn_cells[1].title, "Tool · bash");
+        assert!(state.active_turn_cells[1].body.contains("Input:"));
+        assert!(state.active_turn_cells[1].body.contains("Output:"));
+
+        let cells = state.transcript_cells_for_render();
+        let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            vec![
+                TranscriptCellKind::Assistant,
+                TranscriptCellKind::Tool,
+                TranscriptCellKind::Assistant,
+            ]
+        );
+
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        assert_eq!(state.conversation_cells.len(), 2);
+        assert!(state.active_cell.is_none());
+        assert!(state.active_turn_cells.is_empty());
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert!(
+            !state.conversation_cells[0]
+                .body
+                .contains("Tool · bash #call-1")
+        );
+    }
+
+    #[test]
+    fn stream_error_persists_partial_live_turn_before_error_notice() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Partial answer".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "web_search".to_string(),
+            arguments: serde_json::json!({"query": "test"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"ok\":true}".to_string(),
+            success: true,
+        });
+
+        state.apply_stream_frame(StreamFrame::error(500, "stream failed"));
+
+        assert!(state.active_cell.is_none());
+        assert!(state.active_turn_cells.is_empty());
+        assert!(!state.is_streaming);
+        assert_eq!(state.conversation_cells.len(), 1);
+        assert!(state.conversation_cells[0].body.contains("Partial answer"));
+        assert_eq!(state.runtime_cells.len(), 2);
+        assert_eq!(state.runtime_cells[0].cell.kind, TranscriptCellKind::Tool);
+        assert_eq!(state.runtime_cells[1].cell.title, "Error");
+        assert!(state.runtime_cells[1].cell.body.contains("stream failed"));
+    }
+
+    #[test]
     fn blank_stream_chunks_do_not_create_empty_assistant_cells() {
         let mut state = AppState::empty();
         state.apply_stream_frame(StreamFrame::Ack {
@@ -686,25 +1333,6 @@ mod tests {
 
         assert!(state.conversation_cells.is_empty());
         assert!(state.active_cell.is_none());
-    }
-
-    #[test]
-    fn team_messages_are_deduped_in_transcript() {
-        let mut state = AppState::empty();
-        let message = TeamMessage {
-            team_run_id: "team-1".to_string(),
-            message_id: "message-1".to_string(),
-            from_member_id: "leader".to_string(),
-            to_member_id: None,
-            kind: TeamMessageKind::Note,
-            content: "hello".to_string(),
-            created_at: 1,
-        };
-
-        state.record_team_message(&message);
-        state.record_team_message(&message);
-
-        assert_eq!(state.runtime_cells.len(), 1);
     }
 
     #[test]
@@ -757,7 +1385,7 @@ mod tests {
 
         assert_eq!(state.conversation_cells.len(), 2);
         assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].title, "Info");
+        assert_eq!(state.runtime_cells[0].cell.title, "Info");
     }
 
     #[test]
@@ -816,46 +1444,7 @@ mod tests {
 
         assert_eq!(state.conversation_cells.len(), 0);
         assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].title, "Info");
-    }
-
-    #[test]
-    fn switching_session_clears_team_context() {
-        let mut state = AppState::empty();
-        let first =
-            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        let second =
-            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        state.set_current_session(first);
-        state.current_team_state = Some(restflow_traits::TeamState {
-            team_run_id: "team-1".to_string(),
-            leader_member_id: "leader".to_string(),
-            members: Vec::new(),
-            status: restflow_traits::TeamStatus::Running,
-            pending_message_count: 1,
-            pending_assignment_count: 0,
-            updated_at: 1,
-        });
-        state.open_team_overlay();
-
-        state.set_current_session(second);
-
-        assert!(state.current_team_state.is_none());
-        assert!(state.current_team_messages.is_empty());
-        assert!(state.current_team_assignments.is_empty());
-        assert!(state.current_team_approvals.is_empty());
-        assert!(state.overlay.is_none());
-    }
-
-    #[test]
-    fn transcript_scroll_uses_bottom_anchored_offsets() {
-        let mut state = AppState::empty();
-        state.scroll_transcript(-3);
-        assert_eq!(state.transcript_scroll, 3);
-        state.scroll_transcript(2);
-        assert_eq!(state.transcript_scroll, 1);
-        state.transcript_scroll_to_bottom();
-        assert_eq!(state.transcript_scroll, 0);
+        assert_eq!(state.runtime_cells[0].cell.title, "Info");
     }
 
     #[test]
@@ -914,7 +1503,7 @@ mod tests {
 
         assert_eq!(state.conversation_cells.len(), 2);
         assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].title, "Info");
+        assert_eq!(state.runtime_cells[0].cell.title, "Info");
         assert!(state.active_cell.is_some());
     }
 

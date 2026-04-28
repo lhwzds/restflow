@@ -5,6 +5,7 @@ pub(crate) use crate::boundary::error::{invalid_request_response, invalid_valida
 mod tests {
     use super::*;
     use crate::daemon::IpcResponse;
+    use crate::models::{Skill, SkillSource};
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -50,6 +51,37 @@ mod tests {
                 id: "a".to_string(),
                 enabled: false,
             }
+        );
+    }
+
+    #[test]
+    fn skill_contract_preserves_source_metadata() {
+        let mut core_skill = Skill::new(
+            "skill-1".to_string(),
+            "Skill 1".to_string(),
+            Some("External skill".to_string()),
+            Some(vec!["external".to_string()]),
+            "# Skill".to_string(),
+        );
+        core_skill.source = SkillSource::External;
+        core_skill.read_only = false;
+        core_skill.source_ref = Some("marketplace:skill-1@1.0.0".to_string());
+
+        let contract: restflow_contracts::request::Skill = to_contract(core_skill.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(contract.source).unwrap(),
+            serde_json::json!("external")
+        );
+        assert_eq!(
+            contract.source_ref.as_deref(),
+            Some("marketplace:skill-1@1.0.0")
+        );
+
+        let round_trip: Skill = from_contract(contract).unwrap();
+        assert_eq!(round_trip.source, SkillSource::External);
+        assert_eq!(
+            round_trip.source_ref.as_deref(),
+            Some("marketplace:skill-1@1.0.0")
         );
     }
 

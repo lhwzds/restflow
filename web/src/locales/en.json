@@ -19,10 +19,10 @@
     "background": "background",
     "sessionSource": {
       "workspace": "Workspace",
+      "background": "Background",
       "telegram": "Telegram",
       "discord": "Discord",
-      "slack": "Slack",
-      "externalLegacy": "External"
+      "slack": "Slack"
     },
     "tabs": {
       "sessions": "Sessions",
@@ -153,7 +153,6 @@
     "auth": {
       "title": "Auth Profiles",
       "description": "Manage authentication credentials for LLM providers",
-      "discover": "Discover",
       "addProfile": "Add Profile",
       "addProfileTitle": "Add Auth Profile",
       "addProfileDescription": "Add a manual API key for an LLM provider",
@@ -181,7 +180,7 @@
       "disable": "Disable",
       "enable": "Enable",
       "noProfilesFound": "No auth profiles found",
-      "noProfilesHint": "Click \"Discover\" to find credentials or \"Add Profile\" to add one manually"
+      "noProfilesHint": "Add a profile manually or set provider API keys in Secrets"
     },
     "secrets": {
       "title": "Secrets",

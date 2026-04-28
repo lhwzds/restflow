@@ -1,6 +1,5 @@
 use super::*;
 use crate::services::session::SessionService;
-use crate::services::team_runtime::TeamRuntimeService;
 use restflow_tools::FileConfig;
 use restflow_traits::AgentOperationAssessor;
 
@@ -19,7 +18,6 @@ pub fn create_tool_registry(
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
     execution_trace_storage: ExecutionTraceStorage,
-    kv_store_storage: KvStoreStorage,
     work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
@@ -27,8 +25,8 @@ pub fn create_tool_registry(
     background_agent_storage: BackgroundAgentStorage,
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
-    deliverable_storage: crate::storage::DeliverableStorage,
-    accessor_id: Option<String>,
+    run_artifact_storage: crate::storage::RunArtifactStorage,
+    _accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
@@ -38,7 +36,6 @@ pub fn create_tool_registry(
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -46,8 +43,8 @@ pub fn create_tool_registry(
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
-        accessor_id,
+        run_artifact_storage,
+        _accessor_id,
         agent_id,
         security_gate,
         None,
@@ -61,7 +58,6 @@ pub fn create_tool_registry_with_assessor(
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
     execution_trace_storage: ExecutionTraceStorage,
-    kv_store_storage: KvStoreStorage,
     work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
@@ -69,8 +65,8 @@ pub fn create_tool_registry_with_assessor(
     background_agent_storage: BackgroundAgentStorage,
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
-    deliverable_storage: crate::storage::DeliverableStorage,
-    accessor_id: Option<String>,
+    run_artifact_storage: crate::storage::RunArtifactStorage,
+    _accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
@@ -86,7 +82,7 @@ pub fn create_tool_registry_with_assessor(
     };
 
     // Create adapters
-    let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
+    let skill_provider = Arc::new(CompositeSkillProvider::with_storage(skill_storage.clone()));
     let session_store = Arc::new(SessionStorageAdapter::new(
         crate::storage::SessionStorage::new(
             chat_storage.clone(),
@@ -98,7 +94,6 @@ pub fn create_tool_registry_with_assessor(
     ));
     let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
-    let deliverable_store = Arc::new(DeliverableStoreAdapter::new(deliverable_storage.clone()));
     let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
     let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
     let ops_provider = Arc::new(OpsProviderAdapter::new(
@@ -113,11 +108,10 @@ pub fn create_tool_registry_with_assessor(
         secret_storage.clone(),
         background_agent_storage.clone(),
     );
-    let kv_store = build_kv_store(kv_store_storage, accessor_id);
     let task_store_components = build_task_store_components(
         background_agent_storage.clone(),
         agent_storage.clone(),
-        deliverable_storage,
+        run_artifact_storage,
         SessionService::new(
             crate::storage::SessionStorage::new(
                 chat_storage.clone(),
@@ -128,7 +122,6 @@ pub fn create_tool_registry_with_assessor(
             background_agent_storage,
             Some(memory_storage.clone()),
         ),
-        kv_store.clone(),
         assessor.clone(),
     );
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new_with_defaults(
@@ -210,9 +203,7 @@ pub fn create_tool_registry_with_assessor(
         builder,
         Some(agent_crud_components.store.clone()),
         Some(task_store_components.store.clone()),
-        Some(task_store_components.kv_store.clone()),
         assessor.clone(),
-        true,
     );
 
     let mut registry = builder
@@ -239,10 +230,8 @@ pub fn create_tool_registry_with_assessor(
         .with_session(session_store)
         .with_memory_management(memory_manager)
         .with_memory_store(mem_store)
-        .with_deliverable(deliverable_store)
         .with_unified_search(unified_search)
         .with_ops(ops_provider)
-        .with_kv_store(kv_store.clone())
         .with_work_items(work_item_provider)
         .with_task_list(Arc::new(DbWorkItemAdapter::new(work_item_storage.clone())))
         .with_auth_profile(auth_store)
@@ -275,24 +264,7 @@ pub fn create_tool_registry_with_assessor(
     );
     let subagent_manager: Arc<dyn restflow_traits::SubagentManager> =
         Arc::new(build_service_subagent_manager(&subagent_runtime_bundle));
-    let team_runtime = Arc::new(TeamRuntimeService::new(
-        kv_store.clone(),
-        Arc::new(build_direct_service_subagent_manager(
-            &subagent_runtime_bundle,
-        )),
-        subagent_runtime_bundle.tracker.clone(),
-    ));
-    register_subagent_management_tools(
-        &mut registry,
-        subagent_manager,
-        Some(kv_store.clone()),
-        assessor.clone(),
-    );
-    registry.register(restflow_tools::ManageTeamsTool::new(
-        team_runtime,
-        kv_store.clone(),
-    ));
-
+    register_subagent_management_tools(&mut registry, subagent_manager, assessor.clone());
     // Populate known_tools for AgentStoreAdapter validation
     populate_known_tools_from_registry(
         &agent_crud_components.known_tools,

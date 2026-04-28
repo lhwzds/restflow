@@ -24,11 +24,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 mod auth;
-mod background_agents;
 mod memory;
 mod sessions;
 mod skills;
 mod streams;
+mod tasks;
 mod terminal;
 mod tools;
 mod transport;

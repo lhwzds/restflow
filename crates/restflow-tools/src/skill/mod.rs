@@ -5,5 +5,5 @@ pub mod tool;
 
 // Re-export skill types from restflow-ai
 pub use restflow_traits::skill::{
-    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
+    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource, SkillUpdate,
 };

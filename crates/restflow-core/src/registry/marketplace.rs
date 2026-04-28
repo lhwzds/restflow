@@ -229,9 +229,8 @@ impl MarketplaceProvider {
             categories: skill.categories,
             repository: skill.repository,
             homepage: skill.homepage,
-            source: SkillSource::Marketplace {
-                url: DEFAULT_MARKETPLACE_URL.to_string(),
-            },
+            source: SkillSource::External,
+            source_ref: Some(DEFAULT_MARKETPLACE_URL.to_string()),
             readme: None,
             changelog: None,
             icon: None,

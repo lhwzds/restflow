@@ -2,16 +2,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-    RouteBindingResponse, SessionSourceMigrationResponse, ToolExecutionResult,
-    request::TaskFromSessionRequest,
+    RouteBindingResponse, request::TaskFromSessionRequest,
 };
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, Hook, ItemQuery,
-    MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, SharedEntry,
-    Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
-    WorkItem, WorkItemPatch, WorkItemSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, Hook, ItemQuery, MemoryChunk,
+    MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
+    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec, WorkItem,
+    WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -128,10 +127,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn unbind_route(&self, id: &str) -> Result<bool>;
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse>;
-    async fn migrate_session_sources(
-        &self,
-        dry_run: bool,
-    ) -> Result<SessionSourceMigrationResponse>;
 
     // Task operations
     async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>>;
@@ -149,20 +144,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;
     async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
-    async fn execute_runtime_tool(
-        &self,
-        name: &str,
-        input: serde_json::Value,
-    ) -> Result<ToolExecutionResult>;
-
-    // Shared Space operations
-    async fn list_kv_store(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;
-    async fn get_kv_store(&self, key: &str) -> Result<Option<SharedEntry>>;
-    async fn set_kv_store(&self, key: &str, value: &str, visibility: &str) -> Result<SharedEntry>;
-    async fn delete_kv_store(&self, key: &str) -> Result<bool>;
-
-    // Deliverable operations
-    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>>;
 }
 
 pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {

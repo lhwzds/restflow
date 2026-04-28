@@ -55,8 +55,6 @@ pub use models::{
     CodexCliExecutionMode,
     CommandPattern,
     ContinuationConfig,
-    Deliverable,
-    DeliverableType,
     DurabilityMode,
     EnvVarRequirement,
     ExecutionContainerKind,
@@ -122,6 +120,8 @@ pub use models::{
     ProviderHealthTrace,
     ResourceLimits,
     ResumePayload,
+    RunArtifact,
+    RunArtifactKind,
     RunKind,
     RunListQuery,
     RunSummary,
@@ -130,7 +130,6 @@ pub use models::{
     SecurityCheckResult,
     SecurityMode,
     SecurityPolicy,
-    SharedEntry,
     Skill,
     SkillAuthor,
     SkillDependency,
@@ -176,7 +175,6 @@ pub use models::{
     ValidationError,
     ValidationErrorResponse,
     VersionRequirement,
-    Visibility,
     WebhookConfig,
     WebhookRateLimiter,
     WebhookRequest,
@@ -205,7 +203,6 @@ impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
         prompt_files::ensure_prompt_templates()?;
-        skill_files::ensure_default_skill_files()?;
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;
@@ -236,7 +233,7 @@ impl AppCore {
 
         let core = Self { storage, features };
 
-        // Sync filesystem-backed default skills into database records.
+        // Sync user filesystem-backed skills into database records.
         if let Ok(user_skills_dir) = paths::user_skills_dir() {
             let report = services::skill_sync::sync_all(&core, &user_skills_dir).await?;
             info!(
@@ -245,7 +242,7 @@ impl AppCore {
                 updated = report.updated,
                 skipped = report.skipped,
                 failed = report.failed,
-                "Default skills synchronized"
+                "User skills synchronized"
             );
             if report.failed > 0 {
                 warn!(

@@ -8,12 +8,11 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
-use restflow_traits::store::KvStore;
 use restflow_traits::{
     SpawnHandle, SubagentCompletion, SubagentManager, SubagentState,
     normalize_legacy_approval_replay,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -55,81 +54,6 @@ impl SubagentDefLookup for MockDefLookup {
     }
     fn list_callable(&self) -> Vec<SubagentDefSummary> {
         self.summaries.clone()
-    }
-}
-
-#[derive(Default)]
-struct MockKvStore {
-    entries: Mutex<HashMap<String, String>>,
-}
-
-impl KvStore for MockKvStore {
-    fn get_entry(&self, key: &str) -> Result<Value> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(value) = entries.get(key) {
-            Ok(json!({
-                "found": true,
-                "key": key,
-                "value": value
-            }))
-        } else {
-            Ok(json!({
-                "found": false,
-                "key": key
-            }))
-        }
-    }
-
-    fn set_entry(
-        &self,
-        key: &str,
-        content: &str,
-        _visibility: Option<&str>,
-        _content_type: Option<&str>,
-        _type_hint: Option<&str>,
-        _tags: Option<Vec<String>>,
-        _accessor_id: Option<&str>,
-    ) -> Result<Value> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        entries.insert(key.to_string(), content.to_string());
-        Ok(json!({"success": true, "key": key}))
-    }
-
-    fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> Result<Value> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let deleted = entries.remove(key).is_some();
-        Ok(json!({"deleted": deleted, "key": key}))
-    }
-
-    fn list_entries(&self, namespace: Option<&str>) -> Result<Value> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = namespace.map(|value| format!("{value}:"));
-        let list = entries
-            .keys()
-            .filter(|key| {
-                prefix
-                    .as_ref()
-                    .map(|value| key.starts_with(value))
-                    .unwrap_or(true)
-            })
-            .map(|key| json!({"key": key}))
-            .collect::<Vec<_>>();
-        Ok(json!({
-            "count": list.len(),
-            "entries": list
-        }))
     }
 }
 
@@ -349,32 +273,6 @@ async fn test_spawn_batch_rejects_tasks_count_mismatch() {
 }
 
 #[tokio::test]
-async fn test_spawn_batch_rejects_team_and_specs_combined() {
-    let manager = make_test_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "spawn",
-            "team": "Team1",
-            "specs": [
-                { "agent": "coder", "count": 1 }
-            ],
-            "task": "Implement fixes"
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'team' or 'specs'")
-    );
-}
-
-#[tokio::test]
 async fn test_spawn_batch_requires_task_when_spec_has_no_override() {
     let manager = make_test_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
     let tool = SpawnSubagentBatchTool::new(manager);
@@ -419,70 +317,6 @@ async fn test_spawn_batch_rejects_when_requested_instances_exceed_slots() {
 }
 
 #[tokio::test]
-async fn test_spawn_batch_save_as_team_requires_store() {
-    let manager = make_test_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
-    let tool = SpawnSubagentBatchTool::new(manager);
-
-    let result = tool
-        .execute(json!({
-            "operation": "spawn",
-            "task": "Implement fixes",
-            "save_as_team": "NoStore",
-            "specs": [
-                { "agent": "coder", "count": 1 }
-            ]
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Team storage is unavailable")
-    );
-}
-
-#[tokio::test]
-async fn test_spawn_batch_save_as_team_persists_team() {
-    let manager = make_test_manager(
-        vec![("coder", "Coder")],
-        vec![MockStep::text("done-1"), MockStep::text("done-2")],
-    );
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
-
-    let spawn_output = tool
-        .execute(json!({
-            "operation": "spawn",
-            "wait": true,
-            "save_as_team": "SavedTeam",
-            "specs": [
-                { "agent": "coder", "tasks": ["task-1", "task-2"] }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(spawn_output.success);
-    assert_eq!(spawn_output.result["saved_team"], "SavedTeam");
-
-    let get_output = tool
-        .execute(json!({
-            "operation": "get_team",
-            "team": "SavedTeam"
-        }))
-        .await
-        .unwrap();
-    assert!(get_output.success);
-    assert_eq!(get_output.result["team"], "SavedTeam");
-    assert_eq!(get_output.result["total_instances"], 2);
-    let spec = get_output.result["members"][0].clone();
-    assert_eq!(spec["count"], 2);
-    assert!(spec.get("task").is_none() || spec["task"].is_null());
-    assert!(spec.get("tasks").is_none() || spec["tasks"].is_null());
-}
-
-#[tokio::test]
 async fn test_spawn_batch_returns_spawned_tasks_on_partial_failure() {
     let inner = make_test_manager(
         vec![("coder", "Coder")],
@@ -524,130 +358,9 @@ async fn test_spawn_batch_returns_spawned_tasks_on_partial_failure() {
     assert_eq!(tasks[0]["instance_index"], 0);
 }
 
-#[tokio::test]
-async fn test_team_lifecycle_and_spawn_from_team() {
-    let manager = make_test_manager(
-        vec![("coder", "Coder")],
-        vec![MockStep::text("done-1"), MockStep::text("done-2")],
-    );
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
-
-    let save_output = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "Team1",
-            "specs": [
-                { "agent": "coder", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(save_output.success);
-    assert_eq!(save_output.result["operation"], "save_team");
-
-    let list_output = tool
-        .execute(json!({"operation": "list_teams"}))
-        .await
-        .unwrap();
-    assert!(list_output.success);
-    let teams = list_output.result["teams"].as_array().unwrap();
-    assert!(teams.iter().any(|entry| entry["team"] == "Team1"));
-
-    let get_output = tool
-        .execute(json!({"operation": "get_team", "team": "Team1"}))
-        .await
-        .unwrap();
-    assert!(get_output.success);
-    assert_eq!(get_output.result["team"], "Team1");
-    assert_eq!(get_output.result["member_groups"], 1);
-    assert_eq!(get_output.result["total_instances"], 2);
-
-    let spawn_output = tool
-        .execute(json!({
-            "operation": "spawn",
-            "team": "Team1",
-            "task": "Run review",
-            "wait": true
-        }))
-        .await
-        .unwrap();
-    assert!(spawn_output.success);
-    assert_eq!(spawn_output.result["spawned_count"], 2);
-
-    let delete_output = tool
-        .execute(json!({"operation": "delete_team", "team": "Team1"}))
-        .await
-        .unwrap();
-    assert!(delete_output.success);
-    assert_eq!(delete_output.result["operation"], "delete_team");
-}
-
-#[tokio::test]
-async fn test_save_team_rejects_unknown_agent_reference() {
-    let manager = make_test_manager(vec![("coder", "Coder")], vec![]);
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "BrokenTeam",
-            "specs": [
-                { "agent": "missing-agent", "count": 1 }
-            ]
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Unknown agent"));
-}
-
-#[tokio::test]
-async fn test_get_team_rejects_legacy_specs_payload() {
-    let manager = make_test_manager(vec![("coder", "Coder")], vec![]);
-    let kv_store = Arc::new(MockKvStore::default());
-    kv_store
-        .set_entry(
-            "subagent_team:LegacyTeam",
-            &json!({
-                "version": 1,
-                "name": "LegacyTeam",
-                "specs": [
-                    {
-                        "agent": "coder",
-                        "tasks": ["task-1", "task-2"]
-                    }
-                ],
-                "created_at": 1,
-                "updated_at": 2
-            })
-            .to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .expect("store legacy team");
-    let kv_store: Arc<dyn KvStore> = kv_store;
-    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
-
-    let error = tool
-        .execute(json!({"operation": "get_team", "team": "LegacyTeam"}))
-        .await
-        .expect_err("legacy payload should fail to decode");
-
-    assert!(
-        error
-            .to_string()
-            .contains("Failed to decode team 'LegacyTeam'")
-    );
-}
-
 #[test]
 fn test_batch_params_accept_legacy_confirmation_token_alias() {
-    let mut value = json!({"team":"reviewers","confirmation_token":"approval-1"});
+    let mut value = json!({"confirmation_token":"approval-1"});
     normalize_legacy_approval_replay(&mut value);
     let params: SpawnSubagentBatchParams =
         serde_json::from_value(value).expect("params should deserialize");
@@ -667,7 +380,6 @@ fn test_batch_schema_exposes_parent_run_id() {
 #[test]
 fn test_batch_params_use_canonical_parent_run_id() {
     let params: SpawnSubagentBatchParams = serde_json::from_value(json!({
-        "team": "reviewers",
         "parent_run_id": "run-123"
     }))
     .expect("params should deserialize");
@@ -682,7 +394,6 @@ fn test_batch_params_use_canonical_parent_run_id() {
 #[test]
 fn test_batch_params_accept_legacy_parent_execution_id_alias() {
     let params: SpawnSubagentBatchParams = serde_json::from_value(json!({
-        "team": "reviewers",
         "parent_execution_id": "run-123"
     }))
     .expect("params should deserialize");

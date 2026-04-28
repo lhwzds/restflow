@@ -3,8 +3,8 @@ use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
 use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
 use restflow_contracts::{
-    ApprovalHandledResponse, CleanupReportResponse, DeleteWithIdResponse, PairingApprovalResponse,
-    PairingStateResponse, RouteBindingResponse, SessionSourceMigrationResponse,
+    ApprovalHandledResponse, CleanupReportResponse, PairingApprovalResponse, PairingStateResponse,
+    RouteBindingResponse,
 };
 use restflow_storage::SimpleStorage;
 
@@ -128,7 +128,7 @@ async fn process_get_background_agent_returns_created_task() {
 }
 
 #[tokio::test]
-async fn process_delete_background_agent_returns_delete_with_id_response() {
+async fn process_delete_task_requires_confirmation() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     ensure_test_agent_with_id(&core, "agent-1");
@@ -149,13 +149,14 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
     .await;
 
     match response {
-        IpcResponse::Success(value) => {
-            let deleted: DeleteWithIdResponse =
-                serde_json::from_value(value).expect("delete response");
-            assert_eq!(deleted.id, task.id);
-            assert!(deleted.deleted);
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            let details = error.details.expect("confirmation details");
+            assert_eq!(details["status"], "confirmation_required");
+            assert_eq!(details["pending_approval"], true);
+            assert_eq!(details["assessment"]["operation"], "delete_task");
         }
-        other => panic!("expected success response, got {other:?}"),
+        other => panic!("expected confirmation error response, got {other:?}"),
     }
 }
 
@@ -205,7 +206,7 @@ async fn process_convert_session_background_agent_returns_direct_result() {
 }
 
 #[tokio::test]
-async fn process_handle_background_agent_approval_returns_typed_response() {
+async fn process_handle_task_approval_returns_typed_response() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     ensure_test_agent_with_id(&core, "agent-1");
@@ -254,7 +255,7 @@ async fn process_get_background_agent_returns_not_found_for_missing_task() {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 404);
             assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
-            assert!(error.message.contains("Background agent"));
+            assert!(error.message.contains("Task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -713,45 +714,6 @@ async fn process_run_cleanup_returns_report() {
 }
 
 #[tokio::test]
-async fn process_migrate_session_sources_dry_run_reports_stats_without_writing() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let mut session = crate::models::ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    session.name = "channel:chat-legacy".to_string();
-    core.storage
-        .chat_sessions
-        .create(&session)
-        .expect("create session");
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::MigrateSessionSources { dry_run: true },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let report: SessionSourceMigrationResponse =
-                serde_json::from_value(value).expect("migration report");
-            assert!(report.dry_run);
-            assert_eq!(report.scanned, 1);
-            assert_eq!(report.migrated, 1);
-            let persisted = core
-                .storage
-                .chat_sessions
-                .get(&session.id)
-                .expect("load session")
-                .expect("session");
-            assert!(persisted.source_channel.is_none());
-            assert!(persisted.source_conversation_id.is_none());
-            assert_eq!(persisted.name, "channel:chat-legacy");
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn process_set_and_get_secret_round_trip() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -945,7 +907,7 @@ async fn process_create_agent_rejects_invalid_wire_model_ref() {
 }
 
 #[tokio::test]
-async fn process_create_background_agent_persists_when_agent_provider_missing() {
+async fn process_create_task_requires_confirmation_when_agent_provider_missing() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let stored_agent = core
@@ -981,13 +943,14 @@ async fn process_create_background_agent_persists_when_agent_provider_missing() 
     .await;
 
     match response {
-        IpcResponse::Success(value) => {
-            let created: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
-            assert_eq!(created.name, "bg-warning");
-            assert_eq!(created.agent_id, stored_agent.id);
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            let details = error.details.expect("confirmation details");
+            assert_eq!(details["status"], "confirmation_required");
+            assert_eq!(details["pending_approval"], true);
+            assert_eq!(details["assessment"]["operation"], "create_task");
         }
-        other => panic!("expected success response, got {other:?}"),
+        other => panic!("expected confirmation error response, got {other:?}"),
     }
 }
 

@@ -8,7 +8,6 @@ use tokio::time::{Duration, timeout};
 use crate::agent::PromptFlags;
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::agent::stream::StreamEmitter;
-use crate::agent::team::inject_team_execution_context;
 use crate::agent::{AgentState, ResourceUsage};
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
@@ -41,7 +40,6 @@ struct ResolvedSubagentExecution {
     owns_lifecycle: bool,
     telemetry_context: Option<TelemetryContext>,
     telemetry_sink: Option<Arc<dyn TelemetrySink>>,
-    team_context: Option<restflow_traits::TeamExecutionContext>,
 }
 
 #[derive(Clone, Default)]
@@ -295,7 +293,6 @@ fn spawn_request_from_plan(
         trace_session_id,
         trace_scope_id,
         run_id,
-        team_context: None,
     };
     spawn_request.set_parent_run_id(parent_run_id);
     Ok(spawn_request)
@@ -355,7 +352,6 @@ pub(crate) async fn execute_subagent_once(
         owns_lifecycle: normalize_authoritative_run_id(request.run_id.as_deref()).is_none(),
         telemetry_context: run_handle.as_ref().map(|handle| handle.cloned_context()),
         telemetry_sink: bridge.telemetry_sink.clone(),
-        team_context: request.team_context.clone(),
     };
     let invocation = SubagentExecutionInvocation {
         llm_client,
@@ -538,7 +534,6 @@ pub(crate) fn spawn_subagent(
         owns_lifecycle: true,
         telemetry_context: telemetry_context.clone(),
         telemetry_sink: telemetry_sink.clone(),
-        team_context: request.team_context.clone(),
     };
 
     let (completion_tx, completion_rx) = oneshot::channel();
@@ -781,12 +776,6 @@ async fn execute_subagent(
     } else {
         agent_config
     };
-    let agent_config = if let Some(team_context) = execution.team_context.clone() {
-        inject_team_execution_context(agent_config, &team_context)
-    } else {
-        agent_config
-    };
-
     let executor = if let Some(steer_rx) = steer_rx {
         AgentExecutor::new(llm_client, registry).with_steer_channel(steer_rx)
     } else {
@@ -1080,7 +1069,6 @@ mod tests {
             trace_session_id: None,
             trace_scope_id: None,
             run_id: None,
-            team_context: None,
         };
 
         let limits = resolve_effective_limits(&agent_def, &config, &request);
@@ -1262,7 +1250,6 @@ mod tests {
             trace_session_id: None,
             trace_scope_id: None,
             run_id: None,
-            team_context: None,
         };
 
         let snapshot = resolve_subagent_definition(&definitions, &tool_registry, &request)
@@ -1309,7 +1296,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge::default(),
         )
@@ -1358,7 +1344,6 @@ mod tests {
                 trace_session_id: Some("session-1".to_string()),
                 trace_scope_id: Some("scope-1".to_string()),
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
@@ -1422,7 +1407,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: Some(llm_factory),
@@ -1479,7 +1463,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
@@ -1538,7 +1521,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
@@ -1725,7 +1707,6 @@ mod tests {
                 trace_session_id: Some("session-main-1".to_string()),
                 trace_scope_id: Some("scope-main-1".to_string()),
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge::default(),
         )
@@ -1808,7 +1789,6 @@ mod tests {
                 trace_session_id: Some("session-1".to_string()),
                 trace_scope_id: Some("scope-1".to_string()),
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
@@ -1902,7 +1882,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge::default(),
         );
@@ -1927,7 +1906,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge::default(),
         );
@@ -1970,7 +1948,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge::default(),
         )
@@ -2029,7 +2006,6 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
                 run_id: None,
-                team_context: None,
             },
             SubagentExecutionBridge::default(),
         )

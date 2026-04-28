@@ -72,6 +72,12 @@ impl ComposerState {
         self.history_cursor = None;
     }
 
+    pub fn replace(&mut self, value: impl Into<String>) {
+        self.draft = value.into();
+        self.cursor = self.draft.len();
+        self.history_cursor = None;
+    }
+
     pub fn backspace(&mut self) {
         if self.cursor == 0 {
             return;

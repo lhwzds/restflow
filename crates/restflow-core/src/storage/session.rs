@@ -4,7 +4,7 @@
 //! a single typed entrypoint so higher-level services do not have to wire each
 //! store independently.
 
-use crate::models::{ChannelSessionBinding, ChatSession, ChatSessionSource};
+use crate::models::{ChannelSessionBinding, ChatSession};
 use crate::storage::{ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage};
 use anyhow::Result;
 
@@ -115,33 +115,6 @@ impl SessionStorage {
         self.execution_traces.delete_by_session(session_id)
     }
 
-    pub fn ensure_binding_from_legacy_source(
-        &self,
-        session: &ChatSession,
-    ) -> Result<Option<(ChatSessionSource, String)>> {
-        let source = match session.source_channel {
-            Some(ChatSessionSource::Workspace) | None => return Ok(None),
-            Some(source) => source,
-        };
-        let Some(conversation_id) = session
-            .source_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-        else {
-            return Ok(None);
-        };
-
-        let Some(channel_key) = channel_key_from_source(source) else {
-            return Ok(Some((source, conversation_id)));
-        };
-
-        let binding = ChannelSessionBinding::new(channel_key, None, &conversation_id, &session.id);
-        self.upsert_binding(&binding)?;
-        Ok(Some((source, conversation_id)))
-    }
-
     pub fn switch_bindings(
         &self,
         from_session_id: &str,
@@ -158,15 +131,6 @@ impl SessionStorage {
             self.upsert_binding(&rebound)?;
         }
         Ok(bindings)
-    }
-}
-
-fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
-    match source {
-        ChatSessionSource::Telegram => Some("telegram"),
-        ChatSessionSource::Discord => Some("discord"),
-        ChatSessionSource::Slack => Some("slack"),
-        ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
     }
 }
 

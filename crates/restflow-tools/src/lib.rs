@@ -47,17 +47,18 @@ pub use impls::{EditTool, MultiEditTool};
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool,
     BinarySkillRunTool, BinarySkillUpdateTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool,
-    JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool, ProcessTool,
-    PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool, ReplyTool,
-    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool,
-    SkillTool, SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool,
-    WebFetchTool, WebSearchTool, WorkItemTool,
+    InstalledBinarySkillTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool,
+    ProcessTool, PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool,
+    ReplyTool, RunPythonTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
+    SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool,
+    WebSearchTool, WorkItemTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
+    discover_installed_binary_skill_tools_from,
 };
 
 // Re-export tool_registry inline migrated tools
 pub use impls::{
-    KvStoreTool, ManageOpsTool, ManageTeamsTool, MarketplaceTool, SecurityQueryTool, TerminalTool,
-    TriggerTool, UnifiedMemorySearchTool,
+    ManageOpsTool, MarketplaceTool, SecurityQueryTool, TerminalTool, TriggerTool,
+    UnifiedMemorySearchTool,
 };
 
 // Re-export search tools
@@ -68,12 +69,10 @@ pub use impls::BatchTool;
 
 // Re-export core-migrated tools
 pub use impls::{
-    BashConfig, FileConfig, ListSubagentsTool, SecretsConfig, SpawnSubagentTool, SpawnTool,
-    ToolRegistryBuilder, UseSkillTool, WaitSubagentsTool, default_registry,
+    BashConfig, FileConfig, ListSubagentsTool, SecretsConfig, SpawnSubagentBatchTool,
+    SpawnSubagentTool, SpawnTool, ToolRegistryBuilder, UseSkillTool, WaitSubagentsTool,
+    default_registry,
 };
-
-// Legacy compatibility exports.
-pub use impls::BackgroundAgentTool;
 
 // Re-export skill types from restflow-traits
 pub use restflow_traits::skill::{
@@ -90,18 +89,11 @@ pub use http_client::{build_http_client, build_ssrf_safe_client};
 
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundAgentTool, TaskTool};
+    use super::TaskTool;
     use std::sync::Arc;
 
     #[test]
     fn crate_root_exports_task_tool_as_canonical_surface() {
-        let _: fn(Arc<dyn restflow_traits::store::BackgroundAgentStore>) -> TaskTool =
-            TaskTool::new;
-    }
-
-    #[test]
-    fn crate_root_keeps_background_agent_tool_as_legacy_alias() {
-        let _: fn(Arc<dyn restflow_traits::store::BackgroundAgentStore>) -> BackgroundAgentTool =
-            BackgroundAgentTool::new;
+        let _: fn(Arc<dyn restflow_traits::store::TaskStore>) -> TaskTool = TaskTool::new;
     }
 }

@@ -4,14 +4,8 @@ use restflow_traits::store::{MANAGE_TASK_OPERATIONS, MANAGE_TASKS_TOOL_DESCRIPTI
 
 use super::types::workers_schema;
 
-const LEGACY_BACKGROUND_AGENT_TOOL_DESCRIPTION: &str = "Compatibility alias for manage_tasks. Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
-
 pub(super) fn tool_description() -> &'static str {
     MANAGE_TASKS_TOOL_DESCRIPTION
-}
-
-pub(super) fn legacy_tool_description() -> &'static str {
-    LEGACY_BACKGROUND_AGENT_TOOL_DESCRIPTION
 }
 
 pub(super) fn parameters_schema() -> Value {
@@ -79,7 +73,7 @@ pub(super) fn parameters_schema() -> Value {
             "inputs": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Optional per-instance input list for run_batch. Inputs are assigned in worker order and are never persisted in saved teams."
+                "description": "Optional per-instance input list for run_batch. Inputs are assigned in worker order."
             },
             "input_template": {
                 "type": "string",
@@ -105,14 +99,6 @@ pub(super) fn parameters_schema() -> Value {
             "approval_id": {
                 "type": "string",
                 "description": "Approval ID returned by preview when warnings require explicit confirmation."
-            },
-            "team": {
-                "type": "string",
-                "description": "Team name for save_team/get_team/delete_team, or run_batch from saved team."
-            },
-            "save_as_team": {
-                "type": "string",
-                "description": "Optionally save provided workers as a team during run_batch."
             },
             "workers": workers_schema(),
             "status": {
@@ -150,41 +136,6 @@ pub(super) fn parameters_schema() -> Value {
                 "description": "Maximum number of trailing lines returned by read_trace"
             }
         },
-        "required": ["operation"],
-        "allOf": [
-            {
-                "if": {
-                    "properties": {
-                        "operation": { "const": "create" }
-                    },
-                    "required": ["operation"]
-                },
-                "then": {
-                    "required": ["operation", "name", "agent_id", "schedule"]
-                }
-            },
-            {
-                "if": {
-                    "properties": {
-                        "operation": { "const": "convert_session" }
-                    },
-                    "required": ["operation"]
-                },
-                "then": {
-                    "required": ["operation", "session_id"]
-                }
-            },
-            {
-                "if": {
-                    "properties": {
-                        "operation": { "const": "promote_to_background" }
-                    },
-                    "required": ["operation"]
-                },
-                "then": {
-                    "required": ["operation"]
-                }
-            }
-        ]
+        "required": ["operation"]
     })
 }

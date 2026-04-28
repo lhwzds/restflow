@@ -168,19 +168,6 @@ pub(super) fn build_service_subagent_manager(
     .with_orchestrator(orchestrator)
 }
 
-pub(super) fn build_direct_service_subagent_manager(
-    bundle: &ServiceSubagentRuntimeBundle,
-) -> SubagentManagerImpl {
-    SubagentManagerImpl::new(
-        bundle.tracker.clone(),
-        bundle.definitions.clone(),
-        bundle.llm_client.clone(),
-        bundle.tool_registry.clone(),
-        bundle.config.clone(),
-    )
-    .with_llm_client_factory(bundle.llm_client_factory.clone())
-}
-
 #[cfg(test)]
 pub(super) fn create_subagent_manager(
     agent_storage: AgentStorage,

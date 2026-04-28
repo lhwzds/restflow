@@ -3,32 +3,11 @@ import {
   createTaskFromSession,
   deleteTask,
   getTask,
-  getTaskEvents,
-  getTaskStreamEventName,
   listMemoryChunksByTag,
   listMemoryChunksForSession,
   listMemorySessions,
-  listTasks,
-  pauseTask,
   runTaskNow,
-  resumeTask,
-  stopTask,
-  updateTask,
 } from '../task'
-import * as legacyApi from '../background-agents'
-import {
-  convertSessionToBackgroundAgent,
-  deleteBackgroundAgent,
-  getBackgroundAgent,
-  getBackgroundAgentEvents,
-  getBackgroundAgentStreamEventName,
-  listBackgroundAgents,
-  pauseBackgroundAgent,
-  runBackgroundAgentStreaming,
-  resumeBackgroundAgent,
-  stopBackgroundAgent,
-  updateBackgroundAgent,
-} from '../background-agents'
 import { requestOptional, requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
@@ -36,7 +15,7 @@ vi.mock('../http-client', () => ({
   requestTyped: vi.fn(),
 }))
 
-describe('task api memory endpoints', () => {
+describe('Task API', () => {
   beforeEach(() => {
     vi.mocked(requestTyped).mockReset()
     vi.mocked(requestOptional).mockReset()
@@ -143,24 +122,5 @@ describe('task api memory endpoints', () => {
       data: { id: 'bg-1' },
     })
     expect(result).toEqual(payload)
-  })
-
-  it('keeps legacy background-agent aliases wired to canonical task exports', () => {
-    expect(listBackgroundAgents).toBe(listTasks)
-    expect(getBackgroundAgent).toBe(getTask)
-    expect(getBackgroundAgentEvents).toBe(getTaskEvents)
-    expect(runBackgroundAgentStreaming).toBe(runTaskNow)
-    expect(pauseBackgroundAgent).toBe(pauseTask)
-    expect(resumeBackgroundAgent).toBe(resumeTask)
-    expect(stopBackgroundAgent).toBe(stopTask)
-    expect(deleteBackgroundAgent).toBe(deleteTask)
-    expect(convertSessionToBackgroundAgent).toBe(createTaskFromSession)
-    expect(getBackgroundAgentStreamEventName).toBe(getTaskStreamEventName)
-    expect(updateBackgroundAgent).toBe(updateTask)
-  })
-
-  it('does not re-export canonical task helpers from the deprecated path', () => {
-    expect('getHeartbeatEventName' in legacyApi).toBe(false)
-    expect('steerTask' in legacyApi).toBe(false)
   })
 })

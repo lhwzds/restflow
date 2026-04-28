@@ -22,7 +22,6 @@ mod stream;
 mod streaming_buffer;
 pub mod stuck;
 mod sub_agent;
-pub mod team;
 
 /// Default base prompt used when no agent-specific prompt is configured.
 pub const DEFAULT_AGENT_PROMPT: &str = "You are a helpful AI assistant.";
@@ -49,7 +48,4 @@ pub use sub_agent::{
     SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
     SubagentExecutionBridge, SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState,
     SubagentStatus, SubagentTracker, execute_subagent_plan,
-};
-pub use team::{
-    extract_team_execution_context, inject_team_execution_context, record_pending_team_approval,
 };

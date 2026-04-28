@@ -7,14 +7,13 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
-use restflow_traits::store::KvStore;
 use restflow_traits::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,
     normalize_legacy_approval_replay,
 };
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -58,81 +57,6 @@ impl SubagentDefLookup for MockDefLookup {
     }
     fn list_callable(&self) -> Vec<SubagentDefSummary> {
         self.summaries.clone()
-    }
-}
-
-#[derive(Default)]
-struct MockKvStore {
-    entries: Mutex<HashMap<String, String>>,
-}
-
-impl KvStore for MockKvStore {
-    fn get_entry(&self, key: &str) -> crate::Result<Value> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(value) = entries.get(key) {
-            Ok(json!({
-                "found": true,
-                "key": key,
-                "value": value
-            }))
-        } else {
-            Ok(json!({
-                "found": false,
-                "key": key
-            }))
-        }
-    }
-
-    fn set_entry(
-        &self,
-        key: &str,
-        content: &str,
-        _visibility: Option<&str>,
-        _content_type: Option<&str>,
-        _type_hint: Option<&str>,
-        _tags: Option<Vec<String>>,
-        _accessor_id: Option<&str>,
-    ) -> crate::Result<Value> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        entries.insert(key.to_string(), content.to_string());
-        Ok(json!({"success": true, "key": key}))
-    }
-
-    fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> crate::Result<Value> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let deleted = entries.remove(key).is_some();
-        Ok(json!({"deleted": deleted, "key": key}))
-    }
-
-    fn list_entries(&self, namespace: Option<&str>) -> crate::Result<Value> {
-        let entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let prefix = namespace.map(|value| format!("{value}:"));
-        let list = entries
-            .keys()
-            .filter(|key| {
-                prefix
-                    .as_ref()
-                    .map(|value| key.starts_with(value))
-                    .unwrap_or(true)
-            })
-            .map(|key| json!({ "key": key }))
-            .collect::<Vec<_>>();
-        Ok(json!({
-            "count": list.len(),
-            "entries": list
-        }))
     }
 }
 
@@ -243,42 +167,42 @@ impl AgentOperationAssessor for WarningAssessor {
         unreachable!("unused in this test")
     }
 
-    async fn assess_background_agent_create(
+    async fn assess_task_create(
         &self,
-        _request: restflow_traits::store::BackgroundAgentCreateRequest,
+        _request: restflow_traits::store::TaskCreateRequest,
     ) -> crate::Result<OperationAssessment> {
         unreachable!("unused in this test")
     }
 
-    async fn assess_background_agent_convert_session(
+    async fn assess_task_convert_session(
         &self,
-        _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+        _request: restflow_traits::store::TaskConvertSessionRequest,
     ) -> crate::Result<OperationAssessment> {
         unreachable!("unused in this test")
     }
 
-    async fn assess_background_agent_update(
+    async fn assess_task_update(
         &self,
-        _request: restflow_traits::store::BackgroundAgentUpdateRequest,
+        _request: restflow_traits::store::TaskUpdateRequest,
     ) -> crate::Result<OperationAssessment> {
         unreachable!("unused in this test")
     }
 
-    async fn assess_background_agent_delete(
+    async fn assess_task_delete(
         &self,
-        _request: restflow_traits::store::BackgroundAgentDeleteRequest,
+        _request: restflow_traits::store::TaskDeleteRequest,
     ) -> crate::Result<OperationAssessment> {
         unreachable!("unused in this test")
     }
 
-    async fn assess_background_agent_control(
+    async fn assess_task_control(
         &self,
-        _request: restflow_traits::store::BackgroundAgentControlRequest,
+        _request: restflow_traits::store::TaskControlRequest,
     ) -> crate::Result<OperationAssessment> {
         unreachable!("unused in this test")
     }
 
-    async fn assess_background_agent_template(
+    async fn assess_task_template(
         &self,
         _operation: &str,
         _intent: OperationAssessmentIntent,
@@ -380,8 +304,6 @@ fn test_params_serialize_canonical_parent_run_id() {
         inline_allowed_tools: None,
         inline_max_iterations: None,
         workers: None,
-        team: None,
-        save_as_team: None,
         preview: false,
         approval_id: None,
     };
@@ -417,16 +339,6 @@ async fn test_spawn_subagent_preserves_parent_run_id() {
             .as_deref(),
         Some("run-789")
     );
-}
-
-#[test]
-fn test_params_with_team_operation() {
-    let json = r#"{"operation":"save_team","team":"TeamOnly","workers":[{"count":2}]}"#;
-    let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
-    assert_eq!(params.operation, SpawnSubagentBatchOperation::SaveTeam);
-    assert_eq!(params.team.as_deref(), Some("TeamOnly"));
-    assert!(params.task.is_none());
-    assert!(params.tasks.is_none());
 }
 
 #[test]
@@ -670,7 +582,7 @@ async fn test_spawn_subagent_rejects_mixed_single_and_workers_mode_fields() {
         result
             .unwrap_err()
             .to_string()
-            .contains("Batch mode uses 'workers'/'team'")
+            .contains("Batch mode uses 'workers'")
     );
 }
 
@@ -700,103 +612,6 @@ async fn test_spawn_subagent_workers_support_distinct_tasks_list() {
         .expect("results should be array");
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|entry| entry["status"] == "completed"));
-}
-
-#[tokio::test]
-async fn test_spawn_subagent_team_supports_runtime_tasks_list() {
-    let deps = make_test_deps(
-        vec![("coder", "Coder")],
-        vec![MockStep::text("done-a"), MockStep::text("done-b")],
-    );
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentTool::new(deps).with_kv_store(kv_store);
-
-    let saved = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "RuntimeTasksTeam",
-            "workers": [
-                { "agent": "coder", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-    assert!(saved.success);
-
-    let result = tool
-        .execute(json!({
-            "team": "RuntimeTasksTeam",
-            "tasks": ["task-a", "task-b"],
-            "wait": true
-        }))
-        .await
-        .unwrap();
-
-    assert!(result.success);
-    assert_eq!(result.result["status"], "completed");
-    assert_eq!(result.result["spawned_count"], 2);
-}
-
-#[tokio::test]
-async fn test_spawn_subagent_save_team_operation_persists_without_spawning() {
-    let deps = make_test_deps(
-        vec![("coder", "Coder")],
-        vec![MockStep::text("should-not-run")],
-    );
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentTool::new(deps.clone()).with_kv_store(kv_store);
-
-    let output = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "TeamOnly",
-            "workers": [
-                { "agent": "coder", "count": 2 }
-            ]
-        }))
-        .await
-        .unwrap();
-
-    assert!(output.success);
-    assert_eq!(output.result["operation"], "save_team");
-    assert_eq!(deps.running_count(), 0);
-
-    let reuse = tool
-        .execute(json!({
-            "task": "Use saved team",
-            "wait": true,
-            "team": "TeamOnly"
-        }))
-        .await
-        .unwrap();
-
-    assert!(reuse.success);
-    assert_eq!(reuse.result["spawned_count"], 2);
-}
-
-#[tokio::test]
-async fn test_spawn_subagent_save_team_rejects_prompt_fields() {
-    let deps = make_test_deps(vec![("coder", "Coder")], vec![]);
-    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
-    let tool = SpawnSubagentTool::new(deps).with_kv_store(kv_store);
-
-    let result = tool
-        .execute(json!({
-            "operation": "save_team",
-            "team": "PromptfulTeam",
-            "workers": [
-                { "agent": "coder", "task": "Should not persist" }
-            ]
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("stores worker structure only")
-    );
 }
 
 #[test]

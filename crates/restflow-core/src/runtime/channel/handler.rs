@@ -434,7 +434,7 @@ mod tests {
 
         // Simulate forwarding a message
         trigger
-            .send_message_to_background_agent("task-1", "continue")
+            .send_message_to_task("task-1", "continue")
             .await
             .unwrap();
 

@@ -1,13 +1,19 @@
 use super::composer::ComposerMode;
 use super::keymap::Action;
-use super::slash_command::{SlashCommand, parse_slash_command};
-use super::state::AppState;
+use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
+use super::state::{
+    AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, TaskPickerItem,
+};
 use super::transcript::ShellMessage;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
+use restflow_core::models::{
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary,
+};
 use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
+
+const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
+const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
 
 #[derive(Debug)]
 pub enum ShellAction {
@@ -19,6 +25,16 @@ pub enum ShellAction {
         sessions: Vec<ChatSessionSummary>,
         runs: Vec<RunSummary>,
     },
+    SessionPickerLoaded {
+        sessions: Vec<ChatSessionSummary>,
+        status: String,
+    },
+    SessionDeleted {
+        session_id: String,
+        deleted: bool,
+        sessions: Vec<ChatSessionSummary>,
+        status: String,
+    },
     CurrentSessionReloaded {
         session: Option<Box<ChatSession>>,
         runs: Vec<RunSummary>,
@@ -27,6 +43,11 @@ pub enum ShellAction {
         session: Box<ChatSession>,
         runs: Vec<RunSummary>,
         status: String,
+    },
+    SessionCreatedForSubmit {
+        session: Box<ChatSession>,
+        runs: Vec<RunSummary>,
+        message: String,
     },
     RunOpened {
         session: Option<Box<ChatSession>>,
@@ -39,12 +60,30 @@ pub enum ShellAction {
         task_id: String,
         status: String,
     },
-    TeamSnapshotLoaded {
-        team_state: Option<TeamState>,
-        messages: Vec<TeamMessage>,
-        assignments: Vec<TeamAssignment>,
+    TaskPickerLoaded {
+        tasks: Vec<TaskPickerItem>,
         status: String,
-        open_overlay: bool,
+    },
+    ProviderPickerLoaded {
+        items: Vec<ProviderPickerItem>,
+        available_models: Vec<ModelMetadataDTO>,
+        sessions: Vec<ChatSessionSummary>,
+        status: String,
+    },
+    ModelPickerLoaded {
+        provider: String,
+        items: Vec<ModelPickerItem>,
+        status: String,
+    },
+    ModelSwitched {
+        session: Box<ChatSession>,
+        status: String,
+    },
+    PendingSessionModelSelected {
+        provider: String,
+        model: String,
+        model_name: String,
+        status: String,
     },
     MessageAppended(ShellMessage),
     StatusUpdated(String),
@@ -52,6 +91,20 @@ pub enum ShellAction {
         agent: Option<Box<StoredAgent>>,
         session: Option<Box<ChatSession>>,
         status: String,
+    },
+    DaemonStopped {
+        status: String,
+    },
+    CommandPicked {
+        text: String,
+    },
+    NewChatStarted {
+        status: String,
+    },
+    OpenHelpOverlay,
+    OpenDaemonPicker,
+    OpenTaskActionPicker {
+        task_id: String,
     },
     SubmitText {
         text: String,
@@ -66,12 +119,13 @@ pub enum ShellEffect {
     RefreshState,
     ReloadCurrentSession,
     ActivateOverlaySelection,
-    SubmitMessage { message: String },
+    CreateSessionForSubmit { message: String },
+    SubmitMessage { message: String, stream_id: String },
+    CancelStream { stream_id: String },
     ExecuteSlashCommand(SlashCommand),
+    DeleteSession { session_id: String },
     ListSessionsInline,
     ListRunsInline,
-    ListApprovalsInline,
-    ShowTeamInline,
 }
 
 #[derive(Debug, Default)]
@@ -85,7 +139,14 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
     let mut output = ReducerOutput::default();
     match action {
         ShellAction::Ui(action) => reduce_ui(state, action, &mut output),
-        ShellAction::StreamFrame(frame) => state.apply_stream_frame(frame),
+        ShellAction::StreamFrame(frame) => {
+            let should_reload_session =
+                matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
+            state.apply_stream_frame(frame);
+            if should_reload_session && state.current_session_id().is_some() {
+                output.effects.push(ShellEffect::ReloadCurrentSession);
+            }
+        }
         ShellAction::SessionEvent(event) => {
             let refresh_current = state.current_session_id() == Some(session_id_of(&event));
             let is_message_added = matches!(event, ChatSessionEvent::MessageAdded { .. });
@@ -112,6 +173,25 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 state.thread.execution_thread = None;
             }
         }
+        ShellAction::SessionPickerLoaded { sessions, status } => {
+            state.sessions = sessions;
+            state.open_session_picker();
+            state.status = status;
+        }
+        ShellAction::SessionDeleted {
+            session_id,
+            deleted,
+            sessions,
+            status,
+        } => {
+            state.apply_session_delete_result(&session_id, sessions);
+            state.status = status.clone();
+            if deleted {
+                state.push_info(status);
+            } else {
+                state.push_error(status);
+            }
+        }
         ShellAction::CurrentSessionReloaded { session, runs } => {
             if let Some(session) = session {
                 state.refresh_current_session(*session);
@@ -130,6 +210,18 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.clear_overlay();
             state.status = status;
         }
+        ShellAction::SessionCreatedForSubmit {
+            session,
+            runs,
+            message,
+        } => {
+            state.set_current_session(*session);
+            state.set_session_runs(runs);
+            state.push_local_user_message(message.clone());
+            state.start_assistant_typing();
+            state.status = "Sending message...".to_string();
+            output.effects.push(submit_message_effect(message));
+        }
         ShellAction::RunOpened {
             session,
             run_id,
@@ -146,14 +238,54 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         }
         ShellAction::TaskControlCompleted { task_id, status } => {
             state.status = format!("Task {task_id} -> {status}");
+            state.clear_overlay();
         }
-        ShellAction::TeamSnapshotLoaded {
-            team_state,
-            messages,
-            assignments,
+        ShellAction::TaskPickerLoaded { tasks, status } => {
+            state.tasks = tasks;
+            state.open_task_picker();
+            state.status = status;
+        }
+        ShellAction::ProviderPickerLoaded {
+            items,
+            available_models,
+            sessions,
             status,
-            open_overlay,
-        } => state.apply_team_snapshot(team_state, messages, assignments, status, open_overlay),
+        } => {
+            state.provider_items = items;
+            state.available_models = available_models;
+            state.sessions = sessions;
+            state.open_provider_picker();
+            state.status = status;
+        }
+        ShellAction::ModelPickerLoaded {
+            provider,
+            items,
+            status,
+        } => {
+            state.model_items = items;
+            state.open_model_picker(provider);
+            state.status = status;
+        }
+        ShellAction::ModelSwitched { session, status } => {
+            state.refresh_current_session(*session);
+            state.clear_overlay();
+            state.status = status;
+        }
+        ShellAction::PendingSessionModelSelected {
+            provider,
+            model,
+            model_name,
+            status,
+        } => {
+            if state.update_pending_session_model(provider, model, model_name) {
+                state.clear_overlay();
+                state.status = status;
+            } else {
+                state.status =
+                    "No default agent is available. Start the daemon or send a message first."
+                        .to_string();
+            }
+        }
         ShellAction::MessageAppended(message) => state.push_message(message),
         ShellAction::StatusUpdated(status) => state.status = status,
         ShellAction::DaemonStarted {
@@ -162,23 +294,56 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             status,
         } => {
             state.exit_startup();
-            if let Some(agent) = agent {
+            if let Some(agent) = agent.as_ref() {
                 state.set_default_agent(Some(agent.id.clone()), Some(agent.name.clone()));
             } else {
                 state.set_default_agent(None, None);
             }
             if let Some(session) = session {
                 state.set_current_session(*session);
+            } else if let Some(agent) = agent.as_ref() {
+                state.set_pending_session(Some(PendingSessionState::from_agent(agent)));
             }
             state.status = status;
             if let Some(message) = state.take_pending_initial_message()
                 && !message.trim().is_empty()
-                && state.current_session_id().is_some()
+                && state.default_agent_id.is_some()
             {
                 output
                     .actions
                     .push(ShellAction::SubmitText { text: message });
             }
+        }
+        ShellAction::DaemonStopped { status } => {
+            let agent_override = state.default_agent_id.clone();
+            let session_override = state.current_session_id().map(ToOwned::to_owned);
+            state.enter_startup(agent_override, session_override);
+            state.status = status.clone();
+            state.push_info(status);
+        }
+        ShellAction::CommandPicked { text } => {
+            state.clear_overlay();
+            state.composer.replace(text);
+            state.status = "Command selected".to_string();
+        }
+        ShellAction::NewChatStarted { status } => {
+            state.start_new_chat();
+            state.status = status;
+        }
+        ShellAction::OpenHelpOverlay => {
+            state.composer.clear();
+            state.open_help_overlay();
+            state.status = "Showing help".to_string();
+        }
+        ShellAction::OpenDaemonPicker => {
+            state.composer.clear();
+            state.open_daemon_picker();
+            state.status = "Select daemon action".to_string();
+        }
+        ShellAction::OpenTaskActionPicker { task_id } => {
+            state.composer.clear();
+            state.open_task_action_picker(task_id);
+            state.status = "Select task action".to_string();
         }
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
         ShellAction::RefreshTick => {
@@ -190,6 +355,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             if state.is_startup_mode() {
                 state.set_startup_error(message);
             } else {
+                state.cancel_active_response();
                 state.status = message.clone();
                 state.push_error(message);
             }
@@ -211,21 +377,35 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
-            if matches!(state.composer.mode(), ComposerMode::Command) && !state.composer.is_blank()
-            {
+            if state.overlay.is_some() {
+                state.clear_overlay();
+                if matches!(state.composer.mode(), ComposerMode::Command) {
+                    state.composer.clear();
+                }
+            } else if !state.composer.is_blank() {
+                let was_command_mode = matches!(state.composer.mode(), ComposerMode::Command);
                 state.composer.clear();
-                state.status = "Returned to message mode".to_string();
+                state.status = if was_command_mode {
+                    "Returned to message mode".to_string()
+                } else {
+                    "Cleared input".to_string()
+                };
             } else {
-                output.should_quit = true;
+                if let Some(stream_id) = state.current_stream_id.clone()
+                    && state.is_streaming
+                {
+                    state.cancel_active_response();
+                    state.push_info("Canceled current response.");
+                    state.status = "Canceling response...".to_string();
+                    output.effects.push(ShellEffect::CancelStream { stream_id });
+                } else {
+                    state.status = "Input already empty. Press Ctrl-C to quit.".to_string();
+                }
             }
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
         Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
-        Action::OpenApprovals => output.effects.push(ShellEffect::ListApprovalsInline),
-        Action::OpenTeam => output.effects.push(ShellEffect::ShowTeamInline),
-        Action::OpenHelp => output
-            .effects
-            .push(ShellEffect::ExecuteSlashCommand(SlashCommand::Help)),
+        Action::OpenHelp => output.actions.push(ShellAction::OpenHelpOverlay),
         Action::Resize => output.effects.push(ShellEffect::ClearScreen),
         Action::Redraw => {
             state.status = "Screen redrawn".to_string();
@@ -236,8 +416,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 state.move_overlay_selection(-1);
             } else if state.composer.is_blank() {
                 state.composer.history_previous();
-            } else {
-                state.scroll_transcript(-1);
             }
         }
         Action::NavDown => {
@@ -245,8 +423,6 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 state.move_overlay_selection(1);
             } else if state.composer.is_navigating_history() {
                 state.composer.history_next();
-            } else {
-                state.scroll_transcript(1);
             }
         }
         Action::MoveLeft => {
@@ -255,22 +431,93 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::MoveRight => {
             state.composer.move_right();
         }
-        Action::ScrollUp | Action::ScrollDown => {}
-        Action::InputChar(ch) => {
+        Action::ScrollUp => {
             if state.overlay.is_none() {
+                state.scroll_message_up(MESSAGE_SCROLL_PAGE_ROWS);
+            }
+        }
+        Action::ScrollDown => {
+            if state.overlay.is_none() {
+                state.scroll_message_down(MESSAGE_SCROLL_PAGE_ROWS);
+            }
+        }
+        Action::WheelUp => {
+            if state.overlay.is_none() {
+                state.scroll_message_up(MESSAGE_SCROLL_WHEEL_ROWS);
+            }
+        }
+        Action::WheelDown => {
+            if state.overlay.is_none() {
+                state.scroll_message_down(MESSAGE_SCROLL_WHEEL_ROWS);
+            }
+        }
+        Action::DeleteSelected => {
+            if matches!(
+                state.overlay,
+                Some(crate::state::OverlayState::SessionPicker { .. })
+            ) {
+                let selected = state.selected_session_summary().cloned();
+                if let Some(session) = selected {
+                    if state.is_session_delete_pending(&session.id) {
+                        output.effects.push(ShellEffect::DeleteSession {
+                            session_id: session.id,
+                        });
+                    } else {
+                        state.mark_session_delete_pending(session.id.clone());
+                        state.status = format!("Press d again to delete session {}", session.name);
+                    }
+                }
+            } else if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
+                state.composer.insert_char('d');
+                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
+            }
+        }
+        Action::InputChar(ch) => {
+            if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
                 state.composer.insert_char(ch);
+                if ch == '/' && state.composer.draft().trim() == "/" {
+                    state.open_command_picker();
+                }
+                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
             }
         }
         Action::Paste(text) => {
-            if state.overlay.is_none() {
+            if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
                 for ch in text.chars() {
                     state.composer.insert_char(ch);
+                }
+                if state.composer.draft().trim_start().starts_with('/') {
+                    if state.overlay.is_none() {
+                        state.open_command_picker();
+                    }
+                    state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
                 }
             }
         }
         Action::InputBackspace => {
-            if state.overlay.is_none() {
+            if state.overlay.is_none()
+                || matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                )
+            {
                 state.composer.backspace();
+                state.sync_command_picker_to_draft(SLASH_COMMAND_SPECS);
             }
         }
         Action::Newline => {
@@ -278,13 +525,35 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 state.composer.insert_newline();
             }
         }
-        Action::RejectSelected => {
-            state.composer.insert_char('r');
-        }
         Action::OverlaySelect => {}
         Action::Submit => {
             if state.overlay.is_some() {
-                output.effects.push(ShellEffect::ActivateOverlaySelection);
+                if matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::CommandPicker { .. })
+                ) {
+                    let input = state.composer.draft().trim().to_string();
+                    if input != "/" && parse_slash_command(&input).is_ok() {
+                        state.composer.clear();
+                        state.clear_overlay();
+                        output.actions.push(ShellAction::SubmitText { text: input });
+                    } else {
+                        output.effects.push(ShellEffect::ActivateOverlaySelection);
+                    }
+                } else {
+                    if matches!(
+                        state.overlay,
+                        Some(crate::state::OverlayState::ModelPicker { .. })
+                    ) {
+                        state.status = "Switching model...".to_string();
+                    } else if matches!(
+                        state.overlay,
+                        Some(crate::state::OverlayState::ProviderPicker { .. })
+                    ) {
+                        state.status = "Loading models...".to_string();
+                    }
+                    output.effects.push(ShellEffect::ActivateOverlaySelection);
+                }
             } else {
                 let input = state.composer.take_submission();
                 if !input.trim().is_empty() {
@@ -300,39 +569,89 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
 fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOutput) {
     if super::composer::ComposerState::is_command_text(&text) {
         match parse_slash_command(&text) {
-            Ok(command) => output
-                .effects
-                .push(ShellEffect::ExecuteSlashCommand(command)),
+            Ok(command) => {
+                state.status = slash_command_pending_status(&command).to_string();
+                output
+                    .effects
+                    .push(ShellEffect::ExecuteSlashCommand(command));
+            }
             Err(error) => {
                 state.status = error.to_string();
                 state.push_error(error.to_string());
             }
         }
     } else if state.current_session_id().is_none() {
-        let message = if state.is_startup_mode() {
-            "Daemon is offline. Use /start to launch it.".to_string()
+        if state.is_startup_mode() {
+            let message = "Daemon is offline. Use /daemon to launch it.".to_string();
+            state.status = message.clone();
+            state.push_error(message);
+        } else if state.default_agent_id.is_some() {
+            state.push_local_user_message(text.clone());
+            state.start_assistant_typing();
+            state.status = "Creating session...".to_string();
+            output
+                .effects
+                .push(ShellEffect::CreateSessionForSubmit { message: text });
         } else {
-            "No active session. Use /sessions or configure a default agent.".to_string()
-        };
-        state.status = message.clone();
-        state.push_error(message);
+            let message =
+                "No active session. Use /resume or configure a default agent.".to_string();
+            state.status = message.clone();
+            state.push_error(message);
+        }
     } else {
         state.push_local_user_message(text.clone());
+        state.start_assistant_typing();
         state.status = "Sending message...".to_string();
-        output
-            .effects
-            .push(ShellEffect::SubmitMessage { message: text });
+        output.effects.push(submit_message_effect(text));
+    }
+}
+
+fn submit_message_effect(message: String) -> ShellEffect {
+    ShellEffect::SubmitMessage {
+        message,
+        stream_id: uuid::Uuid::new_v4().to_string(),
+    }
+}
+
+fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
+    match command {
+        SlashCommand::NewChat => "Starting new chat...",
+        SlashCommand::ListModels => "Loading providers...",
+        SlashCommand::ListModelsForProvider { .. } => "Loading models...",
+        SlashCommand::SwitchModel { .. } => "Switching model...",
+        SlashCommand::ListTasks => "Loading tasks...",
+        SlashCommand::ListSessions => "Loading sessions...",
+        _ => "Running command...",
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ShellAction, ShellEffect, reduce};
+    use super::{
+        MESSAGE_SCROLL_PAGE_ROWS, MESSAGE_SCROLL_WHEEL_ROWS, ShellAction, ShellEffect, reduce,
+    };
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
-    use crate::state::AppState;
-    use restflow_core::daemon::ChatSessionEvent;
-    use restflow_core::models::ChatSession;
+    use crate::state::{AppState, PendingSessionState};
+    use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+    use restflow_core::models::{ChatSession, ChatSessionSummary};
+
+    fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
+        ChatSessionSummary {
+            id: id.to_string(),
+            name: name.to_string(),
+            agent_id: "agent-1".to_string(),
+            provider: "provider".to_string(),
+            model: "model".to_string(),
+            skill_id: None,
+            message_count: 1,
+            updated_at: 1,
+            last_message_preview: Some("preview".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            archived_at: None,
+        }
+    }
 
     #[test]
     fn submit_plain_message_creates_send_effect() {
@@ -364,6 +683,273 @@ mod tests {
         assert!(matches!(
             output.actions.as_slice(),
             [ShellAction::SubmitText { text }] if text == "/help"
+        ));
+    }
+
+    #[test]
+    fn model_slash_command_sets_loading_status_before_effect() {
+        let mut state = AppState::empty();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "/model".to_string(),
+            },
+        );
+
+        assert_eq!(state.status, "Loading providers...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ExecuteSlashCommand(SlashCommand::ListModels)]
+        ));
+    }
+
+    #[test]
+    fn slash_opens_command_picker() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::InputChar('/')));
+
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 0 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_selection_moves_with_navigation() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::NavDown));
+
+        assert!(!output.should_quit);
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 1 })
+        ));
+    }
+
+    #[test]
+    fn page_scroll_updates_history_offset_without_overlay() {
+        let mut state = AppState::empty();
+
+        reduce(&mut state, ShellAction::Ui(Action::ScrollUp));
+        assert_eq!(state.message_scroll_from_bottom, MESSAGE_SCROLL_PAGE_ROWS);
+
+        reduce(&mut state, ShellAction::Ui(Action::ScrollDown));
+        assert_eq!(state.message_scroll_from_bottom, 0);
+    }
+
+    #[test]
+    fn wheel_scroll_uses_fine_grained_offset() {
+        let mut state = AppState::empty();
+
+        reduce(&mut state, ShellAction::Ui(Action::WheelUp));
+        assert_eq!(state.message_scroll_from_bottom, MESSAGE_SCROLL_WHEEL_ROWS);
+
+        reduce(&mut state, ShellAction::Ui(Action::WheelDown));
+        assert_eq!(state.message_scroll_from_bottom, 0);
+    }
+
+    #[test]
+    fn page_scroll_is_ignored_while_overlay_is_open() {
+        let mut state = AppState::empty();
+        state.open_command_picker();
+
+        reduce(&mut state, ShellAction::Ui(Action::ScrollUp));
+
+        assert_eq!(state.message_scroll_from_bottom, 0);
+    }
+
+    #[test]
+    fn command_picker_tracks_typed_prefix() {
+        let mut state = AppState::empty();
+
+        for ch in "/daemon".chars() {
+            reduce(&mut state, ShellAction::Ui(Action::InputChar(ch)));
+        }
+
+        assert_eq!(state.composer.draft(), "/daemon");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 0 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_moves_to_resume_when_typed() {
+        let mut state = AppState::empty();
+
+        for ch in "/resume".chars() {
+            reduce(&mut state, ShellAction::Ui(Action::InputChar(ch)));
+        }
+
+        assert_eq!(state.composer.draft(), "/resume");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::CommandPicker { selected: 3 })
+        ));
+    }
+
+    #[test]
+    fn command_picker_submit_prefers_typed_alias_over_selected_item() {
+        let mut state = AppState::empty();
+        for ch in "/session".chars() {
+            reduce(&mut state, ShellAction::Ui(Action::InputChar(ch)));
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(state.overlay.is_none());
+        assert!(state.composer.draft().is_empty());
+        assert!(matches!(
+            output.actions.as_slice(),
+            [ShellAction::SubmitText { text }] if text == "/session"
+        ));
+        assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn command_picked_replaces_composer_draft() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::CommandPicked {
+                text: "/task ".to_string(),
+            },
+        );
+
+        assert!(!output.should_quit);
+        assert!(state.overlay.is_none());
+        assert_eq!(state.composer.draft(), "/task ");
+        assert_eq!(state.status, "Command selected");
+    }
+
+    #[test]
+    fn open_daemon_picker_clears_command_draft() {
+        let mut state = AppState::empty();
+        state.composer.insert_char('/');
+        state.open_command_picker();
+
+        let output = reduce(&mut state, ShellAction::OpenDaemonPicker);
+
+        assert!(!output.should_quit);
+        assert_eq!(state.composer.draft(), "");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::DaemonPicker { selected: 0 })
+        ));
+        assert_eq!(state.status, "Select daemon action");
+    }
+
+    #[test]
+    fn submitting_model_picker_shows_switching_status_before_effect() {
+        let mut state = AppState::empty();
+        state.open_model_picker("codex");
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(!output.should_quit);
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::ModelPicker { .. })
+        ));
+        assert_eq!(state.status, "Switching model...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ActivateOverlaySelection]
+        ));
+    }
+
+    #[test]
+    fn submitting_provider_picker_shows_loading_status_before_effect() {
+        let mut state = AppState::empty();
+        state.open_provider_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(!output.should_quit);
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::ProviderPicker { .. })
+        ));
+        assert_eq!(state.status, "Loading models...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ActivateOverlaySelection]
+        ));
+    }
+
+    #[test]
+    fn delete_selected_session_requires_confirmation() {
+        let mut state = AppState::empty();
+        state.sessions = vec![session_summary("session-1", "First")];
+        state.open_session_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        assert!(output.effects.is_empty());
+        assert_eq!(state.status, "Press d again to delete session First");
+    }
+
+    #[test]
+    fn delete_selected_session_second_press_creates_effect() {
+        let mut state = AppState::empty();
+        state.sessions = vec![session_summary("session-1", "First")];
+        state.open_session_picker();
+        reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::DeleteSession { session_id }] if session_id == "session-1"
+        ));
+    }
+
+    #[test]
+    fn delete_selected_in_plain_composer_inserts_d() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::DeleteSelected));
+
+        assert!(output.effects.is_empty());
+        assert_eq!(state.composer.draft(), "d");
+    }
+
+    #[test]
+    fn session_deleted_updates_picker_sessions() {
+        let mut state = AppState::empty();
+        state.sessions = vec![
+            session_summary("session-1", "First"),
+            session_summary("session-2", "Second"),
+        ];
+        state.open_session_picker();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionDeleted {
+                session_id: "session-1".to_string(),
+                deleted: true,
+                sessions: vec![session_summary("session-2", "Second")],
+                status: "Deleted session session-1".to_string(),
+            },
+        );
+
+        assert!(!output.should_quit);
+        assert_eq!(state.sessions.len(), 1);
+        assert_eq!(state.sessions[0].id, "session-2");
+        assert_eq!(state.status, "Deleted session session-1");
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SessionPicker { selected: 0 })
         ));
     }
 
@@ -403,6 +989,38 @@ mod tests {
     }
 
     #[test]
+    fn help_overlay_does_not_append_runtime_info() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::OpenHelpOverlay);
+
+        assert!(output.effects.is_empty());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::Help)
+        ));
+        assert_eq!(state.status, "Showing help");
+    }
+
+    #[test]
+    fn submit_daemon_command_routes_to_daemon_picker() {
+        let mut state = AppState::empty();
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "/daemon".to_string(),
+            },
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ExecuteSlashCommand(SlashCommand::Daemon)]
+        ));
+    }
+
+    #[test]
     fn submit_text_creates_send_effect_for_plain_message() {
         let mut state = AppState::empty();
         let session = ChatSession::new("agent-1".to_string(), "model".to_string());
@@ -418,11 +1036,170 @@ mod tests {
         assert_eq!(state.pending_user_cells.len(), 1);
         assert_eq!(state.pending_user_cells[0].cell.body, "hi");
         assert!(state.runtime_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        let active = state.active_cell.as_ref().expect("active assistant");
+        assert!(active.is_active);
+        assert!(
+            active
+                .subtitle
+                .as_deref()
+                .is_some_and(|text| text.contains("typing"))
+        );
         assert!(matches!(
             output.effects.as_slice(),
-            [ShellEffect::SubmitMessage { message }] if message == "hi"
+            [ShellEffect::SubmitMessage { message, stream_id }] if message == "hi" && !stream_id.is_empty()
         ));
+    }
+
+    #[test]
+    fn submit_text_without_session_creates_session_first() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "hi".to_string(),
+            },
+        );
+
+        assert_eq!(state.pending_user_cells.len(), 1);
+        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
+        assert!(state.active_cell.is_some());
+        assert_eq!(state.status, "Creating session...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CreateSessionForSubmit { message }] if message == "hi"
+        ));
+    }
+
+    #[test]
+    fn session_created_for_submit_sends_pending_message() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionCreatedForSubmit {
+                session: Box::new(session),
+                runs: Vec::new(),
+                message: "hi".to_string(),
+            },
+        );
+
+        assert_eq!(state.current_session_id(), Some(session_id.as_str()));
+        assert_eq!(state.pending_user_cells.len(), 1);
+        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
+        assert!(state.active_cell.is_some());
+        assert_eq!(state.status, "Sending message...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::SubmitMessage { message, stream_id }] if message == "hi" && !stream_id.is_empty()
+        ));
+    }
+
+    #[test]
+    fn model_selection_without_session_updates_pending_session() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        state.open_model_picker("codex");
+
+        let output = reduce(
+            &mut state,
+            ShellAction::PendingSessionModelSelected {
+                provider: "codex".to_string(),
+                model: "gpt-5.4".to_string(),
+                model_name: "GPT-5.4".to_string(),
+                status: "Model selected for new chat.".to_string(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        let pending = state.pending_session.as_ref().expect("pending session");
+        assert_eq!(pending.agent_id, "agent-1");
+        assert_eq!(pending.provider, "codex");
+        assert_eq!(pending.model, "gpt-5.4");
+        assert_eq!(pending.model_name, "GPT-5.4");
+        assert!(state.overlay.is_none());
+        assert_eq!(state.status, "Model selected for new chat.");
+    }
+
+    #[test]
+    fn model_selection_without_default_agent_does_not_claim_success() {
+        let mut state = AppState::empty();
+        state.open_model_picker("codex");
+
+        let output = reduce(
+            &mut state,
+            ShellAction::PendingSessionModelSelected {
+                provider: "codex".to_string(),
+                model: "gpt-5.4".to_string(),
+                model_name: "GPT-5.4".to_string(),
+                status: "Model selected for new chat.".to_string(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        assert!(state.pending_session.is_none());
+        assert!(state.overlay.is_some());
+        assert_eq!(
+            state.status,
+            "No default agent is available. Start the daemon or send a message first."
+        );
+    }
+
+    #[test]
+    fn session_created_for_submit_clears_pending_session() {
+        let mut state = AppState::empty();
+        state.set_pending_session(Some(PendingSessionState::new(
+            "agent-1".to_string(),
+            "Agent".to_string(),
+            "gpt-5.4".to_string(),
+        )));
+        let session = ChatSession::new("agent-1".to_string(), "gpt-5.4".to_string());
+
+        let _ = reduce(
+            &mut state,
+            ShellAction::SessionCreatedForSubmit {
+                session: Box::new(session),
+                runs: Vec::new(),
+                message: "hi".to_string(),
+            },
+        );
+
+        assert!(state.pending_session.is_none());
+    }
+
+    #[test]
+    fn new_chat_started_clears_view_and_sets_pending_session() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5.4".to_string());
+        session.add_message(restflow_core::models::ChatMessage::user("old"));
+        state.set_current_session(session);
+        state.push_local_user_message("pending".to_string());
+        state.push_info("notice");
+        state.open_command_picker();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::NewChatStarted {
+                status: "Started new chat".to_string(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        assert!(state.current_session_id().is_none());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.pending_user_cells.is_empty());
+        assert!(state.active_cell.is_none());
+        assert!(state.overlay.is_none());
+        assert!(state.composer.draft().is_empty());
+        let pending = state.pending_session.as_ref().expect("pending session");
+        assert_eq!(pending.agent_id, "agent-1");
+        assert_eq!(pending.model, "gpt-5.4");
+        assert_eq!(state.status, "Started new chat");
     }
 
     #[test]
@@ -437,6 +1214,74 @@ mod tests {
         assert!(!output.should_quit);
         assert!(state.composer.draft().is_empty());
         assert_eq!(state.status, "Returned to message mode");
+    }
+
+    #[test]
+    fn esc_in_compose_mode_clears_draft_instead_of_quitting() {
+        let mut state = AppState::empty();
+        for ch in "hello".chars() {
+            state.composer.insert_char(ch);
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(state.composer.draft().is_empty());
+        assert_eq!(state.status, "Cleared input");
+    }
+
+    #[test]
+    fn esc_with_empty_composer_does_not_quit() {
+        let mut state = AppState::empty();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert_eq!(state.status, "Input already empty. Press Ctrl-C to quit.");
+    }
+
+    #[test]
+    fn esc_with_empty_composer_cancels_active_stream() {
+        let mut state = AppState::empty();
+        state.is_streaming = true;
+        state.current_stream_id = Some("stream-1".to_string());
+        state.start_assistant_typing();
+        state
+            .active_cell
+            .as_mut()
+            .expect("active cell")
+            .body
+            .push_str("Partial");
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_cell.is_none());
+        assert!(state.conversation_cells[0].body.contains("Partial"));
+        assert!(state.runtime_cells.iter().any(|entry| {
+            entry.cell.title == "Info" && entry.cell.body.contains("Canceled current response")
+        }));
+        assert_eq!(state.status, "Canceling response...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+        ));
+    }
+
+    #[test]
+    fn esc_closes_overlay_and_clears_command_draft() {
+        let mut state = AppState::empty();
+        state.composer.replace("/daemon");
+        state.open_daemon_picker();
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(state.overlay.is_none());
+        assert_eq!(state.composer.draft(), "");
+        assert_eq!(state.status, "Connecting to daemon...");
     }
 
     #[test]
@@ -458,11 +1303,49 @@ mod tests {
     }
 
     #[test]
+    fn stream_done_reloads_current_session_to_reconcile_pending_user() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hi".to_string());
+        state.start_assistant_typing();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::StreamFrame(StreamFrame::Done { total_tokens: None }),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn stream_error_reloads_current_session_to_reconcile_pending_user() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hi".to_string());
+        state.start_assistant_typing();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::StreamFrame(StreamFrame::error(500, "failed")),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
     fn startup_submit_triggers_start_daemon_effect() {
         let mut state = AppState::empty();
         state.enter_startup(Some("agent-1".to_string()), Some("session-1".to_string()));
 
-        for ch in "/start".chars() {
+        for ch in "/daemon start".chars() {
             state.composer.insert_char(ch);
         }
 
@@ -470,7 +1353,7 @@ mod tests {
 
         assert!(matches!(
             output.actions.as_slice(),
-            [ShellAction::SubmitText { text }] if text == "/start"
+            [ShellAction::SubmitText { text }] if text == "/daemon start"
         ));
     }
 
@@ -502,7 +1385,64 @@ mod tests {
 
         assert!(output.effects.is_empty());
         assert_eq!(state.runtime_cells.len(), 1);
-        assert!(state.runtime_cells[0].body.contains("/start"));
+        assert!(state.runtime_cells[0].cell.body.contains("/daemon"));
+    }
+
+    #[test]
+    fn daemon_stopped_enters_startup_mode_and_records_notice() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        state.set_current_session(session);
+
+        let output = reduce(
+            &mut state,
+            ShellAction::DaemonStopped {
+                status: "RestFlow daemon stopped".to_string(),
+            },
+        );
+
+        assert!(!output.should_quit);
+        assert!(state.is_startup_mode());
+        assert_eq!(state.status, "RestFlow daemon stopped");
+        assert_eq!(
+            state
+                .startup_state()
+                .and_then(|startup| startup.agent_override.as_deref()),
+            Some("agent-1")
+        );
+        assert_eq!(
+            state
+                .startup_state()
+                .and_then(|startup| startup.session_override.as_deref()),
+            Some(session_id.as_str())
+        );
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert!(state.runtime_cells[0].cell.body.contains("daemon stopped"));
+    }
+
+    #[test]
+    fn error_clears_active_typing_cell() {
+        let mut state = AppState::empty();
+        state.start_assistant_typing();
+        assert!(state.active_cell.is_some());
+
+        let output = reduce(
+            &mut state,
+            ShellAction::Error("Failed to connect to daemon. Is it running?".to_string()),
+        );
+
+        assert!(output.effects.is_empty());
+        assert!(state.active_cell.is_none());
+        assert!(!state.is_streaming);
+        assert_eq!(state.status, "Failed to connect to daemon. Is it running?");
+        assert!(
+            state
+                .runtime_cells
+                .iter()
+                .any(|entry| entry.cell.body.contains("Failed to connect to daemon"))
+        );
     }
 
     #[test]

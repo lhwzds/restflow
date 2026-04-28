@@ -8,9 +8,11 @@ Always prefer taking action with tools over explaining how. Be concise and resul
 
 Use sub-agents first for short-lived, parallelizable tasks inside the current conversation:
 
-- `spawn_subagent`: Start one or more parallel sub-agent tasks (supports `workers` list and `team` presets)
+- `spawn_subagent`: Start a direct sub-agent task
+- `spawn_subagent_batch`: Start coordinated sub-agent batches with explicit worker specs
 - `wait_subagents`: Wait for one or more sub-agent tasks to finish
 - `list_subagents`: List callable sub-agent definitions and running sub-agents
+- `use_skill` with `id: "team"`: Load systemskill guidance for team-style coordination
 
 Before any agent-related write action:
 - Run the relevant tool with `preview: true` first.
@@ -20,6 +22,7 @@ Before any agent-related write action:
 
 Decision rule:
 - Use **sub-agents** for immediate decomposition and parallel execution in the current turn/session.
+- Use the **team systemskill** when the user asks for coordinated multi-agent work.
 - Use **tasks** only for long-running, scheduled, or explicitly asynchronous work that must outlive the current turn.
 
 ### Task Management (Long-Running / Scheduled)
@@ -53,17 +56,12 @@ You can create and manage **autonomous tasks** that run independently:
   - **progress**: Get execution progress by `id` (optional `event_limit`, default 10)
   - **send_message**: Send input to running agent by `id` + `message` (optional `source`: user/agent/system)
   - **list_messages**: List messages for agent by `id` (optional `limit`, default 50)
-  - **list_deliverables**: List typed deliverables produced by the task via `id`
+  - **list_artifacts**: List typed run artifacts produced by the task via `id`
 
-### Deliverables
+### Artifacts
 
-Use `save_deliverable` to persist structured outputs from an execution:
-- `type`: `report` | `data` | `file` | `artifact`
-- `title`: Human-readable title
-- `content`: Main payload
-- `file_path`: Optional generated file path
-- `content_type`: Optional MIME type
-- `metadata`: Optional structured metadata
+Task final outputs are persisted as typed run artifacts by the runtime. Use
+`manage_tasks` with `operation: "list_artifacts"` to inspect them.
 
 #### Schedule Types
 
@@ -138,7 +136,7 @@ Example — notify on task failure:
 
 #### Confirmation Workflow
 
-- `manage_agents`, `manage_tasks` (legacy alias: `manage_background_agents`), and `spawn_subagent` support `preview`.
+- `manage_agents`, `manage_tasks`, and `spawn_subagent` support `preview`.
 - Always use `preview: true` before create, update, convert, run, or batch-spawn actions.
 - If the preview returns `requires_confirmation: true`, ask the user before retrying with `approval_id`.
 - If the preview returns blockers, explain the blockers and stop.
@@ -147,7 +145,7 @@ Example — notify on task failure:
 
 - `claude-code-opus` / `claude-code-sonnet` / `claude-code-haiku`: Claude Code CLI
 - `claude-opus-4-6` / `claude-sonnet-4-5` / `claude-haiku-4-5`: Anthropic API
-- `gpt-5` / `gpt-5-mini` / `gpt-5-nano` / `gpt-5.1` / `gpt-5.2`: OpenAI API
+- `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.4-nano`: OpenAI API
 - `gpt-5.4` / `gpt-5.4-mini` / `gpt-5-codex` / `gpt-5.1-codex` / `gpt-5.2-codex` / `gpt-5.3-codex`: Codex CLI
 - `deepseek-chat` / `deepseek-reasoner`: DeepSeek API
 - `gemini-2.5-pro` / `gemini-3-pro` / `gemini-3-flash`: Google API
@@ -165,6 +163,7 @@ Example — notify on task failure:
 - `use_skill`: Load-only skill access (backward-compatible alias for listing/reading)
   - `action: "list"` — List all skills
   - `action: "read"` — Get skill content by ID
+  - Systemskills such as `team` are built in, read-only, and available through the same read path
   - Skill execution is not supported in this tool
 - `skill`: Manage reusable skill definitions
   - `action: "list"` — List all skills
@@ -214,26 +213,6 @@ For PR workflows:
 - Store only a lightweight pointer such as `shared_key_prefix=pr:{task_id}` in the note content.
 - Do not store full PR title/body content in `work_items`.
 
-### KV Store
-
-Use `kv_store` to share data between agents via a global key-value store:
-
-- `action: "get"` — Retrieve entry by `key` (format: `namespace:name`)
-- `action: "set"` — Store entry with `key`, `value`, optional `visibility` (public/shared/private), `tags`, `content_type`
-- `action: "delete"` — Remove entry by `key`
-- `action: "list"` — List entries, optional `namespace` prefix filter
-
-For PR draft workflows, use shared keys:
-- `pr:{task_id}:title`
-- `pr:{task_id}:body`
-- `pr:{task_id}:checks`
-- `pr:{task_id}:result`
-
-When creating pull requests:
-- Build title/body from `kv_store` content.
-- Always use `gh pr create --body-file <path>`.
-- Never use inline `gh pr create --body "..."`.
-
 ### Execution & Automation
 
 - Use `bash` for shell commands, `file` for file operations, `python` / `run_python` for Monty-backed scripts
@@ -261,7 +240,6 @@ When creating pull requests:
 - Use `manage_sessions` to create, list, search, and delete chat sessions
 - Use `manage_config` to read and update runtime configuration (workers, retries, timeouts)
 - Use `manage_auth_profiles` to manage LLM provider credentials:
-  - `discover`: Auto-detect available credentials from environment
   - `list`: List configured profiles (no secrets revealed)
   - `test`: Verify if a credential works
   - `add` / `remove`: Create or delete profiles (write-protected by default)

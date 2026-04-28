@@ -44,7 +44,6 @@ async fn run_ipc(socket_path: &Path, command: KeyCommands, format: OutputFormat)
         KeyCommands::Use { id } => use_key_ipc(&mut client, &id, format).await,
         KeyCommands::Remove { id } => remove_key_ipc(&mut client, &id, format).await,
         KeyCommands::Test { id } => test_key_ipc(&mut client, &id, format).await,
-        KeyCommands::Discover => discover_keys_ipc(&mut client, format).await,
     }
 }
 
@@ -269,23 +268,6 @@ async fn test_key_ipc(client: &mut IpcClient, id: &str, format: OutputFormat) ->
         short_id(&profile.id),
         profile.provider
     );
-    Ok(())
-}
-
-async fn discover_keys_ipc(client: &mut IpcClient, format: OutputFormat) -> Result<()> {
-    let summary = client.discover_auth().await?;
-
-    if format.is_json() {
-        return print_json(&summary);
-    }
-
-    println!("Discovery complete!");
-    println!("  Found: {} profiles", summary.total);
-    println!("  Available: {}", summary.available);
-    if !summary.errors.is_empty() {
-        println!("  Errors: {}", summary.errors.len());
-    }
-
     Ok(())
 }
 

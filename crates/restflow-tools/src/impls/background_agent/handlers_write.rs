@@ -1,94 +1,16 @@
-use crate::impls::operation_assessment::{
-    enforce_confirmation_or_defer, guarded_confirmation_required_output, preview_output,
-};
+use crate::impls::operation_assessment::guarded_confirmation_required_output;
+use crate::{Result, ToolError, ToolOutput};
 use restflow_contracts::request::{
     DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
     MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,
     ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
 };
-use serde_json::json;
-
-use crate::{Result, ToolError, ToolOutput};
-use restflow_traits::OperationAssessmentIntent;
 use restflow_traits::store::{
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageRequest, TaskStore,
     TaskUpdateRequest,
 };
-use restflow_traits::{OperationAssessment, OperationAssessmentIssue};
 
 use super::TaskTool;
-use super::team::{delete_team, save_team_workers};
-use super::types::BackgroundBatchWorkerSpec;
-
-pub(super) async fn execute_save_team(
-    tool: &TaskTool,
-    team: String,
-    workers: Vec<BackgroundBatchWorkerSpec>,
-    preview: bool,
-    approval_id: Option<String>,
-) -> Result<ToolOutput> {
-    tool.write_guard()?;
-    let assessor = tool.assessor()?;
-    let assessment = assessor
-        .assess_background_agent_template(
-            "save_team",
-            OperationAssessmentIntent::Save,
-            workers
-                .iter()
-                .filter_map(|worker| worker.agent_id.clone())
-                .collect(),
-            true,
-        )
-        .await?;
-    if preview {
-        return Ok(preview_output(assessment));
-    }
-    if let Some(output) = enforce_confirmation_or_defer(&assessment, approval_id.as_deref())? {
-        return Ok(output);
-    }
-    let store = tool.team_store()?;
-    let payload = save_team_workers(store.as_ref(), &team, &workers, true)?;
-    Ok(ToolOutput::success(json!({
-        "operation": "save_team",
-        "result": payload
-    })))
-}
-
-pub(super) async fn execute_delete_team(
-    tool: &TaskTool,
-    team: String,
-    preview: bool,
-    approval_id: Option<String>,
-) -> Result<ToolOutput> {
-    tool.write_guard()?;
-    let assessment = OperationAssessment::warning_with_confirmation(
-        "delete_team",
-        OperationAssessmentIntent::Save,
-        vec![OperationAssessmentIssue {
-            code: "destructive_delete".to_string(),
-            message: format!(
-                "Deleting team '{team}' permanently removes the saved batch template."
-            ),
-            field: Some("team".to_string()),
-            suggestion: Some(
-                "Confirm the deletion only if you want to remove this reusable team definition."
-                    .to_string(),
-            ),
-        }],
-    );
-    if preview {
-        return Ok(preview_output(assessment));
-    }
-    if let Some(output) = enforce_confirmation_or_defer(&assessment, approval_id.as_deref())? {
-        return Ok(output);
-    }
-    let store = tool.team_store()?;
-    let payload = delete_team(store.as_ref(), &team)?;
-    Ok(ToolOutput::success(json!({
-        "operation": "delete_team",
-        "result": payload
-    })))
-}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_create(
@@ -124,7 +46,7 @@ pub(super) async fn execute_create(
         approval_id,
     };
     let result = TaskStore::create_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to create background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to create task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -162,11 +84,8 @@ pub(super) async fn execute_convert_session(
         preview,
         approval_id,
     };
-    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request).map_err(|e| {
-        ToolError::Tool(format!(
-            "Failed to convert session into background agent: {e}."
-        ))
-    })?;
+    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request)
+        .map_err(|e| ToolError::Tool(format!("Failed to convert session into task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -210,11 +129,8 @@ pub(super) async fn execute_promote_to_background(
         preview,
         approval_id,
     };
-    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request).map_err(|e| {
-        ToolError::Tool(format!(
-            "Failed to promote session into background agent: {e}."
-        ))
-    })?;
+    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request)
+        .map_err(|e| ToolError::Tool(format!("Failed to promote session into task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -263,7 +179,7 @@ pub(super) async fn execute_update(
         approval_id,
     };
     let result = TaskStore::update_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to update background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to update task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -283,7 +199,7 @@ pub(super) async fn execute_delete(
         approval_id,
     };
     let result = TaskStore::delete_task(tool.store.as_ref(), request)
-        .map_err(|e| ToolError::Tool(format!("Failed to delete background agent: {e}.")))?;
+        .map_err(|e| ToolError::Tool(format!("Failed to delete task: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -305,6 +221,6 @@ pub(super) fn execute_send_message(
             source,
         },
     )
-    .map_err(|e| ToolError::Tool(format!("Failed to send message background agent: {e}.")))?;
+    .map_err(|e| ToolError::Tool(format!("Failed to send task message: {e}.")))?;
     Ok(ToolOutput::success(result))
 }

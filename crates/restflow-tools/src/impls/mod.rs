@@ -5,7 +5,6 @@ pub(crate) mod operation_assessment;
 pub(crate) mod path_utils;
 pub(crate) mod shared;
 pub(crate) mod subagent_read_capability;
-pub(crate) mod team_template;
 
 // Original 7 tools
 mod bash;
@@ -26,13 +25,7 @@ pub mod agent_crud;
 pub mod auth_profile;
 pub mod background_agent;
 pub mod task {
-    pub use super::background_agent::{
-        TaskTool, legacy_tool_description, tool_description, tool_parameters_schema,
-    };
-
-    pub mod legacy {
-        pub use super::super::background_agent::BackgroundAgentTool;
-    }
+    pub use super::background_agent::{TaskTool, tool_description, tool_parameters_schema};
 
     #[cfg(test)]
     mod tests {
@@ -44,13 +37,6 @@ pub mod task {
                 tool_parameters_schema(),
                 super::super::background_agent::tool_parameters_schema()
             );
-        }
-
-        #[test]
-        fn task_module_exposes_legacy_background_agent_tool_through_legacy_namespace() {
-            let _: fn(
-                std::sync::Arc<dyn restflow_traits::store::BackgroundAgentStore>,
-            ) -> legacy::BackgroundAgentTool = legacy::BackgroundAgentTool::new;
         }
     }
 }
@@ -65,7 +51,6 @@ pub mod patch;
 pub mod process;
 pub mod python_backend;
 pub mod reply;
-pub mod save_deliverable;
 pub mod secrets;
 pub mod session;
 pub mod skill;
@@ -77,9 +62,7 @@ pub mod web_search;
 pub mod work_item;
 
 // Migrated from restflow-core (tool_registry inline tools)
-pub mod kv_store;
 pub mod manage_ops;
-pub mod manage_teams;
 pub mod marketplace;
 pub mod security_query;
 pub mod terminal;
@@ -99,7 +82,7 @@ pub mod list_subagents;
 pub mod registry_builder;
 pub mod spawn;
 pub mod spawn_subagent;
-pub(crate) mod spawn_subagent_batch;
+pub mod spawn_subagent_batch;
 pub mod use_skill;
 pub mod wait_subagents;
 
@@ -111,7 +94,8 @@ pub use multiedit::MultiEditTool;
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use binary_skill::{
     BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
-    BinarySkillUpdateTool,
+    BinarySkillUpdateTool, InstalledBinarySkillTool, binary_skill_tool_name,
+    discover_installed_binary_skill_tools, discover_installed_binary_skill_tools_from,
 };
 pub use browser::BrowserTool;
 pub use discord::DiscordTool;
@@ -135,7 +119,6 @@ pub use patch::PatchTool;
 pub use process::ProcessTool;
 pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};
 pub use reply::ReplyTool;
-pub use save_deliverable::SaveDeliverableTool;
 pub use secrets::{SecretGetPolicy, SecretsTool};
 pub use session::SessionTool;
 pub use skill::SkillTool;
@@ -147,9 +130,7 @@ pub use web_search::WebSearchTool;
 pub use work_item::WorkItemTool;
 
 // Re-export tool_registry inline migrated tools
-pub use kv_store::KvStoreTool;
 pub use manage_ops::ManageOpsTool;
-pub use manage_teams::ManageTeamsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
 pub use terminal::TerminalTool;
@@ -171,8 +152,6 @@ pub use registry_builder::{
 };
 pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
+pub use spawn_subagent_batch::SpawnSubagentBatchTool;
 pub use use_skill::UseSkillTool;
 pub use wait_subagents::WaitSubagentsTool;
-
-// Legacy compatibility exports.
-pub use background_agent::BackgroundAgentTool;

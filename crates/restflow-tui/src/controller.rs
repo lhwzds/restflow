@@ -1,16 +1,20 @@
 use anyhow::{Result, bail};
-use serde_json::json;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
-use restflow_core::models::{ChatSession, ChatSessionSummary};
+use restflow_core::models::{
+    ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
+};
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::{TeamAssignment, TeamMessage, TeamState};
 
 use super::daemon_client::TuiDaemonClient;
 use super::event_loop::AppEvent;
 use super::reducer::{ShellAction, ShellEffect};
-use super::slash_command::SlashCommand;
-use super::state::{AppState, OverlayState, RunPickerItem};
+use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
+use super::state::{
+    AppState, ModelPickerCategory, ModelPickerItem, OverlayState, ProviderPickerItem,
+    RunPickerItem, TaskPickerItem,
+};
 use super::transcript::ShellMessage;
 
 #[derive(Clone)]
@@ -69,24 +73,38 @@ impl ShellController {
             ShellEffect::RefreshState => self.refresh_actions(state).await,
             ShellEffect::ReloadCurrentSession => self.reload_current_session_actions(state).await,
             ShellEffect::ActivateOverlaySelection => self.overlay_selection_actions(state).await,
-            ShellEffect::SubmitMessage { message } => {
-                self.submit_message_effect(state, message, tx).await?;
+            ShellEffect::CreateSessionForSubmit { message } => {
+                self.create_session_for_submit_actions(state, message).await
+            }
+            ShellEffect::SubmitMessage { message, stream_id } => {
+                self.submit_message_effect(state, message, stream_id, tx)
+                    .await?;
                 Ok(Vec::new())
             }
+            ShellEffect::CancelStream { stream_id } => self.cancel_stream_actions(stream_id).await,
             ShellEffect::ExecuteSlashCommand(command) => {
                 self.slash_command_actions(state, command).await
             }
-            ShellEffect::ListSessionsInline => self.list_sessions_inline_actions().await,
+            ShellEffect::DeleteSession { session_id } => {
+                self.delete_session_actions(session_id).await
+            }
+            ShellEffect::ListSessionsInline => self.session_picker_actions().await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
-            ShellEffect::ListApprovalsInline => Ok(self.list_approvals_inline_actions(state)),
-            ShellEffect::ShowTeamInline => Ok(self.show_team_inline_actions(state)),
             ShellEffect::ClearScreen => Ok(Vec::new()),
         }
     }
 
     async fn refresh_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let sessions: Vec<ChatSessionSummary> =
+        let mut sessions: Vec<ChatSessionSummary> =
             self.client.list_sessions().await.unwrap_or_default();
+        if matches!(state.overlay, Some(OverlayState::SessionPicker { .. })) {
+            let bound_session_ids = self
+                .client
+                .list_background_bound_session_ids()
+                .await
+                .unwrap_or_default();
+            sessions = filter_resume_sessions(sessions, &bound_session_ids);
+        }
         let runs = if let Some(session_id) = state.current_session_id() {
             self.client
                 .list_runs_for_session(session_id)
@@ -96,15 +114,7 @@ impl ShellController {
             Vec::new()
         };
 
-        let mut actions = vec![ShellAction::StateRefreshed { sessions, runs }];
-
-        if let Some(team_run_id) = state
-            .current_team_state
-            .as_ref()
-            .map(|team| team.team_run_id.clone())
-        {
-            actions.extend(self.load_team_actions(&team_run_id, false).await?);
-        }
+        let actions = vec![ShellAction::StateRefreshed { sessions, runs }];
 
         Ok(actions)
     }
@@ -172,6 +182,43 @@ impl ShellController {
 
     async fn overlay_selection_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
         match state.overlay.clone() {
+            Some(OverlayState::CommandPicker { .. }) => {
+                let Some(index) = state.selected_command_index() else {
+                    return Ok(Vec::new());
+                };
+                let Some(spec) = SLASH_COMMAND_SPECS.get(index) else {
+                    return Ok(Vec::new());
+                };
+                if matches!(spec.command, "/daemon") {
+                    return Ok(vec![ShellAction::OpenDaemonPicker]);
+                }
+                if matches!(spec.command, "/new") {
+                    return Ok(vec![ShellAction::SubmitText {
+                        text: "/new".to_string(),
+                    }]);
+                }
+                if matches!(spec.command, "/task") {
+                    return self.task_picker_actions().await;
+                }
+                if matches!(spec.command, "/model") {
+                    return self.provider_picker_actions(state).await;
+                }
+                let command = command_display(spec.command, spec.args);
+                if spec.args.is_empty() {
+                    return Ok(vec![ShellAction::SubmitText { text: command }]);
+                }
+                Ok(vec![ShellAction::CommandPicked {
+                    text: format!("{command} "),
+                }])
+            }
+            Some(OverlayState::DaemonPicker { .. }) => {
+                let Some(action) = state.selected_daemon_action() else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![ShellAction::SubmitText {
+                    text: format!("/daemon {action}"),
+                }])
+            }
             Some(OverlayState::SessionPicker { .. }) => {
                 let Some(session_id) = state.selected_session_id().map(str::to_string) else {
                     return Ok(Vec::new());
@@ -187,6 +234,41 @@ impl ShellController {
                     runs,
                     status: format!("Opened session {session_id}"),
                 }])
+            }
+            Some(OverlayState::TaskPicker { .. }) => {
+                let Some(task_id) = state.selected_task_id().map(str::to_string) else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![ShellAction::OpenTaskActionPicker { task_id }])
+            }
+            Some(OverlayState::TaskActionPicker { .. }) => {
+                let Some((task_id, action)) = state.selected_task_action() else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![ShellAction::SubmitText {
+                    text: format!("/task {action} {task_id}"),
+                }])
+            }
+            Some(OverlayState::ProviderPicker { .. }) => {
+                let Some(item) = state.selected_provider_item() else {
+                    return Ok(Vec::new());
+                };
+                self.model_picker_actions_for_provider(state, item.provider)
+                    .await
+            }
+            Some(OverlayState::ModelPicker { .. }) => {
+                let Some(item) = state.selected_model_item() else {
+                    return Ok(Vec::new());
+                };
+                if state.current_session_id().is_none() {
+                    return Ok(vec![ShellAction::PendingSessionModelSelected {
+                        provider: item.provider,
+                        model: item.model,
+                        model_name: item.name,
+                        status: "Model selected for new chat.".to_string(),
+                    }]);
+                }
+                self.switch_model_actions(state, item.model).await
             }
             Some(OverlayState::RunPicker { .. }) => {
                 let Some(RunPickerItem::Run { run_id, .. }) = state.selected_run_picker_item()
@@ -212,8 +294,7 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            Some(OverlayState::ApprovalPicker { .. }) => Ok(Vec::new()),
-            Some(OverlayState::TeamView { .. }) | Some(OverlayState::Help) | None => Ok(Vec::new()),
+            Some(OverlayState::Help) | None => Ok(Vec::new()),
         }
     }
 
@@ -221,14 +302,60 @@ impl ShellController {
         &self,
         state: &AppState,
         message: String,
+        stream_id: String,
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> Result<()> {
         let session_id = match state.current_session_id() {
             Some(session_id) => session_id.to_string(),
             None => bail!("No active session available."),
         };
-        self.client.spawn_chat_stream(session_id, message, tx);
+        self.client
+            .spawn_chat_stream(session_id, message, stream_id, tx);
         Ok(())
+    }
+
+    async fn cancel_stream_actions(&self, stream_id: String) -> Result<Vec<ShellAction>> {
+        match self.client.cancel_chat_stream(&stream_id).await {
+            Ok(true) => Ok(vec![ShellAction::StatusUpdated(
+                "Canceled current response.".to_string(),
+            )]),
+            Ok(false) => Ok(vec![ShellAction::StatusUpdated(
+                "No active response to cancel.".to_string(),
+            )]),
+            Err(error) => Ok(vec![ShellAction::Error(format!(
+                "Failed to cancel response: {error}"
+            ))]),
+        }
+    }
+
+    async fn create_session_for_submit_actions(
+        &self,
+        state: &AppState,
+        message: String,
+    ) -> Result<Vec<ShellAction>> {
+        let agent_id = state
+            .pending_session
+            .as_ref()
+            .map(|session| session.agent_id.as_str())
+            .or(state.default_agent_id.as_deref());
+        let Some(agent_id) = agent_id else {
+            bail!("No default agent configured. Create one from the standard CLI.");
+        };
+        let session = self
+            .client
+            .create_session_for_agent(
+                agent_id,
+                state
+                    .pending_session
+                    .as_ref()
+                    .map(|session| session.model.as_str()),
+            )
+            .await?;
+        Ok(vec![ShellAction::SessionCreatedForSubmit {
+            session: Box::new(session),
+            runs: Vec::new(),
+            message,
+        }])
     }
 
     async fn slash_command_actions(
@@ -237,6 +364,10 @@ impl ShellController {
         command: SlashCommand,
     ) -> Result<Vec<ShellAction>> {
         match command {
+            SlashCommand::Daemon => Ok(vec![ShellAction::OpenDaemonPicker]),
+            SlashCommand::NewChat => Ok(vec![ShellAction::NewChatStarted {
+                status: "Started new chat".to_string(),
+            }]),
             SlashCommand::Start => {
                 match self
                     .start_daemon_actions(
@@ -253,28 +384,35 @@ impl ShellController {
                     Err(err) => Ok(start_daemon_error_actions(err)),
                 }
             }
-            SlashCommand::Help => Ok(vec![ShellAction::MessageAppended(
-                ShellMessage::InfoNotice {
-                    content: help_text().to_string(),
-                },
-            )]),
-            SlashCommand::ListSessions => self.list_sessions_inline_actions().await,
-            SlashCommand::OpenSession { session_id } => {
-                let session = self.client.get_session(&session_id).await?;
-                let runs = self
-                    .client
-                    .list_runs_for_session(&session_id)
-                    .await
-                    .unwrap_or_default();
-                Ok(vec![ShellAction::SessionOpened {
-                    session: Box::new(session),
-                    runs,
-                    status: format!("Opened session {session_id}"),
-                }])
+            SlashCommand::Stop => {
+                let stopped = self.client.stop_daemon().await?;
+                let status = if stopped {
+                    "RestFlow daemon stopped".to_string()
+                } else {
+                    "RestFlow daemon was not running".to_string()
+                };
+                Ok(vec![ShellAction::DaemonStopped { status }])
+            }
+            SlashCommand::Help => Ok(vec![ShellAction::OpenHelpOverlay]),
+            SlashCommand::ListSessions => self.session_picker_actions().await,
+            SlashCommand::ListTasks => self.task_picker_actions().await,
+            SlashCommand::ListModels => self.provider_picker_actions(state).await,
+            SlashCommand::ListModelsForProvider { provider } => {
+                match self
+                    .resolve_provider_for_model_command(state, &provider)
+                    .await?
+                {
+                    ModelCommandTarget::Provider(provider) => {
+                        self.model_picker_actions_for_provider(state, provider)
+                            .await
+                    }
+                    ModelCommandTarget::Model(model) => {
+                        self.switch_model_actions(state, model).await
+                    }
+                }
             }
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
-            SlashCommand::ListApprovals => Ok(self.list_approvals_inline_actions(state)),
-            SlashCommand::ShowTeam => Ok(self.show_team_inline_actions(state)),
+            SlashCommand::SwitchModel { model } => self.switch_model_actions(state, model).await,
             SlashCommand::TaskControl { action, task_id } => {
                 let task = self.client.control_task(&task_id, action.as_str()).await?;
                 Ok(vec![ShellAction::TaskControlCompleted {
@@ -302,71 +440,195 @@ impl ShellController {
                     status: format!("Opened run {run_id}"),
                 }])
             }
-            SlashCommand::TeamState { team_run_id } => {
-                self.load_team_actions(&team_run_id, false).await
-            }
-            SlashCommand::TeamStart { saved_team } => {
-                let output = self
-                    .client
-                    .execute_runtime_tool(
-                        "manage_teams",
-                        json!({
-                            "operation": "start_team",
-                            "team": saved_team,
-                        }),
-                    )
-                    .await?;
-                if !output.success {
-                    bail!(
-                        output
-                            .error
-                            .unwrap_or_else(|| "manage_teams failed".to_string())
-                    );
-                }
-                let team_state = serde_json::from_value::<TeamState>(output.result["team"].clone())
-                    .ok()
-                    .ok_or_else(|| anyhow::anyhow!("start_team did not return team state"))?;
-                let team_run_id = team_state.team_run_id.clone();
-                let mut actions = vec![ShellAction::MessageAppended(ShellMessage::TeamNotice {
-                    content: format!("Started team {team_run_id}"),
-                })];
-                actions.extend(self.load_team_actions(&team_run_id, false).await?);
-                Ok(actions)
-            }
-            SlashCommand::Approve { approval_id } => {
-                self.approve_named_approval_actions(state, &approval_id)
-                    .await
-            }
-            SlashCommand::Reject {
-                approval_id,
-                reason,
-            } => {
-                self.reject_named_approval_actions(state, &approval_id, reason)
-                    .await
-            }
         }
     }
 
-    async fn list_sessions_inline_actions(&self) -> Result<Vec<ShellAction>> {
+    async fn session_picker_actions(&self) -> Result<Vec<ShellAction>> {
         let sessions = self.client.list_sessions().await?;
-        if sessions.is_empty() {
-            return Ok(vec![ShellAction::MessageAppended(
-                ShellMessage::InfoNotice {
-                    content: "No sessions yet.".to_string(),
-                },
-            )]);
-        }
+        let bound_session_ids = self
+            .client
+            .list_background_bound_session_ids()
+            .await
+            .unwrap_or_default();
+        let sessions = filter_resume_sessions(sessions, &bound_session_ids);
+        let status = if sessions.is_empty() {
+            "No sessions to resume yet.".to_string()
+        } else {
+            "Select a session to resume".to_string()
+        };
+        Ok(vec![ShellAction::SessionPickerLoaded { sessions, status }])
+    }
 
-        let mut lines = vec!["Sessions".to_string()];
-        for session in sessions {
-            lines.push(format!("- {} ({})", session.name, session.id));
+    async fn task_picker_actions(&self) -> Result<Vec<ShellAction>> {
+        let tasks = self.client.list_tasks().await?;
+        let tasks = tasks
+            .into_iter()
+            .map(|task| TaskPickerItem {
+                task_id: task.id,
+                name: task.name,
+                status: format!("{:?}", task.status),
+                next_run_at: task.next_run_at,
+            })
+            .collect::<Vec<_>>();
+        let status = if tasks.is_empty() {
+            "No tasks available.".to_string()
+        } else {
+            "Select a task".to_string()
+        };
+        Ok(vec![ShellAction::TaskPickerLoaded { tasks, status }])
+    }
+
+    async fn provider_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
+        let available = if state.available_models.is_empty() {
+            self.client.list_available_models().await?
+        } else {
+            state.available_models.clone()
+        };
+        let sessions = if state.sessions.is_empty() {
+            self.client.list_sessions().await.unwrap_or_default()
+        } else {
+            state.sessions.clone()
+        };
+        let items =
+            build_provider_picker_items(&sessions, &available, state.current_model_identity());
+        let status = if items.is_empty() {
+            "No available providers. Configure provider credentials first.".to_string()
+        } else {
+            "Select a provider".to_string()
+        };
+        Ok(vec![ShellAction::ProviderPickerLoaded {
+            items,
+            available_models: available,
+            sessions,
+            status,
+        }])
+    }
+
+    async fn model_picker_actions_for_provider(
+        &self,
+        state: &AppState,
+        provider: String,
+    ) -> Result<Vec<ShellAction>> {
+        let available = if state.available_models.is_empty() {
+            self.client.list_available_models().await?
+        } else {
+            state.available_models.clone()
+        };
+        let sessions = if state.sessions.is_empty() {
+            self.client.list_sessions().await.unwrap_or_default()
+        } else {
+            state.sessions.clone()
+        };
+        let items = build_model_picker_items_for_provider(
+            &sessions,
+            &available,
+            state.current_model_identity(),
+            &provider,
+        );
+        let status = if items.is_empty() {
+            format!("No available models for {provider}.")
+        } else {
+            format!("Select a {provider} model")
+        };
+        Ok(vec![ShellAction::ModelPickerLoaded {
+            provider,
+            items,
+            status,
+        }])
+    }
+
+    async fn switch_model_actions(
+        &self,
+        state: &AppState,
+        model: String,
+    ) -> Result<Vec<ShellAction>> {
+        let Some(session_id) = state.current_session_id() else {
+            let available = self
+                .client
+                .list_available_models()
+                .await
+                .unwrap_or_default();
+            let Some(item) = resolve_model_picker_item(&available, &model) else {
+                return Ok(vec![ShellAction::StatusUpdated(format!(
+                    "Unknown or unavailable model: {model}"
+                ))]);
+            };
+            return Ok(vec![ShellAction::PendingSessionModelSelected {
+                provider: item.provider,
+                model: item.model,
+                model_name: item.name,
+                status: "Model selected for new chat.".to_string(),
+            }]);
+        };
+        let available = self
+            .client
+            .list_available_models()
+            .await
+            .unwrap_or_default();
+        let Some(item) = resolve_model_picker_item(&available, &model) else {
+            return Ok(vec![ShellAction::StatusUpdated(format!(
+                "Unknown or unavailable model: {model}"
+            ))]);
+        };
+        match self
+            .client
+            .switch_session_model(session_id, &item.provider, &item.model)
+            .await
+        {
+            Ok(session) => Ok(vec![ShellAction::ModelSwitched {
+                session: Box::new(session),
+                status: format!("Switched model to {}", item.model),
+            }]),
+            Err(error) => Ok(vec![ShellAction::StatusUpdated(format!(
+                "Failed to switch model: {error}"
+            ))]),
         }
-        lines.push("Open one with /session open <session_id>".to_string());
-        Ok(vec![ShellAction::MessageAppended(
-            ShellMessage::InfoNotice {
-                content: lines.join("\n"),
-            },
-        )])
+    }
+
+    async fn resolve_provider_for_model_command(
+        &self,
+        state: &AppState,
+        value: &str,
+    ) -> Result<ModelCommandTarget> {
+        let available = self.client.list_available_models().await?;
+        if available
+            .iter()
+            .any(|metadata| metadata.provider.as_canonical_str() == value)
+        {
+            return Ok(ModelCommandTarget::Provider(value.to_string()));
+        }
+        let Some(item) = resolve_model_picker_item(&available, value) else {
+            return Ok(ModelCommandTarget::Provider(value.to_string()));
+        };
+        if state.current_session_id().is_none() {
+            return Ok(ModelCommandTarget::Model(item.model));
+        }
+        Ok(ModelCommandTarget::Model(item.model))
+    }
+
+    async fn delete_session_actions(&self, session_id: String) -> Result<Vec<ShellAction>> {
+        let delete_result = self.client.delete_session(&session_id).await;
+        let sessions = self.client.list_sessions().await.unwrap_or_default();
+        let bound_session_ids = self
+            .client
+            .list_background_bound_session_ids()
+            .await
+            .unwrap_or_default();
+        let sessions = filter_resume_sessions(sessions, &bound_session_ids);
+        let (deleted, status) = match delete_result {
+            Ok(deleted) if deleted => (true, format!("Deleted session {session_id}")),
+            Ok(_) => (false, format!("Session {session_id} was not deleted")),
+            Err(error) => (
+                false,
+                delete_session_error_message(&session_id, error.to_string()),
+            ),
+        };
+        Ok(vec![ShellAction::SessionDeleted {
+            session_id,
+            deleted,
+            sessions,
+            status,
+        }])
     }
 
     async fn list_runs_inline_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
@@ -395,217 +657,308 @@ impl ShellController {
             },
         )])
     }
+}
 
-    fn list_approvals_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {
-        if state.current_team_approvals.is_empty() {
-            return vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: "No pending approvals.".to_string(),
-            })];
-        }
+fn filter_resume_sessions(
+    sessions: Vec<ChatSessionSummary>,
+    bound_session_ids: &std::collections::HashSet<String>,
+) -> Vec<ChatSessionSummary> {
+    sessions
+        .into_iter()
+        .filter(|session| {
+            session.message_count > 0
+                && !bound_session_ids.contains(&session.id)
+                && session.source_channel != Some(ChatSessionSource::Background)
+                && !session.name.trim_start().starts_with("Background:")
+        })
+        .collect()
+}
 
-        let mut lines = vec!["Approvals".to_string()];
-        for approval in &state.current_team_approvals {
-            lines.push(format!(
-                "- {} · {} · #{}",
-                approval.member_id, approval.content, approval.approval_id
-            ));
+#[derive(Debug, Clone, Default)]
+struct ModelUsage {
+    count: usize,
+    last_used_at: Option<i64>,
+}
+
+enum ModelCommandTarget {
+    Provider(String),
+    Model(String),
+}
+
+fn model_key(provider: &str, model: &str) -> String {
+    format!("{}:{}", provider.trim(), model.trim())
+}
+
+fn model_usage_by_key(sessions: &[ChatSessionSummary]) -> HashMap<String, ModelUsage> {
+    let mut usage = HashMap::<String, ModelUsage>::new();
+    for session in sessions {
+        if session.provider.trim().is_empty() || session.model.trim().is_empty() {
+            continue;
         }
-        lines.push("Use /approve <approval_id> or /reject <approval_id> [reason]".to_string());
-        vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-            content: lines.join("\n"),
-        })]
+        let entry = usage
+            .entry(model_key(&session.provider, &session.model))
+            .or_default();
+        entry.count += 1;
+        entry.last_used_at = Some(
+            entry
+                .last_used_at
+                .map(|existing| existing.max(session.updated_at))
+                .unwrap_or(session.updated_at),
+        );
+    }
+    usage
+}
+
+fn provider_usage_by_key(sessions: &[ChatSessionSummary]) -> HashMap<String, ModelUsage> {
+    let mut usage = HashMap::<String, ModelUsage>::new();
+    for session in sessions {
+        if session.provider.trim().is_empty() {
+            continue;
+        }
+        let entry = usage.entry(session.provider.clone()).or_default();
+        entry.count += 1;
+        entry.last_used_at = Some(
+            entry
+                .last_used_at
+                .map(|existing| existing.max(session.updated_at))
+                .unwrap_or(session.updated_at),
+        );
+    }
+    usage
+}
+
+fn recent_usage_keys(usage: &HashMap<String, ModelUsage>, limit: usize) -> HashSet<String> {
+    let mut entries = usage
+        .iter()
+        .filter_map(|(key, usage)| usage.last_used_at.map(|last| (key.clone(), last)))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(_, last)| std::cmp::Reverse(*last));
+    entries
+        .into_iter()
+        .take(limit)
+        .map(|(key, _)| key)
+        .collect()
+}
+
+fn category_for_usage(
+    key: &str,
+    usage: Option<&ModelUsage>,
+    recent_keys: &HashSet<String>,
+) -> ModelPickerCategory {
+    if recent_keys.contains(key) {
+        ModelPickerCategory::Recent
+    } else if usage.is_some_and(|usage| usage.count > 0) {
+        ModelPickerCategory::Frequent
+    } else {
+        ModelPickerCategory::Available
+    }
+}
+
+fn picker_catalog_metadata_by_key() -> HashMap<String, ModelMetadataDTO> {
+    ModelId::all_with_metadata()
+        .into_iter()
+        .filter(|metadata| !metadata.model.is_opencode_cli() && !metadata.model.is_gemini_cli())
+        .map(|metadata| {
+            (
+                model_key(
+                    metadata.provider.as_canonical_str(),
+                    metadata.model.as_serialized_str(),
+                ),
+                metadata,
+            )
+        })
+        .collect()
+}
+
+fn build_provider_picker_items(
+    sessions: &[ChatSessionSummary],
+    available: &[ModelMetadataDTO],
+    current_model: Option<(&str, &str)>,
+) -> Vec<ProviderPickerItem> {
+    let usage = provider_usage_by_key(sessions);
+    let recent_keys = recent_usage_keys(&usage, 5);
+    let current_provider = current_model.map(|(provider, _)| provider.to_string());
+    let mut items_by_provider = HashMap::<String, ProviderPickerItem>::new();
+
+    for (provider, usage) in &usage {
+        let category = category_for_usage(provider, Some(usage), &recent_keys);
+        items_by_provider.insert(
+            provider.clone(),
+            ProviderPickerItem {
+                label: provider.clone(),
+                is_current: current_provider.as_deref() == Some(provider.as_str()),
+                provider: provider.clone(),
+                category,
+                usage_count: usage.count,
+                last_used_at: usage.last_used_at,
+            },
+        );
     }
 
-    fn show_team_inline_actions(&self, state: &AppState) -> Vec<ShellAction> {
-        let Some(team) = state.current_team_state.as_ref() else {
-            return vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-                content: "No team context for the current session.".to_string(),
-            })];
-        };
-
-        let mut lines = vec![
-            format!("Team {}", team.team_run_id),
-            format!(
-                "Leader: {} · Status: {:?}",
-                team.leader_member_id, team.status
-            ),
-            format!(
-                "Members: {} · Pending messages: {} · Pending assignments: {}",
-                team.members.len(),
-                team.pending_message_count,
-                team.pending_assignment_count
-            ),
-        ];
-        if !state.current_team_assignments.is_empty() {
-            lines.push("Assignments".to_string());
-            for assignment in &state.current_team_assignments {
-                lines.push(format!(
-                    "- {} -> {} · {:?}",
-                    assignment.assignment_id, assignment.assignee_member_id, assignment.status
-                ));
-            }
-        }
-        if !state.current_team_approvals.is_empty() {
-            lines.push(format!(
-                "Pending approvals: {}",
-                state.current_team_approvals.len()
-            ));
-        }
-
-        vec![ShellAction::MessageAppended(ShellMessage::InfoNotice {
-            content: lines.join("\n"),
-        })]
+    for metadata in available {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        let usage = usage.get(&provider).cloned().unwrap_or_default();
+        let category = category_for_usage(&provider, Some(&usage), &recent_keys);
+        items_by_provider
+            .entry(provider.clone())
+            .and_modify(|item| {
+                item.is_current = current_provider.as_deref() == Some(provider.as_str());
+            })
+            .or_insert_with(|| ProviderPickerItem {
+                label: provider.clone(),
+                is_current: current_provider.as_deref() == Some(provider.as_str()),
+                provider,
+                category,
+                usage_count: usage.count,
+                last_used_at: usage.last_used_at,
+            });
     }
 
-    async fn approve_named_approval_actions(
-        &self,
-        state: &AppState,
-        approval_id: &str,
-    ) -> Result<Vec<ShellAction>> {
-        let team_run_id = state
-            .current_team_state
-            .as_ref()
-            .map(|team| team.team_run_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No active team context for approval"))?;
-        if approval_id.trim().is_empty() {
-            bail!("Usage: /approve <approval_id>");
-        }
-        let output = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "resolve_team_approval",
-                    "team_run_id": team_run_id,
-                    "approval_id": approval_id,
-                    "approved": true,
-                }),
-            )
-            .await?;
-        if !output.success {
-            bail!(
-                output
-                    .error
-                    .unwrap_or_else(|| "approval failed".to_string())
-            );
-        }
-
-        let mut actions = self.load_team_actions(&team_run_id, false).await?;
-        actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
-            content: format!("Approval {approval_id} approved"),
-        }));
-        actions.push(ShellAction::StatusUpdated(format!(
-            "Approved {approval_id}"
-        )));
-        Ok(actions)
+    if let Some(provider) = current_provider
+        && !provider.trim().is_empty()
+    {
+        items_by_provider
+            .entry(provider.clone())
+            .or_insert_with(|| ProviderPickerItem {
+                label: provider.clone(),
+                is_current: true,
+                provider,
+                category: ModelPickerCategory::Recent,
+                usage_count: 0,
+                last_used_at: None,
+            });
     }
 
-    async fn reject_named_approval_actions(
-        &self,
-        state: &AppState,
-        approval_id: &str,
-        reason: Option<String>,
-    ) -> Result<Vec<ShellAction>> {
-        let team_run_id = state
-            .current_team_state
-            .as_ref()
-            .map(|team| team.team_run_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No active team context for rejection"))?;
-        if approval_id.trim().is_empty() {
-            bail!("Usage: /reject <approval_id> [reason]");
-        }
-        let output = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "resolve_team_approval",
-                    "team_run_id": team_run_id,
-                    "approval_id": approval_id,
-                    "approved": false,
-                    "reason": reason,
-                }),
-            )
-            .await?;
-        if !output.success {
-            bail!(output.error.unwrap_or_else(|| "reject failed".to_string()));
-        }
+    let mut items = items_by_provider.into_values().collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        model_category_order(left.category)
+            .cmp(&model_category_order(right.category))
+            .then_with(|| match left.category {
+                ModelPickerCategory::Recent => right.last_used_at.cmp(&left.last_used_at),
+                ModelPickerCategory::Frequent => right.usage_count.cmp(&left.usage_count),
+                ModelPickerCategory::Available => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    items
+}
 
-        let mut actions = self.load_team_actions(&team_run_id, false).await?;
-        actions.push(ShellAction::MessageAppended(ShellMessage::TeamNotice {
-            content: format!("Approval {approval_id} rejected"),
-        }));
-        actions.push(ShellAction::StatusUpdated(format!(
-            "Rejected {approval_id}"
-        )));
-        Ok(actions)
+fn build_model_picker_items_for_provider(
+    sessions: &[ChatSessionSummary],
+    available: &[ModelMetadataDTO],
+    current_model: Option<(&str, &str)>,
+    provider_filter: &str,
+) -> Vec<ModelPickerItem> {
+    let usage = model_usage_by_key(sessions);
+    let recent_keys = recent_usage_keys(&usage, 5);
+    let catalog = picker_catalog_metadata_by_key();
+
+    let current_key = current_model
+        .map(|(provider, model)| model_key(provider, model))
+        .filter(|key| key != ":");
+
+    let mut items_by_key = HashMap::<String, ModelPickerItem>::new();
+    let mut available_keys = HashSet::<String>::new();
+
+    for metadata in available
+        .iter()
+        .filter(|metadata| metadata.provider.as_canonical_str() == provider_filter)
+    {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        let model = metadata.model.as_serialized_str().to_string();
+        let key = model_key(&provider, &model);
+        available_keys.insert(key.clone());
+        let usage = usage.get(&key).cloned().unwrap_or_default();
+        let category = category_for_usage(&key, Some(&usage), &recent_keys);
+        items_by_key
+            .entry(key.clone())
+            .and_modify(|item| {
+                item.name = metadata.name.clone();
+                item.is_current = current_key.as_deref() == Some(key.as_str());
+            })
+            .or_insert_with(|| ModelPickerItem {
+                provider,
+                model,
+                name: metadata.name.clone(),
+                category,
+                usage_count: usage.count,
+                last_used_at: usage.last_used_at,
+                is_current: current_key.as_deref() == Some(key.as_str()),
+            });
     }
 
-    async fn load_team_actions(
-        &self,
-        team_run_id: &str,
-        open_overlay: bool,
-    ) -> Result<Vec<ShellAction>> {
-        let state_result = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "get_team_state",
-                    "team_run_id": team_run_id,
-                }),
-            )
-            .await?;
-        if !state_result.success {
-            bail!(
-                "{}",
-                state_result
-                    .error
-                    .unwrap_or_else(|| "get_team_state failed".to_string())
-            );
-        }
-        let team_state = serde_json::from_value(state_result.result["team"].clone()).ok();
+    if let Some(key) = current_key.as_ref()
+        && available_keys.contains(key)
+        && let Some(metadata) = catalog.get(key)
+        && metadata.provider.as_canonical_str() == provider_filter
+    {
+        items_by_key
+            .entry(key.clone())
+            .or_insert_with(|| ModelPickerItem {
+                provider: metadata.provider.as_canonical_str().to_string(),
+                model: metadata.model.as_serialized_str().to_string(),
+                name: metadata.name.clone(),
+                category: ModelPickerCategory::Recent,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: true,
+            });
+    }
 
-        let messages_result = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "list_team_messages",
-                    "team_run_id": team_run_id,
-                }),
-            )
-            .await?;
-        let messages: Vec<TeamMessage> = if messages_result.success {
-            serde_json::from_value(messages_result.result["messages"].clone()).unwrap_or_default()
+    let mut items = items_by_key.into_values().collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        model_category_order(left.category)
+            .cmp(&model_category_order(right.category))
+            .then_with(|| match left.category {
+                ModelPickerCategory::Recent => right.last_used_at.cmp(&left.last_used_at),
+                ModelPickerCategory::Frequent => right.usage_count.cmp(&left.usage_count),
+                ModelPickerCategory::Available => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.model.cmp(&right.model))
+    });
+    items
+}
+
+fn resolve_model_picker_item(
+    available: &[ModelMetadataDTO],
+    requested: &str,
+) -> Option<ModelPickerItem> {
+    let requested = requested.trim();
+    available.iter().find_map(|metadata| {
+        let provider = metadata.provider.as_canonical_str().to_string();
+        let model = metadata.model.as_serialized_str().to_string();
+        let qualified = model_key(&provider, &model);
+        if requested == model || requested == qualified {
+            Some(ModelPickerItem {
+                provider,
+                model,
+                name: metadata.name.clone(),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+            })
         } else {
-            Vec::new()
-        };
+            None
+        }
+    })
+}
 
-        let assignments_result = self
-            .client
-            .execute_runtime_tool(
-                "manage_teams",
-                json!({
-                    "operation": "list_team_assignments",
-                    "team_run_id": team_run_id,
-                }),
-            )
-            .await?;
-        let assignments: Vec<TeamAssignment> = if assignments_result.success {
-            serde_json::from_value(assignments_result.result["assignments"].clone())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+fn model_category_order(category: ModelPickerCategory) -> u8 {
+    match category {
+        ModelPickerCategory::Recent => 0,
+        ModelPickerCategory::Frequent => 1,
+        ModelPickerCategory::Available => 2,
+    }
+}
 
-        Ok(vec![ShellAction::TeamSnapshotLoaded {
-            team_state,
-            messages,
-            assignments,
-            status: format!("Loaded team {team_run_id}"),
-            open_overlay,
-        }])
+fn delete_session_error_message(session_id: &str, error: String) -> String {
+    if error.contains("bound to background task") {
+        format!("Cannot delete background-bound session {session_id}")
+    } else {
+        format!("Failed to delete session {session_id}: {error}")
     }
 }
 
@@ -613,38 +966,24 @@ fn start_daemon_error_actions(err: anyhow::Error) -> Vec<ShellAction> {
     vec![ShellAction::Error(format!("Failed to start daemon: {err}"))]
 }
 
-fn help_text() -> &'static str {
-    "RestFlow terminal shell\n\n\
-Use /start when the daemon is offline.\n\
-\
-Enter sends the current draft.\n\
-Ctrl-J inserts a newline.\n\
-Ctrl-P lists sessions.\n\
-Ctrl-R lists runs for the current session.\n\
-Ctrl-A lists pending approvals.\n\
-Ctrl-G shows current team state.\n\
-Ctrl-L clears and redraws the screen.\n\
-Ctrl-C exits.\n\n\
-Slash commands:\n\
-/start\n\
-/help\n\
-/sessions\n\
-/session open <session_id>\n\
-/runs\n\
-/run open <run_id>\n\
-/approvals\n\
-/approve <approval_id>\n\
-/reject <approval_id> [reason]\n\
-/team\n\
-/team state <team_run_id>\n\
-/team start <saved_team>\n\
-/task pause|resume|stop <task_id>"
+fn command_display(command: &str, args: &str) -> String {
+    if args.is_empty() {
+        command.to_string()
+    } else {
+        format!("{command} {args}")
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::start_daemon_error_actions;
+    use super::{
+        build_model_picker_items_for_provider, build_provider_picker_items,
+        delete_session_error_message, filter_resume_sessions, start_daemon_error_actions,
+    };
     use crate::reducer::ShellAction;
+    use crate::state::ModelPickerCategory;
+    use restflow_core::models::{ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO};
+    use std::collections::HashSet;
 
     #[test]
     fn start_daemon_error_stays_inside_shell() {
@@ -655,5 +994,222 @@ mod tests {
             [ShellAction::Error(message)]
                 if message.contains("Failed to start daemon") && message.contains("socket denied")
         ));
+    }
+
+    #[test]
+    fn filter_resume_sessions_removes_background_bound_sessions() {
+        let sessions = vec![
+            session_summary_with_messages("session-1", "Regular", 1),
+            session_summary_with_messages("session-2", "Background", 1),
+            session_summary_with_messages("session-3", "Empty", 0),
+            session_summary_with_messages("session-4", "Background: Reviewer", 1),
+        ];
+        let mut source_background = session_summary_with_messages("session-5", "Reviewer", 1);
+        source_background.source_channel = Some(ChatSessionSource::Background);
+        let mut sessions = sessions;
+        sessions.push(source_background);
+        let bound = HashSet::from(["session-2".to_string()]);
+
+        let visible = filter_resume_sessions(sessions, &bound);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, "session-1");
+    }
+
+    #[test]
+    fn delete_session_error_message_summarizes_background_bound_conflict() {
+        let message = delete_session_error_message(
+            "session-1",
+            "IPC error 409: Session session-1 is bound to background task task-1".to_string(),
+        );
+
+        assert_eq!(message, "Cannot delete background-bound session session-1");
+    }
+
+    #[test]
+    fn provider_picker_orders_recent_frequent_then_available_providers() {
+        let sessions = vec![
+            session_summary_with_model("session-1", "Recent", "codex", "gpt-5.4", 100),
+            session_summary_with_model(
+                "session-2",
+                "Frequent 1",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                50,
+            ),
+            session_summary_with_model(
+                "session-3",
+                "Frequent 2",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                60,
+            ),
+        ];
+        let available = vec![
+            model_metadata(ModelId::MiniMaxM25CodingPlan, "MiniMax M2.5"),
+            model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4"),
+            model_metadata(ModelId::Gpt5_4MiniCodex, "GPT-5.4 Mini"),
+        ];
+        let items = build_provider_picker_items(&sessions, &available, Some(("codex", "gpt-5.4")));
+
+        assert_eq!(items[0].provider, "codex");
+        assert_eq!(items[0].category, ModelPickerCategory::Recent);
+        assert!(items[0].is_current);
+        assert_eq!(items[1].provider, "minimax-coding-plan");
+        assert_eq!(items[1].usage_count, 2);
+    }
+
+    #[test]
+    fn provider_picker_includes_used_providers_without_current_api_key() {
+        let sessions = vec![
+            session_summary_with_model("session-1", "Codex", "codex", "gpt-5.4", 100),
+            session_summary_with_model(
+                "session-2",
+                "Zai",
+                "zai-coding-plan",
+                "zai-coding-plan-glm-5-1",
+                90,
+            ),
+        ];
+        let available = vec![model_metadata(ModelId::Gpt5, "GPT-5")];
+        let items = build_provider_picker_items(&sessions, &available, Some(("codex", "gpt-5.4")));
+        let providers = items
+            .iter()
+            .map(|item| item.provider.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(providers.contains(&"codex"));
+        assert!(providers.contains(&"zai-coding-plan"));
+        assert!(providers.contains(&"openai"));
+        assert!(
+            items
+                .iter()
+                .any(|item| item.provider == "codex" && item.is_current)
+        );
+    }
+
+    #[test]
+    fn model_picker_filters_models_to_selected_provider() {
+        let sessions = vec![
+            session_summary_with_model("session-1", "Recent", "codex", "gpt-5.4", 100),
+            session_summary_with_model(
+                "session-2",
+                "Frequent 1",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                50,
+            ),
+            session_summary_with_model(
+                "session-3",
+                "Frequent 2",
+                "minimax-coding-plan",
+                "minimax-coding-plan-m2-5",
+                60,
+            ),
+        ];
+        let available = vec![
+            model_metadata(ModelId::MiniMaxM25CodingPlan, "MiniMax M2.5"),
+            model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4"),
+            model_metadata(ModelId::Gpt5_4MiniCodex, "GPT-5.4 Mini"),
+        ];
+        let items = build_model_picker_items_for_provider(
+            &sessions,
+            &available,
+            Some(("codex", "gpt-5.4")),
+            "codex",
+        );
+
+        assert_eq!(items[0].model, "gpt-5.4");
+        assert_eq!(items[0].category, ModelPickerCategory::Recent);
+        assert!(items[0].is_current);
+        assert_eq!(items[1].model, "gpt-5.4-mini");
+        assert_eq!(items[1].category, ModelPickerCategory::Available);
+    }
+
+    #[test]
+    fn model_picker_includes_used_models_without_current_api_key() {
+        let sessions = vec![session_summary_with_model(
+            "session-1",
+            "Codex",
+            "codex",
+            "gpt-5.4",
+            100,
+        )];
+        let available = vec![model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4")];
+        let items = build_model_picker_items_for_provider(&sessions, &available, None, "codex");
+
+        assert_eq!(items[0].provider, "codex");
+        assert_eq!(items[0].model, "gpt-5.4");
+        assert_eq!(items[0].name, "GPT-5.4");
+        assert_eq!(items[0].category, ModelPickerCategory::Recent);
+    }
+
+    #[test]
+    fn model_picker_excludes_used_models_without_available_metadata() {
+        let sessions = vec![session_summary_with_model(
+            "session-1",
+            "Old OpenAI",
+            "openai",
+            "gpt-5-2",
+            100,
+        )];
+        let available = vec![model_metadata(ModelId::Gpt5_4, "GPT-5.4")];
+        let items = build_model_picker_items_for_provider(&sessions, &available, None, "openai");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].model, "gpt-5-4");
+    }
+
+    fn session_summary_with_messages(
+        id: &str,
+        name: &str,
+        message_count: u32,
+    ) -> ChatSessionSummary {
+        ChatSessionSummary {
+            id: id.to_string(),
+            name: name.to_string(),
+            agent_id: "agent-1".to_string(),
+            provider: "provider".to_string(),
+            model: "model".to_string(),
+            skill_id: None,
+            message_count,
+            updated_at: 1,
+            last_message_preview: Some("preview".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            archived_at: None,
+        }
+    }
+
+    fn session_summary_with_model(
+        id: &str,
+        name: &str,
+        provider: &str,
+        model: &str,
+        updated_at: i64,
+    ) -> ChatSessionSummary {
+        ChatSessionSummary {
+            id: id.to_string(),
+            name: name.to_string(),
+            agent_id: "agent-1".to_string(),
+            provider: provider.to_string(),
+            model: model.to_string(),
+            skill_id: None,
+            message_count: 1,
+            updated_at,
+            last_message_preview: Some("preview".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            archived_at: None,
+        }
+    }
+
+    fn model_metadata(model: ModelId, name: &str) -> ModelMetadataDTO {
+        ModelMetadataDTO {
+            model,
+            provider: model.provider(),
+            supports_temperature: false,
+            name: name.to_string(),
+        }
     }
 }

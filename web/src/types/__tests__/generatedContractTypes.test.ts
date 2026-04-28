@@ -23,11 +23,18 @@ describe('generated contract types', () => {
   it('uses approval_id as the canonical replay field for subagent tools', () => {
     const spawnParamsSource = readGeneratedFile('SpawnSubagentParams.ts')
     const batchParamsSource = readGeneratedFile('SpawnSubagentBatchParams.ts')
+    const batchOperationSource = readGeneratedFile('SpawnSubagentBatchOperation.ts')
 
     expect(spawnParamsSource).toContain('approval_id?: string')
     expect(spawnParamsSource).not.toContain('confirmation_token?: string')
     expect(batchParamsSource).toContain('approval_id?: string')
     expect(batchParamsSource).not.toContain('confirmation_token?: string')
+    expect(spawnParamsSource).not.toContain('save_as_team')
+    expect(spawnParamsSource).not.toContain('team?: string')
+    expect(batchParamsSource).not.toContain('save_as_team')
+    expect(batchParamsSource).not.toContain('team?: string')
+    expect(batchOperationSource).not.toContain('save_team')
+    expect(batchOperationSource).not.toContain('list_teams')
   })
 
   it('keeps trace query contracts in the generated surface', () => {

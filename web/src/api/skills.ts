@@ -58,6 +58,8 @@ export async function createSkill(request: CreateSkillRequest): Promise<Skill> {
     auto_complete: false,
     storage_mode: 'DatabaseOnly',
     is_synced: false,
+    source: 'user',
+    read_only: false,
     created_at: Date.now(),
     updated_at: Date.now(),
   }

@@ -2,6 +2,7 @@
 import type { SkillGating } from './SkillGating'
 import type { SkillReference } from './SkillReference'
 import type { SkillScript } from './SkillScript'
+import type { SkillSource } from './SkillSource'
 import type { SkillStatus } from './SkillStatus'
 import type { StorageMode } from './StorageMode'
 
@@ -85,6 +86,18 @@ export type Skill = {
    * Whether the skill is synced between storage modes
    */
   is_synced: boolean
+  /**
+   * Skill source in the unified skill catalog
+   */
+  source: SkillSource
+  /**
+   * Whether this skill can be modified through user skill APIs
+   */
+  read_only: boolean
+  /**
+   * Optional source reference for installed or system skills
+   */
+  source_ref?: string | null
   /**
    * Timestamp when the skill was created (milliseconds since epoch)
    */

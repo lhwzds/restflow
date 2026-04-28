@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   cleanupTrackedState,
-  createSessionForTest,
+  createOpenAiSessionForTest,
   goToWorkspace,
   requestIpc,
   trackCreatedBackgroundTask,
@@ -84,7 +84,7 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createSessionForTest(page);
+    const sessionId = await createOpenAiSessionForTest(page);
 
     const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
@@ -117,7 +117,7 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createSessionForTest(page);
+    const sessionId = await createOpenAiSessionForTest(page);
 
     const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
@@ -233,7 +233,7 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createSessionForTest(page);
+    const sessionId = await createOpenAiSessionForTest(page);
 
     const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
@@ -342,7 +342,7 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createSessionForTest(page);
+    const sessionId = await createOpenAiSessionForTest(page);
 
     const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });

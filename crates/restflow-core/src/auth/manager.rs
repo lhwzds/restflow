@@ -2,17 +2,15 @@
 //!
 //! Manages credential profiles with selection, health tracking, and failover.
 
-use super::discoverer::{CompositeDiscoverer, DiscoveredProfile};
 use super::refresh::{AnthropicRefresher, OAuthRefresher};
 use super::resolver::CredentialResolver;
 use super::types::{
-    AuthProfile, AuthProvider, Credential, CredentialSource, DiscoverySummary, ProfileHealth,
-    ProfileSelection, SecureCredential,
+    AuthProfile, AuthProvider, Credential, CredentialSource, ProfileHealth, ProfileSelection,
+    SecureCredential,
 };
 use super::writer::CredentialWriter;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use specta::Type;
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,9 +32,6 @@ pub struct AuthManagerConfig {
     /// Maximum consecutive failures before disabling a profile
     #[serde(default = "default_max_failures")]
     pub max_failures: u32,
-    /// Whether to auto-discover credentials on initialization
-    #[serde(default = "default_true")]
-    pub auto_discover: bool,
 }
 
 fn default_cooldown() -> u64 {
@@ -45,16 +40,11 @@ fn default_cooldown() -> u64 {
 fn default_max_failures() -> u32 {
     5
 }
-fn default_true() -> bool {
-    true
-}
-
 impl Default for AuthManagerConfig {
     fn default() -> Self {
         Self {
             cooldown_seconds: default_cooldown(),
             max_failures: default_max_failures(),
-            auto_discover: true,
         }
     }
 }
@@ -62,7 +52,6 @@ impl Default for AuthManagerConfig {
 /// Authentication Profile Manager
 ///
 /// Manages credential profiles with:
-/// - Automatic discovery from multiple sources
 /// - Profile selection based on priority and health
 /// - Health tracking with exponential backoff
 /// - Manual profile management
@@ -70,7 +59,6 @@ impl Default for AuthManagerConfig {
 pub struct AuthProfileManager {
     config: AuthManagerConfig,
     profiles: Arc<RwLock<HashMap<String, AuthProfile>>>,
-    discoverer: CompositeDiscoverer,
     refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>>,
     /// Resolver for reading secrets
     resolver: CredentialResolver,
@@ -110,7 +98,6 @@ impl AuthProfileManager {
         Self {
             config,
             profiles: Arc::new(RwLock::new(HashMap::new())),
-            discoverer: CompositeDiscoverer::with_defaults(),
             refreshers,
             resolver,
             writer,
@@ -118,86 +105,13 @@ impl AuthProfileManager {
         }
     }
 
-    /// Initialize the manager (run discovery if auto_discover is enabled)
-    pub async fn initialize(&self) -> Result<DiscoverySummary> {
+    /// Initialize the manager by loading explicitly configured profiles.
+    pub async fn initialize(&self) -> Result<()> {
         if let Err(e) = self.load_profiles_from_storage().await {
             warn!(error = %e, "Failed to load manual profiles from storage");
         }
 
-        if self.config.auto_discover {
-            return self.discover().await;
-        }
-
-        Ok(DiscoverySummary::default())
-    }
-
-    /// Run credential discovery
-    pub async fn discover(&self) -> Result<DiscoverySummary> {
-        let (discovered_profiles, summary) = self.discoverer.discover_all().await;
-
-        let mut profiles = self.profiles.write().await;
-
-        for discovered in discovered_profiles {
-            // Use deterministic IDs for discovered profiles so repeated discovery does not
-            // create unbounded auth:* secret keys across restarts.
-            let profile_id = Self::discovered_profile_id(&discovered);
-            if profiles.contains_key(&profile_id) {
-                continue;
-            }
-
-            match self
-                .writer
-                .store_credential(&profile_id, &discovered.credential)
-            {
-                Ok(secure_credential) => {
-                    let profile = AuthProfile::new_with_id(
-                        profile_id.clone(),
-                        discovered.name,
-                        secure_credential,
-                        discovered.source,
-                        discovered.provider,
-                    );
-                    profiles.insert(profile_id, profile);
-                }
-                Err(e) => {
-                    warn!(error = %e, "Failed to store discovered credential securely");
-                }
-            }
-        }
-
-        info!(
-            total_profiles = profiles.len(),
-            discovered = summary.total,
-            "Discovery complete"
-        );
-
-        Ok(summary)
-    }
-
-    fn discovered_profile_id(discovered: &DiscoveredProfile) -> String {
-        let identity = discovered
-            .credential
-            .get_email()
-            .map(|email| email.trim().to_ascii_lowercase())
-            .filter(|email| !email.is_empty())
-            .unwrap_or_else(|| discovered.name.trim().to_ascii_lowercase());
-
-        let seed = format!(
-            "auth-discovered:{}:{}:{}",
-            discovered.source, discovered.provider, identity
-        );
-
-        let mut hasher = Sha256::new();
-        hasher.update(seed.as_bytes());
-        let digest = hasher.finalize();
-
-        let mut bytes = [0_u8; 16];
-        bytes.copy_from_slice(&digest[..16]);
-        // Set RFC4122 variant and a deterministic v5-like version marker.
-        bytes[6] = (bytes[6] & 0x0f) | 0x50;
-        bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-        Uuid::from_bytes(bytes).to_string()
+        Ok(())
     }
 
     /// Get all profiles
@@ -839,20 +753,6 @@ mod tests {
         AuthProfile::new_with_id(profile_id, name, secure, CredentialSource::Manual, provider)
     }
 
-    fn create_discovered_profile(
-        name: &str,
-        source: CredentialSource,
-        provider: AuthProvider,
-        credential: Credential,
-    ) -> DiscoveredProfile {
-        DiscoveredProfile {
-            name: name.to_string(),
-            credential,
-            source,
-            provider,
-        }
-    }
-
     #[test]
     fn test_credential_refresh_token_extracts_oauth() {
         let cred = Credential::OAuth {
@@ -1352,73 +1252,5 @@ mod tests {
         assert_eq!(updated.name, "New Name");
         assert!(updated.enabled); // Should remain unchanged
         assert_eq!(updated.priority, 0); // Should remain unchanged
-    }
-
-    #[test]
-    fn test_discovered_profile_id_stable_for_same_email_identity() {
-        let p1 = create_discovered_profile(
-            "Claude Code",
-            CredentialSource::ClaudeCode,
-            AuthProvider::ClaudeCode,
-            Credential::OAuth {
-                access_token: "token-a".to_string(),
-                refresh_token: Some("refresh-a".to_string()),
-                expires_at: None,
-                email: Some("User@Example.com".to_string()),
-            },
-        );
-        let p2 = create_discovered_profile(
-            "Claude Code",
-            CredentialSource::ClaudeCode,
-            AuthProvider::ClaudeCode,
-            Credential::OAuth {
-                access_token: "token-b".to_string(),
-                refresh_token: Some("refresh-b".to_string()),
-                expires_at: None,
-                email: Some("user@example.com".to_string()),
-            },
-        );
-
-        let id1 = AuthProfileManager::discovered_profile_id(&p1);
-        let id2 = AuthProfileManager::discovered_profile_id(&p2);
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_discovered_profile_id_uses_name_when_email_missing() {
-        let p1 = create_discovered_profile(
-            "$OPENAI_API_KEY",
-            CredentialSource::Environment,
-            AuthProvider::OpenAI,
-            Credential::ApiKey {
-                key: "key-a".to_string(),
-                email: None,
-            },
-        );
-        let p2 = create_discovered_profile(
-            "$OPENAI_API_KEY",
-            CredentialSource::Environment,
-            AuthProvider::OpenAI,
-            Credential::ApiKey {
-                key: "key-b".to_string(),
-                email: None,
-            },
-        );
-        let p3 = create_discovered_profile(
-            "$ANTHROPIC_API_KEY",
-            CredentialSource::Environment,
-            AuthProvider::Anthropic,
-            Credential::ApiKey {
-                key: "key-c".to_string(),
-                email: None,
-            },
-        );
-
-        let id1 = AuthProfileManager::discovered_profile_id(&p1);
-        let id2 = AuthProfileManager::discovered_profile_id(&p2);
-        let id3 = AuthProfileManager::discovered_profile_id(&p3);
-
-        assert_eq!(id1, id2);
-        assert_ne!(id1, id3);
     }
 }

@@ -13,7 +13,7 @@ pub use operation::{
     CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, IdResponse,
     IpcDaemonStatus, OkResponse, PairingApprovalResponse, PairingOwnerResponse,
     PairingRequestResponse, PairingStateResponse, PromptResponse, RouteBindingResponse,
-    SecretResponse, SessionSourceMigrationResponse, SteerResponse,
+    SecretResponse, SteerResponse,
 };
 pub use request::IpcRequest;
 pub use response::ResponseEnvelope;

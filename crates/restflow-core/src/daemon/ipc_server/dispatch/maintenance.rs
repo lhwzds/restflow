@@ -1,5 +1,5 @@
 use super::super::*;
-use restflow_contracts::{CleanupReportResponse, SessionSourceMigrationResponse};
+use restflow_contracts::CleanupReportResponse;
 
 impl IpcServer {
     pub(super) async fn handle_run_cleanup(core: &Arc<AppCore>) -> IpcResponse {
@@ -14,26 +14,6 @@ impl IpcServer {
                 memory_sessions: report.memory_sessions,
                 vector_orphans: report.vector_orphans,
                 daemon_log_files: report.daemon_log_files,
-            }),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_migrate_session_sources(
-        core: &Arc<AppCore>,
-        dry_run: bool,
-    ) -> IpcResponse {
-        match core
-            .storage
-            .chat_sessions
-            .migrate_legacy_channel_sources(dry_run)
-        {
-            Ok(stats) => IpcResponse::success(SessionSourceMigrationResponse {
-                dry_run,
-                scanned: stats.scanned,
-                migrated: stats.migrated,
-                skipped: stats.skipped,
-                failed: stats.failed,
             }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

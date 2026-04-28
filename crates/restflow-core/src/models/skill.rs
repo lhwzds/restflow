@@ -7,6 +7,7 @@ use ts_rs::TS;
 
 use crate::models::StorageMode;
 use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
+use restflow_traits::skill::SkillSource;
 
 /// Skill lifecycle status used for discovery and planning.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq, Eq)]
@@ -78,6 +79,15 @@ pub struct Skill {
     /// Whether the skill is synced between storage modes
     #[serde(default)]
     pub is_synced: bool,
+    /// Skill source in the unified skill catalog
+    #[serde(default)]
+    pub source: SkillSource,
+    /// Whether this skill can be modified through user skill APIs
+    #[serde(default)]
+    pub read_only: bool,
+    /// Optional source reference for installed or system skills
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
     /// Timestamp when the skill was created (milliseconds since epoch)
     #[ts(type = "number")]
     pub created_at: i64,
@@ -116,6 +126,9 @@ impl Skill {
             auto_complete: false,
             storage_mode: StorageMode::DatabaseOnly,
             is_synced: false,
+            source: SkillSource::User,
+            read_only: false,
+            source_ref: None,
             created_at: now,
             updated_at: now,
         }

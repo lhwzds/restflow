@@ -126,15 +126,6 @@ pub struct CleanupReportResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SessionSourceMigrationResponse {
-    pub dry_run: bool,
-    pub scanned: usize,
-    pub migrated: usize,
-    pub skipped: usize,
-    pub failed: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IpcDaemonStatus {
     pub status: String,
     pub protocol_version: String,
@@ -300,18 +291,6 @@ mod tests {
             memory_sessions: 7,
             vector_orphans: 8,
             daemon_log_files: 9,
-        };
-        assert_roundtrip(&response);
-    }
-
-    #[test]
-    fn session_source_migration_response_round_trips() {
-        let response = SessionSourceMigrationResponse {
-            dry_run: true,
-            scanned: 10,
-            migrated: 4,
-            skipped: 5,
-            failed: 1,
         };
         assert_roundtrip(&response);
     }

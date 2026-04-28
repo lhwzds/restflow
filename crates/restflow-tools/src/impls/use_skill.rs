@@ -164,6 +164,9 @@ impl Tool for UseSkillTool {
                         "name": info.name,
                         "description": info.description,
                         "tags": info.tags,
+                        "source": info.source,
+                        "read_only": info.read_only,
+                        "source_ref": info.source_ref,
                     })
                 })
                 .collect();
@@ -197,6 +200,9 @@ impl Tool for UseSkillTool {
                 "skill_id": content.id,
                 "name": content.name,
                 "content": content.content,
+                "source": content.source,
+                "read_only": content.read_only,
+                "source_ref": content.source_ref,
             }))),
             None => Ok(ToolOutput::error(format!("Skill '{}' not found", skill_id))),
         }
@@ -208,7 +214,7 @@ mod tests {
     use super::*;
     use crate::security::{SecurityDecision, SecurityGate, ToolAction};
     use async_trait::async_trait;
-    use restflow_traits::skill::{SkillContent, SkillInfo, SkillRecord, SkillUpdate};
+    use restflow_traits::skill::{SkillContent, SkillInfo, SkillRecord, SkillSource, SkillUpdate};
     use std::sync::{Arc, Mutex};
 
     struct MockProvider;
@@ -220,6 +226,9 @@ mod tests {
                 name: "Test Skill".to_string(),
                 description: Some("A test skill".to_string()),
                 tags: None,
+                source: SkillSource::User,
+                read_only: false,
+                source_ref: None,
             }]
         }
 
@@ -229,6 +238,9 @@ mod tests {
                     id: "test-skill".to_string(),
                     name: "Test Skill".to_string(),
                     content: "# Test Skill\nDo something useful.".to_string(),
+                    source: SkillSource::User,
+                    read_only: false,
+                    source_ref: None,
                 })
             } else {
                 None

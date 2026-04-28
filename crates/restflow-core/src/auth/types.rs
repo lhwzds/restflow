@@ -291,19 +291,19 @@ impl SecureCredential {
     }
 }
 
-/// Source of the credential discovery
+/// Source of a stored credential profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialSource {
-    /// Discovered from Claude Code credentials file
+    /// Legacy Claude Code imported credential.
     ClaudeCode,
-    /// Discovered from Codex CLI credentials file
+    /// Legacy Codex CLI imported credential.
     CodexCli,
-    /// Retrieved from macOS Keychain
+    /// Legacy keychain imported credential.
     Keychain,
-    /// Read from environment variable
+    /// Legacy environment imported credential.
     Environment,
     /// Manually configured by user
     Manual,
@@ -323,9 +323,9 @@ impl std::fmt::Display for CredentialSource {
 
 /// Provider type for the credential
 ///
-/// Distinguishes between direct API access and Claude Code CLI usage:
+/// Distinguishes between direct API access and CLI-token profiles:
 /// - `Anthropic`: Direct API calls using `sk-ant-api03-...` keys
-/// - `ClaudeCode`: Claude Code CLI with OAuth tokens (`sk-ant-oat01-...`)
+/// - `ClaudeCode`: Manually configured Claude Code OAuth tokens (`sk-ant-oat01-...`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
@@ -335,11 +335,7 @@ pub enum AuthProvider {
     Anthropic,
     /// Claude Code CLI - OAuth tokens (`sk-ant-oat01-...`)
     ///
-    /// Two sources of ClaudeCode tokens:
-    /// - `claude login`: Short-lived OAuth with refresh token (auto-discovered from ~/.claude/.credentials.json)
-    /// - `claude setup-token`: Long-lived OAuth token (1 year, manually added, no refresh needed)
-    ///
-    /// Both use the same token format but differ in expiration and refresh capability.
+    /// Use explicit profile or secret configuration. RestFlow does not scan local Claude Code files.
     ClaudeCode,
     /// OpenAI API
     #[serde(rename = "openai")]
@@ -403,7 +399,7 @@ pub struct AuthProfile {
     pub name: String,
     /// The credential data (secure references)
     pub credential: SecureCredential,
-    /// Where the credential was discovered from
+    /// How the credential profile was configured.
     pub source: CredentialSource,
     /// Which provider this credential is for
     pub provider: AuthProvider,
@@ -531,23 +527,6 @@ impl AuthProfile {
     pub fn is_oauth(&self) -> bool {
         matches!(self.credential, SecureCredential::OAuth { .. })
     }
-}
-
-/// Summary of discovered profiles
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct DiscoverySummary {
-    /// Total profiles discovered
-    pub total: usize,
-    /// Profiles by source
-    pub by_source: std::collections::HashMap<String, usize>,
-    /// Profiles by provider
-    pub by_provider: std::collections::HashMap<String, usize>,
-    /// Profiles that are available for use
-    pub available: usize,
-    /// Discovery errors encountered
-    pub errors: Vec<String>,
 }
 
 /// Result of profile selection

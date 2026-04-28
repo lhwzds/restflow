@@ -71,17 +71,6 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_discover_auth(core: &Arc<AppCore>) -> IpcResponse {
-        let manager = match build_auth_manager(core).await {
-            Ok(manager) => manager,
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        match manager.discover().await {
-            Ok(summary) => IpcResponse::success(summary),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
     pub(super) async fn handle_enable_auth_profile(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let manager = match build_auth_manager(core).await {
             Ok(manager) => manager,

@@ -28,7 +28,6 @@ pub mod skill;
 pub mod steer;
 pub mod store;
 pub mod subagent;
-pub mod team;
 pub mod text;
 pub mod tool;
 pub mod toolset;
@@ -41,9 +40,9 @@ pub use error::{Result as ToolResult, ToolError};
 
 // Assessment types
 pub use assessment::{
-    AgentOperationAssessor, AssessmentModelRef, BackgroundAgentCommandOutcome, OperationAssessment,
-    OperationAssessmentIntent, OperationAssessmentIssue, OperationAssessmentStatus,
-    TaskCommandOutcome, normalize_legacy_approval_replay,
+    AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
+    OperationAssessmentIssue, OperationAssessmentStatus, TaskCommandOutcome,
+    normalize_legacy_approval_replay,
 };
 
 // Tool trait and core types
@@ -66,37 +65,25 @@ pub use network::{
 pub use security::{SecurityDecision, SecurityGate, ToolAction};
 
 // Skill types
-pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate};
+pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource, SkillUpdate};
 
 // Store traits
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
-    AuthProfileTestRequest, BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    ConfigStore, CredentialInput, DeliverableStore, DiagnosticsProvider, KvStore, MarketplaceStore,
+    AuthProfileTestRequest, ConfigStore, CredentialInput, DiagnosticsProvider, MarketplaceStore,
     MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
     OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
     SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
-    SessionSearchQuery, SessionStore, TaskControlRequest, TaskConvertSessionRequest,
-    TaskCreateRequest, TaskDeleteRequest, TaskDeliverableListRequest, TaskMessageListRequest,
+    SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
+    TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
     TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
     TaskUpdateRequest, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
     WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 // Shared orchestration contracts
-pub use batch_template::{RuntimeTaskPayload, TeamTemplateDocument};
+pub use batch_template::RuntimeTaskPayload;
 pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan};
-pub use team::{
-    AssignTeamTaskRequest, MANAGE_TEAMS_TOOL_DESCRIPTION, MANAGE_TEAMS_TOOL_NAME,
-    PendingTeamApproval, ResolveTeamApprovalRequest, SendTeamMessageRequest, StartTeamRequest,
-    TeamApprovalRequest, TeamApprovalStatus, TeamAssignment, TeamAssignmentStatus, TeamCoordinator,
-    TeamExecutionContext, TeamMailbox, TeamMemberSpec, TeamMemberState, TeamMemberStatus,
-    TeamMessage, TeamMessageKind, TeamRole, TeamState, TeamStatus,
-};
 
 // Sub-agent types
 pub use subagent::{

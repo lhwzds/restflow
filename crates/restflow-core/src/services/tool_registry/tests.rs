@@ -4,9 +4,9 @@ use super::subagent_backend::{
     build_service_subagent_tool_registry, create_subagent_manager,
 };
 use super::*;
-use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill};
+use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill, SkillSource};
 use crate::services::adapters::{
-    AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
+    AgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter, TaskStoreAdapter,
 };
 use crate::services::session::SessionService;
 use async_trait::async_trait;
@@ -26,11 +26,9 @@ use restflow_traits::assessment::{
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentControlRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    MemoryStore as _,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, MemoryStore as _, TaskControlRequest,
+    TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
+    TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -85,9 +83,9 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         ))
     }
 
-    async fn assess_background_agent_create(
+    async fn assess_task_create(
         &self,
-        _request: BackgroundAgentCreateRequest,
+        _request: TaskCreateRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "create_background_agent",
@@ -95,9 +93,9 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         ))
     }
 
-    async fn assess_background_agent_convert_session(
+    async fn assess_task_convert_session(
         &self,
-        _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+        _request: restflow_traits::store::TaskConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "convert_session_to_background_agent",
@@ -105,9 +103,9 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         ))
     }
 
-    async fn assess_background_agent_update(
+    async fn assess_task_update(
         &self,
-        _request: BackgroundAgentUpdateRequest,
+        _request: TaskUpdateRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "update_background_agent",
@@ -115,9 +113,9 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         ))
     }
 
-    async fn assess_background_agent_delete(
+    async fn assess_task_delete(
         &self,
-        _request: BackgroundAgentDeleteRequest,
+        _request: TaskDeleteRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::warning_with_confirmation(
             "delete_background_agent",
@@ -126,9 +124,9 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         ))
     }
 
-    async fn assess_background_agent_control(
+    async fn assess_task_control(
         &self,
-        _request: BackgroundAgentControlRequest,
+        _request: TaskControlRequest,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
             "control_background_agent",
@@ -136,7 +134,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         ))
     }
 
-    async fn assess_background_agent_template(
+    async fn assess_task_template(
         &self,
         operation: &str,
         intent: OperationAssessmentIntent,
@@ -196,7 +194,6 @@ fn setup_storage() -> (
     ChatSessionStorage,
     ChannelSessionBindingStorage,
     ExecutionTraceStorage,
-    KvStoreStorage,
     WorkItemStorage,
     SecretStorage,
     ConfigStorage,
@@ -204,7 +201,7 @@ fn setup_storage() -> (
     BackgroundAgentStorage,
     TriggerStorage,
     TerminalSessionStorage,
-    crate::storage::DeliverableStorage,
+    crate::storage::RunArtifactStorage,
     tempfile::TempDir,
 ) {
     let temp_dir = tempdir().unwrap();
@@ -214,10 +211,8 @@ fn setup_storage() -> (
 
     let state_dir = temp_dir.path().join("state");
     std::fs::create_dir_all(&state_dir).unwrap();
-    let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
     unsafe {
         std::env::set_var("RESTFLOW_DIR", &state_dir);
-        std::env::remove_var("RESTFLOW_MASTER_KEY");
     }
 
     let skill_storage = SkillStorage::new(db.clone()).unwrap();
@@ -225,30 +220,18 @@ fn setup_storage() -> (
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
     let channel_session_binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
     let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
-    let kv_store_storage =
-        KvStoreStorage::new(restflow_storage::KvStoreStorage::new(db.clone()).unwrap());
     let work_item_storage = WorkItemStorage::new(db.clone()).unwrap();
-    let secret_storage = SecretStorage::with_config(
-        db.clone(),
-        restflow_storage::SecretStorageConfig {
-            allow_insecure_file_permissions: true,
-        },
-    )
-    .unwrap();
+    let test_master_key = std::array::from_fn(|index| (index as u8).wrapping_add(1));
+    let secret_storage = SecretStorage::with_master_key(db.clone(), test_master_key).unwrap();
     let config_storage = ConfigStorage::new(db.clone()).unwrap();
     let agent_storage = AgentStorage::new(db.clone()).unwrap();
     let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
     let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
     let terminal_storage = TerminalSessionStorage::new(db.clone()).unwrap();
-    let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
+    let run_artifact_storage = crate::storage::RunArtifactStorage::new(db.clone()).unwrap();
 
     unsafe {
         std::env::remove_var("RESTFLOW_DIR");
-        if let Some(value) = previous_master_key {
-            std::env::set_var("RESTFLOW_MASTER_KEY", value);
-        } else {
-            std::env::remove_var("RESTFLOW_MASTER_KEY");
-        }
     }
     (
         skill_storage,
@@ -256,7 +239,6 @@ fn setup_storage() -> (
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -264,7 +246,7 @@ fn setup_storage() -> (
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         temp_dir,
     )
 }
@@ -393,7 +375,6 @@ fn test_create_tool_registry() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -401,7 +382,7 @@ fn test_create_tool_registry() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
@@ -410,7 +391,6 @@ fn test_create_tool_registry() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -418,7 +398,7 @@ fn test_create_tool_registry() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -440,7 +420,6 @@ fn test_create_tool_registry() {
     assert!(registry.has("task_list"));
     assert!(registry.has("skill"));
     assert!(registry.has("memory_search"));
-    assert!(registry.has("kv_store"));
     assert!(registry.has("process"));
     assert!(registry.has("reply"));
     assert!(registry.has("switch_model"));
@@ -452,7 +431,6 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_config"));
     assert!(registry.has("manage_agents"));
     assert!(registry.has("manage_tasks"));
-    assert!(registry.has("manage_background_agents"));
     assert!(registry.has("manage_marketplace"));
     assert!(registry.has("manage_triggers"));
     assert!(registry.has("manage_terminal"));
@@ -462,7 +440,7 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_sessions"));
     assert!(registry.has("manage_memory"));
     assert!(registry.has("manage_auth_profiles"));
-    assert!(registry.has("save_deliverable"));
+    assert!(!registry.has("save_artifact"));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -473,7 +451,6 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -481,7 +458,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
@@ -490,7 +467,6 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -498,7 +474,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -532,7 +508,6 @@ async fn test_manage_ops_session_summary_response_schema() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -540,7 +515,7 @@ async fn test_manage_ops_session_summary_response_schema() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -555,7 +530,6 @@ async fn test_manage_ops_session_summary_response_schema() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -563,7 +537,7 @@ async fn test_manage_ops_session_summary_response_schema() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -708,7 +682,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -716,7 +689,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -726,7 +699,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -734,7 +706,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -750,7 +722,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
                 "agent": {
                     "tools": [
                         "manage_tasks",
-                        "manage_background_agents",
                         "manage_terminal",
                         "security_query"
                     ]
@@ -775,7 +746,6 @@ fn test_skill_provider_list_empty() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -783,7 +753,7 @@ fn test_skill_provider_list_empty() {
         _background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
     let provider = SkillStorageProvider::new(storage);
@@ -800,7 +770,6 @@ fn test_skill_provider_with_data() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -808,7 +777,7 @@ fn test_skill_provider_with_data() {
         _background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -855,7 +824,6 @@ fn test_agent_store_adapter_crud_flow() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         secret_storage,
         _config_storage,
@@ -863,7 +831,7 @@ fn test_agent_store_adapter_crud_flow() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -885,13 +853,9 @@ fn test_agent_store_adapter_crud_flow() {
     skill_storage.create(&trace_skill).unwrap();
 
     let known_tools = Arc::new(RwLock::new(
-        [
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-            "manage_agents".to_string(),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>(),
+        ["manage_tasks".to_string(), "manage_agents".to_string()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage,
@@ -910,10 +874,7 @@ fn test_agent_store_adapter_crud_flow() {
         codex_cli_reasoning_effort: None,
         codex_cli_execution_mode: None,
         api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
-        tools: Some(vec![
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-        ]),
+        tools: Some(vec!["manage_tasks".to_string()]),
         skills: Some(vec!["ops-skill".to_string()]),
         skill_variables: None,
         skill_preflight_policy_mode: None,
@@ -953,7 +914,6 @@ fn test_agent_store_adapter_crud_flow() {
                 prompt: Some("Updated prompt".to_string()),
                 tools: Some(vec![
                     "manage_tasks".to_string(),
-                    "manage_background_agents".to_string(),
                     "manage_agents".to_string(),
                 ]),
                 skills: Some(vec!["ops-skill".to_string(), "trace-skill".to_string()]),
@@ -1001,7 +961,6 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         secret_storage,
         _config_storage,
@@ -1009,17 +968,14 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        [
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>(),
+        ["manage_tasks".to_string()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage,
@@ -1063,7 +1019,6 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         secret_storage,
         _config_storage,
@@ -1071,17 +1026,14 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        [
-            "manage_tasks".to_string(),
-            "manage_background_agents".to_string(),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>(),
+        ["manage_tasks".to_string()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage.clone(),
@@ -1124,7 +1076,7 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
 }
 
 #[test]
-fn test_task_store_adapter_background_agent_flow() {
+fn test_task_store_adapter_task_flow() {
     struct AgentsDirEnvCleanup;
     impl Drop for AgentsDirEnvCleanup {
         fn drop(&mut self) {
@@ -1142,7 +1094,6 @@ fn test_task_store_adapter_background_agent_flow() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -1150,7 +1101,7 @@ fn test_task_store_adapter_background_agent_flow() {
         background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1160,10 +1111,10 @@ fn test_task_store_adapter_background_agent_flow() {
             crate::models::AgentNode::new(),
         )
         .unwrap();
-    let adapter = BackgroundAgentStoreAdapter::new(
+    let adapter = TaskStoreAdapter::new(
         background_agent_storage.clone(),
         agent_storage.clone(),
-        deliverable_storage,
+        run_artifact_storage,
         SessionService::new(
             crate::storage::SessionStorage::new(
                 chat_storage,
@@ -1177,9 +1128,9 @@ fn test_task_store_adapter_background_agent_flow() {
     )
     .with_assessor(Arc::new(BackgroundMutationAssessor));
 
-    let created = BackgroundAgentStore::create_background_agent(
+    let created = TaskStore::create_task(
         &adapter,
-        BackgroundAgentCreateRequest {
+        TaskCreateRequest {
             name: "Background Agent".to_string(),
             agent_id: created_agent.id,
             chat_session_id: None,
@@ -1218,9 +1169,9 @@ fn test_task_store_adapter_background_agent_flow() {
         .unwrap()
         .to_string();
 
-    let updated = BackgroundAgentStore::update_background_agent(
+    let updated = TaskStore::update_task(
         &adapter,
-        BackgroundAgentUpdateRequest {
+        TaskUpdateRequest {
             id: task_id.clone(),
             name: Some("Background Agent Updated".to_string()),
             description: Some("Updated description".to_string()),
@@ -1264,9 +1215,9 @@ fn test_task_store_adapter_background_agent_flow() {
         Some(900)
     );
 
-    let controlled = BackgroundAgentStore::control_background_agent(
+    let controlled = TaskStore::control_task(
         &adapter,
-        BackgroundAgentControlRequest {
+        TaskControlRequest {
             id: task_id.clone(),
             action: "run_now".to_string(),
             preview: false,
@@ -1282,9 +1233,9 @@ fn test_task_store_adapter_background_agent_flow() {
         Some("active")
     );
 
-    let message = BackgroundAgentStore::send_background_agent_message(
+    let message = TaskStore::send_task_message(
         &adapter,
-        BackgroundAgentMessageRequest {
+        TaskMessageRequest {
             id: task_id.clone(),
             message: "Also check deployment logs".to_string(),
             source: Some("user".to_string()),
@@ -1296,9 +1247,9 @@ fn test_task_store_adapter_background_agent_flow() {
         Some("queued")
     );
 
-    let progress = BackgroundAgentStore::get_background_agent_progress(
+    let progress = TaskStore::get_task_progress(
         &adapter,
-        BackgroundAgentProgressRequest {
+        TaskProgressRequest {
             id: task_id.clone(),
             event_limit: Some(5),
         },
@@ -1311,9 +1262,9 @@ fn test_task_store_adapter_background_agent_flow() {
         Some(task_id.as_str())
     );
 
-    let messages = BackgroundAgentStore::list_background_agent_messages(
+    let messages = TaskStore::list_task_messages(
         &adapter,
-        BackgroundAgentMessageListRequest {
+        TaskMessageListRequest {
             id: task_id.clone(),
             limit: Some(10),
         },
@@ -1321,10 +1272,10 @@ fn test_task_store_adapter_background_agent_flow() {
     .unwrap();
     assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
 
-    // Test list_background_agent_traces (DB-backed)
-    let traces = BackgroundAgentStore::list_background_agent_traces(
+    // Test list_task_traces (DB-backed)
+    let traces = TaskStore::list_task_traces(
         &adapter,
-        BackgroundAgentTraceListRequest {
+        TaskTraceListRequest {
             id: Some(task_id.clone()),
             limit: Some(5),
         },
@@ -1333,19 +1284,19 @@ fn test_task_store_adapter_background_agent_flow() {
     // Trace list is empty until execution telemetry writes canonical events
     assert!(traces.as_array().unwrap().is_empty() || traces.as_array().is_some());
 
-    // Test read_background_agent_trace (DB-backed)
-    let trace_result = BackgroundAgentStore::read_background_agent_trace(
+    // Test read_task_trace (DB-backed)
+    let trace_result = TaskStore::read_task_trace(
         &adapter,
-        BackgroundAgentTraceReadRequest {
+        TaskTraceReadRequest {
             trace_id: "missing-trace-id".to_string(),
             line_limit: Some(10),
         },
     );
     assert!(trace_result.is_err());
 
-    let delete_preview = BackgroundAgentStore::delete_background_agent(
+    let delete_preview = TaskStore::delete_task(
         &adapter,
-        restflow_traits::store::BackgroundAgentDeleteRequest {
+        restflow_traits::store::TaskDeleteRequest {
             id: task_id.clone(),
             preview: true,
             approval_id: None,
@@ -1356,9 +1307,9 @@ fn test_task_store_adapter_background_agent_flow() {
         .as_str()
         .expect("delete preview token")
         .to_string();
-    let deleted = BackgroundAgentStore::delete_background_agent(
+    let deleted = TaskStore::delete_task(
         &adapter,
-        restflow_traits::store::BackgroundAgentDeleteRequest {
+        restflow_traits::store::TaskDeleteRequest {
             id: task_id,
             preview: false,
             approval_id: Some(token),
@@ -1376,7 +1327,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1384,7 +1334,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1396,6 +1346,16 @@ async fn test_marketplace_tool_list_and_uninstall() {
         "# Local".to_string(),
     );
     skill_storage.create(&local_skill).unwrap();
+    let mut marketplace_skill = Skill::new(
+        "marketplace-skill".to_string(),
+        "Marketplace Skill".to_string(),
+        Some("from marketplace".to_string()),
+        None,
+        "# Marketplace".to_string(),
+    );
+    marketplace_skill.source = SkillSource::External;
+    marketplace_skill.source_ref = Some("mcp_marketplace:marketplace-skill@1.0.0".to_string());
+    skill_storage.create(&marketplace_skill).unwrap();
 
     let registry = create_tool_registry(
         skill_storage,
@@ -1403,7 +1363,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1411,7 +1370,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -1431,7 +1390,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
     let deleted = registry
         .execute_safe(
             "manage_marketplace",
-            json!({ "operation": "uninstall", "id": "local-skill" }),
+            json!({ "operation": "uninstall", "id": "marketplace-skill" }),
         )
         .await
         .unwrap();
@@ -1447,7 +1406,6 @@ async fn test_trigger_tool_create_list_disable() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1455,7 +1413,7 @@ async fn test_trigger_tool_create_list_disable() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1465,7 +1423,6 @@ async fn test_trigger_tool_create_list_disable() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1473,7 +1430,7 @@ async fn test_trigger_tool_create_list_disable() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -1524,7 +1481,6 @@ async fn test_terminal_tool_create_send_read_close() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1532,7 +1488,7 @@ async fn test_terminal_tool_create_send_read_close() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1542,7 +1498,6 @@ async fn test_terminal_tool_create_send_read_close() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1550,7 +1505,7 @@ async fn test_terminal_tool_create_send_read_close() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -1621,7 +1576,6 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1629,7 +1583,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1639,7 +1593,6 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1647,7 +1600,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -1686,7 +1639,6 @@ async fn test_db_memory_store_adapter_crud() {
         _chat_storage,
         _channel_session_binding_storage,
         _execution_trace_storage,
-        _kv_store_storage,
         _work_item_storage,
         _secret_storage,
         _config_storage,
@@ -1694,7 +1646,7 @@ async fn test_db_memory_store_adapter_crud() {
         _background_agent_storage,
         _trigger_storage,
         _terminal_storage,
-        _deliverable_storage,
+        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1779,7 +1731,6 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1787,7 +1738,7 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1797,7 +1748,6 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1805,7 +1755,7 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -1831,7 +1781,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         storage.chat_sessions.clone(),
         storage.channel_session_bindings.clone(),
         storage.execution_traces.clone(),
-        storage.kv_store.clone(),
         storage.work_items.clone(),
         storage.secrets.clone(),
         storage.config.clone(),
@@ -1839,7 +1788,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         storage.background_agents.clone(),
         storage.triggers.clone(),
         storage.terminal_sessions.clone(),
-        storage.deliverables.clone(),
+        storage.run_artifacts.clone(),
         None,
         None,
         None,
@@ -1862,7 +1811,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "run_python".to_string(),
         "manage_agents".to_string(),
         "manage_tasks".to_string(),
-        "manage_background_agents".to_string(),
         "spawn_subagent".to_string(),
         "wait_subagents".to_string(),
         "list_subagents".to_string(),
@@ -1887,7 +1835,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "python",
         "manage_agents",
         "manage_tasks",
-        "manage_background_agents",
         "spawn_subagent",
         "wait_subagents",
         "list_subagents",
@@ -1963,7 +1910,6 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1971,7 +1917,7 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1981,7 +1927,6 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -1989,7 +1934,7 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         Some("agent-1".to_string()),
         Some(Arc::new(DenyProcessSecurityGate)),
@@ -2028,7 +1973,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -2036,7 +1980,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2049,7 +1993,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage.clone(),
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage.clone(),
@@ -2057,7 +2000,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -2100,10 +2043,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             parent_run_id: Some("parent-run-1".to_string()),
             trace_session_id: Some("session-trace-1".to_string()),
             trace_scope_id: Some("scope-trace-1".to_string()),
-            team_run_id: None,
-            team_member_id: None,
-            leader_member_id: None,
-            team_role: None,
         })
         .expect("spawn subagent");
 
@@ -2187,7 +2126,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -2195,7 +2133,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2205,7 +2143,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage.clone(),
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage.clone(),
@@ -2213,7 +2150,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,
@@ -2251,10 +2188,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
             parent_run_id: None,
             trace_session_id: None,
             trace_scope_id: None,
-            team_run_id: None,
-            team_member_id: None,
-            leader_member_id: None,
-            team_role: None,
         })
         .expect("spawn temporary subagent");
 
@@ -2278,7 +2211,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage,
-        kv_store_storage,
         work_item_storage,
         secret_storage,
         config_storage,
@@ -2286,7 +2218,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -2296,7 +2228,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         chat_storage,
         channel_session_binding_storage,
         execution_trace_storage.clone(),
-        kv_store_storage,
         work_item_storage,
         secret_storage.clone(),
         config_storage.clone(),
@@ -2304,7 +2235,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         background_agent_storage,
         trigger_storage,
         terminal_storage,
-        deliverable_storage,
+        run_artifact_storage,
         None,
         None,
         None,

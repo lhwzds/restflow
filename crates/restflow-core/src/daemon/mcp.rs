@@ -2,9 +2,7 @@ use crate::AppCore;
 use crate::daemon::{IpcRequest, IpcResponse, IpcServer, StreamFrame};
 use crate::mcp::RestFlowMcpServer;
 use crate::models::storage_mode::StorageMode;
-use crate::models::{
-    BackgroundAgentConversionResult, GatingCheckResult, Skill, SkillManifest, SkillVersion,
-};
+use crate::models::{GatingCheckResult, Skill, SkillManifest, SkillVersion, TaskConversionResult};
 use crate::registry::{
     GatingChecker, GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery,
     SkillSearchResult, SkillSortOrder,
@@ -196,8 +194,8 @@ fn build_http_router(
         .route("/api/request", post(api_request))
         .route("/api/stream", post(api_stream))
         .route(
-            "/api/background-agents/convert-session",
-            post(api_convert_session_to_background_agent),
+            "/api/tasks/convert-session",
+            post(api_convert_session_to_task),
         )
         .route("/api/marketplace/search", post(api_marketplace_search))
         .route("/api/marketplace/skill", post(api_marketplace_get_skill))
@@ -265,6 +263,25 @@ fn provider_name(source: Option<&str>) -> &str {
     }
 }
 
+fn is_reserved_systemskill_id(id: &str) -> bool {
+    crate::skill_files::systemskill_ids().any(|system_id| system_id == id)
+}
+
+fn is_marketplace_source_ref(source_ref: &str) -> bool {
+    source_ref.starts_with("marketplace:")
+        || source_ref.starts_with("github:")
+        || source_ref.starts_with("mcp_marketplace:")
+        || source_ref.starts_with("mcp_github:")
+}
+
+fn is_marketplace_installed_skill(skill: &Skill) -> bool {
+    skill.source == crate::models::SkillSource::External
+        && skill
+            .source_ref
+            .as_deref()
+            .is_some_and(is_marketplace_source_ref)
+}
+
 fn search_sort_order(sort: Option<String>) -> Option<SkillSortOrder> {
     match sort.as_deref() {
         Some("relevance") => Some(SkillSortOrder::Relevance),
@@ -275,15 +292,7 @@ fn search_sort_order(sort: Option<String>) -> Option<SkillSortOrder> {
     }
 }
 
-fn to_marketplace_search_item(result: SkillSearchResult) -> MarketplaceSearchItem {
-    let source = match &result.manifest.source {
-        crate::models::SkillSource::Marketplace { .. } => "marketplace",
-        crate::models::SkillSource::GitHub { .. } => "github",
-        crate::models::SkillSource::Local => "local",
-        crate::models::SkillSource::Builtin => "builtin",
-        crate::models::SkillSource::Git { .. } => "git",
-    };
-
+fn to_marketplace_search_item(result: SkillSearchResult, source: &str) -> MarketplaceSearchItem {
     MarketplaceSearchItem {
         manifest: result.manifest,
         score: result.score,
@@ -304,7 +313,7 @@ fn resolve_content_version(
     }
 }
 
-fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
+fn manifest_to_skill(source_name: &str, manifest: SkillManifest, content: String) -> Skill {
     let gating = if manifest.gating.binaries.is_empty()
         && manifest.gating.env_vars.is_empty()
         && manifest.gating.supported_os.is_empty()
@@ -376,15 +385,21 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
         auto_complete: false,
         storage_mode: StorageMode::DatabaseOnly,
         is_synced: false,
+        source: crate::models::SkillSource::External,
+        read_only: false,
+        source_ref: Some(format!(
+            "mcp_{source_name}:{}@{}",
+            manifest.id, manifest.version
+        )),
         created_at: chrono::Utc::now().timestamp_millis(),
         updated_at: chrono::Utc::now().timestamp_millis(),
     }
 }
 
-async fn api_convert_session_to_background_agent(
+async fn api_convert_session_to_task(
     State(state): State<DaemonHttpState>,
     Json(request): Json<restflow_contracts::request::TaskFromSessionRequest>,
-) -> std::result::Result<Json<BackgroundAgentConversionResult>, (StatusCode, Json<ErrorPayload>)> {
+) -> std::result::Result<Json<TaskConversionResult>, (StatusCode, Json<ErrorPayload>)> {
     let store_request = crate::boundary::background_agent::contract_convert_request_to_store(
         request,
     )
@@ -429,7 +444,7 @@ async fn api_marketplace_search(
         .await
         .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?
         .into_iter()
-        .map(to_marketplace_search_item)
+        .map(|result| to_marketplace_search_item(result, "marketplace"))
         .collect::<Vec<_>>();
 
     if request.include_github.unwrap_or(false) {
@@ -437,7 +452,11 @@ async fn api_marketplace_search(
             .search(&query)
             .await
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?;
-        results.extend(github_results.into_iter().map(to_marketplace_search_item));
+        results.extend(
+            github_results
+                .into_iter()
+                .map(|result| to_marketplace_search_item(result, "github")),
+        );
         results.sort_by_key(|result| std::cmp::Reverse(result.score));
         if let Some(limit) = request.limit {
             results.truncate(limit);
@@ -551,7 +570,18 @@ async fn api_marketplace_install_skill(
     State(state): State<DaemonHttpState>,
     Json(request): Json<MarketplaceInstallRequest>,
 ) -> std::result::Result<StatusCode, (StatusCode, String)> {
-    let manifest = match provider_name(request.source.as_deref()) {
+    if is_reserved_systemskill_id(&request.id) {
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "Cannot install marketplace skill over systemskill: {}",
+                request.id
+            ),
+        ));
+    }
+
+    let source_name = provider_name(request.source.as_deref());
+    let manifest = match source_name {
         "github" => GitHubProvider::new()
             .get_manifest(&request.id)
             .await
@@ -561,6 +591,15 @@ async fn api_marketplace_install_skill(
             .await
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?,
     };
+    if is_reserved_systemskill_id(&manifest.id) {
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "Cannot install marketplace skill over systemskill: {}",
+                manifest.id
+            ),
+        ));
+    }
 
     let gating_result = GatingChecker::default().check(&manifest.gating);
     if !gating_result.passed {
@@ -574,7 +613,7 @@ async fn api_marketplace_install_skill(
         .version
         .and_then(|value| SkillVersion::parse(&value));
     let content_version = version.unwrap_or_else(|| manifest.version.clone());
-    let content = match provider_name(request.source.as_deref()) {
+    let content = match source_name {
         "github" => GitHubProvider::new()
             .get_content(&request.id, &content_version)
             .await
@@ -585,7 +624,7 @@ async fn api_marketplace_install_skill(
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?,
     };
 
-    let skill = manifest_to_skill(manifest, content);
+    let skill = manifest_to_skill(source_name, manifest, content);
     if state
         .core
         .storage
@@ -615,20 +654,27 @@ async fn api_marketplace_uninstall_skill(
     State(state): State<DaemonHttpState>,
     Json(request): Json<MarketplaceGetRequest>,
 ) -> std::result::Result<StatusCode, (StatusCode, String)> {
-    if state
+    let skill = state
         .core
         .storage
         .skills
-        .exists(&request.id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    {
-        state
-            .core
-            .storage
-            .skills
-            .delete(&request.id)
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        .get(&request.id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let Some(skill) = skill else {
+        return Ok(StatusCode::NO_CONTENT);
+    };
+    if !is_marketplace_installed_skill(&skill) {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Skill is not a marketplace installation: {}", request.id),
+        ));
     }
+    state
+        .core
+        .storage
+        .skills
+        .delete(&request.id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -642,7 +688,12 @@ async fn api_marketplace_list_installed(
         .skills
         .list()
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    Ok(Json(skills))
+    Ok(Json(
+        skills
+            .into_iter()
+            .filter(is_marketplace_installed_skill)
+            .collect(),
+    ))
 }
 
 async fn api_transcribe_audio(
@@ -1022,14 +1073,18 @@ mod tests {
         ERROR_CONTENT_TYPE, NDJSON_CONTENT_TYPE, RECOVERY_HEADER, RECOVERY_REINITIALIZE,
         WEB_DIST_ENV, build_http_router, build_mcp_server_factory,
         build_streamable_http_server_config, is_expected_connection_close,
-        normalize_mcp_error_response, resolve_web_dist_dir,
+        is_marketplace_installed_skill, is_marketplace_source_ref, is_reserved_systemskill_id,
+        manifest_to_skill, normalize_mcp_error_response, resolve_web_dist_dir,
     };
     use crate::AppCore;
     use crate::daemon::session_events::ChatSessionEvent;
     use crate::daemon::{
         IpcRequest, IpcResponse, IpcStreamEvent, StreamFrame, publish_session_event,
     };
-    use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId};
+    use crate::models::{
+        AgentNode, ChatMessage, ChatSession, ModelId, Skill, SkillManifest, SkillSource,
+        SkillVersion,
+    };
     use axum::body::{self, Body};
     use axum::http::{HeaderValue, Request, StatusCode, header::CONTENT_TYPE};
     use bytes::Bytes;
@@ -1063,6 +1118,14 @@ mod tests {
             let original = env::var_os(key);
             unsafe {
                 env::set_var(key, path);
+            }
+            Self { key, original }
+        }
+
+        fn set_value(key: &'static str, value: &str) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, value);
             }
             Self { key, original }
         }
@@ -1100,9 +1163,15 @@ mod tests {
         }
     }
 
+    #[allow(clippy::await_holding_lock)]
     async fn test_core() -> Arc<AppCore> {
+        let _restflow_dir_lock = crate::paths::restflow_dir_env_lock();
         let temp = tempdir().expect("tempdir");
         let db_path = temp.path().join("daemon-http-test.db");
+        let state_dir = temp.path().join("state");
+        std::fs::create_dir_all(&state_dir).expect("state dir");
+        let _restflow_dir = EnvGuard::set_path("RESTFLOW_DIR", &state_dir);
+        let _master_key = EnvGuard::set_value("RESTFLOW_MASTER_KEY", &"11".repeat(32));
         Arc::new(
             AppCore::new(db_path.to_str().expect("db path utf8"))
                 .await
@@ -1129,6 +1198,142 @@ mod tests {
     fn mcp_http_server_config_uses_stateless_mode() {
         let config = build_streamable_http_server_config(CancellationToken::new());
         assert!(!config.stateful_mode);
+    }
+
+    #[test]
+    fn marketplace_manifest_to_skill_preserves_provider_source_ref() {
+        let manifest = SkillManifest {
+            id: "demo-skill".to_string(),
+            name: "Demo Skill".to_string(),
+            version: SkillVersion::new(1, 2, 3),
+            ..SkillManifest::default()
+        };
+
+        let skill = manifest_to_skill("github", manifest, "# Demo".to_string());
+
+        assert_eq!(
+            skill.source_ref.as_deref(),
+            Some("mcp_github:demo-skill@1.2.3")
+        );
+    }
+
+    #[test]
+    fn marketplace_install_rejects_systemskill_ids() {
+        assert!(is_reserved_systemskill_id("team"));
+        assert!(!is_reserved_systemskill_id("demo-skill"));
+    }
+
+    #[test]
+    fn marketplace_installed_filter_requires_marketplace_source_ref() {
+        assert!(is_marketplace_source_ref("marketplace:demo@1.0.0"));
+        assert!(is_marketplace_source_ref("github:demo@1.0.0"));
+        assert!(is_marketplace_source_ref("mcp_marketplace:demo@1.0.0"));
+        assert!(is_marketplace_source_ref("mcp_github:demo@1.0.0"));
+        assert!(!is_marketplace_source_ref("github_release:repo:tag:asset"));
+
+        let mut skill = Skill::new(
+            "demo".to_string(),
+            "Demo".to_string(),
+            None,
+            None,
+            "# Demo".to_string(),
+        );
+        assert!(!is_marketplace_installed_skill(&skill));
+
+        skill.source = SkillSource::External;
+        skill.source_ref = Some("mcp_marketplace:demo@1.0.0".to_string());
+        assert!(is_marketplace_installed_skill(&skill));
+
+        skill.source_ref = Some("github_release:repo:tag:asset".to_string());
+        assert!(!is_marketplace_installed_skill(&skill));
+    }
+
+    #[tokio::test]
+    async fn api_marketplace_installed_returns_only_marketplace_sources() {
+        let core = test_core().await;
+        let mut marketplace_skill = Skill::new(
+            "marketplace-skill".to_string(),
+            "Marketplace Skill".to_string(),
+            None,
+            None,
+            "# Marketplace".to_string(),
+        );
+        marketplace_skill.source = SkillSource::External;
+        marketplace_skill.source_ref = Some("mcp_marketplace:marketplace-skill@1.0.0".to_string());
+        core.storage
+            .skills
+            .create(&marketplace_skill)
+            .expect("create marketplace skill");
+
+        let user_skill = Skill::new(
+            "user-skill".to_string(),
+            "User Skill".to_string(),
+            None,
+            None,
+            "# User".to_string(),
+        );
+        core.storage
+            .skills
+            .create(&user_skill)
+            .expect("create user skill");
+
+        let app = build_http_router(core, CancellationToken::new(), None);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/marketplace/installed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let skills: Vec<Skill> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "marketplace-skill");
+    }
+
+    #[tokio::test]
+    async fn api_marketplace_uninstall_rejects_user_skill() {
+        let core = test_core().await;
+        let user_skill = Skill::new(
+            "user-skill".to_string(),
+            "User Skill".to_string(),
+            None,
+            None,
+            "# User".to_string(),
+        );
+        core.storage
+            .skills
+            .create(&user_skill)
+            .expect("create user skill");
+
+        let app = build_http_router(core.clone(), CancellationToken::new(), None);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/uninstall")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({ "id": "user-skill" })).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(
+            core.storage
+                .skills
+                .exists("user-skill")
+                .expect("skill exists check")
+        );
     }
 
     #[tokio::test]
@@ -1248,7 +1453,7 @@ mod tests {
             .expect("create agent");
         let mut session = ChatSession::new(
             agent.id.clone(),
-            ModelId::Gpt5.as_serialized_str().to_string(),
+            ModelId::Gpt5_4.as_serialized_str().to_string(),
         )
         .with_name("HTTP Convert Session");
         session.add_message(ChatMessage::user("Continue this job in background"));
@@ -1263,7 +1468,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/background-agents/convert-session")
+                    .uri("/api/tasks/convert-session")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&serde_json::json!({
@@ -1282,7 +1487,7 @@ mod tests {
         let body = body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let result: crate::models::BackgroundAgentConversionResult =
+        let result: crate::models::TaskConversionResult =
             serde_json::from_slice(&body).expect("conversion outcome");
         assert_eq!(result.source_session_id, session.id);
         assert_eq!(result.task.chat_session_id, session.id);

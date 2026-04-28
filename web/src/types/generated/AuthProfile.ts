@@ -21,7 +21,7 @@ export type AuthProfile = {
    */
   credential: SecureCredential
   /**
-   * Where the credential was discovered from
+   * How the credential profile was configured.
    */
   source: CredentialSource
   /**

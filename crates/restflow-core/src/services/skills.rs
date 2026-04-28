@@ -2,7 +2,8 @@
 
 use crate::{
     AppCore,
-    models::{Skill, ValidationError},
+    models::{Skill, SkillSource, ValidationError},
+    skill_files,
 };
 use anyhow::{Context, Result};
 use regex::Regex;
@@ -12,11 +13,24 @@ use std::sync::{Arc, OnceLock};
 
 /// List all skills
 pub async fn list_skills(core: &Arc<AppCore>) -> Result<Vec<Skill>> {
-    core.storage.skills.list().context("Failed to list skills")
+    let reserved_ids = systemskill_id_set();
+    let mut skills = skill_files::list_systemskills().context("Failed to list systemskills")?;
+    skills.extend(
+        core.storage
+            .skills
+            .list()
+            .context("Failed to list skills")?
+            .into_iter()
+            .filter(|skill| !reserved_ids.contains(skill.id.as_str())),
+    );
+    Ok(skills)
 }
 
 /// Get a skill by ID
 pub async fn get_skill(core: &Arc<AppCore>, id: &str) -> Result<Option<Skill>> {
+    if let Some(skill) = skill_files::get_systemskill(id)? {
+        return Ok(Some(skill));
+    }
     core.storage
         .skills
         .get(id)
@@ -24,7 +38,13 @@ pub async fn get_skill(core: &Arc<AppCore>, id: &str) -> Result<Option<Skill>> {
 }
 
 /// Create a new skill
-pub async fn create_skill(core: &Arc<AppCore>, skill: Skill) -> Result<()> {
+pub async fn create_skill(core: &Arc<AppCore>, mut skill: Skill) -> Result<()> {
+    ensure_skill_is_writable(&skill)?;
+    ensure_not_systemskill_id(&skill.id)?;
+    if skill.source == SkillSource::System {
+        anyhow::bail!("systemskill entries are read-only and cannot be created");
+    }
+    skill.read_only = false;
     core.storage
         .skills
         .create(&skill)
@@ -33,6 +53,11 @@ pub async fn create_skill(core: &Arc<AppCore>, skill: Skill) -> Result<()> {
 
 /// Update an existing skill
 pub async fn update_skill(core: &Arc<AppCore>, id: &str, skill: &Skill) -> Result<()> {
+    ensure_not_systemskill_id(id)?;
+    ensure_skill_is_writable(skill)?;
+    if let Some(existing) = core.storage.skills.get(id)? {
+        ensure_skill_is_writable(&existing)?;
+    }
     core.storage
         .skills
         .update(id, skill)
@@ -41,6 +66,10 @@ pub async fn update_skill(core: &Arc<AppCore>, id: &str, skill: &Skill) -> Resul
 
 /// Delete a skill
 pub async fn delete_skill(core: &Arc<AppCore>, id: &str) -> Result<()> {
+    ensure_not_systemskill_id(id)?;
+    if let Some(existing) = core.storage.skills.get(id)? {
+        ensure_skill_is_writable(&existing)?;
+    }
     core.storage
         .skills
         .delete(id)
@@ -49,6 +78,9 @@ pub async fn delete_skill(core: &Arc<AppCore>, id: &str) -> Result<()> {
 
 /// Check if a skill exists
 pub async fn skill_exists(core: &Arc<AppCore>, id: &str) -> Result<bool> {
+    if is_systemskill_id(id) {
+        return Ok(true);
+    }
     core.storage
         .skills
         .exists(id)
@@ -75,11 +107,6 @@ pub async fn get_skill_reference(
 
     if let Some(reference_skill) = get_skill(core, &reference.id).await? {
         return Ok(Some(reference_skill.content));
-    }
-
-    let kv_store_key = format!("skill-ref:{}:{}", skill_id, ref_id);
-    if let Some(content) = core.storage.kv_store.quick_get(&kv_store_key, None)? {
-        return Ok(Some(content));
     }
 
     if !reference.path.trim().is_empty() {
@@ -113,6 +140,28 @@ pub fn export_skill_to_markdown(skill: &Skill) -> String {
 /// Import a skill from markdown format
 pub fn import_skill_from_markdown(id: &str, markdown: &str) -> Result<Skill> {
     Skill::from_markdown(id, markdown).context("Failed to parse markdown")
+}
+
+fn is_systemskill_id(id: &str) -> bool {
+    skill_files::systemskill_ids().any(|systemskill_id| systemskill_id == id)
+}
+
+fn systemskill_id_set() -> HashSet<&'static str> {
+    skill_files::systemskill_ids().collect()
+}
+
+fn ensure_not_systemskill_id(id: &str) -> Result<()> {
+    if is_systemskill_id(id) {
+        anyhow::bail!("systemskill '{}' is read-only", id);
+    }
+    Ok(())
+}
+
+fn ensure_skill_is_writable(skill: &Skill) -> Result<()> {
+    if skill.read_only || skill.source == SkillSource::System {
+        anyhow::bail!("systemskill '{}' is read-only", skill.id);
+    }
+    Ok(())
 }
 
 /// Validate a skill with Basic and Standard conformance checks.
@@ -261,7 +310,7 @@ mod tests {
         // can race on reads.
         unsafe {
             std::env::set_var(RESTFLOW_DIR_ENV, &state_dir);
-            std::env::remove_var(MASTER_KEY_ENV);
+            std::env::set_var(MASTER_KEY_ENV, "11".repeat(32));
         }
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (
@@ -289,9 +338,30 @@ mod tests {
     async fn test_list_skills_empty() {
         let (core, _env) = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
-        // Default skills are bootstrapped; only verify no test artifacts exist
+        // System skills are always visible; only verify no test artifacts exist.
         assert!(!skills.is_empty());
         assert!(!skills.iter().any(|skill| skill.id == "test-skill"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_list_and_get_team_system_skill() {
+        let (core, _env) = create_test_core().await;
+
+        let skills = list_skills(&core).await.unwrap();
+        let team = skills
+            .iter()
+            .find(|skill| skill.id == "team")
+            .expect("team system skill should be listed");
+        assert_eq!(team.source, SkillSource::System);
+        assert!(team.read_only);
+
+        let team = get_skill(&core, "team")
+            .await
+            .unwrap()
+            .expect("team system skill should be readable");
+        assert_eq!(team.source, SkillSource::System);
+        assert!(team.read_only);
+        assert!(team.content.contains("spawn_subagent_batch"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -311,6 +381,15 @@ mod tests {
             retrieved.description,
             Some("Description for Test Skill".to_string())
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_create_rejects_system_skill_id() {
+        let (core, _env) = create_test_core().await;
+
+        let skill = create_test_skill("team", "Shadow Team");
+        let result = create_skill(&core, skill).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]

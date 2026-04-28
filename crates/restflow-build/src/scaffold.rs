@@ -1,5 +1,6 @@
 use crate::artifact::{
-    ArtifactKind, BuildProfile, SecretMode, SkillArtifactMetadata, write_skill_artifact_metadata,
+    ArtifactKind, BuildProfile, SecretMode, SkillArtifactMetadata, SkillArtifactProtocol,
+    write_skill_artifact_metadata,
 };
 use crate::toolchain::DEFAULT_TOOLCHAIN_ID;
 use anyhow::{Result, anyhow, bail};
@@ -103,7 +104,8 @@ pub fn create_skill_project(
         .clone()
         .unwrap_or_else(|| render_skill_markdown(skill_id, &name));
     let metadata = SkillArtifactMetadata {
-        kind: ArtifactKind::Skill,
+        schema_version: 1,
+        kind: ArtifactKind::SkillBinary,
         id: skill_id.to_string(),
         name: name.clone(),
         version: "0.1.0".to_string(),
@@ -112,6 +114,8 @@ pub fn create_skill_project(
         target: format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS),
         entry_binary: format!("bin/{}/{}", BuildProfile::Debug.as_dir_name(), skill_id),
         secret_mode: SecretMode::Runtime,
+        protocol: SkillArtifactProtocol::default(),
+        download: None,
     };
 
     let manifest_path = skill_dir.join("Cargo.toml");
@@ -286,8 +290,9 @@ mod tests {
 
         let metadata = read_skill_artifact_metadata(&result.skill_dir).expect("artifact metadata");
         assert_eq!(metadata.id, "pdf-reader");
-        assert_eq!(metadata.kind, ArtifactKind::Skill);
+        assert_eq!(metadata.kind, ArtifactKind::SkillBinary);
         assert_eq!(metadata.toolchain, DEFAULT_TOOLCHAIN_ID);
+        assert_eq!(metadata.protocol.transport, "stdio-json");
 
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }

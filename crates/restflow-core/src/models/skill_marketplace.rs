@@ -11,6 +11,8 @@ use specta::Type;
 use std::collections::HashMap;
 use ts_rs::TS;
 
+use restflow_traits::skill::SkillSource;
+
 /// Semantic version for skills
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[specta(skip_attr = "ts")]
@@ -315,44 +317,6 @@ pub struct SkillAuthor {
     pub url: Option<String>,
 }
 
-/// Skill source information
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SkillSource {
-    /// Local skill (user-created)
-    #[default]
-    Local,
-    /// Built-in skill (bundled with RestFlow)
-    Builtin,
-    /// From RestFlow marketplace
-    Marketplace {
-        /// Marketplace URL
-        url: String,
-    },
-    /// From GitHub repository
-    GitHub {
-        /// Repository owner
-        owner: String,
-        /// Repository name
-        repo: String,
-        /// Optional branch/tag/commit
-        #[serde(rename = "ref")]
-        git_ref: Option<String>,
-        /// Path within the repository
-        path: Option<String>,
-    },
-    /// From a Git URL
-    Git {
-        /// Git URL
-        url: String,
-        /// Optional branch/tag/commit
-        #[serde(rename = "ref")]
-        git_ref: Option<String>,
-    },
-}
-
 /// Extended skill metadata for marketplace
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
@@ -387,6 +351,9 @@ pub struct SkillManifest {
     /// Source information
     #[serde(default)]
     pub source: SkillSource,
+    /// Optional source reference for display or diagnostics
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
     /// Icon URL or data URI
     pub icon: Option<String>,
     /// Readme content (markdown)
@@ -414,7 +381,8 @@ impl Default for SkillManifest {
             dependencies: Vec::new(),
             permissions: SkillPermissions::default(),
             gating: GatingRequirements::default(),
-            source: SkillSource::Local,
+            source: SkillSource::User,
+            source_ref: None,
             icon: None,
             readme: None,
             changelog: None,
@@ -598,7 +566,8 @@ mod tests {
         "#;
 
         let manifest: SkillManifest = serde_json::from_str(json).unwrap();
-        assert!(matches!(manifest.source, SkillSource::Local));
+        assert_eq!(manifest.source, SkillSource::User);
+        assert_eq!(manifest.source_ref, None);
     }
 
     #[test]

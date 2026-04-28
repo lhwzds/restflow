@@ -49,8 +49,10 @@ pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
                 .await?
             {
                 state.set_current_session(session);
-                state.status = "Connected to daemon".to_string();
+            } else {
+                state.set_pending_session_from_agent(&agent);
             }
+            state.status = "Connected to daemon".to_string();
         } else {
             state.status =
                 "No default agent configured. Create one from the standard CLI.".to_string();
@@ -60,7 +62,7 @@ pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
         }
     } else {
         state.enter_startup(options.agent, options.session);
-        state.push_info("Daemon offline. Use /start to launch it.");
+        state.push_info("Daemon offline. Use /daemon to launch it.");
     }
 
     let _terminal = TerminalGuard::new()?;

@@ -352,6 +352,13 @@ mod tests {
         stored.source_channel = Some(crate::models::ChatSessionSource::Telegram);
         stored.source_conversation_id = Some("chat-42".to_string());
         adapter.sessions.chat_sessions.update(&stored).unwrap();
+        adapter
+            .sessions
+            .channel_session_bindings
+            .upsert(&crate::models::ChannelSessionBinding::new(
+                "telegram", None, "chat-42", session_id,
+            ))
+            .unwrap();
 
         let result = adapter
             .list_sessions(SessionListFilter {
@@ -393,6 +400,16 @@ mod tests {
             "find this remote chat".to_string(),
         ));
         adapter.sessions.chat_sessions.update(&stored).unwrap();
+        adapter
+            .sessions
+            .channel_session_bindings
+            .upsert(&crate::models::ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-search",
+                session_id,
+            ))
+            .unwrap();
 
         let result = adapter
             .search_sessions(SessionSearchQuery {
