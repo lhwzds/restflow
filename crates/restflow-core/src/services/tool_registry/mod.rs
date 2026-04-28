@@ -21,7 +21,6 @@ use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
     ConfigStorage, ExecutionTraceStorage, MemoryStorage, SecretStorage, TerminalSessionStorage,
-    TriggerStorage,
 };
 use restflow_ai::AgentState;
 use restflow_ai::agent::{

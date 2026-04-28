@@ -24,7 +24,6 @@ pub mod telemetry;
 mod template;
 
 pub use models::{
-    ActiveTrigger,
     AgentCheckpoint,
     AgentExecuteResponse,
     AgentMeta,
@@ -41,7 +40,6 @@ pub use models::{
     AuditQuery,
     AuditStats,
     AuditTimeRange,
-    AuthConfig,
     BinaryRequirement,
     ChatExecutionStatus,
     ChatMessage,
@@ -168,7 +166,6 @@ pub use models::{
     ToolCallInfo,
     ToolCallPhase,
     ToolRule,
-    TriggerConfig,
     UnifiedSearchQuery,
     ValidationError,
     ValidationErrorResponse,

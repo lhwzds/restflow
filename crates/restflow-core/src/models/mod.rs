@@ -22,7 +22,6 @@ pub mod skill_meta;
 pub mod steer;
 pub mod storage_mode;
 pub mod terminal_session;
-pub mod trigger;
 pub mod validation;
 pub mod webhook;
 
@@ -105,5 +104,4 @@ pub use skill_marketplace::{
 pub use skill_meta::SkillMeta;
 pub use storage_mode::StorageMode;
 pub use terminal_session::{TerminalSession, TerminalStatus};
-pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use validation::{ValidationError, ValidationErrorResponse, encode_validation_error};

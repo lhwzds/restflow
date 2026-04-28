@@ -19,7 +19,6 @@ pub mod skill;
 pub mod structured_execution_log;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
-pub mod trigger;
 
 use anyhow::Result;
 use redb::Database;
@@ -51,7 +50,6 @@ pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
-pub use trigger::TriggerStorage;
 
 /// Central storage manager that initializes all storage subsystems.
 ///
@@ -60,7 +58,6 @@ pub use trigger::TriggerStorage;
 pub struct Storage {
     db: Arc<Database>,
     pub config: ConfigStorage,
-    pub triggers: TriggerStorage,
     pub agents: AgentStorage,
     pub background_agents: BackgroundAgentStorage,
     pub secrets: SecretStorage,
@@ -99,7 +96,6 @@ impl Storage {
         let db = Arc::new(Database::create(path)?);
 
         let config = ConfigStorage::new(db.clone())?;
-        let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
         let background_agents = BackgroundAgentStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
@@ -140,7 +136,6 @@ impl Storage {
         Ok(Self {
             db,
             config,
-            triggers,
             agents,
             background_agents,
             secrets,

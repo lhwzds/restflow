@@ -32,7 +32,6 @@ pub mod skill;
 pub mod structured_execution_log;
 pub mod telemetry_metric_sample;
 pub mod terminal_session;
-pub mod trigger;
 pub mod vector;
 
 mod encryption;
@@ -67,5 +66,4 @@ pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
-pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStats, VectorStorage};
