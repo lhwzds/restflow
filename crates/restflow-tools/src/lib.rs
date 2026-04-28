@@ -57,12 +57,11 @@ pub use impls::{
 
 // Re-export tool_registry inline migrated tools
 pub use impls::{
-    ManageOpsTool, MarketplaceTool, SecurityQueryTool, TerminalTool, TriggerTool,
-    UnifiedMemorySearchTool,
+    ManageOpsTool, MarketplaceTool, SecurityQueryTool, TerminalTool, UnifiedMemorySearchTool,
 };
 
 // Re-export search tools
-pub use impls::{GlobTool, GrepTool, TaskListTool};
+pub use impls::{GlobTool, GrepTool};
 
 // Re-export batch tool
 pub use impls::BatchTool;

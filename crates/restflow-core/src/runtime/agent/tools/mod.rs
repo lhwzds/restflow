@@ -5,6 +5,7 @@
 //! storage-backed services from `restflow-core`.
 
 pub(crate) mod assembly;
+pub mod skill_activation;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -41,6 +42,11 @@ pub use restflow_tools::impls::{
 pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeConfig, TranscribeTool, VisionTool};
 
 pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
+pub use skill_activation::{
+    SkillActivationIssue, SkillActivationIssueCategory, SkillActivationPolicy,
+    SkillActivationResult, effective_tool_allowlist_for_turn,
+    resolve_skill_activated_tool_allowlist,
+};
 
 pub type ToolResult = ToolOutput;
 const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
@@ -114,20 +120,10 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "wait_subagents",
         "list_subagents",
         "use_skill",
-        "manage_tasks",
-        "manage_agents",
-        "manage_marketplace",
-        "manage_triggers",
         "manage_terminal",
-        "manage_ops",
         "security_query",
         "switch_model",
         "memory_search",
-        "manage_secrets",
-        "manage_config",
-        "manage_sessions",
-        "manage_memory",
-        "manage_auth_profiles",
         "edit",
         "multiedit",
         "patch",
@@ -139,7 +135,6 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "process",
         "glob",
         "grep",
-        "task_list",
     ]
     .into_iter()
     .map(str::to_string)
@@ -454,11 +449,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     )))
                 });
             }
-            "manage_triggers" => {
-                with_storage!(storage, "manage_triggers", builder, |s| {
-                    builder.with_trigger(Arc::new(TriggerStoreAdapter::new(s.triggers.clone())))
-                });
-            }
             "manage_terminal" => {
                 with_storage!(storage, "manage_terminal", builder, |s| {
                     builder.with_terminal(Arc::new(TerminalStoreAdapter::new(
@@ -470,7 +460,6 @@ pub fn registry_from_allowlist_with_security_gate(
                 with_storage!(storage, "manage_ops", builder, |s| {
                     builder.with_ops(Arc::new(OpsProviderAdapter::new(
                         s.background_agents.clone(),
-                        s.chat_sessions.clone(),
                     )))
                 });
             }
@@ -555,12 +544,6 @@ pub fn registry_from_allowlist_with_security_gate(
             "grep" => {
                 builder = builder.with_grep_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
-            "task_list" => {
-                with_storage!(storage, "task_list", builder, |s| {
-                    builder.with_task_list(Arc::new(DbWorkItemAdapter::new(s.work_items.clone())))
-                });
-            }
-
             // --- Batch tool (registered post-build, see below) ---
             "batch" => {
                 // Handled after builder.build() since BatchTool needs Arc<ToolRegistry>.
@@ -776,11 +759,21 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_main_agent_default_tools_are_task_first() {
+    fn test_main_agent_default_tools_keep_management_out_of_default_surface() {
         let names = main_agent_default_tool_names();
         assert!(names.contains(&"use_skill".to_string()));
         assert!(!names.contains(&"skill".to_string()));
-        assert!(names.contains(&"manage_tasks".to_string()));
+        assert!(!names.contains(&"manage_tasks".to_string()));
+        assert!(!names.contains(&"manage_agents".to_string()));
+        assert!(!names.contains(&"manage_sessions".to_string()));
+        assert!(!names.contains(&"manage_marketplace".to_string()));
+        assert!(!names.contains(&"manage_triggers".to_string()));
+        assert!(!names.contains(&"manage_ops".to_string()));
+        assert!(!names.contains(&"manage_memory".to_string()));
+        assert!(!names.contains(&"manage_auth_profiles".to_string()));
+        assert!(!names.contains(&"manage_config".to_string()));
+        assert!(!names.contains(&"manage_secrets".to_string()));
+        assert!(!names.contains(&"task_list".to_string()));
         assert!(!names.contains(&"manage_background_agents".to_string()));
         assert!(!names.contains(&"manage_teams".to_string()));
         assert!(!names.contains(&"TeamRuntime".to_string()));
@@ -902,7 +895,6 @@ mod tests {
             .expect("storage should be created");
         let names = vec![
             "manage_marketplace".to_string(),
-            "manage_triggers".to_string(),
             "manage_terminal".to_string(),
             "manage_ops".to_string(),
             "security_query".to_string(),
@@ -912,7 +904,6 @@ mod tests {
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
                 .unwrap();
         assert!(registry.has("manage_marketplace"));
-        assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
         assert!(registry.has("manage_ops"));
         assert!(registry.has("security_query"));
@@ -926,11 +917,7 @@ mod tests {
         assert!(tools.iter().any(|name| name == "transcribe"));
         assert!(tools.iter().any(|name| name == "vision"));
         assert!(tools.iter().any(|name| name == "switch_model"));
-        assert!(tools.iter().any(|name| name == "manage_agents"));
-        assert!(tools.iter().any(|name| name == "manage_marketplace"));
-        assert!(tools.iter().any(|name| name == "manage_triggers"));
         assert!(tools.iter().any(|name| name == "manage_terminal"));
-        assert!(tools.iter().any(|name| name == "manage_ops"));
         assert!(tools.iter().any(|name| name == "security_query"));
     }
 

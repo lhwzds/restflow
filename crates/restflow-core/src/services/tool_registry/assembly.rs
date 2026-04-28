@@ -23,7 +23,7 @@ pub fn create_tool_registry(
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
     background_agent_storage: BackgroundAgentStorage,
-    trigger_storage: TriggerStorage,
+    _trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     run_artifact_storage: crate::storage::RunArtifactStorage,
     _accessor_id: Option<String>,
@@ -41,7 +41,7 @@ pub fn create_tool_registry(
         config_storage,
         agent_storage,
         background_agent_storage,
-        trigger_storage,
+        _trigger_storage,
         terminal_storage,
         run_artifact_storage,
         _accessor_id,
@@ -63,7 +63,7 @@ pub fn create_tool_registry_with_assessor(
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
     background_agent_storage: BackgroundAgentStorage,
-    trigger_storage: TriggerStorage,
+    _trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     run_artifact_storage: crate::storage::RunArtifactStorage,
     _accessor_id: Option<String>,
@@ -96,10 +96,7 @@ pub fn create_tool_registry_with_assessor(
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
     let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
     let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
-    let ops_provider = Arc::new(OpsProviderAdapter::new(
-        background_agent_storage.clone(),
-        chat_storage.clone(),
-    ));
+    let ops_provider = Arc::new(OpsProviderAdapter::new(background_agent_storage.clone()));
     let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage.clone()));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
     let agent_crud_components = build_agent_crud_components(
@@ -128,7 +125,6 @@ pub fn create_tool_registry_with_assessor(
         skill_storage,
         registry_defaults,
     ));
-    let trigger_store = Arc::new(TriggerStoreAdapter::new(trigger_storage));
     let terminal_store = Arc::new(TerminalStoreAdapter::new(terminal_storage));
     let secret_store_adapter = Arc::new(SecretStoreAdapter::new(Arc::new(secret_storage.clone())));
     let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter::with_config_storage(
@@ -233,12 +229,10 @@ pub fn create_tool_registry_with_assessor(
         .with_unified_search(unified_search)
         .with_ops(ops_provider)
         .with_work_items(work_item_provider)
-        .with_task_list(Arc::new(DbWorkItemAdapter::new(work_item_storage.clone())))
         .with_auth_profile(auth_store)
         .with_secrets(secret_store_adapter)
         .with_config(Arc::new(ConfigStoreAdapter::new(config_storage.clone())))
         .with_marketplace(marketplace_store)
-        .with_trigger(trigger_store)
         .with_terminal(terminal_store)
         .with_security_query(security_provider)
         .build();

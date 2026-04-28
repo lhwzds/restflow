@@ -757,14 +757,6 @@ pub trait SecurityQueryProvider: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
 }
 
-// ── TriggerStore ────────────────────────────────────────────────────
-
-pub trait TriggerStore: Send + Sync {
-    fn create_trigger(&self, workflow_id: &str, config: Value, id: Option<&str>) -> Result<Value>;
-    fn list_triggers(&self) -> Result<Value>;
-    fn delete_trigger(&self, id: &str) -> Result<Value>;
-}
-
 // ── TerminalStore ───────────────────────────────────────────────────
 
 pub trait TerminalStore: Send + Sync {
@@ -838,9 +830,7 @@ pub trait ConfigStore: Send + Sync {
 // ── OpsProvider ─────────────────────────────────────────────────────
 
 pub trait OpsProvider: Send + Sync {
-    fn daemon_status(&self) -> Result<Value>;
     fn daemon_health(&self) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
     fn background_summary(&self, status: Option<&str>, limit: usize) -> Result<Value>;
-    fn session_summary(&self, limit: usize) -> Result<Value>;
     fn log_tail(&self, lines: usize, path: Option<&str>) -> Result<Value>;
 }

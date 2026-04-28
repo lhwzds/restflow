@@ -1,6 +1,22 @@
 use super::*;
 
 impl AgentRuntimeExecutor {
+    pub(super) fn resolve_effective_tool_names(
+        &self,
+        agent_node: &AgentNode,
+        _agent_id: Option<&str>,
+        user_input: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let skills = crate::services::skills::list_available_skills(&self.storage.skills)?;
+        let result = effective_tool_allowlist_for_turn(
+            agent_node,
+            user_input,
+            &skills,
+            SkillActivationPolicy::IgnoreInvalid,
+        )?;
+        Ok(result.tool_names)
+    }
+
     pub(super) fn build_background_system_prompt(
         &self,
         agent_node: &AgentNode,
@@ -150,7 +166,7 @@ impl AgentRuntimeExecutor {
         user_input: Option<&str>,
     ) -> Result<()> {
         let skills = self.resolve_preflight_skills(agent_node, user_input)?;
-        let available_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let available_tools = self.resolve_effective_tool_names(agent_node, None, user_input)?;
         let mut preflight = run_preflight(
             &skills,
             &available_tools,

@@ -7,37 +7,16 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_traits::store::{
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager,
-};
+use restflow_traits::store::{MemoryExportRequest, MemoryManager};
 
 #[derive(Clone)]
 pub struct MemoryManagementTool {
     manager: Arc<dyn MemoryManager>,
-    allow_write: bool,
 }
 
 impl MemoryManagementTool {
     pub fn new(manager: Arc<dyn MemoryManager>) -> Self {
-        Self {
-            manager,
-            allow_write: false,
-        }
-    }
-
-    pub fn with_write(mut self, allow_write: bool) -> Self {
-        self.allow_write = allow_write;
-        self
-    }
-
-    fn write_guard(&self) -> Result<()> {
-        if self.allow_write {
-            Ok(())
-        } else {
-            Err(crate::ToolError::Tool(
-                "Write access to memory is disabled. Available read-only operations: list, search. To modify memory, the user must grant write permissions.".to_string(),
-            ))
-        }
+        Self { manager }
     }
 }
 
@@ -54,20 +33,6 @@ enum MemoryAction {
         #[serde(default)]
         options: Option<Value>,
     },
-    Clear {
-        agent_id: String,
-        #[serde(default)]
-        session_id: Option<String>,
-        #[serde(default)]
-        delete_sessions: Option<bool>,
-    },
-    Compact {
-        agent_id: String,
-        #[serde(default)]
-        keep_recent: Option<u32>,
-        #[serde(default)]
-        before_ms: Option<i64>,
-    },
 }
 
 #[async_trait]
@@ -77,7 +42,7 @@ impl Tool for MemoryManagementTool {
     }
 
     fn description(&self) -> &str {
-        "Inspect and maintain long-term memory storage with stats, export, clear, and compact operations."
+        "Inspect long-term memory storage with stats and export operations."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -86,7 +51,7 @@ impl Tool for MemoryManagementTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["stats", "export", "clear", "compact"],
+                    "enum": ["stats", "export"],
                     "description": "Memory operation to perform"
                 },
                 "agent_id": {
@@ -101,20 +66,6 @@ impl Tool for MemoryManagementTool {
                     "type": "object",
                     "description": "Export options override (for export)"
                 },
-                "delete_sessions": {
-                    "type": "boolean",
-                    "description": "Whether to delete memory sessions when clearing",
-                    "default": true
-                },
-                "keep_recent": {
-                    "type": "integer",
-                    "description": "Number of most recent chunks to keep when compacting",
-                    "minimum": 0
-                },
-                "before_ms": {
-                    "type": "integer",
-                    "description": "Delete chunks older than this timestamp (ms since epoch)"
-                }
             },
             "required": ["operation", "agent_id"]
         })
@@ -137,32 +88,6 @@ impl Tool for MemoryManagementTool {
                 };
                 ToolOutput::success(self.manager.export(request)?)
             }
-            MemoryAction::Clear {
-                agent_id,
-                session_id,
-                delete_sessions,
-            } => {
-                self.write_guard()?;
-                let request = MemoryClearRequest {
-                    agent_id,
-                    session_id,
-                    delete_sessions,
-                };
-                ToolOutput::success(self.manager.clear(request)?)
-            }
-            MemoryAction::Compact {
-                agent_id,
-                keep_recent,
-                before_ms,
-            } => {
-                self.write_guard()?;
-                let request = MemoryCompactRequest {
-                    agent_id,
-                    keep_recent,
-                    before_ms,
-                };
-                ToolOutput::success(self.manager.compact(request)?)
-            }
         };
 
         Ok(output)
@@ -172,6 +97,7 @@ impl Tool for MemoryManagementTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_traits::store::{MemoryClearRequest, MemoryCompactRequest};
 
     struct MockManager;
 
@@ -204,15 +130,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_clear_requires_write() {
+    async fn test_clear_is_not_supported() {
         let tool = MemoryManagementTool::new(Arc::new(MockManager));
         let result = tool
             .execute(json!({"operation": "clear", "agent_id": "agent"}))
             .await;
-        let err = result.expect_err("expected write-guard error");
-        assert!(
-            err.to_string()
-                .contains("Available read-only operations: list, search")
-        );
+        let err = result.expect_err("expected unsupported operation error");
+        assert!(err.to_string().contains("unknown variant"));
     }
 }

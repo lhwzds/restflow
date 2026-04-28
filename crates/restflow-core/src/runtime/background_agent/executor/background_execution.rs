@@ -95,7 +95,7 @@ impl AgentRuntimeExecutor {
             .unwrap_or_default();
 
         let swappable = Arc::new(SwappableLlm::new(llm_client));
-        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let effective_tools = self.resolve_effective_tool_names(agent_node, agent_id, input)?;
         let bash_config = BashConfig {
             working_dir: workspace_root
                 .as_ref()

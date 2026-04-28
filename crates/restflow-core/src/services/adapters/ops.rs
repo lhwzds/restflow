@@ -1,9 +1,8 @@
-//! OpsProvider adapter for daemon status, health, and operational queries.
+//! OpsProvider adapter for daemon health and operational queries.
 
-use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
+use crate::daemon::check_health;
 use crate::models::TaskStatus;
-use crate::storage::{BackgroundAgentStorage, ChatSessionStorage};
-use chrono::Utc;
+use crate::storage::BackgroundAgentStorage;
 use restflow_tools::ToolError;
 use restflow_traits::store::OpsProvider;
 use serde_json::{Value, json};
@@ -21,18 +20,11 @@ fn build_ops_response(operation: &str, evidence: Value, verification: Value) -> 
 
 pub struct OpsProviderAdapter {
     background_storage: BackgroundAgentStorage,
-    chat_storage: ChatSessionStorage,
 }
 
 impl OpsProviderAdapter {
-    pub fn new(
-        background_storage: BackgroundAgentStorage,
-        chat_storage: ChatSessionStorage,
-    ) -> Self {
-        Self {
-            background_storage,
-            chat_storage,
-        }
+    pub fn new(background_storage: BackgroundAgentStorage) -> Self {
+        Self { background_storage }
     }
 
     fn parse_status_filter(status: Option<&str>) -> restflow_tools::Result<Option<TaskStatus>> {
@@ -124,28 +116,6 @@ impl OpsProviderAdapter {
 }
 
 impl OpsProvider for OpsProviderAdapter {
-    fn daemon_status(&self) -> restflow_tools::Result<Value> {
-        let status = check_daemon_status()?;
-        let evidence = match status {
-            DaemonStatus::Running { pid } => json!({
-                "status": "running",
-                "pid": pid
-            }),
-            DaemonStatus::NotRunning => json!({
-                "status": "not_running"
-            }),
-            DaemonStatus::Stale { pid } => json!({
-                "status": "stale",
-                "pid": pid
-            }),
-        };
-        let verification = json!({
-            "source": "daemon_pid_file",
-            "checked_at": Utc::now().timestamp_millis()
-        });
-        Ok(build_ops_response("daemon_status", evidence, verification))
-    }
-
     fn daemon_health(
         &self,
     ) -> std::pin::Pin<
@@ -205,39 +175,6 @@ impl OpsProvider for OpsProviderAdapter {
         });
         Ok(build_ops_response(
             "background_summary",
-            evidence,
-            verification,
-        ))
-    }
-
-    fn session_summary(&self, limit: usize) -> restflow_tools::Result<Value> {
-        let summaries = self.chat_storage.list_summaries()?;
-        let recent: Vec<Value> = summaries
-            .iter()
-            .take(limit)
-            .map(|session| {
-                json!({
-                    "id": session.id,
-                    "name": session.name,
-                    "agent_id": session.agent_id,
-                    "model": session.model,
-                    "message_count": session.message_count,
-                    "updated_at": session.updated_at,
-                    "last_message_preview": session.last_message_preview
-                })
-            })
-            .collect();
-        let evidence = json!({
-            "total": summaries.len(),
-            "recent": recent
-        });
-        let verification = json!({
-            "sorted_by": "updated_at_desc",
-            "sample_limit": limit,
-            "derived_from": "chat_session_storage"
-        });
-        Ok(build_ops_response(
-            "session_summary",
             evidence,
             verification,
         ))
@@ -323,9 +260,8 @@ mod tests_adapter {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let bg_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
-        let chat_storage = ChatSessionStorage::new(db).unwrap();
-        (OpsProviderAdapter::new(bg_storage, chat_storage), temp_dir)
+        let bg_storage = BackgroundAgentStorage::new(db).unwrap();
+        (OpsProviderAdapter::new(bg_storage), temp_dir)
     }
 
     #[test]
@@ -334,22 +270,6 @@ mod tests_adapter {
         let result = adapter.background_summary(None, 10).unwrap();
         assert_eq!(result["operation"], "background_summary");
         assert_eq!(result["evidence"]["total"], 0);
-    }
-
-    #[test]
-    fn test_session_summary_empty() {
-        let (adapter, _dir) = setup();
-        let result = adapter.session_summary(10).unwrap();
-        assert_eq!(result["operation"], "session_summary");
-        assert_eq!(result["evidence"]["total"], 0);
-    }
-
-    #[test]
-    fn test_daemon_status() {
-        let (adapter, _dir) = setup();
-        let result = adapter.daemon_status().unwrap();
-        assert_eq!(result["operation"], "daemon_status");
-        assert!(result["evidence"]["status"].is_string());
     }
 
     #[test]

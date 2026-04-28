@@ -16,7 +16,6 @@ use crate::impls::security_query::SecurityQueryTool;
 use crate::impls::session::SessionTool;
 use crate::impls::skill::SkillTool;
 use crate::impls::terminal::TerminalTool;
-use crate::impls::trigger::TriggerTool;
 use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
@@ -25,7 +24,7 @@ use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore,
     MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider, SessionStore,
-    TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
+    TaskStore, TerminalStore, UnifiedMemorySearch, WorkItemProvider,
 };
 
 use super::ToolRegistryBuilder;
@@ -82,8 +81,7 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_memory_management(mut self, manager: Arc<dyn MemoryManager>) -> Self {
-        self.registry
-            .register(MemoryManagementTool::new(manager).with_write(true));
+        self.registry.register(MemoryManagementTool::new(manager));
         self
     }
 
@@ -176,11 +174,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_marketplace(mut self, store: Arc<dyn MarketplaceStore>) -> Self {
         self.registry.register(MarketplaceTool::new(store));
-        self
-    }
-
-    pub fn with_trigger(mut self, store: Arc<dyn TriggerStore>) -> Self {
-        self.registry.register(TriggerTool::new(store));
         self
     }
 

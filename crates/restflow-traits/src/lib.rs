@@ -77,8 +77,8 @@ pub use store::{
     SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
     TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
-    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    TaskUpdateRequest, TerminalStore, UnifiedMemorySearch, WorkItemPatch, WorkItemProvider,
+    WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 // Shared orchestration contracts

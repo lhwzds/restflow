@@ -388,6 +388,55 @@ fn test_resolve_preflight_skills_includes_team_systemskill() {
     assert!(!skills[0].content.contains("Shadow Content"));
 }
 
+#[test]
+fn test_resolve_effective_tool_names_activates_assigned_systemskill_tools() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = create_test_executor(storage);
+    let node = AgentNode {
+        skills: Some(vec!["manage-background-agent".to_string()]),
+        ..AgentNode::new()
+    };
+
+    let tools = executor
+        .resolve_effective_tool_names(&node, None, None)
+        .expect("assigned systemskill should activate suggested tools");
+
+    assert!(tools.iter().any(|tool| tool == "manage_tasks"));
+    assert!(tools.iter().any(|tool| tool == "reply"));
+}
+
+#[test]
+fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = create_test_executor(storage);
+    let node = AgentNode {
+        skills: Some(vec!["manage-background-agent".to_string()]),
+        ..AgentNode::new()
+    };
+
+    let tools = executor
+        .resolve_effective_tool_names(&node, None, Some("please use @manage-background-agent"))
+        .expect("explicit skill mention should activate suggested tools");
+
+    assert!(tools.iter().any(|tool| tool == "use_skill"));
+    assert!(tools.iter().any(|tool| tool == "manage_tasks"));
+    assert!(tools.iter().any(|tool| tool == "reply"));
+}
+
+#[test]
+fn test_resolve_effective_tool_names_does_not_escalate_unassigned_skill_mention() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = create_test_executor(storage);
+    let node = AgentNode::new();
+
+    let tools = executor
+        .resolve_effective_tool_names(&node, None, Some("please use @manage-background-agent"))
+        .expect("unassigned mention should remain readable but not activate tools");
+
+    assert!(tools.iter().any(|tool| tool == "use_skill"));
+    assert!(!tools.iter().any(|tool| tool == "manage_tasks"));
+}
+
 #[tokio::test]
 async fn test_resolve_primary_model_prefers_explicit_model() {
     let (storage, _temp_dir) = create_test_storage();

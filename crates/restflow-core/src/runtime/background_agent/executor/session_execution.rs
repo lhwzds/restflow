@@ -251,10 +251,8 @@ impl AgentRuntimeExecutor {
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let mentioned_skills = self.resolve_mentioned_skill_infos(user_input);
-        let mut effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
-        if !mentioned_skills.is_empty() && !effective_tools.iter().any(|tool| tool == "use_skill") {
-            effective_tools.push("use_skill".to_string());
-        }
+        let effective_tools =
+            self.resolve_effective_tool_names(agent_node, agent_id, Some(user_input))?;
         let agent_defaults = self
             .storage
             .config

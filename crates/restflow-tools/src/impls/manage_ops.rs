@@ -1,5 +1,4 @@
-//! Unified operational diagnostics tool for daemon status, health, background summary,
-//! session summary, and log tail.
+//! Unified operational diagnostics tool for daemon health, background summary, and log tail.
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -35,7 +34,7 @@ impl Tool for ManageOpsTool {
     }
 
     fn description(&self) -> &str {
-        "Unified operational diagnostics and control entry for daemon status, health snapshot, background-agent summary, session summary, and log tail."
+        "Unified operational diagnostics for daemon health, background-agent summary, and log tail."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -44,7 +43,7 @@ impl Tool for ManageOpsTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["daemon_status", "daemon_health", "background_summary", "session_summary", "log_tail"],
+                    "enum": ["daemon_health", "background_summary", "log_tail"],
                     "description": "Operation to execute."
                 },
                 "status": {
@@ -77,16 +76,11 @@ impl Tool for ManageOpsTool {
             .ok_or_else(|| ToolError::Tool("Missing operation parameter".to_string()))?;
 
         let result = match operation {
-            "daemon_status" => self.provider.daemon_status()?,
             "daemon_health" => self.provider.daemon_health().await?,
             "background_summary" => {
                 let status = input.get("status").and_then(Value::as_str);
                 let limit = parse_limit(&input, "limit", 5, 100);
                 self.provider.background_summary(status, limit)?
-            }
-            "session_summary" => {
-                let limit = parse_limit(&input, "limit", 10, 100);
-                self.provider.session_summary(limit)?
             }
             "log_tail" => {
                 let lines = parse_limit(&input, "lines", 100, 1000);
@@ -95,7 +89,7 @@ impl Tool for ManageOpsTool {
             }
             other => {
                 return Err(ToolError::Tool(format!(
-                    "Unknown operation: {}. Supported: daemon_status, daemon_health, background_summary, session_summary, log_tail",
+                    "Unknown operation: {}. Supported: daemon_health, background_summary, log_tail",
                     other
                 )));
             }

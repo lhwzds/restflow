@@ -221,9 +221,6 @@ async fn run() -> Result<()> {
                 commands::security::run(command, cli.format).await
             }
             Some(Commands::Task { command }) => task_commands::run(exec, command, cli.format).await,
-            Some(Commands::Trigger { command }) => {
-                commands::trigger::run(exec, command, cli.format).await
-            }
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),

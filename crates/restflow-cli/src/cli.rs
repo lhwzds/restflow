@@ -175,12 +175,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: TaskCommands,
     },
-
-    /// Trigger management
-    Trigger {
-        #[command(subcommand)]
-        command: TriggerCommands,
-    },
 }
 
 #[derive(Args, Default, Clone, Copy)]
@@ -1245,28 +1239,5 @@ pub enum TaskCommands {
 
         /// Message content
         message: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TriggerCommands {
-    /// List triggers
-    List,
-
-    /// Create a trigger
-    Create {
-        /// Trigger name
-        #[arg(short, long)]
-        name: String,
-
-        /// Trigger type: webhook, schedule
-        #[arg(long)]
-        trigger_type: String,
-    },
-
-    /// Delete a trigger
-    Delete {
-        /// Trigger ID
-        id: String,
     },
 }

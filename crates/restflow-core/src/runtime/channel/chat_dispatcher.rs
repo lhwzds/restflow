@@ -1463,13 +1463,17 @@ mod tests {
         let tools = crate::runtime::agent::main_agent_default_tool_names();
 
         assert!(tools.iter().any(|name| name == "switch_model"));
-        assert!(tools.iter().any(|name| name == "manage_tasks"));
+        assert!(!tools.iter().any(|name| name == "manage_tasks"));
         assert!(tools.iter().any(|name| name == "bash"));
     }
 
     #[test]
     fn test_effective_main_agent_tool_names_merges_extra_tools() {
-        let extra = vec!["custom_tool".to_string(), "bash".to_string()];
+        let extra = vec![
+            "custom_tool".to_string(),
+            "bash".to_string(),
+            "manage_tasks".to_string(),
+        ];
         let merged = effective_main_agent_tool_names(Some(&extra));
 
         assert!(merged.iter().any(|name| name == "switch_model"));

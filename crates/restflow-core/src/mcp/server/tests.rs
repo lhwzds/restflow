@@ -2246,12 +2246,12 @@ async fn test_manage_ops_runtime_tool_routes_and_returns_normalized_json() {
     let json = server
         .handle_runtime_tool(
             "manage_ops",
-            serde_json::json!({ "operation": "daemon_status" }),
+            serde_json::json!({ "operation": "background_summary" }),
         )
         .await
         .unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(value["operation"], "daemon_status");
+    assert_eq!(value["operation"], "background_summary");
     assert!(value.get("evidence").is_some());
     assert!(value.get("verification").is_some());
 }

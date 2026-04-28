@@ -3,12 +3,10 @@ use std::sync::Arc;
 use crate::impls::list_subagents::ListSubagentsTool;
 use crate::impls::spawn::SpawnTool;
 use crate::impls::spawn_subagent::SpawnSubagentTool;
-use crate::impls::task_list::TaskListTool;
 use crate::impls::use_skill::UseSkillTool;
 use crate::impls::wait_subagents::WaitSubagentsTool;
 use crate::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
-use restflow_traits::store::WorkItemProvider;
 use restflow_traits::{SubagentManager, SubagentSpawner};
 
 use super::ToolRegistryBuilder;
@@ -48,11 +46,6 @@ impl ToolRegistryBuilder {
     ) -> Self {
         self.registry
             .register(UseSkillTool::new(provider).with_security(security_gate, agent_id, task_id));
-        self
-    }
-
-    pub fn with_task_list(mut self, provider: Arc<dyn WorkItemProvider>) -> Self {
-        self.registry.register(TaskListTool::new(provider));
         self
     }
 }

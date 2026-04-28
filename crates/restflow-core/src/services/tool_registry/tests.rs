@@ -417,7 +417,6 @@ fn test_create_tool_registry() {
     assert!(registry.has("multiedit"));
     assert!(registry.has("glob"));
     assert!(registry.has("grep"));
-    assert!(registry.has("task_list"));
     assert!(registry.has("skill"));
     assert!(registry.has("memory_search"));
     assert!(registry.has("process"));
@@ -432,7 +431,6 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_agents"));
     assert!(registry.has("manage_tasks"));
     assert!(registry.has("manage_marketplace"));
-    assert!(registry.has("manage_triggers"));
     assert!(registry.has("manage_terminal"));
     assert!(registry.has("manage_ops"));
     assert!(registry.has("security_query"));
@@ -501,7 +499,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_manage_ops_session_summary_response_schema() {
+async fn test_manage_ops_background_summary_response_schema() {
     let (
         skill_storage,
         memory_storage,
@@ -518,11 +516,6 @@ async fn test_manage_ops_session_summary_response_schema() {
         run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
-
-    let session =
-        crate::models::ChatSession::new("agent-test".to_string(), "gpt-5-mini".to_string())
-            .with_name("Ops Session");
-    chat_storage.create(&session).unwrap();
 
     let registry = create_tool_registry(
         skill_storage,
@@ -547,12 +540,12 @@ async fn test_manage_ops_session_summary_response_schema() {
     let output = registry
         .execute_safe(
             "manage_ops",
-            json!({ "operation": "session_summary", "limit": 5 }),
+            json!({ "operation": "background_summary", "limit": 5 }),
         )
         .await
         .unwrap();
     assert!(output.success);
-    assert_eq!(output.result["operation"], "session_summary");
+    assert_eq!(output.result["operation"], "background_summary");
     assert!(output.result.get("evidence").is_some());
     assert!(output.result.get("verification").is_some());
 }
@@ -1396,81 +1389,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
         .unwrap();
     assert!(deleted.success);
     assert_eq!(deleted.result["deleted"].as_bool(), Some(true));
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn test_trigger_tool_create_list_disable() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        work_item_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        background_agent_storage,
-        trigger_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        work_item_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        background_agent_storage,
-        trigger_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-
-    let created = registry
-        .execute_safe(
-            "manage_triggers",
-            json!({
-                "operation": "create",
-                "workflow_id": "wf-001",
-                "trigger_config": {
-                    "type": "schedule",
-                    "cron": "0 * * * * *",
-                    "timezone": "UTC",
-                    "payload": {"from": "test"}
-                }
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(created.success);
-    let trigger_id = created.result["id"].as_str().unwrap().to_string();
-
-    let listed = registry
-        .execute_safe("manage_triggers", json!({ "operation": "list" }))
-        .await
-        .unwrap();
-    assert!(listed.success);
-    assert_eq!(listed.result.as_array().map(|items| items.len()), Some(1));
-
-    let disabled = registry
-        .execute_safe(
-            "manage_triggers",
-            json!({ "operation": "disable", "id": trigger_id }),
-        )
-        .await
-        .unwrap();
-    assert!(disabled.success);
 }
 
 #[tokio::test(flavor = "current_thread")]
