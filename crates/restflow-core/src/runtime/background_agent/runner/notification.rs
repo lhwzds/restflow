@@ -19,7 +19,7 @@ impl TaskRunner {
         }
 
         let operation = format!(
-            "Executed background agent '{}' ({}) and prepared a {} notification payload.",
+            "Executed task '{}' ({}) and prepared a {} notification payload.",
             task.name,
             task.id,
             if success { "success" } else { "failure" }
@@ -33,7 +33,7 @@ impl TaskRunner {
             ensure_success_output(message, &operation, verification)
         } else {
             let detail = if message.trim().is_empty() {
-                "Background agent execution failed without explicit error detail."
+                "Task execution failed without explicit error detail."
             } else {
                 message
             };

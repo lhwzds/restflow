@@ -12,8 +12,8 @@ const SYSTEMSKILLS: &[(&str, &str)] = &[
         include_str!("../assets/skills/manage-subagent/SKILL.md"),
     ),
     (
-        "manage-background-agent",
-        include_str!("../assets/skills/manage-background-agent/SKILL.md"),
+        "manage-task",
+        include_str!("../assets/skills/manage-task/SKILL.md"),
     ),
     (
         "manage-agent",
@@ -120,5 +120,6 @@ mod tests {
         let ids = systemskill_ids().collect::<Vec<_>>();
         assert!(ids.contains(&"team"));
         assert!(ids.contains(&"manage-subagent"));
+        assert!(ids.contains(&"manage-task"));
     }
 }

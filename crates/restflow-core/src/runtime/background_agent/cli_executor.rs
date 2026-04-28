@@ -78,7 +78,7 @@ impl CliAgentExecutor {
 
     /// Execute a CLI command with the given configuration and input.
     ///
-    /// `task_id` is used to tag background-agent processes for hook enforcement.
+    /// `task_id` is used to tag task execution processes for hook enforcement.
     pub async fn execute_cli(
         &self,
         config: &CliExecutionConfig,
@@ -100,7 +100,7 @@ impl CliAgentExecutor {
         cmd.args(&config.args);
         cmd.current_dir(cwd);
 
-        // Tag process as background-agent for git hook enforcement.
+        // Tag process as a task execution for git hook enforcement.
         if let Some(tid) = task_id {
             cmd.env("RESTFLOW_TASK_ID", tid);
         }

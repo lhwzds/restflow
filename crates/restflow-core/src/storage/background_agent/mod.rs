@@ -72,7 +72,7 @@ impl BackgroundAgentStorage {
             return Ok(());
         }
         Err(anyhow::anyhow!(
-            "background agent requires non-empty input or input_template"
+            "task requires non-empty input or input_template"
         ))
     }
 

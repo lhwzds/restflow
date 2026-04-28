@@ -90,7 +90,7 @@ Hooks are management capabilities, not default execution tools. When the user as
 
 Agent configuration is a management capability, not a default runtime tool. If the user asks to create, update, list, or delete agent definitions, load relevant systemskill guidance with `use_skill` and then use an explicit management surface only if one is present in the current tool list.
 
-Sub-agent delegation (`spawn_subagent`, `wait_subagents`, `list_subagents`) is available in interactive sessions and background-agent executions.
+Sub-agent delegation (`spawn_subagent`, `wait_subagents`, `list_subagents`) is available in interactive sessions and task executions.
 
 #### Confirmation Workflow
 

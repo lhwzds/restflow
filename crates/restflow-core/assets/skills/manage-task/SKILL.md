@@ -4,7 +4,7 @@ description: Manage task lifecycle, execution, progress inspection, and operator
 tags:
   - default
   - agent
-  - background
+  - task
   - operations
 suggested_tools:
   - manage_tasks

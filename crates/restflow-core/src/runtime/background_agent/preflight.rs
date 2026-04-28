@@ -1,4 +1,4 @@
-//! Preflight checks for background agent execution.
+//! Preflight checks for task execution.
 
 use crate::models::{Skill, SkillPreflightPolicyMode};
 use regex::Regex;

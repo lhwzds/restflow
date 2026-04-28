@@ -26,7 +26,7 @@ export type MemoryConfig = {
   /**
    * Scope for long-term memory persistence.
    * Shared scope stores memory under the agent ID, while isolated scope
-   * stores memory under a background-agent-specific namespace.
+   * stores memory under a task-specific namespace.
    */
   memory_scope: MemoryScope
   /**

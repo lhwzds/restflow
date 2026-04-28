@@ -139,7 +139,7 @@ pub struct ManageTasksParams {
     /// Source chat session ID (for convert_session/promote_to_background)
     #[serde(default)]
     pub session_id: Option<String>,
-    /// Task/background agent ID
+    /// Task ID
     #[serde(default)]
     pub id: Option<String>,
     /// Task name

@@ -6,7 +6,7 @@ pub const DEFAULT_AGENT_MAX_ITERATIONS: usize = 100;
 /// Default maximum tool calls per agent run.
 pub const DEFAULT_AGENT_MAX_TOOL_CALLS: usize = 200;
 
-/// Default maximum tool calls per background-agent run.
+/// Default maximum tool calls per task run.
 pub const DEFAULT_BACKGROUND_MAX_TOOL_CALLS: usize = 100;
 
 /// Default timeout (seconds) for the executor wrapper around tool calls.
@@ -69,10 +69,10 @@ pub const DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES: usize = 50_000;
 /// Default event limit for background progress queries.
 pub const DEFAULT_BG_PROGRESS_EVENT_LIMIT: usize = 10;
 
-/// Default message list limit for background agents.
+/// Default message list limit for tasks.
 pub const DEFAULT_BG_MESSAGE_LIST_LIMIT: usize = 50;
 
-/// Default trace list limit for background agents.
+/// Default trace list limit for tasks.
 pub const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
 
 /// Default trailing line limit for background trace reads.

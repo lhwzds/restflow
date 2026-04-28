@@ -1,4 +1,4 @@
-//! Task management tool with a legacy background-agent alias.
+//! Task management tool implementation.
 
 mod batch;
 mod control;

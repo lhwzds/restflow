@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - Coordinator agent role with tool filtering and spawn_subtask capability.
 - Append-only JSONL event log for background task replay.
 - SSRF protection for HttpTool and WebFetchTool.
-- CLI commands for background-agent, shared space, deliverables, and triggers.
+- CLI commands for background tasks, shared space, deliverables, and triggers.
 - CLI `memory store` command.
 - CLI `skill update` command.
 - `get_skill_context` MCP tool (renamed from `skill_execute`).
@@ -46,4 +46,3 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Clippy/doc lint regressions introduced in recent retry and streaming changes.
 - Post-merge CI/build issues around streaming agent execution paths.
-

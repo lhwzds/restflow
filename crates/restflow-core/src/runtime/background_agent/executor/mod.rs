@@ -397,7 +397,7 @@ impl AgentRuntimeExecutor {
     }
 
     /// Set a reply sender factory for execution-scoped contexts (for example
-    /// background agents where each task has distinct routing semantics).
+    /// task executions where each task has distinct routing semantics).
     pub fn with_reply_sender_factory(mut self, factory: Arc<dyn ReplySenderFactory>) -> Self {
         self.reply_sender_factory = Some(factory);
         self

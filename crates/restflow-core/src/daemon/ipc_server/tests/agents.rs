@@ -119,7 +119,7 @@ async fn process_get_background_agent_returns_created_task() {
     match response {
         IpcResponse::Success(value) => {
             let returned: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
+                serde_json::from_value(value).expect("task");
             assert_eq!(returned.id, task.id);
             assert_eq!(returned.name, "ipc-background");
         }
@@ -343,7 +343,7 @@ async fn process_update_background_agent_resolves_unique_prefix() {
     match response {
         IpcResponse::Success(value) => {
             let updated: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
+                serde_json::from_value(value).expect("task");
             assert_eq!(updated.id, task.id);
             assert_eq!(updated.description.as_deref(), Some("updated description"));
         }
@@ -373,7 +373,7 @@ async fn process_create_background_agent_accepts_default_agent_alias() {
     match response {
         IpcResponse::Success(value) => {
             let created: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
+                serde_json::from_value(value).expect("task");
             assert_eq!(created.agent_id, default_agent_id);
             assert_eq!(created.name, "ipc-default-alias");
         }
@@ -405,7 +405,7 @@ async fn process_update_background_agent_accepts_default_agent_alias() {
     match response {
         IpcResponse::Success(value) => {
             let updated: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
+                serde_json::from_value(value).expect("task");
             assert_eq!(updated.id, task.id);
             assert_eq!(updated.agent_id, default_agent_id);
         }
@@ -511,7 +511,7 @@ async fn process_control_background_agent_resolves_unique_prefix() {
     match response {
         IpcResponse::Success(value) => {
             let updated: crate::models::BackgroundAgent =
-                serde_json::from_value(value).expect("background agent");
+                serde_json::from_value(value).expect("task");
             assert_eq!(updated.id, task.id);
             assert_eq!(updated.status, crate::models::BackgroundAgentStatus::Paused);
         }
@@ -881,7 +881,7 @@ async fn process_create_task_requires_confirmation_when_agent_provider_missing()
     let stored_agent = core
         .storage
         .agents
-        .create_agent("warning background agent".to_string(), AgentNode::new())
+        .create_agent("warning task agent".to_string(), AgentNode::new())
         .unwrap();
 
     let response = IpcServer::process(

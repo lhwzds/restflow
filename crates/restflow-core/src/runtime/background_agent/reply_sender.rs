@@ -18,7 +18,7 @@ use tracing::{debug, warn};
 use super::events::{TaskEventEmitter, TaskStreamEvent};
 use super::executor::ReplySenderFactory;
 
-/// Builds task-scoped reply senders for background-agent execution.
+/// Builds task-scoped reply senders for task execution.
 pub struct BackgroundReplySenderFactory {
     storage: Arc<BackgroundAgentStorage>,
     event_emitter: Arc<dyn TaskEventEmitter>,

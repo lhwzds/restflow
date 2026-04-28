@@ -945,7 +945,7 @@ pub async fn run_background_workload_with_real_runtime(
                 ..AgentNode::new()
             },
         )
-        .expect("create stress background agent");
+        .expect("create stress task agent");
 
     let (_tool_guard, tool_calls, tool_failures) = install_real_io_tool_overrides();
     let _llm_guard = install_test_llm_factory(Arc::new(StubHttpLlmFactory::new(

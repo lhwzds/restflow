@@ -12,12 +12,12 @@ fn stream_sender() -> &'static broadcast::Sender<TaskStreamEvent> {
     })
 }
 
-/// Publish a background-agent stream event to daemon subscribers.
+/// Publish a task stream event to daemon subscribers.
 pub fn publish_background_event(event: TaskStreamEvent) {
     let _ = stream_sender().send(event);
 }
 
-/// Subscribe to the daemon background-agent stream bus.
+/// Subscribe to the daemon task stream bus.
 pub fn subscribe_background_events() -> broadcast::Receiver<TaskStreamEvent> {
     stream_sender().subscribe()
 }

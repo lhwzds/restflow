@@ -24,7 +24,7 @@ impl TaskRunner {
         }
     }
 
-    /// Clean up all resources associated with a background agent task.
+    /// Clean up all resources associated with a task.
     /// Called via scopeguard when task execution panics or fails unexpectedly.
     pub(super) fn cleanup_agent_resources(task_id: &str) {
         use std::fs;

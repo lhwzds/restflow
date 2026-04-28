@@ -237,7 +237,7 @@ impl NetworkEcosystem {
     }
 }
 
-/// Network allowlist configuration for background agents
+/// Network allowlist configuration for task executions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkAllowlist {
     /// List of allowed network ecosystems

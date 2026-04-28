@@ -805,7 +805,7 @@ impl TaskRunner {
 
     /// Install RestFlow git hooks in the given repository.
     ///
-    /// This installs a pre-commit hook that prevents background agents from
+    /// This installs a pre-commit hook that prevents task executions from
     /// committing directly to main/master branches.
     pub fn install_git_hooks(repo_path: &str) {
         let hook_path = format!("{}/.git/hooks/pre-commit", repo_path);

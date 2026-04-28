@@ -1,7 +1,7 @@
 //! Agent service layer
 //!
 //! This module only covers agent CRUD operations.
-//! Agent execution happens through chat sessions and background agent runtime paths.
+//! Agent execution happens through chat sessions and task runtime paths.
 
 use crate::{
     AppCore,

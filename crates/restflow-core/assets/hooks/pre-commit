@@ -4,9 +4,9 @@
 
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 
-# Only enforce for background-agent processes.
+# Only enforce for task execution processes.
 if [ -n "$RESTFLOW_AGENT" ] && [ "$BRANCH" = "main" -o "$BRANCH" = "master" ]; then
-    echo "ERROR: Background agents must not commit directly to $BRANCH."
+    echo "ERROR: Task executions must not commit directly to $BRANCH."
     echo "Use a worktree or feature branch instead."
     echo "Task ID: $RESTFLOW_TASK_ID"
     exit 1

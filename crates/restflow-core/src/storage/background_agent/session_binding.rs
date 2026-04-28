@@ -1,9 +1,9 @@
 use super::*;
 
 impl BackgroundAgentStorage {
-    // ============== Background Agent Operations ==============
+    // ============== Task Operations ==============
 
-    /// Create a background agent from a rich spec.
+    /// Create a task from a rich spec.
     pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
         let BackgroundAgentSpec {
             name,
@@ -63,7 +63,7 @@ impl BackgroundAgentStorage {
         Ok(task)
     }
 
-    /// Update a background agent with a partial patch.
+    /// Update a task with a partial patch.
     pub fn update_background_agent(
         &self,
         id: &str,
@@ -149,7 +149,7 @@ impl BackgroundAgentStorage {
         Ok(task)
     }
 
-    /// Apply a control action to a background agent.
+    /// Apply a control action to a task.
     pub fn control_background_agent(
         &self,
         id: &str,
@@ -197,7 +197,7 @@ impl BackgroundAgentStorage {
         Ok(task)
     }
 
-    /// Get aggregated progress for a background agent.
+    /// Get aggregated progress for a task.
     pub fn get_background_agent_progress(
         &self,
         id: &str,

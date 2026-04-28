@@ -3,7 +3,7 @@ use super::*;
 impl BackgroundAgentStorage {
     // ============== Background Message Operations ==============
 
-    /// Queue a message for a background agent.
+    /// Queue a message for a task.
     pub fn send_background_agent_message(
         &self,
         task_id: &str,

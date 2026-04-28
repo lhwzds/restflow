@@ -297,9 +297,9 @@ pub struct AgentDefaults {
     ///
     /// `None` disables wall-clock timeout for foreground agent runs.
     pub max_wall_clock_secs: Option<u64>,
-    /// Default timeout for background agent task execution in seconds.
+    /// Default timeout for task execution in seconds.
     pub default_task_timeout_secs: u64,
-    /// Default max duration for background agent resource limits in seconds.
+    /// Default max duration for task resource limits in seconds.
     pub default_max_duration_secs: u64,
     /// Fallback models for cross-provider failover (manually configured).
     /// Only used when primary model fails - does not auto-discover providers.
@@ -458,9 +458,9 @@ pub struct ApiDefaults {
     pub session_list_limit: u32,
     /// Default event limit for background progress queries.
     pub background_progress_event_limit: usize,
-    /// Default message list limit for background agents.
+    /// Default message list limit for tasks.
     pub background_message_list_limit: usize,
-    /// Default trace list limit for background agents.
+    /// Default trace list limit for tasks.
     pub background_trace_list_limit: usize,
     /// Default trailing line limit when reading trace output.
     pub background_trace_line_limit: usize,

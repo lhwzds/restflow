@@ -28,12 +28,8 @@ pub fn load_default_main_agent_prompt() -> Result<String> {
 pub fn load_background_agent_policy(background_task_id: Option<&str>) -> Result<String> {
     let path =
         ensure_prompt_template_file(BACKGROUND_AGENT_POLICY_FILE, BACKGROUND_AGENT_POLICY_ASSET)?;
-    let content = fs::read_to_string(&path).with_context(|| {
-        format!(
-            "Failed to read background agent policy prompt: {}",
-            path.display()
-        )
-    })?;
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read task policy prompt: {}", path.display()))?;
     Ok(apply_task_id_placeholder(&content, background_task_id))
 }
 

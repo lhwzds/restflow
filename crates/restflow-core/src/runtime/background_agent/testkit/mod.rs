@@ -1,4 +1,4 @@
-//! Test utilities for deterministic background-agent stress tests.
+//! Test utilities for deterministic task stress tests.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};

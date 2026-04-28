@@ -393,7 +393,7 @@ fn test_resolve_effective_tool_names_activates_assigned_systemskill_tools() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage);
     let node = AgentNode {
-        skills: Some(vec!["manage-background-agent".to_string()]),
+        skills: Some(vec!["manage-task".to_string()]),
         ..AgentNode::new()
     };
 
@@ -410,12 +410,12 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage);
     let node = AgentNode {
-        skills: Some(vec!["manage-background-agent".to_string()]),
+        skills: Some(vec!["manage-task".to_string()]),
         ..AgentNode::new()
     };
 
     let tools = executor
-        .resolve_effective_tool_names(&node, None, Some("please use @manage-background-agent"))
+        .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
         .expect("explicit skill mention should activate suggested tools");
 
     assert!(tools.iter().any(|tool| tool == "use_skill"));
@@ -430,7 +430,7 @@ fn test_resolve_effective_tool_names_does_not_escalate_unassigned_skill_mention(
     let node = AgentNode::new();
 
     let tools = executor
-        .resolve_effective_tool_names(&node, None, Some("please use @manage-background-agent"))
+        .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
         .expect("unassigned mention should remain readable but not activate tools");
 
     assert!(tools.iter().any(|tool| tool == "use_skill"));

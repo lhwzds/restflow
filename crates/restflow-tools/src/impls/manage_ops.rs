@@ -1,4 +1,4 @@
-//! Unified operational diagnostics tool for daemon health, background summary, and log tail.
+//! Unified operational diagnostics tool for daemon health, task summary, and log tail.
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -34,7 +34,7 @@ impl Tool for ManageOpsTool {
     }
 
     fn description(&self) -> &str {
-        "Unified operational diagnostics for daemon health, background-agent summary, and log tail."
+        "Unified operational diagnostics for daemon health, task summary, and log tail."
     }
 
     fn parameters_schema(&self) -> Value {

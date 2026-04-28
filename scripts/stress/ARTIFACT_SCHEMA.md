@@ -46,9 +46,9 @@ Periodic process-health samples emitted by `scripts/stress/mock_daemon_soak.sh`.
 }
 ```
 
-## `mcp-background-agent-stress-summary.json`
+## `mcp-manage-tasks-stress-summary.json`
 
-Latency summary for MCP background-agent stress path.
+Latency summary for MCP task management stress path.
 
 ```json
 {
@@ -67,6 +67,6 @@ Latency summary for MCP background-agent stress path.
 ## Markdown Summaries
 
 - `soak-summary.md`: short human-readable summary for soak runs.
-- `mcp-background-agent-stress-summary.md`: short summary for MCP stress tests.
+- `mcp-manage-tasks-stress-summary.md`: short summary for MCP stress tests.
 
 These markdown files are intended for CI artifact browsing and GitHub step summaries.

@@ -569,7 +569,7 @@ impl McpBackend for IpcBackend {
     ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
         if request.preview || request.approval_id.is_some() {
             return Err(
-                "Preview and confirmation replay are no longer available for IPC background-agent deletions."
+                "Preview and confirmation replay are no longer available for IPC task deletions."
                     .to_string(),
             );
         }

@@ -1072,7 +1072,7 @@ fn test_task_store_adapter_task_flow() {
     let created = TaskStore::create_task(
         &adapter,
         TaskCreateRequest {
-            name: "Background Agent".to_string(),
+            name: "Task".to_string(),
             agent_id: created_agent.id,
             chat_session_id: None,
             schedule: restflow_contracts::request::TaskSchedule::default(),
@@ -1114,7 +1114,7 @@ fn test_task_store_adapter_task_flow() {
         &adapter,
         TaskUpdateRequest {
             id: task_id.clone(),
-            name: Some("Background Agent Updated".to_string()),
+            name: Some("Task Updated".to_string()),
             description: Some("Updated description".to_string()),
             agent_id: None,
             chat_session_id: None,
@@ -1138,7 +1138,7 @@ fn test_task_store_adapter_task_flow() {
             .get("result")
             .and_then(|value| value.get("name"))
             .and_then(|value| value.as_str()),
-        Some("Background Agent Updated")
+        Some("Task Updated")
     );
     assert_eq!(
         updated

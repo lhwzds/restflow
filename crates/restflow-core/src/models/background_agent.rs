@@ -277,7 +277,7 @@ pub struct MemoryConfig {
 
     /// Scope for long-term memory persistence.
     /// Shared scope stores memory under the agent ID, while isolated scope
-    /// stores memory under a background-agent-specific namespace.
+    /// stores memory under a task-specific namespace.
     #[serde(default = "default_memory_scope")]
     pub memory_scope: MemoryScope,
 
@@ -869,7 +869,7 @@ pub(crate) type BackgroundProgress = TaskProgress;
 /// Crate-private legacy background-agent conversion result alias.
 pub(crate) type BackgroundAgentConversionResult = TaskConversionResult;
 
-/// Status for one persisted background-agent execution attempt.
+/// Status for one persisted task execution attempt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundAgentRunStatus {
@@ -896,7 +896,7 @@ impl BackgroundAgentRunStatus {
     }
 }
 
-/// Minimal persisted metrics for one background-agent execution attempt.
+/// Minimal persisted metrics for one task execution attempt.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct BackgroundAgentRunMetrics {
     #[serde(default)]
@@ -913,7 +913,7 @@ pub struct BackgroundAgentRunMetrics {
     pub compaction_events: Option<u32>,
 }
 
-/// One persisted background-agent execution attempt.
+/// One persisted task execution attempt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BackgroundAgentRun {
     pub run_id: String,
