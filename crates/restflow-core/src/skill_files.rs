@@ -101,6 +101,21 @@ mod tests {
     }
 
     #[test]
+    fn self_heal_ops_declares_manage_ops_activation() {
+        let skill = get_systemskill("self-heal-ops")
+            .unwrap()
+            .expect("self-heal-ops should exist");
+        assert_eq!(skill.source, SkillSource::System);
+        assert!(skill.read_only);
+        assert!(
+            skill
+                .suggested_tools
+                .iter()
+                .any(|tool| tool == "manage_ops")
+        );
+    }
+
+    #[test]
     fn lists_stable_systemskill_ids() {
         let ids = systemskill_ids().collect::<Vec<_>>();
         assert!(ids.contains(&"team"));

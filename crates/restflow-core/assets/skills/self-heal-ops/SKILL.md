@@ -6,6 +6,7 @@ tags:
   - ops
   - self-heal
 suggested_tools:
+  - manage_ops
   - manage_tasks
   - manage_agents
   - manage_sessions
@@ -27,6 +28,9 @@ Use this skill when users report issues like:
 ## Operating Procedure
 
 1. Collect evidence first.
+- Use `manage_ops` with `operation: "daemon_health"` for daemon health.
+- Use `manage_ops` with `operation: "background_summary"` for task state summaries.
+- Use `manage_ops` with `operation: "log_tail"` for daemon logs when log evidence is needed.
 - Capture exact error strings from logs and task progress.
 - Record affected agent IDs, background agent IDs, and session IDs.
 

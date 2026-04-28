@@ -427,7 +427,7 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_tasks"));
     assert!(registry.has("manage_marketplace"));
     assert!(registry.has("manage_terminal"));
-    assert!(registry.has("manage_ops"));
+    assert!(!registry.has("manage_ops"));
     assert!(registry.has("security_query"));
     // Session and auth profile tools
     assert!(registry.has("manage_sessions"));
@@ -492,35 +492,16 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_manage_ops_background_summary_response_schema() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        background_agent_storage,
-        trigger_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        background_agent_storage,
-        trigger_storage,
-        terminal_storage,
-        run_artifact_storage,
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("ops-registry.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
+    let allowlist = vec!["manage_ops".to_string()];
+    let registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&allowlist),
+        None,
+        None,
+        Some(&storage),
         None,
         None,
         None,

@@ -92,7 +92,6 @@ pub fn create_tool_registry_with_assessor(
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
     let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
     let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
-    let ops_provider = Arc::new(OpsProviderAdapter::new(background_agent_storage.clone()));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
     let agent_crud_components = build_agent_crud_components(
         agent_storage.clone(),
@@ -221,7 +220,6 @@ pub fn create_tool_registry_with_assessor(
         .with_session(session_store)
         .with_memory_store(mem_store)
         .with_unified_search(unified_search)
-        .with_ops(ops_provider)
         .with_auth_profile(auth_store)
         .with_secrets(secret_store_adapter)
         .with_config(Arc::new(ConfigStoreAdapter::new(config_storage.clone())))
