@@ -70,42 +70,6 @@ pub trait MemoryStore: Send + Sync {
     fn delete(&self, id: &str) -> Result<Value>;
 }
 
-// ── MemoryManager ────────────────────────────────────────────────────
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct MemoryExportRequest {
-    pub agent_id: String,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub options: Option<Value>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct MemoryClearRequest {
-    pub agent_id: String,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub delete_sessions: Option<bool>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct MemoryCompactRequest {
-    pub agent_id: String,
-    #[serde(default)]
-    pub keep_recent: Option<u32>,
-    #[serde(default)]
-    pub before_ms: Option<i64>,
-}
-
-pub trait MemoryManager: Send + Sync {
-    fn stats(&self, agent_id: &str) -> Result<Value>;
-    fn export(&self, request: MemoryExportRequest) -> Result<Value>;
-    fn clear(&self, request: MemoryClearRequest) -> Result<Value>;
-    fn compact(&self, request: MemoryCompactRequest) -> Result<Value>;
-}
-
 // ── AgentStore ───────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Deserialize)]

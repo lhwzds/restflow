@@ -71,9 +71,8 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
     AuthProfileTestRequest, ConfigStore, CredentialInput, DiagnosticsProvider, MarketplaceStore,
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
-    OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
-    SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
+    MemoryStore, OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo,
+    ReplySender, SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
     SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
     TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,

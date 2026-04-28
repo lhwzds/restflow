@@ -1,103 +1,15 @@
-//! Memory adapters: MemoryManager and MemoryStore backed by MemoryStorage.
+//! Memory adapters backed by MemoryStorage.
 
-use crate::memory::MemoryExporter;
 use crate::storage::MemoryStorage;
-use restflow_traits::store::{
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
-};
+use restflow_traits::store::MemoryStore;
 use serde_json::{Value, json};
-
-// ============== Memory Manager Adapter ==============
-
-#[derive(Clone)]
-pub struct MemoryManagerAdapter {
-    storage: MemoryStorage,
-}
-
-impl MemoryManagerAdapter {
-    pub fn new(storage: MemoryStorage) -> Self {
-        Self { storage }
-    }
-}
-
-impl MemoryManager for MemoryManagerAdapter {
-    fn stats(&self, agent_id: &str) -> restflow_tools::Result<Value> {
-        let stats = self.storage.get_stats(agent_id)?;
-        Ok(serde_json::to_value(stats)?)
-    }
-
-    fn export(&self, request: MemoryExportRequest) -> restflow_tools::Result<Value> {
-        let exporter = MemoryExporter::new(self.storage.clone());
-        let result = if let Some(session_id) = &request.session_id {
-            exporter.export_session(session_id)?
-        } else {
-            exporter.export_agent(&request.agent_id)?
-        };
-        Ok(serde_json::to_value(result)?)
-    }
-
-    fn clear(&self, request: MemoryClearRequest) -> restflow_tools::Result<Value> {
-        if let Some(session_id) = &request.session_id {
-            let delete_chunks = request.delete_sessions.unwrap_or(true);
-            let deleted = self.storage.delete_session(session_id, delete_chunks)?;
-            Ok(json!({
-                "agent_id": request.agent_id,
-                "session_id": session_id,
-                "deleted": deleted
-            }))
-        } else {
-            let deleted = self.storage.delete_chunks_for_agent(&request.agent_id)?;
-            Ok(json!({
-                "agent_id": request.agent_id,
-                "chunks_deleted": deleted
-            }))
-        }
-    }
-
-    fn compact(&self, request: MemoryCompactRequest) -> restflow_tools::Result<Value> {
-        let chunks = self.storage.list_chunks(&request.agent_id)?;
-
-        let keep_recent = request.keep_recent.unwrap_or(10) as usize;
-        let before_ms = request.before_ms;
-
-        let mut to_delete: Vec<String> = Vec::new();
-
-        if chunks.len() > keep_recent {
-            let mut sorted = chunks.clone();
-            sorted.sort_by_key(|c| c.created_at);
-
-            let removable = sorted.len() - keep_recent;
-            for chunk in sorted.into_iter().take(removable) {
-                if let Some(threshold) = before_ms {
-                    if chunk.created_at < threshold {
-                        to_delete.push(chunk.id.clone());
-                    }
-                } else {
-                    to_delete.push(chunk.id.clone());
-                }
-            }
-        }
-
-        let deleted_count = to_delete.len();
-        for chunk_id in &to_delete {
-            self.storage.delete_chunk(chunk_id)?;
-        }
-
-        Ok(json!({
-            "agent_id": request.agent_id,
-            "total_chunks": chunks.len(),
-            "deleted": deleted_count,
-            "remaining": chunks.len() - deleted_count
-        }))
-    }
-}
 
 // ============== DB Memory Store Adapter ==============
 
 /// Database-backed implementation of MemoryStore.
 ///
 /// Stores memories as MemoryChunks in the redb database, enabling interoperability
-/// with memory_search and manage_memory tools. Title is stored as a `__title:{value}` tag.
+/// with memory_search. Title is stored as a `__title:{value}` tag.
 #[derive(Clone)]
 pub struct DbMemoryStoreAdapter {
     storage: MemoryStorage,
@@ -308,29 +220,24 @@ impl MemoryStore for DbMemoryStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_traits::store::{MemoryManager, MemoryStore};
+    use restflow_traits::store::MemoryStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 
-    fn setup() -> (
-        MemoryManagerAdapter,
-        DbMemoryStoreAdapter,
-        tempfile::TempDir,
-    ) {
+    fn setup() -> (DbMemoryStoreAdapter, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let storage = MemoryStorage::new(db).unwrap();
-        let manager = MemoryManagerAdapter::new(storage.clone());
         let store = DbMemoryStoreAdapter::new(storage);
-        (manager, store, temp_dir)
+        (store, temp_dir)
     }
 
     // --- DbMemoryStoreAdapter tests ---
 
     #[test]
     fn test_save_and_read_memory() {
-        let (_mgr, store, _dir) = setup();
+        let (store, _dir) = setup();
         let result = store
             .save(
                 "agent-1",
@@ -350,14 +257,14 @@ mod tests {
 
     #[test]
     fn test_read_nonexistent_memory() {
-        let (_mgr, store, _dir) = setup();
+        let (store, _dir) = setup();
         let result = store.read_by_id("nonexistent").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_list_memories() {
-        let (_mgr, store, _dir) = setup();
+        let (store, _dir) = setup();
         store.save("agent-1", "A", "content a", &[]).unwrap();
         store.save("agent-1", "B", "content b", &[]).unwrap();
 
@@ -368,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_search_memories_by_tag() {
-        let (_mgr, store, _dir) = setup();
+        let (store, _dir) = setup();
         store
             .save("agent-1", "Tagged", "body", &["important".to_string()])
             .unwrap();
@@ -382,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_delete_memory() {
-        let (_mgr, store, _dir) = setup();
+        let (store, _dir) = setup();
         let saved = store.save("agent-1", "Del", "body", &[]).unwrap();
         let id = saved["id"].as_str().unwrap();
 
@@ -400,59 +307,5 @@ mod tests {
         assert_eq!(DbMemoryStoreAdapter::extract_title(&tags), "Title");
         let user = DbMemoryStoreAdapter::user_tags(&tags);
         assert_eq!(user, vec!["user-tag".to_string()]);
-    }
-
-    // --- MemoryManagerAdapter tests ---
-
-    #[test]
-    fn test_stats() {
-        let (mgr, store, _dir) = setup();
-        store.save("agent-1", "T", "content", &[]).unwrap();
-        let stats = mgr.stats("agent-1").unwrap();
-        assert!(stats.is_object());
-    }
-
-    #[test]
-    fn test_clear_agent() {
-        let (mgr, store, _dir) = setup();
-        store.save("agent-1", "T", "content", &[]).unwrap();
-        let result = mgr
-            .clear(MemoryClearRequest {
-                agent_id: "agent-1".to_string(),
-                session_id: None,
-                delete_sessions: None,
-            })
-            .unwrap();
-        assert!(result.get("chunks_deleted").is_some());
-    }
-
-    #[test]
-    fn test_compact_keeps_recent() {
-        let (mgr, store, _dir) = setup();
-        // Use different content to avoid deduplication
-        for i in 0..5 {
-            store
-                .save(
-                    "agent-1",
-                    &format!("Mem {}", i),
-                    &format!("unique content {}", i),
-                    &[],
-                )
-                .unwrap();
-        }
-        let before = store.list("agent-1", None, 100).unwrap();
-        let total = before["total"].as_u64().unwrap();
-        assert_eq!(total, 5);
-
-        let result = mgr
-            .compact(MemoryCompactRequest {
-                agent_id: "agent-1".to_string(),
-                keep_recent: Some(3),
-                before_ms: None,
-            })
-            .unwrap();
-        assert_eq!(result["total_chunks"], 5);
-        assert_eq!(result["deleted"], 2);
-        assert_eq!(result["remaining"], 3);
     }
 }

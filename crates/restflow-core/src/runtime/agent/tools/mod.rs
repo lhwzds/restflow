@@ -508,13 +508,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     )))
                 });
             }
-            "manage_memory" => {
-                with_storage!(storage, "manage_memory", builder, |s| {
-                    builder.with_memory_management(Arc::new(MemoryManagerAdapter::new(
-                        s.memory.clone(),
-                    )))
-                });
-            }
             "manage_auth_profiles" | "auth_profiles" => {
                 with_storage!(storage, "manage_auth_profiles", builder, |s| {
                     builder.with_auth_profile(Arc::new(AuthProfileStorageAdapter::new(

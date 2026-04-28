@@ -47,9 +47,9 @@ pub use impls::{EditTool, MultiEditTool};
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool,
     BinarySkillRunTool, BinarySkillUpdateTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool,
-    InstalledBinarySkillTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool,
-    ProcessTool, PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool,
-    ReplyTool, RunPythonTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
+    InstalledBinarySkillTool, JinaReaderTool, ListMemoryTool, PatchTool, ProcessTool,
+    PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool, ReplyTool,
+    RunPythonTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
     SwitchModelTool, TaskTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool,
     WebSearchTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
     discover_installed_binary_skill_tools_from,

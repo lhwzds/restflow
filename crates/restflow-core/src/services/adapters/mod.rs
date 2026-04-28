@@ -23,7 +23,7 @@ pub use auth_profile::AuthProfileStorageAdapter;
 pub use background_agent::TaskStoreAdapter;
 pub use config::ConfigStoreAdapter;
 pub use marketplace::MarketplaceStoreAdapter;
-pub use memory::{DbMemoryStoreAdapter, MemoryManagerAdapter};
+pub use memory::DbMemoryStoreAdapter;
 pub use ops::OpsProviderAdapter;
 pub use secret::SecretStoreAdapter;
 pub use security_query::SecurityQueryProviderAdapter;

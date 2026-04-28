@@ -89,7 +89,6 @@ pub fn create_tool_registry_with_assessor(
         agent_storage.clone(),
         background_agent_storage.clone(),
     ));
-    let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
     let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
     let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
@@ -220,7 +219,6 @@ pub fn create_tool_registry_with_assessor(
         )?
         .with_vision(secret_resolver)?
         .with_session(session_store)
-        .with_memory_management(memory_manager)
         .with_memory_store(mem_store)
         .with_unified_search(unified_search)
         .with_ops(ops_provider)

@@ -429,9 +429,8 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_terminal"));
     assert!(registry.has("manage_ops"));
     assert!(registry.has("security_query"));
-    // Session, memory management, and auth profile tools
+    // Session and auth profile tools
     assert!(registry.has("manage_sessions"));
-    assert!(registry.has("manage_memory"));
     assert!(registry.has("manage_auth_profiles"));
     assert!(!registry.has("save_artifact"));
 }

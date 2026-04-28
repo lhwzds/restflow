@@ -138,10 +138,6 @@ RestFlow has three memory layers:
 **2. Semantic Search**
 - `memory_search`: Search by semantic similarity with `query`, `agent_id`, optional `limit` (default 10)
 
-**3. Memory Administration**
-- Memory administration is not part of the default runtime tool surface.
-- Use explicit management surfaces for stats, export, clear, and compaction operations when they are available.
-
 ### Execution & Automation
 
 - Use `bash` for shell commands, `file` for file operations, `python` / `run_python` for Monty-backed scripts
