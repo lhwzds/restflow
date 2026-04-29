@@ -5,8 +5,9 @@ Store owns backend-neutral repository contracts.
 Path: `crates/store`
 
 Owns:
-- Store trait
-- get/put/delete repository contract
+- Repository trait
+- memory repository
+- get/list/put/delete repository contract
 - backend abstraction boundary
 
 Must Not:
@@ -20,6 +21,7 @@ Inputs:
 
 Outputs:
 - persisted records
+- record lists
 - deletion status
 
 Used By:
