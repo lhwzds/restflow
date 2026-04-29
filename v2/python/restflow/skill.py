@@ -1,4 +1,4 @@
-"""Skill catalog and turn planning API placeholders."""
+"""Skill catalog and AI context API placeholders."""
 
 from dataclasses import dataclass, field
 
@@ -11,9 +11,7 @@ class Skill:
 
 
 @dataclass
-class TurnPlan:
-    mentioned: list[str] = field(default_factory=list)
-    activated: list[str] = field(default_factory=list)
-    tools: list[str] = field(default_factory=list)
+class SkillContext:
+    assigned: list[Skill] = field(default_factory=list)
+    mentioned: list[Skill] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
-

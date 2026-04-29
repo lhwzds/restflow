@@ -13,7 +13,7 @@ flowchart TD
   m_model["model<br/>Model owns provider and model identity for the V2 kernel."]
   m_restflow["restflow<br/>Facade module that exposes the V2 kernel as one public Rust API."]
   m_run["run<br/>Run owns durable task and run execution concepts."]
-  m_skill["skill<br/>Skill owns capability metadata and turn-level activation planning."]
+  m_skill["skill<br/>Skill owns skill metadata and AI-facing context resolution."]
   m_store["store<br/>Store owns backend-neutral repository contracts."]
   m_tool["tool<br/>Tool owns the callable tool contract and registry."]
   m_agent --> m_event
@@ -39,8 +39,6 @@ flowchart TD
   m_run --> m_event
   m_run --> m_skill
   m_run --> m_store
-  m_skill --> m_model
-  m_skill --> m_tool
 ```
 
 ## Modules
@@ -52,6 +50,6 @@ flowchart TD
 - [`model`](./model.md): Model owns provider and model identity for the V2 kernel.
 - [`restflow`](./restflow.md): Facade module that exposes the V2 kernel as one public Rust API.
 - [`run`](./run.md): Run owns durable task and run execution concepts.
-- [`skill`](./skill.md): Skill owns capability metadata and turn-level activation planning.
+- [`skill`](./skill.md): Skill owns skill metadata and AI-facing context resolution.
 - [`store`](./store.md): Store owns backend-neutral repository contracts.
 - [`tool`](./tool.md): Tool owns the callable tool contract and registry.

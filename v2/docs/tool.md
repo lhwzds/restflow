@@ -25,7 +25,6 @@ Outputs:
 
 Used By:
 - agent
-- skill
 
 Verify:
 - cargo check -p tool

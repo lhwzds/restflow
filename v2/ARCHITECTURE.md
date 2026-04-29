@@ -21,10 +21,11 @@ flowchart TD
     Server --> Chat["chat\nsessions and turns"]
     Server --> Run["run\ntasks and runs"]
 
-    Chat --> Skill["skill\nTurnPlan"]
+    Chat --> Skill["skill\nSkillContext"]
     Run --> Skill
-    Skill --> Tool["tool\nRegistry"]
-    Tool --> Agent["agent\nexecution loop"]
+    Skill --> Agent
+    Tool["tool\nRegistry"] --> Agent
+    Agent["agent\nexecution loop"]
     Agent --> Event["event\nstream and trace"]
     Agent --> Model["model\nprovider/model specs"]
     Server --> Auth["auth\nsecrets and access"]
@@ -48,8 +49,7 @@ management, cancellation, and subagent execution.
 ### skill
 
 Owns skill metadata, catalogs, mention parsing as text semantics, assigned skill
-resolution, trigger matching, variables, gating, and per-turn capability
-planning.
+summaries, mentioned skill content, and AI-facing context resolution.
 
 ### tool
 
@@ -87,7 +87,7 @@ Owns event types shared by agent, chat, run, server, and Python bindings.
 `@skill` has two separate layers:
 
 - UI layer: opens a picker and inserts plain text such as `@team`.
-- Runtime layer: parses final message text and builds a `TurnPlan`.
+- Runtime layer: parses final message text and builds a `SkillContext`.
 
-The UI never grants tools. The runtime never knows how the mention was typed.
-
+The UI never grants tools. The skill module does not decide tool permissions.
+The runtime never knows how the mention was typed.

@@ -1,6 +1,6 @@
 # skill
 
-Skill owns capability metadata and turn-level activation planning.
+Skill owns skill metadata and AI-facing context resolution.
 
 Path: `crates/skill`
 
@@ -8,12 +8,13 @@ Owns:
 - skill catalog
 - skill source metadata
 - @skill mention parsing
-- TurnPlan generation
-- suggested tool activation
+- SkillContext resolution
+- suggested tool metadata
 
 Must Not:
 - render UI overlays
 - write session history
+- decide tool permissions
 - execute tools directly
 - own durable Task or Run state
 
@@ -23,14 +24,10 @@ Inputs:
 - skill catalog
 
 Outputs:
-- TurnPlan
-- activated skill IDs
-- allowed tool names
-- activation issues
-
-Depends On:
-- tool
-- model
+- SkillContext
+- assigned skill summaries
+- mentioned skill content
+- context issues
 
 Used By:
 - chat

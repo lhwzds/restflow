@@ -25,7 +25,6 @@ Outputs:
 Used By:
 - agent
 - auth
-- skill
 
 Verify:
 - cargo check -p model
