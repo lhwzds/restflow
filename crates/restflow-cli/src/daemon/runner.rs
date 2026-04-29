@@ -291,14 +291,12 @@ fn build_task_config(defaults: &AgentDefaults) -> SubagentConfig {
 
 fn build_runner_config(system_config: &SystemConfig) -> TaskRunnerConfig {
     TaskRunnerConfig {
-        poll_interval_ms: system_config
-            .runtime_defaults
-            .background_runner_poll_interval_ms,
+        poll_interval_ms: system_config.runtime_defaults.task_runner_poll_interval_ms,
         max_concurrent_tasks: system_config
             .runtime_defaults
-            .background_runner_max_concurrent_tasks,
+            .task_runner_max_concurrent_tasks,
         worker_count: system_config.worker_count,
-        task_timeout_secs: system_config.background_api_timeout_seconds,
+        task_timeout_secs: system_config.task_api_timeout_seconds,
         stall_timeout_secs: Some(system_config.stall_timeout_seconds),
     }
 }
@@ -502,10 +500,10 @@ mod tests {
         let system_config = SystemConfig {
             worker_count: 6,
             stall_timeout_seconds: 900,
-            background_api_timeout_seconds: Some(1800),
+            task_api_timeout_seconds: Some(1800),
             runtime_defaults: RuntimeDefaults {
-                background_runner_poll_interval_ms: 12_000,
-                background_runner_max_concurrent_tasks: 4,
+                task_runner_poll_interval_ms: 12_000,
+                task_runner_max_concurrent_tasks: 4,
                 ..RuntimeDefaults::default()
             },
             ..SystemConfig::default()

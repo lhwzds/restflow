@@ -7,7 +7,7 @@ pub const DEFAULT_AGENT_MAX_ITERATIONS: usize = 100;
 pub const DEFAULT_AGENT_MAX_TOOL_CALLS: usize = 200;
 
 /// Default maximum tool calls per task run.
-pub const DEFAULT_BACKGROUND_MAX_TOOL_CALLS: usize = 100;
+pub const DEFAULT_TASK_MAX_TOOL_CALLS: usize = 100;
 
 /// Default timeout (seconds) for the executor wrapper around tool calls.
 pub const DEFAULT_AGENT_TOOL_TIMEOUT_SECS: u64 = 300;
@@ -66,23 +66,23 @@ pub const DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES: usize = 100_000;
 /// Default maximum bytes loaded from a single workspace instruction file.
 pub const DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES: usize = 50_000;
 
-/// Default event limit for background progress queries.
-pub const DEFAULT_BG_PROGRESS_EVENT_LIMIT: usize = 10;
+/// Default event limit for task progress queries.
+pub const DEFAULT_TASK_PROGRESS_EVENT_LIMIT: usize = 10;
 
 /// Default message list limit for tasks.
-pub const DEFAULT_BG_MESSAGE_LIST_LIMIT: usize = 50;
+pub const DEFAULT_TASK_MESSAGE_LIST_LIMIT: usize = 50;
 
 /// Default trace list limit for tasks.
-pub const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
+pub const DEFAULT_TASK_TRACE_LIST_LIMIT: usize = 50;
 
-/// Default trailing line limit for background trace reads.
-pub const DEFAULT_BG_TRACE_LINE_LIMIT: usize = 200;
+/// Default trailing line limit for task trace reads.
+pub const DEFAULT_TASK_TRACE_LINE_LIMIT: usize = 200;
 
-/// Default background runner poll interval in milliseconds.
-pub const DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS: u64 = 30_000;
+/// Default task runner poll interval in milliseconds.
+pub const DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS: u64 = 30_000;
 
-/// Default maximum concurrent background runner tasks.
-pub const DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS: usize = 5;
+/// Default maximum concurrent task runner tasks.
+pub const DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS: usize = 5;
 
 /// Default maximum chat session history preserved for channel conversations.
 pub const DEFAULT_CHAT_MAX_SESSION_HISTORY: usize = 20;

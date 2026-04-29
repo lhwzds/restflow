@@ -511,8 +511,8 @@ tooling.
 | --- | --- | --- | --- | --- |
 | System | `[system]` | Cross-cutting system policy, retention, and feature flags | `worker_count`, `task_timeout_seconds`, `max_retries`, `chat_session_retention_days`, `log_file_retention_days` | cleanup services, daemon/runtime setup, feature flag loading |
 | Agent | `[agent]` | Agent and sub-agent execution policy | `max_iterations`, `subagent_timeout_secs`, `max_parallel_subagents`, `max_tool_calls`, `tool_timeout_secs` | agent executor, subagent manager, task runtime, chat dispatcher |
-| API | `[api]` | Default limits for MCP and API-facing operations | `memory_search_limit`, `session_list_limit`, `background_trace_line_limit`, `web_search_num_results` | MCP server handlers, runtime tool registry |
-| Runtime | `[runtime]` | Default daemon runtime behavior | `background_runner_poll_interval_ms`, `background_runner_max_concurrent_tasks`, `chat_max_session_history` | background runner, chat dispatcher |
+| API | `[api]` | Default limits for MCP and API-facing operations | `memory_search_limit`, `session_list_limit`, `task_trace_line_limit`, `web_search_num_results` | MCP server handlers, runtime tool registry |
+| Runtime | `[runtime]` | Default daemon runtime behavior | `task_runner_poll_interval_ms`, `task_runner_max_concurrent_tasks`, `chat_max_session_history` | task runner, chat dispatcher |
 | Channel | `[channel]` | External channel integration defaults | `telegram_api_timeout_secs`, `telegram_polling_timeout_secs` | Telegram channel runtime |
 | Registry | `[registry]` | Skill and marketplace integration defaults | `github_cache_ttl_secs`, `marketplace_cache_ttl_secs` | marketplace adapters, skill discovery/install flows |
 | CLI | `[cli]` | CLI-only local behavior | `version`, `agent`, `model`, `sandbox.*` | CLI config loader, local sandbox execution |

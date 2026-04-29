@@ -347,15 +347,15 @@ fn test_runner_config_defaults() {
     let config = TaskRunnerConfig::default();
     assert_eq!(
         config.poll_interval_ms,
-        DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS
+        DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS
     );
     assert_eq!(
         config.max_concurrent_tasks,
-        DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
+        DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS
     );
     assert_eq!(
         config.worker_count,
-        DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
+        DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS
     );
     assert_eq!(config.task_timeout_secs, None);
     assert_eq!(config.stall_timeout_secs, None);

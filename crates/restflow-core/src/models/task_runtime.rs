@@ -4,8 +4,7 @@
 //! with optional notification configurations for reporting results.
 
 use restflow_traits::{
-    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
-    DEFAULT_BACKGROUND_MAX_TOOL_CALLS,
+    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS, DEFAULT_TASK_MAX_TOOL_CALLS,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -191,7 +190,7 @@ fn default_max_summary_tokens() -> usize {
 }
 
 fn default_max_tool_calls() -> usize {
-    DEFAULT_BACKGROUND_MAX_TOOL_CALLS
+    DEFAULT_TASK_MAX_TOOL_CALLS
 }
 
 fn default_max_duration_secs() -> u64 {

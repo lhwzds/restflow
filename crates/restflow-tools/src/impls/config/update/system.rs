@@ -12,11 +12,11 @@ pub(crate) fn supports_key(key: &str) -> bool {
         "system.worker_count"
             | "system.task_timeout_seconds"
             | "system.stall_timeout_seconds"
-            | "system.background_api_timeout_seconds"
+            | "system.task_api_timeout_seconds"
             | "system.chat_response_timeout_seconds"
             | "system.max_retries"
             | "system.chat_session_retention_days"
-            | "system.background_task_retention_days"
+            | "system.task_retention_days"
             | "system.checkpoint_retention_days"
             | "system.memory_chunk_retention_days"
             | "system.log_file_retention_days"
@@ -35,8 +35,8 @@ pub(crate) fn apply(key: &str, value: &Value, config: &mut ConfigDocument) -> Re
         "system.stall_timeout_seconds" => {
             config.system.stall_timeout_seconds = parse_u64(value, key)?;
         }
-        "system.background_api_timeout_seconds" => {
-            config.system.background_api_timeout_seconds = parse_optional_timeout(value, key)?;
+        "system.task_api_timeout_seconds" => {
+            config.system.task_api_timeout_seconds = parse_optional_timeout(value, key)?;
         }
         "system.chat_response_timeout_seconds" => {
             config.system.chat_response_timeout_seconds = parse_optional_timeout(value, key)?;
@@ -47,8 +47,8 @@ pub(crate) fn apply(key: &str, value: &Value, config: &mut ConfigDocument) -> Re
         "system.chat_session_retention_days" => {
             config.system.chat_session_retention_days = parse_u32(value, key)?;
         }
-        "system.background_task_retention_days" => {
-            config.system.background_task_retention_days = parse_u32(value, key)?;
+        "system.task_retention_days" => {
+            config.system.task_retention_days = parse_u32(value, key)?;
         }
         "system.checkpoint_retention_days" => {
             config.system.checkpoint_retention_days = parse_u32(value, key)?;

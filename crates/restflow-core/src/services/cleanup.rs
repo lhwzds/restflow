@@ -38,7 +38,7 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         .deleted;
 
     let background_tasks =
-        if let Some(cutoff) = retention_cutoff(now_ms, config.background_task_retention_days) {
+        if let Some(cutoff) = retention_cutoff(now_ms, config.task_retention_days) {
             core.storage.tasks.cleanup_old_tasks(cutoff)?
         } else {
             0

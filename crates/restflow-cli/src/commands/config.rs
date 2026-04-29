@@ -58,10 +58,8 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.system.stall_timeout_seconds),
     ]);
     table.add_row(vec![
-        Cell::new("system.background_api_timeout_seconds"),
-        Cell::new(format_optional_u64(
-            config.system.background_api_timeout_seconds,
-        )),
+        Cell::new("system.task_api_timeout_seconds"),
+        Cell::new(format_optional_u64(config.system.task_api_timeout_seconds)),
     ]);
     table.add_row(vec![
         Cell::new("system.chat_response_timeout_seconds"),
@@ -78,8 +76,8 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.system.chat_session_retention_days),
     ]);
     table.add_row(vec![
-        Cell::new("system.background_task_retention_days"),
-        Cell::new(config.system.background_task_retention_days),
+        Cell::new("system.task_retention_days"),
+        Cell::new(config.system.task_retention_days),
     ]);
     table.add_row(vec![
         Cell::new("system.checkpoint_retention_days"),
@@ -193,20 +191,20 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.api.session_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api.background_progress_event_limit"),
-        Cell::new(config.api.background_progress_event_limit),
+        Cell::new("api.task_progress_event_limit"),
+        Cell::new(config.api.task_progress_event_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api.background_message_list_limit"),
-        Cell::new(config.api.background_message_list_limit),
+        Cell::new("api.task_message_list_limit"),
+        Cell::new(config.api.task_message_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api.background_trace_list_limit"),
-        Cell::new(config.api.background_trace_list_limit),
+        Cell::new("api.task_trace_list_limit"),
+        Cell::new(config.api.task_trace_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api.background_trace_line_limit"),
-        Cell::new(config.api.background_trace_line_limit),
+        Cell::new("api.task_trace_line_limit"),
+        Cell::new(config.api.task_trace_line_limit),
     ]);
     table.add_row(vec![
         Cell::new("api.web_search_num_results"),
@@ -217,12 +215,12 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.api.diagnostics_timeout_ms),
     ]);
     table.add_row(vec![
-        Cell::new("runtime.background_runner_poll_interval_ms"),
-        Cell::new(config.runtime.background_runner_poll_interval_ms),
+        Cell::new("runtime.task_runner_poll_interval_ms"),
+        Cell::new(config.runtime.task_runner_poll_interval_ms),
     ]);
     table.add_row(vec![
-        Cell::new("runtime.background_runner_max_concurrent_tasks"),
-        Cell::new(config.runtime.background_runner_max_concurrent_tasks),
+        Cell::new("runtime.task_runner_max_concurrent_tasks"),
+        Cell::new(config.runtime.task_runner_max_concurrent_tasks),
     ]);
     table.add_row(vec![
         Cell::new("runtime.chat_max_session_history"),
@@ -307,16 +305,16 @@ async fn get_config_value(
         "system.worker_count" => json!(config.system.worker_count),
         "system.task_timeout_seconds" => json!(config.system.task_timeout_seconds),
         "system.stall_timeout_seconds" => json!(config.system.stall_timeout_seconds),
-        "system.background_api_timeout_seconds" => {
-            json!(config.system.background_api_timeout_seconds)
+        "system.task_api_timeout_seconds" => {
+            json!(config.system.task_api_timeout_seconds)
         }
         "system.chat_response_timeout_seconds" => {
             json!(config.system.chat_response_timeout_seconds)
         }
         "system.max_retries" => json!(config.system.max_retries),
         "system.chat_session_retention_days" => json!(config.system.chat_session_retention_days),
-        "system.background_task_retention_days" => {
-            json!(config.system.background_task_retention_days)
+        "system.task_retention_days" => {
+            json!(config.system.task_retention_days)
         }
         "system.checkpoint_retention_days" => json!(config.system.checkpoint_retention_days),
         "system.memory_chunk_retention_days" => json!(config.system.memory_chunk_retention_days),
@@ -346,28 +344,28 @@ async fn get_config_value(
         "api" => json!(config.api),
         "api.memory_search_limit" => json!(config.api.memory_search_limit),
         "api.session_list_limit" => json!(config.api.session_list_limit),
-        "api.background_progress_event_limit" => {
-            json!(config.api.background_progress_event_limit)
+        "api.task_progress_event_limit" => {
+            json!(config.api.task_progress_event_limit)
         }
-        "api.background_message_list_limit" => {
-            json!(config.api.background_message_list_limit)
+        "api.task_message_list_limit" => {
+            json!(config.api.task_message_list_limit)
         }
-        "api.background_trace_list_limit" => {
-            json!(config.api.background_trace_list_limit)
+        "api.task_trace_list_limit" => {
+            json!(config.api.task_trace_list_limit)
         }
-        "api.background_trace_line_limit" => {
-            json!(config.api.background_trace_line_limit)
+        "api.task_trace_line_limit" => {
+            json!(config.api.task_trace_line_limit)
         }
         "api.web_search_num_results" => json!(config.api.web_search_num_results),
         "api.diagnostics_timeout_ms" => {
             json!(config.api.diagnostics_timeout_ms)
         }
         "runtime" => json!(config.runtime),
-        "runtime.background_runner_poll_interval_ms" => {
-            json!(config.runtime.background_runner_poll_interval_ms)
+        "runtime.task_runner_poll_interval_ms" => {
+            json!(config.runtime.task_runner_poll_interval_ms)
         }
-        "runtime.background_runner_max_concurrent_tasks" => {
-            json!(config.runtime.background_runner_max_concurrent_tasks)
+        "runtime.task_runner_max_concurrent_tasks" => {
+            json!(config.runtime.task_runner_max_concurrent_tasks)
         }
         "runtime.chat_max_session_history" => {
             json!(config.runtime.chat_max_session_history)
@@ -463,8 +461,8 @@ async fn set_config_value(
             "system.stall_timeout_seconds" => {
                 config.stall_timeout_seconds = parse_value(value)?;
             }
-            "system.background_api_timeout_seconds" => {
-                config.background_api_timeout_seconds = parse_optional_u64(value)?;
+            "system.task_api_timeout_seconds" => {
+                config.task_api_timeout_seconds = parse_optional_u64(value)?;
             }
             "system.chat_response_timeout_seconds" => {
                 config.chat_response_timeout_seconds = parse_optional_u64(value)?;
@@ -475,8 +473,8 @@ async fn set_config_value(
             "system.chat_session_retention_days" => {
                 config.chat_session_retention_days = parse_value(value)?;
             }
-            "system.background_task_retention_days" => {
-                config.background_task_retention_days = parse_value(value)?;
+            "system.task_retention_days" => {
+                config.task_retention_days = parse_value(value)?;
             }
             "system.checkpoint_retention_days" => {
                 config.checkpoint_retention_days = parse_value(value)?;
@@ -556,17 +554,17 @@ async fn set_config_value(
             "api.session_list_limit" => {
                 config.api_defaults.session_list_limit = parse_value(value)?;
             }
-            "api.background_progress_event_limit" => {
-                config.api_defaults.background_progress_event_limit = parse_value(value)?;
+            "api.task_progress_event_limit" => {
+                config.api_defaults.task_progress_event_limit = parse_value(value)?;
             }
-            "api.background_message_list_limit" => {
-                config.api_defaults.background_message_list_limit = parse_value(value)?;
+            "api.task_message_list_limit" => {
+                config.api_defaults.task_message_list_limit = parse_value(value)?;
             }
-            "api.background_trace_list_limit" => {
-                config.api_defaults.background_trace_list_limit = parse_value(value)?;
+            "api.task_trace_list_limit" => {
+                config.api_defaults.task_trace_list_limit = parse_value(value)?;
             }
-            "api.background_trace_line_limit" => {
-                config.api_defaults.background_trace_line_limit = parse_value(value)?;
+            "api.task_trace_line_limit" => {
+                config.api_defaults.task_trace_line_limit = parse_value(value)?;
             }
             "api.web_search_num_results" => {
                 config.api_defaults.web_search_num_results = parse_value(value)?;
@@ -574,13 +572,11 @@ async fn set_config_value(
             "api.diagnostics_timeout_ms" => {
                 config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;
             }
-            "runtime.background_runner_poll_interval_ms" => {
-                config.runtime_defaults.background_runner_poll_interval_ms = parse_value(value)?;
+            "runtime.task_runner_poll_interval_ms" => {
+                config.runtime_defaults.task_runner_poll_interval_ms = parse_value(value)?;
             }
-            "runtime.background_runner_max_concurrent_tasks" => {
-                config
-                    .runtime_defaults
-                    .background_runner_max_concurrent_tasks = parse_value(value)?;
+            "runtime.task_runner_max_concurrent_tasks" => {
+                config.runtime_defaults.task_runner_max_concurrent_tasks = parse_value(value)?;
             }
             "runtime.chat_max_session_history" => {
                 config.runtime_defaults.chat_max_session_history = parse_value(value)?;

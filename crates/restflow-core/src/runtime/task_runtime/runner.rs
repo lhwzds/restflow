@@ -36,7 +36,7 @@ use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
 use restflow_traits::{
-    DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
+    DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
 };
 
 use super::heartbeat::{
@@ -116,9 +116,9 @@ pub struct TaskRunnerConfig {
 impl Default for TaskRunnerConfig {
     fn default() -> Self {
         Self {
-            poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
-            max_concurrent_tasks: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
-            worker_count: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
+            poll_interval_ms: DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
+            max_concurrent_tasks: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
+            worker_count: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
             task_timeout_secs: None,
             stall_timeout_secs: None,
         }

@@ -9,13 +9,13 @@ use super::super::parse::{parse_u64, parse_usize};
 
 pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> Result<()> {
     match field {
-        "background_runner_poll_interval_ms" => {
-            config.runtime.background_runner_poll_interval_ms =
-                parse_u64(value, "runtime.background_runner_poll_interval_ms")?;
+        "task_runner_poll_interval_ms" => {
+            config.runtime.task_runner_poll_interval_ms =
+                parse_u64(value, "runtime.task_runner_poll_interval_ms")?;
         }
-        "background_runner_max_concurrent_tasks" => {
-            config.runtime.background_runner_max_concurrent_tasks =
-                parse_usize(value, "runtime.background_runner_max_concurrent_tasks")?;
+        "task_runner_max_concurrent_tasks" => {
+            config.runtime.task_runner_max_concurrent_tasks =
+                parse_usize(value, "runtime.task_runner_max_concurrent_tasks")?;
         }
         "chat_max_session_history" => {
             config.runtime.chat_max_session_history =

@@ -17,8 +17,8 @@ use restflow_traits::store::{
     TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
 };
 use restflow_traits::{
-    DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
-    DEFAULT_BG_TRACE_LIST_LIMIT,
+    DEFAULT_TASK_MESSAGE_LIST_LIMIT, DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
+    DEFAULT_TASK_TRACE_LINE_LIMIT, DEFAULT_TASK_TRACE_LIST_LIMIT,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
@@ -343,7 +343,7 @@ impl TaskStore for TaskStoreAdapter {
             &resolved_id,
             request
                 .event_limit
-                .unwrap_or(DEFAULT_BG_PROGRESS_EVENT_LIMIT)
+                .unwrap_or(DEFAULT_TASK_PROGRESS_EVENT_LIMIT)
                 .max(1),
         )?;
         Ok(serde_json::to_value(progress)?)
@@ -364,7 +364,7 @@ impl TaskStore for TaskStoreAdapter {
             &resolved_id,
             request
                 .limit
-                .unwrap_or(DEFAULT_BG_MESSAGE_LIST_LIMIT)
+                .unwrap_or(DEFAULT_TASK_MESSAGE_LIST_LIMIT)
                 .max(1),
         )?;
         Ok(serde_json::to_value(messages)?)
@@ -380,7 +380,10 @@ impl TaskStore for TaskStoreAdapter {
     }
 
     fn list_task_traces(&self, request: TaskTraceListRequest) -> restflow_tools::Result<Value> {
-        let limit = request.limit.unwrap_or(DEFAULT_BG_TRACE_LIST_LIMIT).max(1);
+        let limit = request
+            .limit
+            .unwrap_or(DEFAULT_TASK_TRACE_LIST_LIMIT)
+            .max(1);
         let trace_targets = if let Some(task_id) = request.id.as_deref() {
             vec![self.task_trace_target(task_id)?]
         } else {
@@ -422,7 +425,7 @@ impl TaskStore for TaskStoreAdapter {
 
         let limit = request
             .line_limit
-            .unwrap_or(DEFAULT_BG_TRACE_LINE_LIMIT)
+            .unwrap_or(DEFAULT_TASK_TRACE_LINE_LIMIT)
             .max(1);
         for (scope_id, session_id) in self.all_trace_targets()? {
             let query = ExecutionTraceQuery {

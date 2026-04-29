@@ -33,7 +33,7 @@ impl RestFlowMcpServer {
                 let defaults = self.load_api_defaults().await?;
                 let limit = params
                     .limit
-                    .unwrap_or(defaults.background_trace_list_limit)
+                    .unwrap_or(defaults.task_trace_list_limit)
                     .max(1);
                 let offset = params.offset.unwrap_or(0);
                 let include_stats = params.include_stats.unwrap_or(false)
@@ -163,7 +163,7 @@ impl RestFlowMcpServer {
                 let defaults = self.load_api_defaults().await?;
                 let limit = params
                     .line_limit
-                    .unwrap_or(defaults.background_trace_line_limit)
+                    .unwrap_or(defaults.task_trace_line_limit)
                     .max(1);
                 let parts: Vec<&str> = trace_id.splitn(2, ':').collect();
                 let traces = if parts.len() == 2 {
@@ -208,10 +208,10 @@ impl RestFlowMcpServer {
         if matches!(operation, "progress" | "list_messages") {
             let defaults = self.load_api_defaults().await?;
             if operation == "progress" && params.event_limit.is_none() {
-                params.event_limit = Some(defaults.background_progress_event_limit);
+                params.event_limit = Some(defaults.task_progress_event_limit);
             }
             if operation == "list_messages" && params.limit.is_none() {
-                params.limit = Some(defaults.background_message_list_limit);
+                params.limit = Some(defaults.task_message_list_limit);
             }
         }
         Ok(params)

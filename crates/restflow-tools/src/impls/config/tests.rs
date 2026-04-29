@@ -215,7 +215,7 @@ async fn test_set_optional_timeout_with_null() {
     let output = tool
         .execute(json!({
             "operation": "set",
-            "key": "system.background_api_timeout_seconds",
+            "key": "system.task_api_timeout_seconds",
             "value": null
         }))
         .await
@@ -224,7 +224,7 @@ async fn test_set_optional_timeout_with_null() {
     assert!(
         output
             .result
-            .pointer("/system/background_api_timeout_seconds")
+            .pointer("/system/task_api_timeout_seconds")
             .is_some_and(|v| v.is_null())
     );
 }
@@ -281,7 +281,7 @@ async fn test_listed_retention_fields_are_settable() {
 
     let updates = [
         ("system.chat_session_retention_days", json!(0)),
-        ("system.background_task_retention_days", json!(14)),
+        ("system.task_retention_days", json!(14)),
         ("system.checkpoint_retention_days", json!(5)),
         ("system.memory_chunk_retention_days", json!(120)),
         ("system.log_file_retention_days", json!(30)),
@@ -455,8 +455,8 @@ async fn test_set_runtime_channel_and_registry_defaults() {
     let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let updates = [
-        ("runtime.background_runner_poll_interval_ms", json!(15000)),
-        ("runtime.background_runner_max_concurrent_tasks", json!(8)),
+        ("runtime.task_runner_poll_interval_ms", json!(15000)),
+        ("runtime.task_runner_max_concurrent_tasks", json!(8)),
         ("runtime.chat_max_session_history", json!(40)),
         ("channel.telegram_api_timeout_secs", json!(45)),
         ("channel.telegram_polling_timeout_secs", json!(55)),
@@ -483,14 +483,14 @@ async fn test_set_runtime_channel_and_registry_defaults() {
     assert_eq!(
         output
             .result
-            .pointer("/runtime/background_runner_poll_interval_ms")
+            .pointer("/runtime/task_runner_poll_interval_ms")
             .and_then(|value| value.as_u64()),
         Some(15000)
     );
     assert_eq!(
         output
             .result
-            .pointer("/runtime/background_runner_max_concurrent_tasks")
+            .pointer("/runtime/task_runner_max_concurrent_tasks")
             .and_then(|value| value.as_u64()),
         Some(8)
     );
@@ -643,10 +643,10 @@ async fn test_set_api_defaults() {
     let updates = [
         ("api.memory_search_limit", json!(25)),
         ("api.session_list_limit", json!(30)),
-        ("api.background_progress_event_limit", json!(12)),
-        ("api.background_message_list_limit", json!(60)),
-        ("api.background_trace_list_limit", json!(80)),
-        ("api.background_trace_line_limit", json!(300)),
+        ("api.task_progress_event_limit", json!(12)),
+        ("api.task_message_list_limit", json!(60)),
+        ("api.task_trace_list_limit", json!(80)),
+        ("api.task_trace_line_limit", json!(300)),
         ("api.web_search_num_results", json!(7)),
         ("api.diagnostics_timeout_ms", json!(9000)),
     ];

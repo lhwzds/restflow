@@ -14,7 +14,7 @@ const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 1800;
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
-const DEFAULT_BACKGROUND_TASK_RETENTION_DAYS: u32 = 7;
+const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
 const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
@@ -97,12 +97,12 @@ pub struct SystemSection {
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
     #[serde(default)]
-    pub background_api_timeout_seconds: Option<u64>,
+    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub background_task_retention_days: u32,
+    pub task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     pub log_file_retention_days: u32,
@@ -115,11 +115,11 @@ impl Default for SystemSection {
             worker_count: DEFAULT_WORKER_COUNT,
             task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            background_api_timeout_seconds: None,
+            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
+            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
@@ -134,11 +134,11 @@ impl From<&SystemConfig> for SystemSection {
             worker_count: config.worker_count,
             task_timeout_seconds: config.task_timeout_seconds,
             stall_timeout_seconds: config.stall_timeout_seconds,
-            background_api_timeout_seconds: config.background_api_timeout_seconds,
+            task_api_timeout_seconds: config.task_api_timeout_seconds,
             chat_response_timeout_seconds: config.chat_response_timeout_seconds,
             max_retries: config.max_retries,
             chat_session_retention_days: config.chat_session_retention_days,
-            background_task_retention_days: config.background_task_retention_days,
+            task_retention_days: config.task_retention_days,
             checkpoint_retention_days: config.checkpoint_retention_days,
             memory_chunk_retention_days: config.memory_chunk_retention_days,
             log_file_retention_days: config.log_file_retention_days,
@@ -213,10 +213,10 @@ impl Default for AgentDefaults {
 pub struct ApiDefaults {
     pub memory_search_limit: u32,
     pub session_list_limit: u32,
-    pub background_progress_event_limit: usize,
-    pub background_message_list_limit: usize,
-    pub background_trace_list_limit: usize,
-    pub background_trace_line_limit: usize,
+    pub task_progress_event_limit: usize,
+    pub task_message_list_limit: usize,
+    pub task_trace_list_limit: usize,
+    pub task_trace_line_limit: usize,
     pub web_search_num_results: usize,
     pub diagnostics_timeout_ms: u64,
 }
@@ -228,10 +228,10 @@ impl Default for ApiDefaults {
         Self {
             memory_search_limit: DEFAULT_MEMORY_SEARCH_LIMIT,
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
-            background_progress_event_limit: DEFAULT_BG_PROGRESS_EVENT_LIMIT,
-            background_message_list_limit: DEFAULT_BG_MESSAGE_LIST_LIMIT,
-            background_trace_list_limit: DEFAULT_BG_TRACE_LIST_LIMIT,
-            background_trace_line_limit: DEFAULT_BG_TRACE_LINE_LIMIT,
+            task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
+            task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
+            task_trace_list_limit: DEFAULT_TASK_TRACE_LIST_LIMIT,
+            task_trace_line_limit: DEFAULT_TASK_TRACE_LINE_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
             diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }
@@ -244,8 +244,8 @@ impl Default for ApiDefaults {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(default)]
 pub struct RuntimeDefaults {
-    pub background_runner_poll_interval_ms: u64,
-    pub background_runner_max_concurrent_tasks: usize,
+    pub task_runner_poll_interval_ms: u64,
+    pub task_runner_max_concurrent_tasks: usize,
     pub chat_max_session_history: usize,
 }
 
@@ -254,8 +254,8 @@ pub type RuntimeSettings = RuntimeDefaults;
 impl Default for RuntimeDefaults {
     fn default() -> Self {
         Self {
-            background_runner_poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
-            background_runner_max_concurrent_tasks: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
+            task_runner_poll_interval_ms: DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
+            task_runner_max_concurrent_tasks: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
             chat_max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
         }
     }
@@ -313,12 +313,12 @@ pub struct SystemConfig {
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
     #[serde(default)]
-    pub background_api_timeout_seconds: Option<u64>,
+    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub background_task_retention_days: u32,
+    pub task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     pub log_file_retention_days: u32,
@@ -341,11 +341,11 @@ impl Default for SystemConfig {
             worker_count: DEFAULT_WORKER_COUNT,
             task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            background_api_timeout_seconds: None,
+            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
+            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
@@ -393,11 +393,11 @@ impl ConfigDocument {
             worker_count: self.system.worker_count,
             task_timeout_seconds: self.system.task_timeout_seconds,
             stall_timeout_seconds: self.system.stall_timeout_seconds,
-            background_api_timeout_seconds: self.system.background_api_timeout_seconds,
+            task_api_timeout_seconds: self.system.task_api_timeout_seconds,
             chat_response_timeout_seconds: self.system.chat_response_timeout_seconds,
             max_retries: self.system.max_retries,
             chat_session_retention_days: self.system.chat_session_retention_days,
-            background_task_retention_days: self.system.background_task_retention_days,
+            task_retention_days: self.system.task_retention_days,
             checkpoint_retention_days: self.system.checkpoint_retention_days,
             memory_chunk_retention_days: self.system.memory_chunk_retention_days,
             log_file_retention_days: self.system.log_file_retention_days,

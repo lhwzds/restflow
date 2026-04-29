@@ -1028,10 +1028,7 @@ pub async fn run_background_workload_with_real_runtime(
         }
         sleep(Duration::from_millis(50)).await;
     }
-    handle
-        .stop()
-        .await
-        .expect("stop real runtime background runner");
+    handle.stop().await.expect("stop real runtime task runner");
 
     let tasks = storage
         .tasks

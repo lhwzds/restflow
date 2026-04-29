@@ -1545,18 +1545,18 @@ pub struct AgentSettings {
 pub struct ApiSettings {
     pub memory_search_limit: u32,
     pub session_list_limit: u32,
-    pub background_progress_event_limit: usize,
-    pub background_message_list_limit: usize,
-    pub background_trace_list_limit: usize,
-    pub background_trace_line_limit: usize,
+    pub task_progress_event_limit: usize,
+    pub task_message_list_limit: usize,
+    pub task_trace_list_limit: usize,
+    pub task_trace_line_limit: usize,
     pub web_search_num_results: usize,
     pub diagnostics_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct RuntimeSettings {
-    pub background_runner_poll_interval_ms: u64,
-    pub background_runner_max_concurrent_tasks: usize,
+    pub task_runner_poll_interval_ms: u64,
+    pub task_runner_max_concurrent_tasks: usize,
     pub chat_max_session_history: usize,
 }
 
@@ -1578,12 +1578,12 @@ pub struct SystemConfig {
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
     #[serde(default)]
-    pub background_api_timeout_seconds: Option<u64>,
+    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub background_task_retention_days: u32,
+    pub task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     pub log_file_retention_days: u32,

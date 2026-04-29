@@ -15,21 +15,18 @@ pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> 
         "session_list_limit" => {
             config.api.session_list_limit = parse_u32(value, "api.session_list_limit")?;
         }
-        "background_progress_event_limit" => {
-            config.api.background_progress_event_limit =
-                parse_usize(value, "api.background_progress_event_limit")?;
+        "task_progress_event_limit" => {
+            config.api.task_progress_event_limit =
+                parse_usize(value, "api.task_progress_event_limit")?;
         }
-        "background_message_list_limit" => {
-            config.api.background_message_list_limit =
-                parse_usize(value, "api.background_message_list_limit")?;
+        "task_message_list_limit" => {
+            config.api.task_message_list_limit = parse_usize(value, "api.task_message_list_limit")?;
         }
-        "background_trace_list_limit" => {
-            config.api.background_trace_list_limit =
-                parse_usize(value, "api.background_trace_list_limit")?;
+        "task_trace_list_limit" => {
+            config.api.task_trace_list_limit = parse_usize(value, "api.task_trace_list_limit")?;
         }
-        "background_trace_line_limit" => {
-            config.api.background_trace_line_limit =
-                parse_usize(value, "api.background_trace_line_limit")?;
+        "task_trace_line_limit" => {
+            config.api.task_trace_line_limit = parse_usize(value, "api.task_trace_line_limit")?;
         }
         "web_search_num_results" => {
             config.api.web_search_num_results = parse_usize(value, "api.web_search_num_results")?;

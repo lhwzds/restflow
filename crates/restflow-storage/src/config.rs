@@ -10,14 +10,14 @@ use restflow_traits::{
     DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
     DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
     DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
-    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
-    DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS, DEFAULT_BG_MESSAGE_LIST_LIMIT,
-    DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT,
-    DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
-    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
-    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
-    DEFAULT_TELEGRAM_API_TIMEOUT_SECS, DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS,
-    MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_CHAT_MAX_SESSION_HISTORY,
+    DEFAULT_GITHUB_CACHE_TTL_SECS, DEFAULT_MARKETPLACE_CACHE_TTL_SECS,
+    DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
+    DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
+    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_TASK_TRACE_LINE_LIMIT,
+    DEFAULT_TASK_TRACE_LIST_LIMIT, DEFAULT_TELEGRAM_API_TIMEOUT_SECS,
+    DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS, MAX_API_WEB_SEARCH_RESULTS,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
@@ -41,7 +41,7 @@ const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 1800; // 30 minutes
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
-const DEFAULT_BACKGROUND_TASK_RETENTION_DAYS: u32 = 7;
+const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
 const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_AUDIT_EVENT_RETENTION_DAYS: u32 = 7;
@@ -131,12 +131,12 @@ pub struct SystemSection {
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
     #[serde(default)]
-    pub background_api_timeout_seconds: Option<u64>,
+    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub background_task_retention_days: u32,
+    pub task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     pub audit_event_retention_days: u32,
@@ -151,11 +151,11 @@ impl Default for SystemSection {
             worker_count: DEFAULT_WORKER_COUNT,
             task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            background_api_timeout_seconds: None,
+            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
+            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
@@ -172,11 +172,11 @@ impl From<&SystemConfig> for SystemSection {
             worker_count: config.worker_count,
             task_timeout_seconds: config.task_timeout_seconds,
             stall_timeout_seconds: config.stall_timeout_seconds,
-            background_api_timeout_seconds: config.background_api_timeout_seconds,
+            task_api_timeout_seconds: config.task_api_timeout_seconds,
             chat_response_timeout_seconds: config.chat_response_timeout_seconds,
             max_retries: config.max_retries,
             chat_session_retention_days: config.chat_session_retention_days,
-            background_task_retention_days: config.background_task_retention_days,
+            task_retention_days: config.task_retention_days,
             checkpoint_retention_days: config.checkpoint_retention_days,
             memory_chunk_retention_days: config.memory_chunk_retention_days,
             audit_event_retention_days: config.audit_event_retention_days,
@@ -218,11 +218,11 @@ impl ConfigDocument {
             worker_count: self.system.worker_count,
             task_timeout_seconds: self.system.task_timeout_seconds,
             stall_timeout_seconds: self.system.stall_timeout_seconds,
-            background_api_timeout_seconds: self.system.background_api_timeout_seconds,
+            task_api_timeout_seconds: self.system.task_api_timeout_seconds,
             chat_response_timeout_seconds: self.system.chat_response_timeout_seconds,
             max_retries: self.system.max_retries,
             chat_session_retention_days: self.system.chat_session_retention_days,
-            background_task_retention_days: self.system.background_task_retention_days,
+            task_retention_days: self.system.task_retention_days,
             checkpoint_retention_days: self.system.checkpoint_retention_days,
             memory_chunk_retention_days: self.system.memory_chunk_retention_days,
             audit_event_retention_days: self.system.audit_event_retention_days,
@@ -456,14 +456,14 @@ pub struct ApiDefaults {
     pub memory_search_limit: u32,
     /// Default `chat_session_list` result limit.
     pub session_list_limit: u32,
-    /// Default event limit for background progress queries.
-    pub background_progress_event_limit: usize,
+    /// Default event limit for task progress queries.
+    pub task_progress_event_limit: usize,
     /// Default message list limit for tasks.
-    pub background_message_list_limit: usize,
+    pub task_message_list_limit: usize,
     /// Default trace list limit for tasks.
-    pub background_trace_list_limit: usize,
+    pub task_trace_list_limit: usize,
     /// Default trailing line limit when reading trace output.
-    pub background_trace_line_limit: usize,
+    pub task_trace_line_limit: usize,
     /// Default result count for `web_search`.
     pub web_search_num_results: usize,
     /// Default diagnostics wait timeout in milliseconds.
@@ -478,10 +478,10 @@ impl Default for ApiDefaults {
         Self {
             memory_search_limit: DEFAULT_MEMORY_SEARCH_LIMIT,
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
-            background_progress_event_limit: DEFAULT_BG_PROGRESS_EVENT_LIMIT,
-            background_message_list_limit: DEFAULT_BG_MESSAGE_LIST_LIMIT,
-            background_trace_list_limit: DEFAULT_BG_TRACE_LIST_LIMIT,
-            background_trace_line_limit: DEFAULT_BG_TRACE_LINE_LIMIT,
+            task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
+            task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
+            task_trace_list_limit: DEFAULT_TASK_TRACE_LIST_LIMIT,
+            task_trace_line_limit: DEFAULT_TASK_TRACE_LINE_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
             diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }
@@ -498,24 +498,24 @@ impl ApiDefaults {
         if self.session_list_limit == 0 {
             return Err(anyhow::anyhow!("api.session_list_limit must be at least 1"));
         }
-        if self.background_progress_event_limit == 0 {
+        if self.task_progress_event_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api.background_progress_event_limit must be at least 1"
+                "api.task_progress_event_limit must be at least 1"
             ));
         }
-        if self.background_message_list_limit == 0 {
+        if self.task_message_list_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api.background_message_list_limit must be at least 1"
+                "api.task_message_list_limit must be at least 1"
             ));
         }
-        if self.background_trace_list_limit == 0 {
+        if self.task_trace_list_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api.background_trace_list_limit must be at least 1"
+                "api.task_trace_list_limit must be at least 1"
             ));
         }
-        if self.background_trace_line_limit == 0 {
+        if self.task_trace_line_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api.background_trace_line_limit must be at least 1"
+                "api.task_trace_line_limit must be at least 1"
             ));
         }
         if self.web_search_num_results == 0 {
@@ -542,10 +542,10 @@ impl ApiDefaults {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct RuntimeDefaults {
-    /// Background runner poll interval in milliseconds.
-    pub background_runner_poll_interval_ms: u64,
-    /// Maximum concurrent tasks for the background runner.
-    pub background_runner_max_concurrent_tasks: usize,
+    /// Task runner poll interval in milliseconds.
+    pub task_runner_poll_interval_ms: u64,
+    /// Maximum concurrent tasks for the task runner.
+    pub task_runner_max_concurrent_tasks: usize,
     /// Maximum session history kept for channel chat sessions.
     pub chat_max_session_history: usize,
 }
@@ -556,8 +556,8 @@ pub type RuntimeSettings = RuntimeDefaults;
 impl Default for RuntimeDefaults {
     fn default() -> Self {
         Self {
-            background_runner_poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
-            background_runner_max_concurrent_tasks: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
+            task_runner_poll_interval_ms: DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
+            task_runner_max_concurrent_tasks: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
             chat_max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
         }
     }
@@ -565,14 +565,14 @@ impl Default for RuntimeDefaults {
 
 impl RuntimeDefaults {
     fn validate(&self) -> Result<()> {
-        if self.background_runner_poll_interval_ms == 0 {
+        if self.task_runner_poll_interval_ms == 0 {
             return Err(anyhow::anyhow!(
-                "runtime.background_runner_poll_interval_ms must be at least 1"
+                "runtime.task_runner_poll_interval_ms must be at least 1"
             ));
         }
-        if self.background_runner_max_concurrent_tasks == 0 {
+        if self.task_runner_max_concurrent_tasks == 0 {
             return Err(anyhow::anyhow!(
-                "runtime.background_runner_max_concurrent_tasks must be at least 1"
+                "runtime.task_runner_max_concurrent_tasks must be at least 1"
             ));
         }
         if self.chat_max_session_history == 0 {
@@ -668,12 +668,12 @@ pub struct SystemConfig {
     pub worker_count: usize,
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
-    /// Default timeout for background API tasks in seconds.
+    /// Default timeout for API task execution in seconds.
     ///
     /// `None` disables timeout by default. Individual tasks may still configure
     /// their own `timeout_secs` and resource limits.
     #[serde(default)]
-    pub background_api_timeout_seconds: Option<u64>,
+    pub task_api_timeout_seconds: Option<u64>,
     /// Timeout for interactive channel chat responses in seconds.
     ///
     /// `None` disables timeout for chat dispatching.
@@ -681,7 +681,7 @@ pub struct SystemConfig {
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub background_task_retention_days: u32,
+    pub task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     /// Retention period for execution audit events.
@@ -717,11 +717,11 @@ impl Default for SystemConfig {
             worker_count: DEFAULT_WORKER_COUNT,
             task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            background_api_timeout_seconds: None,
+            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
+            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
@@ -761,7 +761,7 @@ impl SystemConfig {
             ));
         }
 
-        if let Some(timeout_secs) = self.background_api_timeout_seconds
+        if let Some(timeout_secs) = self.task_api_timeout_seconds
             && timeout_secs < MIN_TIMEOUT_SECONDS
         {
             return Err(anyhow::anyhow!(
@@ -792,7 +792,7 @@ impl SystemConfig {
             ));
         }
 
-        if self.background_task_retention_days < MIN_RETENTION_DAYS {
+        if self.task_retention_days < MIN_RETENTION_DAYS {
             return Err(anyhow::anyhow!(
                 "Background task retention must be at least {} day",
                 MIN_RETENTION_DAYS
@@ -1117,10 +1117,10 @@ impl AgentDefaultsOverride {
 struct ApiDefaultsOverride {
     pub memory_search_limit: Option<u32>,
     pub session_list_limit: Option<u32>,
-    pub background_progress_event_limit: Option<usize>,
-    pub background_message_list_limit: Option<usize>,
-    pub background_trace_list_limit: Option<usize>,
-    pub background_trace_line_limit: Option<usize>,
+    pub task_progress_event_limit: Option<usize>,
+    pub task_message_list_limit: Option<usize>,
+    pub task_trace_list_limit: Option<usize>,
+    pub task_trace_line_limit: Option<usize>,
     pub web_search_num_results: Option<usize>,
     pub diagnostics_timeout_ms: Option<u64>,
 }
@@ -1133,17 +1133,17 @@ impl ApiDefaultsOverride {
         if let Some(value) = self.session_list_limit {
             api_defaults.session_list_limit = value;
         }
-        if let Some(value) = self.background_progress_event_limit {
-            api_defaults.background_progress_event_limit = value;
+        if let Some(value) = self.task_progress_event_limit {
+            api_defaults.task_progress_event_limit = value;
         }
-        if let Some(value) = self.background_message_list_limit {
-            api_defaults.background_message_list_limit = value;
+        if let Some(value) = self.task_message_list_limit {
+            api_defaults.task_message_list_limit = value;
         }
-        if let Some(value) = self.background_trace_list_limit {
-            api_defaults.background_trace_list_limit = value;
+        if let Some(value) = self.task_trace_list_limit {
+            api_defaults.task_trace_list_limit = value;
         }
-        if let Some(value) = self.background_trace_line_limit {
-            api_defaults.background_trace_line_limit = value;
+        if let Some(value) = self.task_trace_line_limit {
+            api_defaults.task_trace_line_limit = value;
         }
         if let Some(value) = self.web_search_num_results {
             api_defaults.web_search_num_results = value;
@@ -1157,18 +1157,18 @@ impl ApiDefaultsOverride {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RuntimeDefaultsOverride {
-    pub background_runner_poll_interval_ms: Option<u64>,
-    pub background_runner_max_concurrent_tasks: Option<usize>,
+    pub task_runner_poll_interval_ms: Option<u64>,
+    pub task_runner_max_concurrent_tasks: Option<usize>,
     pub chat_max_session_history: Option<usize>,
 }
 
 impl RuntimeDefaultsOverride {
     fn apply_to(&self, runtime_defaults: &mut RuntimeDefaults) {
-        if let Some(value) = self.background_runner_poll_interval_ms {
-            runtime_defaults.background_runner_poll_interval_ms = value;
+        if let Some(value) = self.task_runner_poll_interval_ms {
+            runtime_defaults.task_runner_poll_interval_ms = value;
         }
-        if let Some(value) = self.background_runner_max_concurrent_tasks {
-            runtime_defaults.background_runner_max_concurrent_tasks = value;
+        if let Some(value) = self.task_runner_max_concurrent_tasks {
+            runtime_defaults.task_runner_max_concurrent_tasks = value;
         }
         if let Some(value) = self.chat_max_session_history {
             runtime_defaults.chat_max_session_history = value;
@@ -1219,12 +1219,12 @@ struct SystemSectionOverride {
     pub task_timeout_seconds: Option<u64>,
     pub stall_timeout_seconds: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
-    pub background_api_timeout_seconds: Option<Option<u64>>,
+    pub task_api_timeout_seconds: Option<Option<u64>>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub chat_response_timeout_seconds: Option<Option<u64>>,
     pub max_retries: Option<u32>,
     pub chat_session_retention_days: Option<u32>,
-    pub background_task_retention_days: Option<u32>,
+    pub task_retention_days: Option<u32>,
     pub checkpoint_retention_days: Option<u32>,
     pub memory_chunk_retention_days: Option<u32>,
     pub audit_event_retention_days: Option<u32>,
@@ -1244,8 +1244,8 @@ impl SystemSectionOverride {
         if let Some(value) = self.stall_timeout_seconds {
             config.stall_timeout_seconds = value;
         }
-        if let Some(value) = self.background_api_timeout_seconds {
-            config.background_api_timeout_seconds = value;
+        if let Some(value) = self.task_api_timeout_seconds {
+            config.task_api_timeout_seconds = value;
         }
         if let Some(value) = self.chat_response_timeout_seconds {
             config.chat_response_timeout_seconds = value;
@@ -1256,8 +1256,8 @@ impl SystemSectionOverride {
         if let Some(value) = self.chat_session_retention_days {
             config.chat_session_retention_days = value;
         }
-        if let Some(value) = self.background_task_retention_days {
-            config.background_task_retention_days = value;
+        if let Some(value) = self.task_retention_days {
+            config.task_retention_days = value;
         }
         if let Some(value) = self.checkpoint_retention_days {
             config.checkpoint_retention_days = value;
@@ -1883,7 +1883,7 @@ mod tests {
         let config = config.unwrap();
         assert_eq!(config.worker_count, DEFAULT_WORKER_COUNT);
         assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
-        assert_eq!(config.background_api_timeout_seconds, None);
+        assert_eq!(config.task_api_timeout_seconds, None);
         assert_eq!(config.chat_response_timeout_seconds, None);
         assert_eq!(
             config.agent.browser_timeout_secs,
@@ -1928,22 +1928,20 @@ mod tests {
             DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS
         );
         assert_eq!(
-            config.api_defaults.background_progress_event_limit,
-            DEFAULT_BG_PROGRESS_EVENT_LIMIT
+            config.api_defaults.task_progress_event_limit,
+            DEFAULT_TASK_PROGRESS_EVENT_LIMIT
         );
         assert_eq!(
-            config.api_defaults.background_message_list_limit,
-            DEFAULT_BG_MESSAGE_LIST_LIMIT
+            config.api_defaults.task_message_list_limit,
+            DEFAULT_TASK_MESSAGE_LIST_LIMIT
         );
         assert_eq!(
-            config.runtime_defaults.background_runner_poll_interval_ms,
-            DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS
+            config.runtime_defaults.task_runner_poll_interval_ms,
+            DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS
         );
         assert_eq!(
-            config
-                .runtime_defaults
-                .background_runner_max_concurrent_tasks,
-            DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
+            config.runtime_defaults.task_runner_max_concurrent_tasks,
+            DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS
         );
         assert_eq!(
             config.runtime_defaults.chat_max_session_history,
@@ -1975,11 +1973,11 @@ mod tests {
             worker_count: 8,
             task_timeout_seconds: 600,
             stall_timeout_seconds: 600,
-            background_api_timeout_seconds: Some(3600),
+            task_api_timeout_seconds: Some(3600),
             chat_response_timeout_seconds: Some(900),
             max_retries: 5,
             chat_session_retention_days: 45,
-            background_task_retention_days: 14,
+            task_retention_days: 14,
             checkpoint_retention_days: 5,
             memory_chunk_retention_days: 120,
             experimental_features: vec!["plan_mode".to_string()],
@@ -1999,11 +1997,11 @@ mod tests {
             worker_count: 2,
             task_timeout_seconds: 30,
             stall_timeout_seconds: 30,
-            background_api_timeout_seconds: Some(1200),
+            task_api_timeout_seconds: Some(1200),
             chat_response_timeout_seconds: Some(300),
             max_retries: 1,
             chat_session_retention_days: 30,
-            background_task_retention_days: 7,
+            task_retention_days: 7,
             checkpoint_retention_days: 3,
             memory_chunk_retention_days: 90,
             experimental_features: vec!["websocket_transport".to_string()],
@@ -2015,7 +2013,7 @@ mod tests {
     #[test]
     fn test_optional_timeouts_allow_none() {
         let config = SystemConfig {
-            background_api_timeout_seconds: None,
+            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             ..Default::default()
         };
@@ -2231,14 +2229,14 @@ mod tests {
         let file = write_override_file(
             r#"[system]
 worker_count = 42
-background_task_retention_days = 10
+task_retention_days = 10
 "#,
         );
         let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.worker_count, 42);
-        assert_eq!(effective.background_task_retention_days, 10);
+        assert_eq!(effective.task_retention_days, 10);
     }
 
     #[test]
@@ -2364,8 +2362,8 @@ diagnostics_timeout_ms = 9000
         let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[runtime]
-background_runner_poll_interval_ms = 15000
-background_runner_max_concurrent_tasks = 8
+task_runner_poll_interval_ms = 15000
+task_runner_max_concurrent_tasks = 8
 chat_max_session_history = 42
 
 [channel]
@@ -2381,15 +2379,11 @@ marketplace_cache_ttl_secs = 450
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(
-            effective
-                .runtime_defaults
-                .background_runner_poll_interval_ms,
+            effective.runtime_defaults.task_runner_poll_interval_ms,
             15000
         );
         assert_eq!(
-            effective
-                .runtime_defaults
-                .background_runner_max_concurrent_tasks,
+            effective.runtime_defaults.task_runner_max_concurrent_tasks,
             8
         );
         assert_eq!(effective.runtime_defaults.chat_max_session_history, 42);
@@ -2498,31 +2492,31 @@ memory_search_limit = 33
         let ctx = setup_test_storage();
         let mut config = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(config.api_defaults.memory_search_limit, 10);
-        assert_eq!(config.api_defaults.background_progress_event_limit, 10);
-        assert_eq!(config.api_defaults.background_message_list_limit, 50);
-        assert_eq!(config.api_defaults.background_trace_line_limit, 200);
+        assert_eq!(config.api_defaults.task_progress_event_limit, 10);
+        assert_eq!(config.api_defaults.task_message_list_limit, 50);
+        assert_eq!(config.api_defaults.task_trace_line_limit, 200);
 
         config.api_defaults.memory_search_limit = 25;
-        config.api_defaults.background_progress_event_limit = 12;
-        config.api_defaults.background_message_list_limit = 60;
-        config.api_defaults.background_trace_line_limit = 300;
+        config.api_defaults.task_progress_event_limit = 12;
+        config.api_defaults.task_message_list_limit = 60;
+        config.api_defaults.task_trace_line_limit = 300;
         ctx.storage.update_config(config).unwrap();
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.api_defaults.memory_search_limit, 25);
-        assert_eq!(retrieved.api_defaults.background_progress_event_limit, 12);
-        assert_eq!(retrieved.api_defaults.background_message_list_limit, 60);
-        assert_eq!(retrieved.api_defaults.background_trace_line_limit, 300);
+        assert_eq!(retrieved.api_defaults.task_progress_event_limit, 12);
+        assert_eq!(retrieved.api_defaults.task_message_list_limit, 60);
+        assert_eq!(retrieved.api_defaults.task_trace_line_limit, 300);
     }
 
     #[test]
     fn test_invalid_api_settings_rejected() {
         let mut config = SystemConfig::default();
-        config.api_defaults.background_progress_event_limit = 0;
+        config.api_defaults.task_progress_event_limit = 0;
         assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
-        config.api_defaults.background_message_list_limit = 0;
+        config.api_defaults.task_message_list_limit = 0;
         assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
@@ -2537,13 +2531,11 @@ memory_search_limit = 33
     #[test]
     fn test_invalid_runtime_channel_and_registry_defaults_rejected() {
         let mut config = SystemConfig::default();
-        config.runtime_defaults.background_runner_poll_interval_ms = 0;
+        config.runtime_defaults.task_runner_poll_interval_ms = 0;
         assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
-        config
-            .runtime_defaults
-            .background_runner_max_concurrent_tasks = 0;
+        config.runtime_defaults.task_runner_max_concurrent_tasks = 0;
         assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
@@ -2573,14 +2565,14 @@ memory_search_limit = 33
         let file = write_override_file(
             r#"[api]
 memory_search_limit = 33
-background_trace_line_limit = 444
+task_trace_line_limit = 444
 "#,
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.api_defaults.memory_search_limit, 33);
-        assert_eq!(effective.api_defaults.background_trace_line_limit, 444);
+        assert_eq!(effective.api_defaults.task_trace_line_limit, 444);
     }
 
     #[test]
