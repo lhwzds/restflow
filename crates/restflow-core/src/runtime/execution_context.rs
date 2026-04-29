@@ -30,7 +30,6 @@ pub struct ExecutionContext {
     pub role: ExecutionRole,
     pub agent_id: String,
     pub chat_session_id: Option<String>,
-    #[serde(alias = "task_id")]
     pub task_id: Option<String>,
     pub parent_run_id: Option<String>,
 }

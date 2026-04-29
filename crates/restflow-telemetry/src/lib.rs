@@ -398,7 +398,6 @@ pub struct RestflowTrace {
     pub parent_run_id: Option<String>,
     pub session_id: String,
     pub turn_id: String,
-    #[serde(alias = "execution_task_id")]
     pub scope_id: String,
     pub actor_id: String,
     pub created_at_ms: i64,
@@ -616,22 +615,6 @@ mod tests {
             serde_json::from_str(&json).expect("deserialize event");
 
         assert_eq!(restored, event);
-    }
-
-    #[test]
-    fn trace_roundtrips_legacy_execution_task_id_as_scope_id() {
-        let json = r#"{
-            "run_id":"run-1",
-            "session_id":"session-1",
-            "turn_id":"run-run-1",
-            "execution_task_id":"task-legacy",
-            "actor_id":"agent-1",
-            "created_at_ms":123
-        }"#;
-
-        let restored: RestflowTrace = serde_json::from_str(json).expect("deserialize legacy trace");
-        assert_eq!(restored.scope_id, "task-legacy");
-        assert_eq!(restored.parent_run_id, None);
     }
 
     #[test]
