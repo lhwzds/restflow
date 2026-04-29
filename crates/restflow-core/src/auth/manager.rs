@@ -430,9 +430,7 @@ impl AuthProfileManager {
 
         info!(profile_id = %profile_id, "Manual profile added");
 
-        if source == CredentialSource::Manual
-            && let Err(e) = self.save_profile_to_storage(&profile)
-        {
+        if let Err(e) = self.save_profile_to_storage(&profile) {
             warn!(error = %e, "Failed to save manual profile to storage");
         }
 
@@ -463,7 +461,6 @@ impl AuthProfileManager {
         info!(profile_id = %id, "Profile added");
 
         if let Some(stored) = profiles.get(&id)
-            && stored.source == CredentialSource::Manual
             && let Err(e) = self.save_profile_to_storage(stored)
         {
             warn!(error = %e, "Failed to save manual profile to storage");
@@ -486,9 +483,7 @@ impl AuthProfileManager {
 
         info!(profile_id, name = %profile.name, "Profile removed");
 
-        if profile.source == CredentialSource::Manual
-            && let Err(e) = self.delete_profile_from_storage(profile_id)
-        {
+        if let Err(e) = self.delete_profile_from_storage(profile_id) {
             warn!(error = %e, "Failed to delete manual profile from storage");
         }
 
@@ -520,9 +515,7 @@ impl AuthProfileManager {
 
         info!(profile_id, name = %updated.name, "Profile updated");
 
-        if updated.source == CredentialSource::Manual
-            && let Err(e) = self.save_profile_to_storage(&updated)
-        {
+        if let Err(e) = self.save_profile_to_storage(&updated) {
             warn!(error = %e, "Failed to persist manual profile update");
         }
 
@@ -544,9 +537,7 @@ impl AuthProfileManager {
         let updated = profile.clone();
         info!(profile_id, "Profile enabled");
 
-        if updated.source == CredentialSource::Manual
-            && let Err(e) = self.save_profile_to_storage(&updated)
-        {
+        if let Err(e) = self.save_profile_to_storage(&updated) {
             warn!(error = %e, "Failed to persist manual profile enable");
         }
 
@@ -563,9 +554,7 @@ impl AuthProfileManager {
         profile.disable(reason);
 
         let updated = profile.clone();
-        if updated.source == CredentialSource::Manual
-            && let Err(e) = self.save_profile_to_storage(&updated)
-        {
+        if let Err(e) = self.save_profile_to_storage(&updated) {
             warn!(error = %e, "Failed to persist manual profile disable");
         }
 
@@ -620,9 +609,7 @@ impl AuthProfileManager {
 
         if let Some(storage) = &self.storage {
             for profile in profiles.values() {
-                if profile.source == CredentialSource::Manual
-                    && let Err(e) = storage.delete(profile.id.as_str())
-                {
+                if let Err(e) = storage.delete(profile.id.as_str()) {
                     warn!(error = %e, profile_id = %profile.id, "Failed to delete manual profile from storage");
                 }
             }
@@ -668,9 +655,7 @@ impl AuthProfileManager {
                     continue;
                 }
             };
-            if profile.source == CredentialSource::Manual {
-                profiles.insert(profile.id.clone(), profile);
-            }
+            profiles.insert(profile.id.clone(), profile);
         }
         Ok(())
     }
