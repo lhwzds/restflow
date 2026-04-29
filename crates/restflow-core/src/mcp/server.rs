@@ -546,7 +546,6 @@ impl RestFlowMcpServer {
             "telegram" => Some("telegram_send"),
             "discord" => Some("discord_send"),
             "slack" => Some("slack_send"),
-            "use_skill" => Some("skill"),
             "python" => Some("run_python"),
             _ => None,
         }
@@ -574,88 +573,12 @@ impl RestFlowMcpServer {
                 "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
                     .to_string()
             }
-            ("use_skill", "skill") => {
-                "Alias of 'skill' for backward compatibility (load-only: list/read). Prefer using 'skill' directly."
-                    .to_string()
-            }
             ("python", "run_python") => {
                 "Alias of 'run_python' for backward compatibility. Prefer using 'run_python' directly."
                     .to_string()
             }
             _ => format!("Alias of '{}' for backward compatibility.", target_name),
         }
-    }
-
-    fn convert_use_skill_input(input: Value) -> Value {
-        let Value::Object(mut map) = input else {
-            return serde_json::json!({ "action": "list" });
-        };
-
-        if let Some(action) = map.get("action").and_then(|v| v.as_str()) {
-            let action = action.trim();
-            if action.eq_ignore_ascii_case("execute") || action.eq_ignore_ascii_case("run") {
-                return serde_json::json!({ "action": "__unsupported_execute" });
-            }
-            if action.eq_ignore_ascii_case("list") {
-                return serde_json::json!({ "action": "list" });
-            }
-            if action.eq_ignore_ascii_case("read") || action.eq_ignore_ascii_case("load") {
-                if let Some(skill_id) = map.remove("id").or_else(|| map.remove("skill_id")) {
-                    return serde_json::json!({
-                        "action": "read",
-                        "id": skill_id
-                    });
-                }
-                return serde_json::json!({ "action": "read" });
-            }
-
-            return Value::Object(map);
-        }
-
-        if map.get("list").and_then(|v| v.as_bool()).unwrap_or(false) {
-            return serde_json::json!({ "action": "list" });
-        }
-
-        if let Some(skill_id) = map.remove("skill_id").or_else(|| map.remove("id")) {
-            return serde_json::json!({
-                "action": "read",
-                "id": skill_id
-            });
-        }
-
-        serde_json::json!({ "action": "list" })
-    }
-
-    fn use_skill_alias_parameters() -> serde_json::Map<String, Value> {
-        let schema = serde_json::json!({
-            "type": "object",
-            "description": "Load-only alias for skill access. Supports only list/read. Skill execution is not supported in this tool.",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "read"],
-                    "description": "Load-only action."
-                },
-                "id": {
-                    "type": "string",
-                    "description": "Skill ID for read."
-                },
-                "skill_id": {
-                    "type": "string",
-                    "description": "Legacy compatibility field for read."
-                },
-                "list": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Legacy compatibility field for list."
-                }
-            },
-            "additionalProperties": false
-        });
-        schema
-            .as_object()
-            .cloned()
-            .unwrap_or_else(serde_json::Map::new)
     }
 
     /// Runtime tools that are surfaced as explicit MCP-only additions.
@@ -875,19 +798,14 @@ impl ServerHandler for RestFlowMcpServer {
                 ("telegram", "telegram_send"),
                 ("discord", "discord_send"),
                 ("slack", "slack_send"),
-                ("use_skill", "skill"),
                 ("python", "run_python"),
             ] {
                 if !known_names.contains(alias_name)
                     && let Some(target) = runtime_by_name.get(target_name)
                 {
-                    let parameters = if alias_name == "use_skill" {
-                        Self::use_skill_alias_parameters()
-                    } else {
-                        match target.parameters.clone() {
-                            Value::Object(map) => map,
-                            _ => serde_json::Map::new(),
-                        }
+                    let parameters = match target.parameters.clone() {
+                        Value::Object(map) => map,
+                        _ => serde_json::Map::new(),
                     };
                     tools.push(Tool::new(
                         alias_name,
@@ -1054,21 +972,6 @@ impl ServerHandler for RestFlowMcpServer {
                     request.arguments.unwrap_or_default(),
                 ))
                 .await
-            }
-            "use_skill" => {
-                let converted = Self::convert_use_skill_input(Value::Object(
-                    request.arguments.unwrap_or_default(),
-                ));
-                if converted
-                    .get("action")
-                    .and_then(|value| value.as_str())
-                    .map(|action| action == "__unsupported_execute")
-                    .unwrap_or(false)
-                {
-                    Err("skill execution not supported in this tool. use_skill is load-only; use action=list/read.".to_string())
-                } else {
-                    self.handle_runtime_tool("skill", converted).await
-                }
             }
             _ => {
                 if let Some(target) = Self::runtime_alias_target(request.name.as_ref()) {

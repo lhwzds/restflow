@@ -17,14 +17,7 @@ pub struct UseSkillParams {
     pub action: Option<String>,
 
     /// Skill ID to load.
-    pub skill_id: Option<String>,
-
-    /// Skill ID alias for compatibility with skill.read-style input.
     pub id: Option<String>,
-
-    /// If true, list available skills instead of loading.
-    #[serde(default)]
-    pub list: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,18 +86,9 @@ impl Tool for UseSkillTool {
                     "enum": ["list", "read"],
                     "description": "Load-only action. Use 'list' to list skills, or 'read' to load skill content."
                 },
-                "skill_id": {
-                    "type": "string",
-                    "description": "Legacy input for read action: the skill ID to load."
-                },
                 "id": {
                     "type": "string",
                     "description": "Skill ID for read action."
-                },
-                "list": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Legacy input for list action."
                 }
             },
             "additionalProperties": false
@@ -117,9 +101,7 @@ impl Tool for UseSkillTool {
 
         let action = match params.action.as_deref().map(str::trim) {
             Some(raw) if raw.eq_ignore_ascii_case("list") => Ok(UseSkillAction::List),
-            Some(raw) if raw.eq_ignore_ascii_case("read") || raw.eq_ignore_ascii_case("load") => {
-                Ok(UseSkillAction::Read)
-            }
+            Some(raw) if raw.eq_ignore_ascii_case("read") => Ok(UseSkillAction::Read),
             Some(raw) if raw.eq_ignore_ascii_case("execute") || raw.eq_ignore_ascii_case("run") => {
                 Err(ToolOutput::error(
                     "skill execution not supported in this tool. use_skill is load-only; use action=list/read.",
@@ -129,10 +111,8 @@ impl Tool for UseSkillTool {
                 "Unsupported action '{}'. use_skill supports only load-only actions: list, read.",
                 raw
             ))),
-            None if params.list => Ok(UseSkillAction::List),
-            None if params.skill_id.is_some() || params.id.is_some() => Ok(UseSkillAction::Read),
             None => Err(ToolOutput::error(
-                "Missing action. use_skill is load-only and requires action=list/read (legacy: list=true or skill_id).",
+                "Missing action. use_skill is load-only and requires action=list/read.",
             )),
         };
 
@@ -178,9 +158,8 @@ impl Tool for UseSkillTool {
         }
 
         let skill_id = params
-            .skill_id
-            .or(params.id)
-            .ok_or_else(|| ToolError::Tool("Missing 'skill_id' parameter".to_string()))?;
+            .id
+            .ok_or_else(|| ToolError::Tool("Missing 'id' parameter".to_string()))?;
 
         if let Some(message) = self
             .ensure_allowed(ToolAction {
@@ -275,27 +254,17 @@ mod tests {
 
     #[test]
     fn test_params_list() {
-        let params: UseSkillParams = serde_json::from_str(r#"{"list": true}"#).unwrap();
-        assert!(params.list);
-        assert!(params.action.is_none());
-        assert!(params.skill_id.is_none());
+        let params: UseSkillParams = serde_json::from_str(r#"{"action": "list"}"#).unwrap();
+        assert_eq!(params.action.as_deref(), Some("list"));
+        assert!(params.id.is_none());
     }
 
     #[test]
-    fn test_params_load() {
+    fn test_params_read() {
         let params: UseSkillParams =
-            serde_json::from_str(r#"{"skill_id": "api-testing"}"#).unwrap();
-        assert!(!params.list);
-        assert!(params.action.is_none());
-        assert_eq!(params.skill_id, Some("api-testing".to_string()));
-    }
-
-    #[test]
-    fn test_params_action_read() {
-        let params: UseSkillParams =
-            serde_json::from_str(r#"{"action": "read", "id": "x"}"#).unwrap();
+            serde_json::from_str(r#"{"action": "read", "id": "api-testing"}"#).unwrap();
         assert_eq!(params.action.as_deref(), Some("read"));
-        assert_eq!(params.id.as_deref(), Some("x"));
+        assert_eq!(params.id.as_deref(), Some("api-testing"));
     }
 
     #[tokio::test]
@@ -329,16 +298,16 @@ mod tests {
     async fn test_load_skill_not_found() {
         let tool = UseSkillTool::new(Arc::new(MockProvider));
         let result = tool
-            .execute(json!({"action": "read", "skill_id": "nonexistent"}))
+            .execute(json!({"action": "read", "id": "nonexistent"}))
             .await
             .unwrap();
         assert!(!result.success);
     }
 
     #[tokio::test]
-    async fn test_load_skill_missing_skill_id() {
+    async fn test_load_skill_missing_id() {
         let tool = UseSkillTool::new(Arc::new(MockProvider));
-        // Missing explicit action and legacy fallback fields.
+        // Missing explicit action and id field.
         let result = tool.execute(json!({})).await;
         assert!(result.is_ok());
         assert!(!result.unwrap().success);
@@ -444,25 +413,6 @@ mod tests {
         let recorded = calls.lock().unwrap();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].operation, "list");
-    }
-
-    #[tokio::test]
-    async fn test_legacy_list_parameter_still_supported() {
-        let tool = UseSkillTool::new(Arc::new(MockProvider));
-        let result = tool.execute(json!({"list": true})).await.unwrap();
-        assert!(result.success);
-        assert_eq!(result.result["count"], 1);
-    }
-
-    #[tokio::test]
-    async fn test_legacy_skill_id_parameter_still_supported() {
-        let tool = UseSkillTool::new(Arc::new(MockProvider));
-        let result = tool
-            .execute(json!({"skill_id": "test-skill"}))
-            .await
-            .unwrap();
-        assert!(result.success);
-        assert_eq!(result.result["skill_id"], "test-skill");
     }
 
     #[tokio::test]

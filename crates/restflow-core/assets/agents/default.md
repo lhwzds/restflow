@@ -118,7 +118,7 @@ Sub-agent delegation (`spawn_subagent`, `wait_subagents`, `list_subagents`) is a
 
 ### Skills Management
 
-- `use_skill`: Load-only skill access (backward-compatible alias for listing/reading)
+- `use_skill`: Load-only skill access for listing and reading skill guidance
   - `action: "list"` — List all skills
   - `action: "read"` — Get skill content by ID
   - Systemskills such as `team` are built in, read-only, and available through the same read path

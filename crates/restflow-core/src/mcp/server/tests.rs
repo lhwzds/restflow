@@ -2240,36 +2240,6 @@ async fn test_manage_agents_runtime_tool_list_operation() {
 }
 
 #[test]
-fn test_convert_use_skill_input_maps_to_skill_read() {
-    let input = serde_json::json!({
-        "skill_id": "my-skill"
-    });
-    let output = RestFlowMcpServer::convert_use_skill_input(input);
-    assert_eq!(output["action"], "read");
-    assert_eq!(output["id"], "my-skill");
-}
-
-#[test]
-fn test_convert_use_skill_input_rejects_execute_action() {
-    let input = serde_json::json!({
-        "action": "execute",
-        "id": "my-skill"
-    });
-    let output = RestFlowMcpServer::convert_use_skill_input(input);
-    assert_eq!(output["action"], "__unsupported_execute");
-}
-
-#[test]
-fn test_convert_use_skill_input_rejects_run_action() {
-    let input = serde_json::json!({
-        "action": "run",
-        "id": "my-skill"
-    });
-    let output = RestFlowMcpServer::convert_use_skill_input(input);
-    assert_eq!(output["action"], "__unsupported_execute");
-}
-
-#[test]
 fn test_runtime_alias_description_prefers_primary_tool() {
     assert_eq!(
         RestFlowMcpServer::runtime_alias_description("http", "http_request"),
@@ -2291,22 +2261,6 @@ fn test_runtime_alias_description_prefers_primary_tool() {
         RestFlowMcpServer::runtime_alias_description("slack", "slack_send"),
         "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
     );
-    assert_eq!(
-        RestFlowMcpServer::runtime_alias_description("use_skill", "skill"),
-        "Alias of 'skill' for backward compatibility (load-only: list/read). Prefer using 'skill' directly."
-    );
-}
-
-#[test]
-fn test_use_skill_alias_parameters_are_load_only() {
-    let schema = RestFlowMcpServer::use_skill_alias_parameters();
-    let action_enum = schema["properties"]["action"]["enum"]
-        .as_array()
-        .expect("action enum should be an array");
-    assert_eq!(action_enum.len(), 2);
-    assert_eq!(action_enum[0], "list");
-    assert_eq!(action_enum[1], "read");
-    assert_eq!(schema["additionalProperties"], false);
 }
 
 #[test]
