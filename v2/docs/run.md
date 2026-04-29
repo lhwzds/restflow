@@ -19,11 +19,13 @@ Inputs:
 - task definitions
 - agent execution events
 - checkpoint state
+- skill catalog
 
 Outputs:
 - run status
 - run history
 - run artifacts
+- agent run input
 
 Depends On:
 - agent

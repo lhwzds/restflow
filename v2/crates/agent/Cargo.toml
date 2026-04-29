@@ -7,6 +7,6 @@ license.workspace = true
 [dependencies]
 event.workspace = true
 model.workspace = true
+skill.workspace = true
 tool.workspace = true
 serde.workspace = true
-

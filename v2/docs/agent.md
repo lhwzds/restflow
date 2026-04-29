@@ -20,7 +20,7 @@ Inputs:
 - Model
 - allowed tools
 - user message
-- prompt context
+- SkillContext
 
 Outputs:
 - Event stream
@@ -29,6 +29,7 @@ Outputs:
 Depends On:
 - event
 - model
+- skill
 - tool
 
 Used By:

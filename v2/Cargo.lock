@@ -9,6 +9,7 @@ dependencies = [
  "event",
  "model",
  "serde",
+ "skill",
  "tool",
 ]
 
@@ -40,7 +41,9 @@ dependencies = [
 name = "chat"
 version = "0.1.0"
 dependencies = [
+ "agent",
  "serde",
+ "skill",
 ]
 
 [[package]]
@@ -107,7 +110,9 @@ dependencies = [
 name = "run"
 version = "0.1.0"
 dependencies = [
+ "agent",
  "serde",
+ "skill",
 ]
 
 [[package]]

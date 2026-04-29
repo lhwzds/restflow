@@ -19,10 +19,12 @@ Inputs:
 - user messages
 - assistant events
 - tool events
+- skill catalog
 
 Outputs:
 - session history
 - message lists
+- agent run input
 
 Depends On:
 - agent

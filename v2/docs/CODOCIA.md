@@ -18,6 +18,7 @@ flowchart TD
   m_tool["tool<br/>Tool owns the callable tool contract and registry."]
   m_agent --> m_event
   m_agent --> m_model
+  m_agent --> m_skill
   m_agent --> m_tool
   m_auth --> m_model
   m_auth --> m_store
