@@ -44,7 +44,7 @@ use rmcp::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
 use tokio::sync::Mutex;
@@ -539,43 +539,6 @@ impl RestFlowMcpServer {
             .map_err(|e| format!("Failed to load API defaults: {}", e))
     }
 
-    fn runtime_alias_target(name: &str) -> Option<&'static str> {
-        match name {
-            "http" => Some("http_request"),
-            "email" => Some("send_email"),
-            "telegram" => Some("telegram_send"),
-            "discord" => Some("discord_send"),
-            "slack" => Some("slack_send"),
-            _ => None,
-        }
-    }
-
-    fn runtime_alias_description(alias_name: &str, target_name: &str) -> String {
-        match (alias_name, target_name) {
-            ("http", "http_request") => {
-                "Alias of 'http_request' for convenience. Prefer using 'http_request' directly."
-                    .to_string()
-            }
-            ("email", "send_email") => {
-                "Alias of 'send_email' for convenience. Prefer using 'send_email' directly."
-                    .to_string()
-            }
-            ("telegram", "telegram_send") => {
-                "Alias of 'telegram_send' for convenience. Prefer using 'telegram_send' directly."
-                    .to_string()
-            }
-            ("discord", "discord_send") => {
-                "Alias of 'discord_send' for convenience. Prefer using 'discord_send' directly."
-                    .to_string()
-            }
-            ("slack", "slack_send") => {
-                "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
-                    .to_string()
-            }
-            _ => format!("Alias of '{}'.", target_name),
-        }
-    }
-
     /// Runtime tools that are surfaced as explicit MCP-only additions.
     /// Dynamic runtime tools are discovered from backend tool registry schemas.
     fn session_scoped_runtime_tools() -> Vec<RuntimeToolDefinition> {
@@ -770,10 +733,7 @@ impl ServerHandler for RestFlowMcpServer {
         if let Ok(runtime_tools) = self.backend.list_runtime_tools().await {
             let mut known_names: HashSet<String> =
                 tools.iter().map(|tool| tool.name.to_string()).collect();
-            let mut runtime_by_name: HashMap<String, RuntimeToolDefinition> = HashMap::new();
-
             for runtime_tool in runtime_tools {
-                runtime_by_name.insert(runtime_tool.name.clone(), runtime_tool.clone());
                 if known_names.insert(runtime_tool.name.clone()) {
                     let parameters = match runtime_tool.parameters {
                         Value::Object(map) => map,
@@ -784,29 +744,6 @@ impl ServerHandler for RestFlowMcpServer {
                         runtime_tool.description,
                         parameters,
                     ));
-                }
-            }
-
-            for (alias_name, target_name) in [
-                ("http", "http_request"),
-                ("email", "send_email"),
-                ("telegram", "telegram_send"),
-                ("discord", "discord_send"),
-                ("slack", "slack_send"),
-            ] {
-                if !known_names.contains(alias_name)
-                    && let Some(target) = runtime_by_name.get(target_name)
-                {
-                    let parameters = match target.parameters.clone() {
-                        Value::Object(map) => map,
-                        _ => serde_json::Map::new(),
-                    };
-                    tools.push(Tool::new(
-                        alias_name,
-                        Self::runtime_alias_description(alias_name, target_name),
-                        parameters,
-                    ));
-                    known_names.insert(alias_name.to_string());
                 }
             }
 
@@ -968,19 +905,11 @@ impl ServerHandler for RestFlowMcpServer {
                 .await
             }
             _ => {
-                if let Some(target) = Self::runtime_alias_target(request.name.as_ref()) {
-                    self.handle_runtime_tool(
-                        target,
-                        Value::Object(request.arguments.unwrap_or_default()),
-                    )
-                    .await
-                } else {
-                    self.handle_runtime_tool(
-                        request.name.as_ref(),
-                        Value::Object(request.arguments.unwrap_or_default()),
-                    )
-                    .await
-                }
+                self.handle_runtime_tool(
+                    request.name.as_ref(),
+                    Value::Object(request.arguments.unwrap_or_default()),
+                )
+                .await
             }
         };
 

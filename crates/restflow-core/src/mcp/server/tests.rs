@@ -2155,44 +2155,6 @@ async fn test_call_tool_keeps_text_only_for_non_json_runtime_error() {
 }
 
 #[tokio::test]
-async fn test_call_tool_alias_path_preserves_structured_runtime_error_contract() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-
-    let direct = call_tool_through_mcp(
-        server.clone(),
-        "send_email",
-        serde_json::json!({
-            "to": "a@example.com",
-            "subject": "s",
-            "body": "b"
-        }),
-    )
-    .await;
-    let alias = call_tool_through_mcp(
-        server,
-        "email",
-        serde_json::json!({
-            "to": "a@example.com",
-            "subject": "s",
-            "body": "b"
-        }),
-    )
-    .await;
-
-    assert_eq!(direct.is_error, Some(true));
-    assert_eq!(alias.is_error, Some(true));
-    assert_eq!(alias.structured_content, direct.structured_content);
-    assert_eq!(
-        alias.structured_content.as_ref().unwrap()["tool"],
-        "send_email"
-    );
-    assert_eq!(
-        alias.structured_content.as_ref().unwrap()["error"],
-        "Mailbox unavailable"
-    );
-}
-
-#[tokio::test]
 async fn test_call_tool_preserves_structured_content_for_non_runtime_backend_error() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
     let result = call_tool_through_mcp(
@@ -2237,30 +2199,6 @@ async fn test_manage_agents_runtime_tool_list_operation() {
         .unwrap();
     let agents: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
     assert!(!agents.is_empty());
-}
-
-#[test]
-fn test_runtime_alias_description_prefers_primary_tool() {
-    assert_eq!(
-        RestFlowMcpServer::runtime_alias_description("http", "http_request"),
-        "Alias of 'http_request' for convenience. Prefer using 'http_request' directly."
-    );
-    assert_eq!(
-        RestFlowMcpServer::runtime_alias_description("email", "send_email"),
-        "Alias of 'send_email' for convenience. Prefer using 'send_email' directly."
-    );
-    assert_eq!(
-        RestFlowMcpServer::runtime_alias_description("telegram", "telegram_send"),
-        "Alias of 'telegram_send' for convenience. Prefer using 'telegram_send' directly."
-    );
-    assert_eq!(
-        RestFlowMcpServer::runtime_alias_description("discord", "discord_send"),
-        "Alias of 'discord_send' for convenience. Prefer using 'discord_send' directly."
-    );
-    assert_eq!(
-        RestFlowMcpServer::runtime_alias_description("slack", "slack_send"),
-        "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
-    );
 }
 
 #[test]
