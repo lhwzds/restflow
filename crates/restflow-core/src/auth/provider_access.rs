@@ -158,26 +158,12 @@ mod tests {
         )
     }
 
-    #[test]
-    fn build_runtime_api_keys_accepts_google_legacy_secret_name() {
-        let (secrets, _dir) = create_test_secrets();
-        secrets
-            .set_secret("GOOGLE_API_KEY", "legacy-google-key", None)
-            .unwrap();
-
-        let keys = build_runtime_api_keys(Some(&secrets));
-        assert_eq!(
-            keys.get(&LlmProvider::Google).map(String::as_str),
-            Some("legacy-google-key")
-        );
-    }
-
     #[tokio::test]
-    async fn provider_available_accepts_google_alias_secret() {
+    async fn provider_available_accepts_google_secret() {
         let (secrets, _dir) = create_test_secrets();
         let manager = AuthProfileManager::new(secrets.clone());
         secrets
-            .set_secret("GOOGLE_API_KEY", "legacy-google-key", None)
+            .set_secret("GEMINI_API_KEY", "google-key", None)
             .unwrap();
 
         let available = provider_available(&manager, Provider::Google, |key| {
