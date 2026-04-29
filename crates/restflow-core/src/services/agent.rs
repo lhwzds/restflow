@@ -5,7 +5,7 @@
 
 use crate::{
     AppCore,
-    models::{AgentNode, ChatSessionSource, encode_validation_error},
+    models::{AgentNode, encode_validation_error},
     storage::{
         ChannelSessionBindingStorage, ChatSessionStorage, TaskStorage,
         agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
@@ -111,54 +111,6 @@ pub(crate) fn check_agent_has_external_channel_sessions(
                 }
             }
             continue;
-        }
-
-        let legacy_conversation_id = session
-            .source_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-
-        // Legacy fallback: session source fields may still exist before full migration.
-        match session.source_channel {
-            Some(ChatSessionSource::Workspace | ChatSessionSource::Background) | None => {}
-            Some(ChatSessionSource::Telegram) => {
-                if let Some(conversation_id) = legacy_conversation_id.clone() {
-                    let binding = crate::models::ChannelSessionBinding::new(
-                        "telegram",
-                        None,
-                        conversation_id,
-                        &session.id,
-                    );
-                    let _ = channel_session_bindings.upsert(&binding);
-                }
-                sources.insert("telegram".to_string());
-            }
-            Some(ChatSessionSource::Discord) => {
-                if let Some(conversation_id) = legacy_conversation_id.clone() {
-                    let binding = crate::models::ChannelSessionBinding::new(
-                        "discord",
-                        None,
-                        conversation_id,
-                        &session.id,
-                    );
-                    let _ = channel_session_bindings.upsert(&binding);
-                }
-                sources.insert("discord".to_string());
-            }
-            Some(ChatSessionSource::Slack) => {
-                if let Some(conversation_id) = legacy_conversation_id.clone() {
-                    let binding = crate::models::ChannelSessionBinding::new(
-                        "slack",
-                        None,
-                        conversation_id,
-                        &session.id,
-                    );
-                    let _ = channel_session_bindings.upsert(&binding);
-                }
-                sources.insert("slack".to_string());
-            }
         }
     }
 
@@ -546,6 +498,15 @@ mod tests {
         .with_name("channel:chat-1")
         .with_source(ChatSessionSource::Telegram, "chat-1");
         core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-1",
+                &session.id,
+            ))
+            .unwrap();
 
         let err = delete_agent(&core, &created.id).await.unwrap_err();
         let msg = err.to_string();
