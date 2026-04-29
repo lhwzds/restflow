@@ -108,20 +108,9 @@ impl ModelId {
         self.descriptor().client_kind
     }
 
-    /// Normalize a provider against model-specific canonical ownership.
-    pub fn normalize_provider_for_model(model: ModelId, provider: Provider) -> Provider {
-        if model.is_claude_code() && provider == Provider::Anthropic {
-            Provider::ClaudeCode
-        } else if model.is_codex_cli() && provider == Provider::OpenAI {
-            Provider::Codex
-        } else {
-            provider
-        }
-    }
-
-    /// Check whether the provider matches the model, allowing legacy stored provider values.
+    /// Check whether the provider matches the model.
     pub fn provider_matches(&self, provider: Provider) -> bool {
-        Self::normalize_provider_for_model(*self, provider) == self.provider()
+        provider == self.provider()
     }
 
     /// Get the canonical model identity in "provider:model" format.

@@ -681,15 +681,12 @@ fn test_from_canonical_id() {
         ModelId::from_canonical_id("codex:gpt-5.4-mini-codex"),
         Some(ModelId::Gpt5_4MiniCodex)
     );
-    assert_eq!(
-        ModelId::from_canonical_id("openai:gpt-5.3-codex"),
-        Some(ModelId::CodexCli)
-    );
 
     // Test invalid IDs and model-only strings
     assert_eq!(ModelId::from_canonical_id("gpt-5"), None);
     assert_eq!(ModelId::from_canonical_id("gpt-5.4"), None);
     assert_eq!(ModelId::from_canonical_id("claude-sonnet-4-5"), None);
+    assert_eq!(ModelId::from_canonical_id("openai:gpt-5.3-codex"), None);
     assert_eq!(ModelId::from_canonical_id("unknown:model"), None);
     assert_eq!(ModelId::from_canonical_id("invalid-model"), None);
 }
@@ -733,19 +730,16 @@ fn test_model_ref_validate_rejects_provider_mismatch() {
 }
 
 #[test]
-fn test_model_ref_validate_accepts_legacy_cli_provider_pairs() {
+fn test_model_ref_validate_rejects_cli_provider_alias_pairs() {
     let codex_ref = ModelRef {
         provider: Provider::OpenAI,
         model: ModelId::Gpt5_4Codex,
     };
-    assert!(codex_ref.validate().is_ok());
-    assert_eq!(
-        codex_ref.normalized(),
-        ModelRef {
-            provider: Provider::Codex,
-            model: ModelId::Gpt5_4Codex,
-        }
-    );
+    let error = codex_ref
+        .validate()
+        .expect_err("provider alias pair should fail");
+    assert_eq!(error.field, "model_ref");
+    assert!(error.message.contains("does not match"));
 }
 
 #[test]

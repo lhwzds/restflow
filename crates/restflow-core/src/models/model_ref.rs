@@ -25,14 +25,13 @@ impl ModelRef {
 
     /// Validate that provider and model provider metadata are consistent.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        let normalized = self.normalized();
-        let expected_provider = normalized.model.provider();
-        if normalized.provider != expected_provider {
+        let expected_provider = self.model.provider();
+        if self.provider != expected_provider {
             return Err(ValidationError::new(
                 "model_ref",
                 format!(
                     "provider '{}' does not match model provider '{}'",
-                    normalized.provider.as_canonical_str(),
+                    self.provider.as_canonical_str(),
                     expected_provider.as_canonical_str()
                 ),
             ));
@@ -42,20 +41,11 @@ impl ModelRef {
 
     /// Return canonical ID in `provider:model` format.
     pub fn canonical_id(&self) -> String {
-        let normalized = self.normalized();
         format!(
             "{}:{}",
-            normalized.provider.as_canonical_str(),
-            normalized.model.as_serialized_str()
+            self.provider.as_canonical_str(),
+            self.model.as_serialized_str()
         )
-    }
-
-    /// Normalize legacy provider/model combinations into canonical provider identities.
-    pub fn normalized(&self) -> Self {
-        Self {
-            provider: ModelId::normalize_provider_for_model(self.model, self.provider),
-            model: self.model,
-        }
     }
 }
 
@@ -76,7 +66,7 @@ impl TryFrom<WireModelRef> for ModelRef {
             )
         })?;
 
-        let model_ref = Self { provider, model }.normalized();
+        let model_ref = Self { provider, model };
         model_ref.validate()?;
         Ok(model_ref)
     }
@@ -84,10 +74,9 @@ impl TryFrom<WireModelRef> for ModelRef {
 
 impl From<ModelRef> for WireModelRef {
     fn from(value: ModelRef) -> Self {
-        let normalized = value.normalized();
         Self {
-            provider: normalized.provider.as_canonical_str().to_string(),
-            model: normalized.model.as_serialized_str().to_string(),
+            provider: value.provider.as_canonical_str().to_string(),
+            model: value.model.as_serialized_str().to_string(),
         }
     }
 }
