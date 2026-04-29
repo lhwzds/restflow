@@ -292,11 +292,8 @@ pub enum IpcRequest {
     GetExecutionTraceStats {
         #[serde(default)]
         run_id: Option<String>,
-        #[serde(default)]
-        task_id: Option<String>,
     },
     GetExecutionTraceById {
-        #[serde(alias = "event_id")]
         id: String,
     },
 
@@ -1845,22 +1842,6 @@ mod tests {
             serde_json::to_value(scope).expect("serialize task scope"),
             serde_json::json!("per_task")
         );
-    }
-
-    #[test]
-    fn get_execution_trace_by_id_accepts_legacy_event_id_alias() {
-        let request: IpcRequest = serde_json::from_value(serde_json::json!({
-            "type": "GetExecutionTraceById",
-            "data": {
-                "event_id": "event-1"
-            }
-        }))
-        .expect("legacy event_id alias should deserialize");
-
-        match request {
-            IpcRequest::GetExecutionTraceById { id } => assert_eq!(id, "event-1"),
-            other => panic!("unexpected request: {other:?}"),
-        }
     }
 
     #[test]

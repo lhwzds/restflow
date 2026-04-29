@@ -350,7 +350,6 @@ async fn run_ipc_session_workload(
             base_url,
             &IpcRequest::GetExecutionTraceStats {
                 run_id: Some(stream_id.clone()),
-                task_id: None,
             },
         )
         .await;

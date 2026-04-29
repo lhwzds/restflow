@@ -432,17 +432,7 @@ impl IpcServer {
     pub(super) async fn handle_get_execution_trace_stats(
         core: &Arc<AppCore>,
         run_id: Option<String>,
-        task_id: Option<String>,
     ) -> IpcResponse {
-        if task_id
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty())
-        {
-            return IpcResponse::error(
-                400,
-                "task_id is no longer supported for execution trace stats; use run_id instead",
-            );
-        }
         let run_id_provided = run_id.is_some();
         let normalized_run_id = run_id.and_then(|value| {
             let trimmed = value.trim();
