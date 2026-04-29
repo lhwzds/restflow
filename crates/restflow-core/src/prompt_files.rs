@@ -8,8 +8,6 @@ use uuid::Uuid;
 const AGENTS_DIR: &str = "agents";
 const DEFAULT_AGENT_PROMPT_FILE: &str = "default.md";
 const TASK_POLICY_FILE: &str = "task.md";
-const AGENT_ID_METADATA_PREFIX: &str = "<!-- restflow-agent-id: ";
-const METADATA_SUFFIX: &str = " -->";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
@@ -58,18 +56,11 @@ pub fn load_agent_prompt_for_agent(
         });
     };
 
-    let parsed = parse_prompt_file_content(&content);
-    if parsed.agent_id.is_some() {
-        // One-time migration: strip legacy metadata marker from file content.
-        fs::write(&path, serialize_prompt_file(id, &parsed.body))
-            .with_context(|| format!("Failed to migrate legacy prompt file: {}", path.display()))?;
-    }
-
     Ok(LoadedAgentPrompt {
-        content: if parsed.body.trim().is_empty() {
+        content: if content.trim().is_empty() {
             None
         } else {
-            Some(parsed.body)
+            Some(content)
         },
         prompt_file: Some(extract_prompt_file_name(&path)?),
     })
@@ -128,37 +119,32 @@ pub fn load_all_agent_prompts() -> Result<std::collections::HashMap<String, Stri
                 continue;
             }
         };
-        let parsed = parse_prompt_file_content(&content);
-        let Some(owner_id) = owner_id_for_prompt(&parsed, &stem) else {
+        if Uuid::parse_str(&stem).is_err() {
             continue;
-        };
-        let rank = selection_rank(&owner_id, &parsed, &stem);
-        let body = parsed.body;
+        }
         let path_key = path.to_string_lossy().to_string();
 
-        match selected.get_mut(&owner_id) {
+        match selected.get_mut(&stem) {
             Some(existing) => {
-                if (rank, path_key.as_str()) < (existing.rank, existing.path_key.as_str()) {
+                if path_key.as_str() < existing.path_key.as_str() {
                     warn!(
-                        agent_id = %owner_id,
+                        agent_id = %stem,
                         old = %existing.path_key,
                         new = %path_key,
                         "Multiple prompt files found for agent; selecting deterministic candidate"
                     );
                     *existing = PromptSelection {
-                        rank,
                         path_key,
-                        body,
+                        body: content,
                     };
                 }
             }
             None => {
                 selected.insert(
-                    owner_id,
+                    stem,
                     PromptSelection {
-                        rank,
                         path_key,
-                        body,
+                        body: content,
                     },
                 );
             }
@@ -183,32 +169,17 @@ pub fn ensure_agent_prompt_file(
     let path = resolve_prompt_path_for_write(id, agent_name, current_prompt_file)?;
 
     if let Some(prompt) = prompt_override {
-        let serialized = serialize_prompt_file(id, prompt);
-        fs::write(&path, serialized)
+        fs::write(&path, prompt)
             .with_context(|| format!("Failed to write agent prompt: {}", path.display()))?;
         return Ok(path);
     }
 
     if path.exists() {
-        let existing = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read existing agent prompt: {}", path.display()))?;
-        let parsed = parse_prompt_file_content(&existing);
-        if parsed.agent_id.is_some() {
-            // One-time migration for legacy metadata format.
-            let serialized = serialize_prompt_file(id, &parsed.body);
-            fs::write(&path, serialized).with_context(|| {
-                format!(
-                    "Failed to migrate agent prompt metadata: {}",
-                    path.display()
-                )
-            })?;
-        }
         return Ok(path);
     }
 
     let default_prompt = load_default_main_agent_prompt()?;
-    let serialized = serialize_prompt_file(id, &default_prompt);
-    fs::write(&path, serialized)
+    fs::write(&path, default_prompt)
         .with_context(|| format!("Failed to initialize agent prompt: {}", path.display()))?;
     Ok(path)
 }
@@ -272,23 +243,7 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
         {
             continue;
         }
-        let file_content = match fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(err) => {
-                warn!(
-                    path = %path.display(),
-                    error = %err,
-                    "Skipping unreadable prompt file during orphan cleanup"
-                );
-                continue;
-            }
-        };
-        let parsed = parse_prompt_file_content(&file_content);
-
-        let should_delete = if let Some(owner_id) = parsed.agent_id.as_deref() {
-            !active_ids.contains(owner_id)
-        } else if Uuid::parse_str(stem).is_ok() {
-            // Legacy file named by full agent ID with no metadata.
+        let should_delete = if Uuid::parse_str(stem).is_ok() {
             !active_ids.contains(stem)
         } else {
             // Preserve non-agent Markdown files in the folder.
@@ -368,68 +323,11 @@ fn validate_agent_id(agent_id: &str) -> Result<&str> {
 
 fn find_agent_prompt_path_by_id(agent_id: &str) -> Result<Option<PathBuf>> {
     let agents_dir = ensure_agents_dir()?;
-    let mut candidates: Vec<(u8, String, PathBuf)> = Vec::new();
     let legacy_path = agents_dir.join(format!("{agent_id}.md"));
     if legacy_path.exists() {
-        candidates.push((
-            2,
-            legacy_path.to_string_lossy().to_string(),
-            legacy_path.clone(),
-        ));
+        return Ok(Some(legacy_path));
     }
-
-    for entry in fs::read_dir(&agents_dir)
-        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?
-    {
-        let Ok(entry) = entry else {
-            warn!("Skipping unreadable entry in agents directory");
-            continue;
-        };
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
-            continue;
-        }
-        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
-            || stem == TASK_POLICY_FILE.trim_end_matches(".md")
-        {
-            continue;
-        }
-        let content = match fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(err) => {
-                warn!(
-                    path = %path.display(),
-                    error = %err,
-                    "Skipping unreadable prompt file while resolving agent prompt path"
-                );
-                continue;
-            }
-        };
-        let parsed = parse_prompt_file_content(&content);
-        if parsed.agent_id.as_deref() == Some(agent_id) {
-            let rank = selection_rank(agent_id, &parsed, stem);
-            candidates.push((rank, path.to_string_lossy().to_string(), path));
-        }
-    }
-
-    if candidates.is_empty() {
-        return Ok(None);
-    }
-    candidates.sort_by(|a, b| (a.0, a.1.as_str()).cmp(&(b.0, b.1.as_str())));
-    if candidates.len() > 1 {
-        warn!(
-            agent_id = %agent_id,
-            count = candidates.len(),
-            "Multiple prompt files match this agent; selecting deterministic candidate"
-        );
-    }
-    Ok(candidates.into_iter().next().map(|(_, _, path)| path))
+    Ok(None)
 }
 
 fn resolve_prompt_path_from_file_name(prompt_file: &str) -> Result<Option<PathBuf>> {
@@ -525,7 +423,7 @@ fn resolve_prompt_path_for_write(
     }
 
     if prompt_file.is_none() {
-        // Adopt existing name-based file for migration from metadata-less format.
+        // Reuse an existing name-based prompt file when the agent has no stored prompt file.
         return Ok(desired);
     }
 
@@ -584,11 +482,6 @@ fn sanitize_agent_file_stem(name: &str) -> String {
     }
 }
 
-fn serialize_prompt_file(agent_id: &str, prompt_body: &str) -> String {
-    let _ = agent_id;
-    prompt_body.to_string()
-}
-
 fn is_windows_reserved_stem(stem: &str) -> bool {
     let lower = stem.to_ascii_lowercase();
     matches!(
@@ -618,60 +511,9 @@ fn is_windows_reserved_stem(stem: &str) -> bool {
     )
 }
 
-struct ParsedPromptFileContent {
-    agent_id: Option<String>,
-    body: String,
-}
-
 struct PromptSelection {
-    rank: u8,
     path_key: String,
     body: String,
-}
-
-fn owner_id_for_prompt(parsed: &ParsedPromptFileContent, stem: &str) -> Option<String> {
-    if let Some(agent_id) = parsed.agent_id.as_deref() {
-        return Some(agent_id.to_string());
-    }
-    if Uuid::parse_str(stem).is_ok() {
-        return Some(stem.to_string());
-    }
-    None
-}
-
-fn selection_rank(agent_id: &str, parsed: &ParsedPromptFileContent, stem: &str) -> u8 {
-    let is_uuid_stem = Uuid::parse_str(stem).is_ok();
-    if parsed.agent_id.as_deref() == Some(agent_id) {
-        if is_uuid_stem { 1 } else { 0 }
-    } else {
-        2
-    }
-}
-
-fn parse_prompt_file_content(content: &str) -> ParsedPromptFileContent {
-    let mut lines = content.lines();
-    let first = lines.next();
-    if let Some(first_line) = first
-        && let Some(raw_id) = first_line
-            .trim()
-            .strip_prefix(AGENT_ID_METADATA_PREFIX)
-            .and_then(|value| value.strip_suffix(METADATA_SUFFIX))
-    {
-        let mut remaining: Vec<&str> = lines.collect();
-        if matches!(remaining.first(), Some(line) if line.trim().is_empty()) {
-            // Remove only the first separator line after metadata and preserve user formatting.
-            remaining.remove(0);
-        }
-        return ParsedPromptFileContent {
-            agent_id: Some(raw_id.trim().to_string()),
-            body: remaining.join("\n"),
-        };
-    }
-
-    ParsedPromptFileContent {
-        agent_id: None,
-        body: content.to_string(),
-    }
 }
 
 /// Shared lock for tests that mutate the RESTFLOW_AGENTS_DIR env var.
@@ -791,54 +633,24 @@ mod tests {
     }
 
     #[test]
-    fn test_load_agent_prompt_prefers_named_metadata_file_over_legacy_id_file() {
+    fn test_load_all_agent_prompts_reads_uuid_named_files() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
 
         let id = "f7e39ba8-f1ed-4e6c-a4f4-1983f671b1d5";
-        fs::write(temp.path().join(format!("{id}.md")), "legacy content").unwrap();
-        fs::write(
-            temp.path().join("my-agent.md"),
-            format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}\n\nnew content"),
-        )
-        .unwrap();
-
-        let loaded = load_agent_prompt_for_agent(id, "My Agent", None).unwrap();
-        assert_eq!(loaded.content.as_deref(), Some("new content"));
-        assert_eq!(loaded.prompt_file.as_deref(), Some("my-agent.md"));
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_load_all_agent_prompts_uses_deterministic_best_candidate() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-        let id = "f7e39ba8-f1ed-4e6c-a4f4-1983f671b1d5";
-        fs::write(temp.path().join(format!("{id}.md")), "legacy content").unwrap();
-        fs::write(
-            temp.path().join("agent-a.md"),
-            format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}\n\ncontent a"),
-        )
-        .unwrap();
-        fs::write(
-            temp.path().join("agent-b.md"),
-            format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}\n\ncontent b"),
-        )
-        .unwrap();
+        fs::write(temp.path().join(format!("{id}.md")), "agent content").unwrap();
+        fs::write(temp.path().join("custom-note.md"), "ignored").unwrap();
 
         let prompts = load_all_agent_prompts().unwrap();
-        // agent-a.md is lexicographically smaller than agent-b.md, so it wins deterministically.
-        assert_eq!(prompts.get(id).map(String::as_str), Some("content a"));
+        assert_eq!(prompts.get(id).map(String::as_str), Some("agent content"));
+        assert_eq!(prompts.len(), 1);
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]
-    fn test_ensure_agent_prompt_file_migrates_metadata_to_plain_body() {
+    fn test_ensure_agent_prompt_file_preserves_plain_body() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
