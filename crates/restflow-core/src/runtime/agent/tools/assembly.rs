@@ -18,14 +18,6 @@ use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{AgentStore, TaskStore};
 
-pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 5] = [
-    ("http", "http_request"),
-    ("email", "send_email"),
-    ("telegram", "telegram_send"),
-    ("discord", "discord_send"),
-    ("slack", "slack_send"),
-];
-
 pub(crate) struct AgentCrudComponents {
     pub known_tools: Arc<RwLock<HashSet<String>>>,
     pub store: Arc<dyn AgentStore>,
@@ -166,7 +158,6 @@ pub(crate) fn register_binary_skill_tools(
 pub(crate) fn populate_known_tools_from_registry(
     known_tools: &Arc<RwLock<HashSet<String>>>,
     registry: &ToolRegistry,
-    aliases: Option<&[(&str, &str)]>,
 ) {
     if let Ok(mut known) = known_tools.write() {
         *known = registry
@@ -174,14 +165,6 @@ pub(crate) fn populate_known_tools_from_registry(
             .into_iter()
             .map(|name| name.to_string())
             .collect::<HashSet<_>>();
-
-        if let Some(alias_mappings) = aliases {
-            for (alias_name, target_name) in alias_mappings {
-                if known.contains(*target_name) {
-                    known.insert((*alias_name).to_string());
-                }
-            }
-        }
     }
 }
 

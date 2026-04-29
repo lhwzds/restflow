@@ -248,11 +248,7 @@ pub fn create_tool_registry_with_assessor(
         Arc::new(build_service_subagent_manager(&subagent_runtime_bundle));
     register_subagent_management_tools(&mut registry, subagent_manager, assessor.clone());
     // Populate known_tools for AgentStoreAdapter validation
-    populate_known_tools_from_registry(
-        &agent_crud_components.known_tools,
-        &registry,
-        Some(&KNOWN_TOOL_ALIASES),
-    );
+    populate_known_tools_from_registry(&agent_crud_components.known_tools, &registry);
 
     Ok(registry)
 }

@@ -15,11 +15,11 @@ use std::sync::{Mutex, OnceLock};
 use tracing::{debug, warn};
 
 use self::assembly::{
-    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_runtime_assessor,
-    build_task_store_runtime_components, populate_known_tools_from_registry,
-    register_bash_execution_tool, register_binary_skill_tools, register_file_execution_tool,
-    register_http_execution_tool, register_management_tools, register_python_execution_tools,
-    register_send_email_execution_tool, register_subagent_management_tools,
+    build_agent_crud_components, build_runtime_assessor, build_task_store_runtime_components,
+    populate_known_tools_from_registry, register_bash_execution_tool, register_binary_skill_tools,
+    register_file_execution_tool, register_http_execution_tool, register_management_tools,
+    register_python_execution_tools, register_send_email_execution_tool,
+    register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
@@ -106,11 +106,11 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
     vec![
         "bash",
         "file",
-        "http",
-        "email",
-        "telegram",
-        "discord",
-        "slack",
+        "http_request",
+        "send_email",
+        "telegram_send",
+        "discord_send",
+        "slack_send",
         "run_python",
         "browser",
         "transcribe",
@@ -286,7 +286,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 allow_file = true;
                 allow_file_write = true;
             }
-            "http" | "http_request" => {
+            "http_request" => {
                 builder = register_http_execution_tool(
                     builder,
                     security_gate.clone(),
@@ -294,7 +294,7 @@ pub fn registry_from_allowlist_with_security_gate(
                     DEFAULT_SECURITY_TASK_ID,
                 )?;
             }
-            "send_email" | "email" => {
+            "send_email" => {
                 builder = register_send_email_execution_tool(
                     builder,
                     security_gate.clone(),
@@ -302,13 +302,13 @@ pub fn registry_from_allowlist_with_security_gate(
                     DEFAULT_SECURITY_TASK_ID,
                 );
             }
-            "telegram_send" | "telegram" => {
+            "telegram_send" => {
                 builder = builder.with_telegram()?;
             }
-            "discord_send" | "discord" => {
+            "discord_send" => {
                 builder = builder.with_discord()?;
             }
-            "slack_send" | "slack" => {
+            "slack_send" => {
                 builder = builder.with_slack()?;
             }
             "run_python" => {
@@ -686,11 +686,7 @@ pub fn registry_from_allowlist_with_security_gate(
 
     // Populate known_tools for AgentStoreAdapter validation
     if let Some(agent_components) = &agent_crud_components {
-        populate_known_tools_from_registry(
-            &agent_components.known_tools,
-            &registry,
-            Some(&KNOWN_TOOL_ALIASES),
-        );
+        populate_known_tools_from_registry(&agent_components.known_tools, &registry);
     }
 
     Ok(registry)
@@ -748,6 +744,16 @@ mod tests {
     fn test_main_agent_default_tools_keep_management_out_of_default_surface() {
         let names = main_agent_default_tool_names();
         assert!(names.contains(&"use_skill".to_string()));
+        assert!(names.contains(&"http_request".to_string()));
+        assert!(names.contains(&"send_email".to_string()));
+        assert!(names.contains(&"telegram_send".to_string()));
+        assert!(names.contains(&"discord_send".to_string()));
+        assert!(names.contains(&"slack_send".to_string()));
+        assert!(!names.contains(&"http".to_string()));
+        assert!(!names.contains(&"email".to_string()));
+        assert!(!names.contains(&"telegram".to_string()));
+        assert!(!names.contains(&"discord".to_string()));
+        assert!(!names.contains(&"slack".to_string()));
         assert!(!names.contains(&"skill".to_string()));
         assert!(!names.contains(&"manage_tasks".to_string()));
         assert!(!names.contains(&"manage_agents".to_string()));
@@ -1047,7 +1053,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manage_agents_runtime_registry_injects_shared_assessor_and_aliases() {
+    async fn test_manage_agents_runtime_registry_injects_shared_assessor() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-agent-runtime.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -1083,7 +1089,7 @@ mod tests {
                 "operation": "create",
                 "name": "Runtime Preview Agent",
                 "agent": {
-                    "tools": ["http", "email", "run_python", "manage_tasks"]
+                    "tools": ["http_request", "send_email", "run_python", "manage_tasks"]
                 },
                 "preview": true
             }))

@@ -1692,7 +1692,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
 
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
-async fn test_runtime_allowlist_manage_agents_accepts_shared_tool_aliases() {
+async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
     struct AgentsDirEnvCleanup;
     impl Drop for AgentsDirEnvCleanup {
         fn drop(&mut self) {
@@ -1705,7 +1705,7 @@ async fn test_runtime_allowlist_manage_agents_accepts_shared_tool_aliases() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let dir = tempdir().expect("temp dir should be created");
-    let db_path = dir.path().join("registry-runtime-aliases.db");
+    let db_path = dir.path().join("registry-runtime-canonical-tools.db");
     let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
         .expect("storage should be created");
 
@@ -1743,6 +1743,20 @@ async fn test_runtime_allowlist_manage_agents_accepts_shared_tool_aliases() {
 
     assert!(output.success);
     assert_eq!(output.result["status"], "preview");
+    assert_eq!(output.result["assessment"]["status"], "block");
+    let blockers = output.result["assessment"]["blockers"]
+        .as_array()
+        .expect("blockers should be an array");
+    assert!(blockers.iter().any(|blocker| {
+        blocker["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("unknown tool: http"))
+    }));
+    assert!(blockers.iter().any(|blocker| {
+        blocker["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("unknown tool: email"))
+    }));
 }
 
 #[tokio::test(flavor = "current_thread")]

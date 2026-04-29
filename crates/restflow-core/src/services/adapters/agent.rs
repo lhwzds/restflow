@@ -208,7 +208,7 @@ mod tests {
         let bg_storage = TaskStorage::new(db).unwrap();
         let known_tools = Arc::new(RwLock::new(HashSet::from([
             "bash".to_string(),
-            "http".to_string(),
+            "http_request".to_string(),
         ])));
 
         (
