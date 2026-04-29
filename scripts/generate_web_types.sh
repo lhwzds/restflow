@@ -20,9 +20,6 @@ cargo test -p restflow-tools --features ts --lib export_bindings -- --test-threa
 
 GENERATED_DIR="${REPO_ROOT}/web/src/types/generated"
 STALE_GENERATED_FILES=(
-  "ChildExecutionSessionQuery.ts"
-  "ExecutionSessionListQuery.ts"
-  "ExecutionSessionSummary.ts"
   "IpcRequest.ts"
   "IpcResponse.ts"
 )
@@ -30,27 +27,3 @@ STALE_GENERATED_FILES=(
 for file in "${STALE_GENERATED_FILES[@]}"; do
   rm -f "${GENERATED_DIR}/${file}"
 done
-
-python3 - <<'PY'
-from pathlib import Path
-
-generated_dir = Path("web/src/types/generated")
-index_path = generated_dir / "index.ts"
-stale_exports = {
-    "ChildExecutionSessionQuery",
-    "ExecutionSessionListQuery",
-    "ExecutionSessionSummary",
-}
-
-lines = index_path.read_text(encoding="utf-8").splitlines()
-filtered = [
-    line
-    for line in lines
-    if not (
-        line.startswith("export * from './")
-        and line.removeprefix("export * from './").removesuffix("'")
-        in stale_exports
-    )
-]
-index_path.write_text("\n".join(filtered) + "\n", encoding="utf-8")
-PY

@@ -6,7 +6,6 @@ import {
   listExecutionContainers,
   listRuns,
 } from '../execution-console'
-import { listChildExecutionSessions, listExecutionSessions } from '../execution-sessions'
 import { requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
@@ -82,35 +81,4 @@ describe('execution-console api', () => {
     })
   })
 
-  it('keeps legacy execution-session aliases routed to canonical run requests', async () => {
-    vi.mocked(requestTyped).mockResolvedValue([])
-
-    await listExecutionSessions({
-      container: {
-        kind: 'task',
-        id: 'task-legacy',
-      },
-    })
-    await listChildExecutionSessions({ parent_run_id: 'run-legacy' })
-
-    expect(requestTyped).toHaveBeenNthCalledWith(1, {
-      type: 'ListRuns',
-      data: {
-        query: {
-          container: {
-            kind: 'task',
-            id: 'task-legacy',
-          },
-        },
-      },
-    })
-    expect(requestTyped).toHaveBeenNthCalledWith(2, {
-      type: 'ListChildRuns',
-      data: {
-        query: {
-          parent_run_id: 'run-legacy',
-        },
-      },
-    })
-  })
 })

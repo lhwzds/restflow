@@ -29,7 +29,7 @@ test.describe('File Panel', () => {
         | undefined
 
       if (
-        payload?.type === 'ListExecutionSessions' &&
+        payload?.type === 'ListRuns' &&
         payload.data?.query?.container?.kind === 'workspace' &&
         payload.data?.query?.container?.id === sessionId
       ) {
