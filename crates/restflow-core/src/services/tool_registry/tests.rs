@@ -1676,7 +1676,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "bash",
         "file",
         "run_python",
-        "python",
         "manage_agents",
         "manage_tasks",
         "spawn_subagent",
@@ -1734,7 +1733,7 @@ async fn test_runtime_allowlist_manage_agents_accepts_shared_tool_aliases() {
                 "operation": "create",
                 "name": "Runtime Alias Agent",
                 "agent": {
-                    "tools": ["http", "email", "python"]
+                    "tools": ["http", "email", "run_python"]
                 },
                 "preview": true
             }),

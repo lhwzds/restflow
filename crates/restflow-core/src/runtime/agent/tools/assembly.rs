@@ -8,9 +8,9 @@ use crate::storage::Storage;
 use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, SkillStorage, TaskStorage};
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
-    BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, PythonTool,
-    RunPythonTool, SpawnSubagentBatchTool, SpawnSubagentTool, ToolRegistryBuilder,
-    WaitSubagentsTool, discover_installed_binary_skill_tools,
+    BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, RunPythonTool,
+    SpawnSubagentBatchTool, SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
+    discover_installed_binary_skill_tools,
 };
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
@@ -18,14 +18,12 @@ use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{AgentStore, TaskStore};
 
-pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
+pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 5] = [
     ("http", "http_request"),
     ("email", "send_email"),
     ("telegram", "telegram_send"),
     ("discord", "discord_send"),
     ("slack", "slack_send"),
-    ("use_skill", "skill"),
-    ("python", "run_python"),
 ];
 
 pub(crate) struct AgentCrudComponents {
@@ -116,10 +114,7 @@ pub(crate) fn register_python_execution_tools(
     if let Some(gate) = security_gate {
         builder
             .registry
-            .register(RunPythonTool::new().with_security(gate.clone(), agent_id, task_id));
-        builder
-            .registry
-            .register(PythonTool::new().with_security(gate, agent_id, task_id));
+            .register(RunPythonTool::new().with_security(gate, agent_id, task_id));
     } else {
         builder = builder.with_python();
     }

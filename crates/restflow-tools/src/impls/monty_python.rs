@@ -49,17 +49,6 @@ impl RunPythonTool {
         }
     }
 
-    /// Create a tool with a custom name (used for the "python" alias).
-    pub fn with_name(name: &'static str) -> Self {
-        Self {
-            name,
-            backend: Arc::new(ProcessPythonBackend::monty()),
-            security_gate: None,
-            agent_id: None,
-            task_id: None,
-        }
-    }
-
     pub fn with_security(
         mut self,
         security_gate: Arc<dyn SecurityGate>,
@@ -76,37 +65,6 @@ impl RunPythonTool {
     fn with_backend(mut self, backend: Arc<dyn PythonExecutionBackend>) -> Self {
         self.backend = backend;
         self
-    }
-}
-
-/// Backward-compatible alias for `RunPythonTool` registered as "python".
-#[derive(Clone)]
-pub struct PythonTool {
-    inner: RunPythonTool,
-}
-
-impl Default for PythonTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PythonTool {
-    pub fn new() -> Self {
-        Self {
-            inner: RunPythonTool::with_name("python"),
-        }
-    }
-
-    pub fn with_security(
-        self,
-        security_gate: Arc<dyn SecurityGate>,
-        agent_id: impl Into<String>,
-        task_id: impl Into<String>,
-    ) -> Self {
-        Self {
-            inner: self.inner.with_security(security_gate, agent_id, task_id),
-        }
     }
 }
 
@@ -195,25 +153,6 @@ impl Tool for RunPythonTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         execute_python(self, input).await
-    }
-}
-
-#[async_trait]
-impl Tool for PythonTool {
-    fn name(&self) -> &str {
-        self.inner.name
-    }
-
-    fn description(&self) -> &str {
-        "Alias of run_python for backward compatibility."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        python_parameters_schema()
-    }
-
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        execute_python(&self.inner, input).await
     }
 }
 

@@ -546,7 +546,6 @@ impl RestFlowMcpServer {
             "telegram" => Some("telegram_send"),
             "discord" => Some("discord_send"),
             "slack" => Some("slack_send"),
-            "python" => Some("run_python"),
             _ => None,
         }
     }
@@ -573,11 +572,7 @@ impl RestFlowMcpServer {
                 "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
                     .to_string()
             }
-            ("python", "run_python") => {
-                "Alias of 'run_python' for backward compatibility. Prefer using 'run_python' directly."
-                    .to_string()
-            }
-            _ => format!("Alias of '{}' for backward compatibility.", target_name),
+            _ => format!("Alias of '{}'.", target_name),
         }
     }
 
@@ -798,7 +793,6 @@ impl ServerHandler for RestFlowMcpServer {
                 ("telegram", "telegram_send"),
                 ("discord", "discord_send"),
                 ("slack", "slack_send"),
-                ("python", "run_python"),
             ] {
                 if !known_names.contains(alias_name)
                     && let Some(target) = runtime_by_name.get(target_name)

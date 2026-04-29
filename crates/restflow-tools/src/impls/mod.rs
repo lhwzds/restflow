@@ -92,7 +92,7 @@ pub use config::ConfigTool;
 pub use diagnostics::DiagnosticsTool;
 pub use jina_reader::JinaReaderTool;
 pub use memory_store::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
-pub use monty_python::{PythonTool, RunPythonTool};
+pub use monty_python::RunPythonTool;
 pub use patch::PatchTool;
 pub use process::ProcessTool;
 pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};

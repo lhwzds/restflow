@@ -39,7 +39,7 @@ pub use restflow_tools::impls::{
     ListSubagentsTool, SlackTool, SpawnSubagentTool, SpawnTool, TelegramTool, ToolRegistryBuilder,
     UseSkillTool, WaitSubagentsTool, default_registry,
 };
-pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeConfig, TranscribeTool, VisionTool};
+pub use restflow_tools::{RunPythonTool, TranscribeConfig, TranscribeTool, VisionTool};
 
 pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub use skill_activation::{
@@ -311,7 +311,7 @@ pub fn registry_from_allowlist_with_security_gate(
             "slack_send" | "slack" => {
                 builder = builder.with_slack()?;
             }
-            "python" | "run_python" => {
+            "run_python" => {
                 builder = register_python_execution_tools(
                     builder,
                     security_gate.clone(),
@@ -884,15 +884,6 @@ mod tests {
         assert!(tools.iter().any(|name| name == "security_query"));
     }
 
-    #[test]
-    fn test_python_alias_and_run_python_are_both_registered() {
-        let names = vec!["python".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
-        assert!(registry.has("python"));
-        assert!(registry.has("run_python"));
-    }
-
     #[tokio::test]
     async fn test_filesystem_tools_require_workspace_root_when_unset() {
         let names = vec!["file".to_string(), "glob".to_string(), "grep".to_string()];
@@ -1092,7 +1083,7 @@ mod tests {
                 "operation": "create",
                 "name": "Runtime Preview Agent",
                 "agent": {
-                    "tools": ["http", "email", "python", "manage_tasks"]
+                    "tools": ["http", "email", "run_python", "manage_tasks"]
                 },
                 "preview": true
             }))

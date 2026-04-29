@@ -7,7 +7,7 @@ use crate::impls::edit::EditTool;
 use crate::impls::glob_tool::GlobTool;
 use crate::impls::grep_tool::GrepTool;
 use crate::impls::jina_reader::JinaReaderTool;
-use crate::impls::monty_python::{PythonTool, RunPythonTool};
+use crate::impls::monty_python::RunPythonTool;
 use crate::impls::multiedit::MultiEditTool;
 use crate::impls::patch::PatchTool;
 use crate::impls::transcribe::{TranscribeConfig, TranscribeTool};
@@ -60,7 +60,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_python(mut self) -> Self {
         self.registry.register(RunPythonTool::new());
-        self.registry.register(PythonTool::new());
         self
     }
 
