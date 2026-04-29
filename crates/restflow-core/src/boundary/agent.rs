@@ -1,5 +1,5 @@
 use crate::models::{
-    AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelId, ModelRef, ModelRoutingConfig,
+    AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRef, ModelRoutingConfig,
     SkillPreflightPolicyMode, ValidationError,
 };
 use restflow_contracts::request::{
@@ -8,23 +8,8 @@ use restflow_contracts::request::{
     SkillPreflightPolicyMode as ContractSkillPreflightPolicyMode,
 };
 
-fn parse_contract_model(field: &str, value: &str) -> Result<ModelId, ValidationError> {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        return Err(ValidationError::new(field, "must not be empty"));
-    }
-
-    ModelId::from_api_name(normalized)
-        .or_else(|| ModelId::from_canonical_id(normalized))
-        .or_else(|| ModelId::from_serialized_str(normalized))
-        .ok_or_else(|| ValidationError::new(field, format!("unknown model '{}'", value)))
-}
-
 pub(crate) fn agent_to_contract(value: AgentNode) -> ContractAgentNode {
     ContractAgentNode {
-        model: value
-            .model
-            .map(|model| model.as_serialized_str().to_string()),
         model_ref: value.model_ref.map(Into::into),
         prompt: value.prompt,
         temperature: value.temperature,
@@ -44,17 +29,6 @@ pub(crate) fn agent_from_contract(
 ) -> Result<AgentNode, Vec<ValidationError>> {
     let mut errors = Vec::new();
 
-    let model = match value.model {
-        Some(model) => match parse_contract_model("model", &model) {
-            Ok(model) => Some(model),
-            Err(error) => {
-                errors.push(error);
-                None
-            }
-        },
-        None => None,
-    };
-
     let model_ref = match value.model_ref {
         Some(model_ref) => match ModelRef::try_from(model_ref) {
             Ok(model_ref) => Some(model_ref),
@@ -67,7 +41,6 @@ pub(crate) fn agent_from_contract(
     };
 
     let mut agent = AgentNode {
-        model,
         model_ref,
         prompt: value.prompt,
         temperature: value.temperature,
@@ -128,12 +101,12 @@ impl TryFrom<ContractAgentNode> for AgentNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ModelId;
     use restflow_contracts::request::WireModelRef;
 
     #[test]
     fn agent_boundary_round_trips_contract_shape() {
         let agent = AgentNode {
-            model: Some(ModelId::Gpt5),
             model_ref: Some(ModelRef::from_model(ModelId::Gpt5)),
             prompt: Some("prompt".to_string()),
             temperature: Some(0.2),
@@ -150,7 +123,6 @@ mod tests {
         let contract: ContractAgentNode = agent.clone().into();
         let decoded = AgentNode::try_from(contract).expect("agent boundary should decode");
         assert_eq!(decoded.model_ref, agent.model_ref);
-        assert_eq!(decoded.model, agent.model);
     }
 
     #[test]

@@ -73,7 +73,7 @@ const templateType = computed(() => {
 function applyForm(agent: StoredAgent) {
   current.value = agent
   name.value = agent.name
-  const resolvedModel = agent.agent.model ?? ''
+  const resolvedModel = agent.agent.model_ref?.model ?? ''
   model.value = resolvedModel
   const inferredProvider =
     agent.agent.model_ref?.provider ??
@@ -164,7 +164,6 @@ async function save() {
       name: nextName,
       agent: {
         ...current.value.agent,
-        model: model.value ? (model.value as ModelId) : undefined,
         model_ref:
           provider.value && model.value
             ? {

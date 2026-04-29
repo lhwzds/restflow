@@ -18,7 +18,10 @@ describe('Agents API', () => {
     id,
     name: `Test Agent ${id}`,
     agent: {
-      model: 'claude-sonnet-4-5',
+      model_ref: {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      },
       prompt: 'You are a test assistant',
       temperature: undefined,
       api_key_config: undefined,
@@ -52,7 +55,13 @@ describe('Agents API', () => {
   it('creates and updates agents through request contracts', async () => {
     const request: agentsApi.CreateAgentRequest = {
       name: 'New Agent',
-      agent: { model: 'claude-sonnet-4-5', prompt: 'Test prompt' },
+      agent: {
+        model_ref: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+        },
+        prompt: 'Test prompt',
+      },
     }
     const created = createMockAgent('new-agent')
     const updated = createMockAgent('agent1')

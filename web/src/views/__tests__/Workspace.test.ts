@@ -371,7 +371,12 @@ describe('Workspace', () => {
       {
         id: 'agent-1',
         name: 'Agent One',
-        agent: { model: 'gpt-5' },
+        agent: {
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
       },
     ])
 

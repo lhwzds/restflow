@@ -109,11 +109,10 @@ describe('CreateAgentDialog', () => {
     expect(mockCreateAgent).toHaveBeenCalledTimes(1)
     const request = mockCreateAgent.mock.calls[0]![0] as {
       name: string
-      agent: { model: string; model_ref: { provider: string; model: string } }
+      agent: { model_ref: { provider: string; model: string } }
     }
     expect(request.name).toMatch(/^Agent \d{14}$/)
     expect(request.agent).toEqual({
-      model: 'gpt-5',
       model_ref: {
         provider: 'openai',
         model: 'gpt-5',

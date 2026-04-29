@@ -321,7 +321,7 @@ mod tests {
     }
 
     struct CapturingStore {
-        captured_model: Arc<Mutex<Option<Option<String>>>>,
+        captured_model_ref: Arc<Mutex<Option<Option<restflow_contracts::request::WireModelRef>>>>,
     }
 
     impl AgentStore for CapturingStore {
@@ -334,7 +334,10 @@ mod tests {
         }
 
         fn create_agent(&self, request: AgentCreateRequest) -> Result<Value> {
-            *self.captured_model.lock().expect("captured model lock") = Some(request.agent.model);
+            *self
+                .captured_model_ref
+                .lock()
+                .expect("captured model_ref lock") = Some(request.agent.model_ref);
             Ok(json!({"id": "agent-1"}))
         }
 
@@ -349,9 +352,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_parses_agent_payload_into_contract_request() {
-        let captured_model = Arc::new(Mutex::new(None));
+        let captured_model_ref = Arc::new(Mutex::new(None));
         let tool = AgentCrudTool::new(Arc::new(CapturingStore {
-            captured_model: captured_model.clone(),
+            captured_model_ref: captured_model_ref.clone(),
         }))
         .with_write(true);
 
@@ -360,7 +363,10 @@ mod tests {
                 "operation": "create",
                 "name": "Agent",
                 "agent": {
-                    "model": "gpt-5-mini"
+                    "model_ref": {
+                        "provider": "openai",
+                        "model": "gpt-5-mini"
+                    }
                 }
             }))
             .await
@@ -368,8 +374,11 @@ mod tests {
 
         assert!(output.success);
         assert_eq!(
-            *captured_model.lock().expect("captured model lock"),
-            Some(Some("gpt-5-mini".to_string()))
+            *captured_model_ref.lock().expect("captured model_ref lock"),
+            Some(Some(restflow_contracts::request::WireModelRef {
+                provider: "openai".to_string(),
+                model: "gpt-5-mini".to_string(),
+            }))
         );
     }
 

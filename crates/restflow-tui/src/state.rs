@@ -101,8 +101,8 @@ impl PendingSessionState {
     pub fn from_agent(agent: &StoredAgent) -> Self {
         let model = agent
             .agent
-            .model
-            .map(|model| model.as_serialized_str().to_string())
+            .resolved_model_ref()
+            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
             .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string());
         Self::new(agent.id.clone(), agent.name.clone(), model)
     }

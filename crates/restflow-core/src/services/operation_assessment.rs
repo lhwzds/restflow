@@ -532,8 +532,8 @@ async fn assess_agent_node(
         assessment.warnings.push(issue(
             "inherits_parent_model",
             "No explicit model is configured. This child run will inherit the parent runtime model.",
-            Some("model"),
-            Some("Set model/model_ref when you need deterministic provider behavior."),
+            Some("model_ref"),
+            Some("Set model_ref when you need deterministic provider behavior."),
         ));
         return Ok(finalize_assessment(assessment));
     }
@@ -548,16 +548,16 @@ async fn assess_agent_node(
                     "No explicit model is configured. Current runtime would resolve this agent to '{}'.",
                     model.as_serialized_str()
                 ),
-                Some("model"),
-                Some("Set model/model_ref to make the agent deterministic."),
+                Some("model_ref"),
+                Some("Set model_ref to make the agent deterministic."),
             ));
         }
         None => {
             let current_issue = issue(
                 "auto_model_unresolved",
                 "No explicit model is configured and no compatible credential is currently available.",
-                Some("model"),
-                Some("Set model/model_ref or configure a compatible API key/auth profile."),
+                Some("model_ref"),
+                Some("Set model_ref or configure a compatible API key/auth profile."),
             );
             match intent {
                 OperationAssessmentIntent::Save => assessment.warnings.push(current_issue),
@@ -980,8 +980,8 @@ async fn assess_run_spawn_with_context(
     assessment.warnings.push(issue(
         "inherits_parent_model",
         "This temporary child run has no explicit model and will inherit the parent runtime model.",
-        Some("model"),
-        Some("Set model/provider to make this child run deterministic."),
+        Some("model_ref"),
+        Some("Set model_ref to make this child run deterministic."),
     ));
     Ok(finalize_assessment(assessment))
 }
@@ -1068,7 +1068,6 @@ mod tests {
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
-            model: Some(ModelId::ClaudeSonnet4_5),
             model_ref: Some(ModelRef::from_model(ModelId::ClaudeSonnet4_5)),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
@@ -1139,7 +1138,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_agent_update_rejects_conflicting_model_fields() {
+    async fn assess_agent_update_rejects_invalid_model_ref() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let error = assess_agent_update(
             &core,
@@ -1147,17 +1146,16 @@ mod tests {
                 id: "agent-1".to_string(),
                 name: None,
                 agent: Some(ContractAgentNode {
-                    model: Some("gpt-5-mini".to_string()),
                     model_ref: Some(WireModelRef {
                         provider: "anthropic".to_string(),
-                        model: "claude-sonnet-4".to_string(),
+                        model: "gpt-5-mini".to_string(),
                     }),
                     ..ContractAgentNode::default()
                 }),
             },
         )
         .await
-        .expect_err("conflicting model fields should fail");
+        .expect_err("invalid model_ref should fail");
 
         let message = error.to_string();
         assert!(message.contains("validation_error"));

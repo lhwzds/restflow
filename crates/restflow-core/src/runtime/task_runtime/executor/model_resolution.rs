@@ -131,8 +131,8 @@ impl AgentRuntimeExecutor {
     }
 
     pub(super) async fn resolve_primary_model(&self, agent_node: &AgentNode) -> Result<ModelId> {
-        if let Some(model) = agent_node.model {
-            return Ok(model);
+        if let Some(model_ref) = agent_node.resolved_model_ref() {
+            return Ok(model_ref.model);
         }
 
         if let Some(model) = self.resolve_model_from_stored_credentials().await? {

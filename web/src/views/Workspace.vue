@@ -414,7 +414,9 @@ async function loadAgents() {
       name: agent.name,
       path: `agents/${agent.id}`,
     }))
-    agentModelById.value = new Map(agents.map((agent) => [agent.id, agent.agent.model ?? 'gpt-5']))
+    agentModelById.value = new Map(
+      agents.map((agent) => [agent.id, agent.agent.model_ref?.model ?? 'gpt-5'])
+    )
 
     if (!selectedAgentId.value && agents.length > 0) {
       selectedAgentId.value = agents[0]?.id ?? null

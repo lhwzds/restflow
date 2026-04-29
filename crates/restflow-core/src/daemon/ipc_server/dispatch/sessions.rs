@@ -149,8 +149,8 @@ impl IpcServer {
             None => match core.storage.agents.get_agent(agent_id.clone()) {
                 Ok(Some(agent)) => agent
                     .agent
-                    .model
-                    .map(|m| m.as_serialized_str().to_string())
+                    .resolved_model_ref()
+                    .map(|model_ref| model_ref.model.as_serialized_str().to_string())
                     .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()),
                 Ok(None) => ModelId::Gpt5_4.as_serialized_str().to_string(),
                 Err(err) => return IpcResponse::error(500, err.to_string()),

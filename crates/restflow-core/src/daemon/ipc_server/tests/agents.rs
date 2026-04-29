@@ -751,7 +751,6 @@ async fn process_create_agent_returns_stored_agent() {
         IpcRequest::CreateAgent {
             name: "IPC Agent".to_string(),
             agent: to_contract(AgentNode {
-                model: Some(crate::models::ModelId::ClaudeSonnet4_5),
                 model_ref: Some(crate::models::ModelRef::from_model(
                     crate::models::ModelId::ClaudeSonnet4_5,
                 )),
@@ -841,7 +840,6 @@ async fn process_create_agent_rejects_invalid_wire_model_ref() {
         IpcRequest::CreateAgent {
             name: "invalid-agent".to_string(),
             agent: ContractAgentNode {
-                model: None,
                 model_ref: Some(WireModelRef {
                     provider: "unknown-provider".to_string(),
                     model: "gpt-5".to_string(),

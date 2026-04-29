@@ -465,8 +465,8 @@ impl ChatSessionManager {
 
         Ok(agent
             .agent
-            .model
-            .map(|m| m.as_serialized_str().to_string())
+            .resolved_model_ref()
+            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
             .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()))
     }
 

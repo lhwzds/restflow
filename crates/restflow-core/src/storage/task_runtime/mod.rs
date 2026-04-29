@@ -105,8 +105,8 @@ impl TaskStorage {
 
         Ok(agent
             .agent
-            .model
-            .map(|model| model.as_serialized_str().to_string())
+            .resolved_model_ref()
+            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
             .unwrap_or(fallback_model))
     }
 

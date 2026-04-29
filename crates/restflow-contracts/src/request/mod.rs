@@ -478,8 +478,6 @@ pub type ModelRef = WireModelRef;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AgentNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_ref: Option<WireModelRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,

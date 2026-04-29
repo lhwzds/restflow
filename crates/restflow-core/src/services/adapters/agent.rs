@@ -345,16 +345,15 @@ mod tests {
             id,
             name: None,
             agent: Some(ContractAgentNode {
-                model: Some("gpt-5-mini".to_string()),
                 model_ref: Some(WireModelRef {
                     provider: "anthropic".to_string(),
-                    model: "claude-sonnet-4".to_string(),
+                    model: "gpt-5-mini".to_string(),
                 }),
                 ..ContractAgentNode::default()
             }),
         });
 
-        let error = result.expect_err("expected conflicting model fields");
+        let error = result.expect_err("expected invalid model_ref");
         let message = error.to_string();
         assert!(message.contains("validation_error"));
         assert!(message.contains("model_ref"));

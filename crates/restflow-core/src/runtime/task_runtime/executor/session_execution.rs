@@ -39,8 +39,8 @@ impl AgentRuntimeExecutor {
 
         let fallback_model = fallback
             .agent
-            .model
-            .map(|m| m.as_serialized_str().to_string())
+            .resolved_model_ref()
+            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
             .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string());
         session.agent_id = fallback.id.clone();
         session.set_model_identity_from_raw(&fallback_model);

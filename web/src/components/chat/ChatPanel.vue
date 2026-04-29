@@ -1003,7 +1003,6 @@ async function onUpdateSelectedModel(model: string) {
       const request = {
         agent: {
           ...stored.agent,
-          model: nextModel,
           model_ref: resolvedProvider
             ? {
                 provider: resolvedProvider,

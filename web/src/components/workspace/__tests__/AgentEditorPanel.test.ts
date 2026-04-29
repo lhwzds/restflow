@@ -61,7 +61,10 @@ function baseAgent(overrides?: {
     name: 'Agent One',
     prompt_file: overrides?.prompt_file ?? 'default.md',
     agent: {
-      model: 'gpt-5',
+      model_ref: {
+        provider: 'openai',
+        model: 'gpt-5',
+      },
       prompt: 'prompt',
       temperature: 0.7,
       tools: overrides?.tools ?? null,
@@ -202,7 +205,6 @@ describe('AgentEditorPanel', () => {
       'agent-1',
       expect.objectContaining({
         agent: expect.objectContaining({
-          model: 'gpt-5',
           model_ref: {
             provider: 'openai',
             model: 'gpt-5',

@@ -18,7 +18,7 @@ use restflow_ai::llm::{
 use restflow_contracts::request::{
     AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
     InlineAgentRunConfig as ContractInlineAgentRunConfig,
-    RunSpawnRequest as ContractRunSpawnRequest,
+    RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
 };
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
@@ -812,7 +812,6 @@ fn test_agent_store_adapter_crud_flow() {
         known_tools,
     );
     let base_node = crate::models::AgentNode {
-        model: Some(crate::models::ModelId::ClaudeSonnet4_5),
         model_ref: Some(crate::models::ModelRef::from_model(
             crate::models::ModelId::ClaudeSonnet4_5,
         )),
@@ -857,7 +856,10 @@ fn test_agent_store_adapter_crud_flow() {
             id: agent_id.clone(),
             name: Some("Ops Agent Updated".to_string()),
             agent: Some(ContractAgentNode {
-                model: Some("gpt-5-mini".to_string()),
+                model_ref: Some(WireModelRef {
+                    provider: "openai".to_string(),
+                    model: "gpt-5-mini".to_string(),
+                }),
                 prompt: Some("Updated prompt".to_string()),
                 tools: Some(vec![
                     "manage_tasks".to_string(),
@@ -991,7 +993,10 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         AgentCreateRequest {
             name: "Task Owner".to_string(),
             agent: ContractAgentNode {
-                model: Some("claude-sonnet-4-5".to_string()),
+                model_ref: Some(WireModelRef {
+                    provider: "anthropic".to_string(),
+                    model: "claude-sonnet-4-5".to_string(),
+                }),
                 prompt: Some("owner".to_string()),
                 ..ContractAgentNode::default()
             },

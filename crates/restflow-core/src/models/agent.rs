@@ -117,11 +117,7 @@ pub enum ApiKeyConfig {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentNode {
-    /// AI model to use for this agent (None = auto-select based on configured credentials)
-    #[ts(optional)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<ModelId>,
-    /// Explicit provider + model reference (preferred over legacy `model` field).
+    /// Explicit provider + model reference.
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_ref: Option<ModelRef>,
@@ -221,7 +217,6 @@ impl AgentNode {
     /// Create a new agent with a specific model
     pub fn with_model(model: ModelId) -> Self {
         Self {
-            model: Some(model),
             model_ref: Some(ModelRef::from_model(model)),
             ..Default::default()
         }
@@ -230,7 +225,6 @@ impl AgentNode {
     /// Create a new agent with an explicit provider + model reference.
     pub fn with_model_ref(model_ref: ModelRef) -> Self {
         Self {
-            model: Some(model_ref.model),
             model_ref: Some(model_ref),
             ..Default::default()
         }
@@ -308,29 +302,13 @@ impl AgentNode {
     /// Resolve effective provider + model, preferring `model_ref`.
     pub fn resolved_model_ref(&self) -> Option<ModelRef> {
         self.model_ref
-            .or_else(|| self.model.map(ModelRef::from_model))
     }
 
-    /// Normalize legacy/new model fields into a consistent representation.
+    /// Validate model fields before persistence or execution.
     pub fn normalize_model_fields(&mut self) -> Result<(), ValidationError> {
         if let Some(model_ref) = self.model_ref {
             model_ref.validate()?;
-            if let Some(model) = self.model
-                && model != model_ref.model
-            {
-                return Err(ValidationError::new(
-                    "model_ref",
-                    "model_ref.model must match legacy model field when both are set",
-                ));
-            }
-            self.model = Some(model_ref.model);
-            return Ok(());
         }
-
-        if let Some(model) = self.model {
-            self.model_ref = Some(ModelRef::from_model(model));
-        }
-
         Ok(())
     }
 
@@ -361,14 +339,6 @@ impl AgentNode {
     pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         let resolved_model_ref = self.resolved_model_ref();
-        if let (Some(model), Some(model_ref)) = (self.model, self.model_ref)
-            && model != model_ref.model
-        {
-            errors.push(ValidationError::new(
-                "model_ref",
-                "model_ref.model must match legacy model field when both are set",
-            ));
-        }
         if let Some(model_ref) = resolved_model_ref
             && let Err(error) = model_ref.validate()
         {
@@ -599,7 +569,7 @@ impl AgentNode {
 mod tests {
     use super::*;
     use crate::models::Provider;
-    use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
+    use restflow_contracts::request::AgentNode as ContractAgentNode;
     use restflow_test_support::RestflowTestEnv;
 
     #[test]
@@ -681,8 +651,7 @@ mod tests {
     #[test]
     fn validate_accepts_valid_codex_config() {
         let node = AgentNode {
-            model: Some(ModelId::CodexCli),
-            ..AgentNode::new()
+            ..AgentNode::with_model(ModelId::CodexCli)
                 .with_prompt("You are helpful")
                 .with_codex_cli_reasoning_effort("HIGH")
                 .with_api_key(ApiKeyConfig::Direct("test-key".to_string()))
@@ -693,8 +662,7 @@ mod tests {
     #[test]
     fn validate_accepts_temperature_on_supported_model() {
         let node = AgentNode {
-            model: Some(ModelId::ClaudeSonnet4_5),
-            ..AgentNode::new().with_temperature(0.7)
+            ..AgentNode::with_model(ModelId::ClaudeSonnet4_5).with_temperature(0.7)
         };
         assert!(node.validate().is_ok());
     }
@@ -710,8 +678,7 @@ mod tests {
     #[test]
     fn validate_rejects_temperature_on_unsupported_model() {
         let node = AgentNode {
-            model: Some(ModelId::Gpt5),
-            ..AgentNode::new().with_temperature(0.5)
+            ..AgentNode::with_model(ModelId::Gpt5).with_temperature(0.5)
         };
         let errors = node.validate().expect_err("expected validation error");
         assert!(
@@ -746,8 +713,7 @@ mod tests {
     #[test]
     fn validate_rejects_invalid_reasoning_effort() {
         let node = AgentNode {
-            model: Some(ModelId::CodexCli),
-            ..AgentNode::new().with_codex_cli_reasoning_effort("ultra")
+            ..AgentNode::with_model(ModelId::CodexCli).with_codex_cli_reasoning_effort("ultra")
         };
         let errors = node.validate().expect_err("expected validation error");
         assert!(
@@ -760,8 +726,8 @@ mod tests {
     #[test]
     fn validate_rejects_reasoning_effort_on_non_codex_model() {
         let node = AgentNode {
-            model: Some(ModelId::ClaudeSonnet4_5),
-            ..AgentNode::new().with_codex_cli_reasoning_effort("high")
+            ..AgentNode::with_model(ModelId::ClaudeSonnet4_5)
+                .with_codex_cli_reasoning_effort("high")
         };
         let errors = node.validate().expect_err("expected validation error");
         assert!(
@@ -775,8 +741,8 @@ mod tests {
     #[test]
     fn validate_rejects_execution_mode_on_non_codex_model() {
         let node = AgentNode {
-            model: Some(ModelId::DeepseekChat),
-            ..AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Bypass)
+            ..AgentNode::with_model(ModelId::DeepseekChat)
+                .with_codex_cli_execution_mode(CodexCliExecutionMode::Bypass)
         };
         let errors = node.validate().expect_err("expected validation error");
         assert!(errors.iter().any(|e| e.field == "codex_cli_execution_mode"
@@ -786,8 +752,8 @@ mod tests {
     #[test]
     fn validate_accepts_execution_mode_on_codex_model() {
         let node = AgentNode {
-            model: Some(ModelId::Gpt5Codex),
-            ..AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Safe)
+            ..AgentNode::with_model(ModelId::Gpt5Codex)
+                .with_codex_cli_execution_mode(CodexCliExecutionMode::Safe)
         };
         assert!(node.validate().is_ok());
     }
@@ -831,34 +797,6 @@ mod tests {
     }
 
     #[test]
-    fn normalize_model_fields_backfills_model_ref_from_legacy_model() {
-        let mut node = AgentNode {
-            model: Some(ModelId::Gpt5),
-            model_ref: None,
-            ..AgentNode::new()
-        };
-        node.normalize_model_fields()
-            .expect("normalization should pass");
-        let model_ref = node.model_ref.expect("model_ref should be backfilled");
-        assert_eq!(model_ref.provider, Provider::OpenAI);
-        assert_eq!(model_ref.model, ModelId::Gpt5);
-    }
-
-    #[test]
-    fn validate_rejects_mismatched_model_and_model_ref() {
-        let node = AgentNode {
-            model: Some(ModelId::Gpt5),
-            model_ref: Some(ModelRef {
-                provider: Provider::Anthropic,
-                model: ModelId::ClaudeSonnet4_5,
-            }),
-            ..AgentNode::new()
-        };
-        let errors = node.validate().expect_err("expected validation error");
-        assert!(errors.iter().any(|error| error.field == "model_ref"));
-    }
-
-    #[test]
     fn contract_agent_node_round_trips_through_explicit_conversion() {
         let agent = AgentNode::with_model_ref(ModelRef {
             provider: Provider::Codex,
@@ -870,7 +808,6 @@ mod tests {
         let contract: ContractAgentNode = agent.clone().into();
         let decoded = AgentNode::try_from(contract).expect("agent should decode");
 
-        assert_eq!(decoded.model, Some(ModelId::Gpt5_4Codex));
         assert_eq!(
             decoded.model_ref,
             Some(ModelRef {
@@ -879,31 +816,5 @@ mod tests {
             })
         );
         assert_eq!(decoded.prompt.as_deref(), Some("Base prompt"));
-    }
-
-    #[test]
-    fn contract_agent_node_rejects_unknown_model() {
-        let errors = AgentNode::try_from(ContractAgentNode {
-            model: Some("missing-model".to_string()),
-            ..ContractAgentNode::default()
-        })
-        .expect_err("unknown model should fail");
-
-        assert!(errors.iter().any(|error| error.field == "model"));
-    }
-
-    #[test]
-    fn contract_agent_node_rejects_conflicting_model_and_model_ref() {
-        let errors = AgentNode::try_from(ContractAgentNode {
-            model: Some("gpt-5".to_string()),
-            model_ref: Some(WireModelRef {
-                provider: "anthropic".to_string(),
-                model: "claude-sonnet-4-5".to_string(),
-            }),
-            ..ContractAgentNode::default()
-        })
-        .expect_err("conflicting model fields should fail");
-
-        assert!(errors.iter().any(|error| error.field == "model_ref"));
     }
 }

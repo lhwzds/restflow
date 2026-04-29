@@ -56,7 +56,6 @@ async fn create_test_server() -> (
     let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
     let default_agent = core.storage.agents.resolve_default_agent().unwrap();
     let mut configured_agent = default_agent.agent.clone();
-    configured_agent.model = Some(ModelId::Gpt5);
     configured_agent.model_ref = Some(crate::models::ModelRef::from_model(ModelId::Gpt5));
     configured_agent.api_key_config = Some(ApiKeyConfig::Direct("test_key".to_string()));
     core.storage
@@ -86,7 +85,6 @@ fn create_test_skill(id: &str, name: &str) -> Skill {
 /// Create a test agent node
 fn create_test_agent_node(prompt: &str) -> AgentNode {
     AgentNode {
-        model: Some(ModelId::ClaudeSonnet4_5),
         model_ref: Some(crate::models::ModelRef::from_model(
             ModelId::ClaudeSonnet4_5,
         )),
@@ -932,7 +930,6 @@ impl MockBackend {
             id: "mock-agent".to_string(),
             name: "Mock Agent".to_string(),
             agent: AgentNode {
-                model: Some(ModelId::ClaudeSonnet4_5),
                 model_ref: Some(crate::models::ModelRef::from_model(
                     ModelId::ClaudeSonnet4_5,
                 )),

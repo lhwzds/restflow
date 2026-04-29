@@ -100,7 +100,6 @@ async function submit() {
     const request = {
       name: resolvedName,
       agent: {
-        model: selectedModel as ModelId,
         model_ref: {
           provider: selectedProvider as Provider,
           model: selectedModel as ModelId,

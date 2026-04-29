@@ -8,7 +8,7 @@ use crate::commands::utils::{
 };
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::models::{AgentNode, CodexCliExecutionMode};
+use restflow_core::models::{AgentNode, CodexCliExecutionMode, ModelRef};
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -73,17 +73,12 @@ async fn list_agents(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     table.set_header(vec!["ID", "Name", "Provider", "Model", "Updated"]);
 
     for agent in agents {
-        let model_str = agent
-            .agent
-            .model
-            .as_ref()
-            .map(|m| m.as_serialized_str())
+        let model_ref = agent.agent.resolved_model_ref();
+        let model_str = model_ref
+            .map(|model_ref| model_ref.model.as_serialized_str())
             .unwrap_or("(not set)");
-        let provider_str = agent
-            .agent
-            .model
-            .as_ref()
-            .map(|m| m.provider().as_canonical_str())
+        let provider_str = model_ref
+            .map(|model_ref| model_ref.provider.as_canonical_str())
             .unwrap_or("auto");
         table.add_row(vec![
             Cell::new(short_id(&agent.id)),
@@ -110,9 +105,9 @@ async fn show_agent(
 
     println!("ID:          {}", agent.id);
     println!("Name:        {}", agent.name);
-    if let Some(model) = &agent.agent.model {
-        println!("Model:       {}", model.as_serialized_str());
-        println!("Provider:    {:?}", model.provider());
+    if let Some(model_ref) = agent.agent.resolved_model_ref() {
+        println!("Model:       {}", model_ref.model.as_serialized_str());
+        println!("Provider:    {}", model_ref.provider.as_canonical_str());
     } else {
         println!("Model:       (not set - will auto-select based on configured credentials)");
     }
@@ -196,7 +191,11 @@ async fn update_agent(
         }
         (Some(provider), None) => {
             let provider = parse_provider(&provider)?;
-            match existing.agent.model {
+            match existing
+                .agent
+                .resolved_model_ref()
+                .map(|model_ref| model_ref.model)
+            {
                 Some(current) => current
                     .remap_provider(provider)
                     .or(Some(provider.flagship_model())),
@@ -208,7 +207,7 @@ async fn update_agent(
     };
 
     if let Some(parsed) = parsed_model {
-        existing.agent.model = Some(parsed);
+        existing.agent.model_ref = Some(ModelRef::from_model(parsed));
         // Clear codex-related fields when switching to non-Codex model
         if !parsed.is_codex_cli() {
             existing.agent.codex_cli_reasoning_effort = None;

@@ -178,9 +178,8 @@ impl AgentDefinitionRegistry {
             .unwrap_or_else(|| format!("You are {}.", stored.name));
         let model = stored
             .agent
-            .model
-            .as_ref()
-            .map(|value| value.as_serialized_str().to_string());
+            .resolved_model_ref()
+            .map(|model_ref| model_ref.model.as_serialized_str().to_string());
 
         AgentDefinition {
             id: stored.id.clone(),
@@ -363,7 +362,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 #[cfg(test)]
 mod tests {
     use super::{AgentDefinitionRegistry, builtin_agents};
-    use crate::models::{AgentNode, ModelId};
+    use crate::models::{AgentNode, ModelId, ModelRef};
     use crate::prompt_files::agents_dir_env_lock;
     use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
     use crate::storage::{AgentStorage, agent::StoredAgent};
@@ -384,7 +383,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             agent: AgentNode {
-                model,
+                model_ref: model.map(ModelRef::from_model),
                 prompt: prompt.map(str::to_string),
                 tools,
                 ..Default::default()

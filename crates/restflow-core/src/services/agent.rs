@@ -268,7 +268,6 @@ mod tests {
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
-            model: Some(ModelId::ClaudeSonnet4_5),
             model_ref: Some(crate::models::ModelRef::from_model(
                 ModelId::ClaudeSonnet4_5,
             )),
@@ -286,7 +285,6 @@ mod tests {
     }
 
     fn set_test_model(node: &mut AgentNode, model: ModelId) {
-        node.model = Some(model);
         node.model_ref = Some(crate::models::ModelRef::from_model(model));
     }
 
@@ -416,7 +414,13 @@ mod tests {
         .unwrap();
         assert_eq!(prompt_on_disk.content, Some("Updated prompt".to_string()));
         assert_eq!(updated.agent.temperature, Some(0.9));
-        assert_eq!(updated.agent.model, Some(ModelId::DeepseekChat));
+        assert_eq!(
+            updated
+                .agent
+                .resolved_model_ref()
+                .map(|model_ref| model_ref.model),
+            Some(ModelId::DeepseekChat)
+        );
     }
 
     #[tokio::test]

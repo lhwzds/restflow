@@ -10,18 +10,18 @@ impl RestFlowMcpServer {
 
         let summaries: Vec<AgentSummary> = agents
             .into_iter()
-            .map(|a| AgentSummary {
-                id: a.id,
-                name: a.name,
-                model: serde_json::to_value(a.agent.model)
-                    .ok()
-                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-                    .unwrap_or_else(|| format!("{:?}", a.agent.model)),
-                provider: a
-                    .agent
-                    .model
-                    .map(|model| model.provider().as_canonical_str().to_string())
-                    .unwrap_or_else(|| "auto".to_string()),
+            .map(|a| {
+                let model_ref = a.agent.resolved_model_ref();
+                AgentSummary {
+                    id: a.id,
+                    name: a.name,
+                    model: model_ref
+                        .map(|model_ref| model_ref.model.as_serialized_str().to_string())
+                        .unwrap_or_else(|| "auto".to_string()),
+                    provider: model_ref
+                        .map(|model_ref| model_ref.provider.as_canonical_str().to_string())
+                        .unwrap_or_else(|| "auto".to_string()),
+                }
             })
             .collect();
 
