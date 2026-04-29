@@ -2230,15 +2230,15 @@ fn test_update_task_rejects_empty_input_and_template() {
 }
 
 #[test]
-fn test_create_task_allows_empty_template_render_when_fallback_input_exists() {
+fn test_create_task_allows_task_input_template_when_input_exists() {
     let storage = create_test_storage();
     let result = storage.create_task_from_spec(TaskSpec {
-        name: "Fallback Input".to_string(),
+        name: "Task Input Template".to_string(),
         agent_id: "agent-001".to_string(),
         chat_session_id: None,
         description: None,
         input: Some("Use fallback".to_string()),
-        input_template: Some("{{input}}".to_string()),
+        input_template: Some("{{task.input}}".to_string()),
         schedule: TaskSchedule::default(),
         notification: None,
         execution_mode: None,
@@ -2262,7 +2262,7 @@ fn test_create_task_rejects_template_that_renders_empty_without_fallback() {
         chat_session_id: None,
         description: None,
         input: None,
-        input_template: Some("{{input}}".to_string()),
+        input_template: Some("{{task.input}}".to_string()),
         schedule: TaskSchedule::default(),
         notification: None,
         execution_mode: None,

@@ -1684,7 +1684,7 @@ mod tests {
                 chat_session_id: Some("session-1".to_string()),
                 description: Some("run nightly".to_string()),
                 input: Some("execute".to_string()),
-                input_template: Some("{{input}}".to_string()),
+                input_template: Some("{{task.input}}".to_string()),
                 schedule: TaskSchedule::Cron {
                     expression: "0 9 * * *".to_string(),
                     timezone: Some("America/Los_Angeles".to_string()),

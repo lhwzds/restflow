@@ -1757,22 +1757,7 @@ fn test_render_input_template_replaces_known_placeholders() {
 }
 
 #[test]
-fn test_render_input_template_supports_input_alias() {
-    let mut task = Task::new(
-        "task-123".to_string(),
-        "Template Alias Test".to_string(),
-        "agent-456".to_string(),
-        TaskSchedule::default(),
-    );
-    task.input = Some("alias-input".to_string());
-
-    let rendered = TaskRunner::render_input_template(&task, "INPUT={{input}}");
-
-    assert_eq!(rendered, "INPUT=alias-input");
-}
-
-#[test]
-fn test_render_input_template_input_alias_matches_task_input() {
+fn test_render_input_template_keeps_unknown_input_placeholder() {
     let mut task = Task::new(
         "task-123".to_string(),
         "Template Unit Test".to_string(),
@@ -1782,10 +1767,9 @@ fn test_render_input_template_input_alias_matches_task_input() {
     task.input = Some("input".to_string());
 
     let rendered =
-        TaskRunner::render_input_template(&task, "ALIAS={{input}}, REQUIRED={{task.input}}");
+        TaskRunner::render_input_template(&task, "UNKNOWN={{input}}, REQUIRED={{task.input}}");
 
-    // Both {{input}} and {{task.input}} should resolve to the same value
-    assert!(rendered.contains("ALIAS=input"));
+    assert!(rendered.contains("UNKNOWN={{input}}"));
     assert!(rendered.contains("REQUIRED=input"));
 }
 
@@ -1886,7 +1870,7 @@ fn test_resolve_task_input_falls_back_when_template_renders_empty() {
         TaskSchedule::default(),
     );
     task.input = Some("fallback".to_string());
-    task.input_template = Some("{{input}}".to_string());
+    task.input_template = Some("   ".to_string());
 
     let runner = TaskRunner::new(
         storage,
@@ -1912,7 +1896,7 @@ fn test_resolve_task_input_returns_none_for_empty_template_without_fallback() {
         "agent-789".to_string(),
         TaskSchedule::default(),
     );
-    task.input_template = Some("{{input}}".to_string());
+    task.input_template = Some("{{task.input}}".to_string());
 
     let runner = TaskRunner::new(
         storage,

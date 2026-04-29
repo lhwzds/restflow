@@ -211,7 +211,6 @@ impl TaskRunner {
     /// emitted verbatim so any `{{` inside a value will NOT be re-expanded.
     pub(super) fn render_input_template(task: &Task, template: &str) -> String {
         let now = chrono::Utc::now();
-        // NOTE: `{{task.input}}` is preferred. `{{input}}` is kept for compatibility.
         let replacement_strings = std::collections::HashMap::from([
             ("{{task.id}}", task.id.clone()),
             ("{{task.name}}", task.name.clone()),
@@ -221,7 +220,6 @@ impl TaskRunner {
                 task.description.clone().unwrap_or_default(),
             ),
             ("{{task.input}}", task.input.clone().unwrap_or_default()),
-            ("{{input}}", task.input.clone().unwrap_or_default()),
             (
                 "{{task.last_run_at}}",
                 Self::format_optional_timestamp(task.last_run_at),

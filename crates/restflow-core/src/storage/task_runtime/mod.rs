@@ -93,10 +93,7 @@ impl TaskStorage {
 
     fn render_input_template_for_validation(template: &str, input: Option<&str>) -> String {
         let input_value = input.unwrap_or_default();
-        let replacements = std::collections::HashMap::from([
-            ("{{task.input}}", input_value),
-            ("{{input}}", input_value),
-        ]);
+        let replacements = std::collections::HashMap::from([("{{task.input}}", input_value)]);
         crate::template::render_template_single_pass(template, &replacements)
     }
 
