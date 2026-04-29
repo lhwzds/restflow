@@ -10,9 +10,7 @@ use restflow_core::models::{
     ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Skill, Task,
 };
 use restflow_core::paths;
-use restflow_core::storage::agent::{
-    DEFAULT_ASSISTANT_NAME, LEGACY_DEFAULT_ASSISTANT_NAME, StoredAgent,
-};
+use restflow_core::storage::agent::{DEFAULT_ASSISTANT_NAME, StoredAgent};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
@@ -89,18 +87,6 @@ impl TuiDaemonClient {
         if let Some(agent) = agents
             .iter()
             .find(|agent| agent.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME))
-            .cloned()
-        {
-            return Ok(Some(agent));
-        }
-
-        if let Some(agent) = agents
-            .iter()
-            .find(|agent| {
-                agent
-                    .name
-                    .eq_ignore_ascii_case(LEGACY_DEFAULT_ASSISTANT_NAME)
-            })
             .cloned()
         {
             return Ok(Some(agent));

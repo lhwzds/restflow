@@ -218,7 +218,6 @@ mod tests {
         ValidationErrorResponse,
     };
     use crate::prompt_files;
-    use crate::storage::agent::LEGACY_DEFAULT_ASSISTANT_NAME;
     use restflow_storage::time_utils;
     use tempfile::tempdir;
 
@@ -470,12 +469,7 @@ mod tests {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
 
         let default = core.storage.agents.resolve_default_agent().unwrap();
-        assert!(
-            default.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME)
-                || default
-                    .name
-                    .eq_ignore_ascii_case(LEGACY_DEFAULT_ASSISTANT_NAME)
-        );
+        assert!(default.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME));
 
         let err = delete_agent(&core, &default.id).await.unwrap_err();
         let msg = err.to_string();

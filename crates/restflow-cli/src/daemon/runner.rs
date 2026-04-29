@@ -7,7 +7,6 @@ use restflow_core::channel::{ChannelRouter, PairingManager};
 use restflow_core::daemon::publish_task_event;
 use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{Task, TaskControlAction, TaskMessageSource, TaskStatus};
-use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::task_runtime::TaskReplySenderFactory;
@@ -81,12 +80,6 @@ impl CliTaskRunner {
         );
 
         let auth_manager = Arc::new(create_auth_manager(secrets.clone(), storage.get_db())?);
-        if let Ok(data_dir) = paths::ensure_restflow_dir() {
-            let old_json = data_dir.join("auth_profiles.json");
-            if let Err(e) = auth_manager.migrate_from_json(&old_json).await {
-                tracing::warn!(error = %e, "Failed to migrate auth profiles from JSON");
-            }
-        }
         auth_manager.initialize().await?;
 
         // Create task runtime components

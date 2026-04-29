@@ -9,11 +9,10 @@ use super::types::{
     SecureCredential,
 };
 use super::writer::CredentialWriter;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -674,33 +673,6 @@ impl AuthProfileManager {
             }
         }
         Ok(())
-    }
-
-    /// Migrate profiles from legacy JSON file into the database.
-    pub async fn migrate_from_json(&self, json_path: &Path) -> Result<usize> {
-        if !json_path.exists() {
-            return Ok(0);
-        }
-
-        let content = tokio::fs::read_to_string(json_path)
-            .await
-            .context("Failed to read profiles file")?;
-        let profiles: Vec<AuthProfile> =
-            serde_json::from_str(&content).context("Failed to parse profiles file")?;
-
-        let Some(storage) = &self.storage else {
-            return Err(anyhow!("No storage configured"));
-        };
-
-        let mut count = 0;
-        for profile in profiles {
-            let data = serde_json::to_vec(&profile)?;
-            storage.put_raw(profile.id.as_str(), &data)?;
-            count += 1;
-        }
-
-        info!(count, "Migrated auth profiles from JSON to database");
-        Ok(count)
     }
 }
 
