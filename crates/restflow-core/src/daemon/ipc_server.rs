@@ -3,7 +3,7 @@ use super::ipc_protocol::{
     MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
 };
 use super::session_events::subscribe_session_events;
-use super::subscribe_background_events;
+use super::subscribe_task_events;
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
@@ -539,7 +539,7 @@ impl IpcServer {
     ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = format!("task-{}", Uuid::new_v4());
         let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
-        let mut receiver = subscribe_background_events();
+        let mut receiver = subscribe_task_events();
         tx.send(StreamFrame::Start {
             stream_id: stream_id.clone(),
         })?;

@@ -417,14 +417,14 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
     assert_eq!(run.status, crate::models::TaskRunStatus::Interrupted);
     assert_eq!(
         run.error.as_deref(),
-        Some("Recovered stalled background execution")
+        Some("Recovered stalled task execution")
     );
     assert_eq!(hook_scheduler.call_count(), 1);
 
     let mut interrupted_seen = false;
     while let Ok(event) = event_rx.try_recv() {
         if let StreamEventKind::Interrupted { reason, .. } = event.kind {
-            interrupted_seen = reason == "Recovered stalled background execution";
+            interrupted_seen = reason == "Recovered stalled task execution";
         }
     }
     assert!(interrupted_seen);

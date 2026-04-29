@@ -29,7 +29,7 @@ Use this skill when users report issues like:
 
 1. Collect evidence first.
 - Use `manage_ops` with `operation: "daemon_health"` for daemon health.
-- Use `manage_ops` with `operation: "background_summary"` for task state summaries.
+- Use `manage_ops` with `operation: "task_summary"` for task state summaries.
 - Use `manage_ops` with `operation: "log_tail"` for daemon logs when log evidence is needed.
 - Capture exact error strings from logs and task progress.
 - Record affected agent IDs, task IDs, and session IDs.

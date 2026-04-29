@@ -408,10 +408,10 @@ fn is_credential_error(error: &anyhow::Error) -> bool {
     is_authentication_classification(classify_execution_error(error))
 }
 
-mod background_execution;
 mod model_resolution;
 mod preflight;
 mod session_execution;
+mod task_execution;
 mod tooling;
 
 pub use session_execution::SessionTurnRuntimeOptions;

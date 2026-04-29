@@ -728,6 +728,6 @@ pub trait ConfigStore: Send + Sync {
 
 pub trait OpsProvider: Send + Sync {
     fn daemon_health(&self) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
-    fn background_summary(&self, status: Option<&str>, limit: usize) -> Result<Value>;
+    fn task_summary(&self, status: Option<&str>, limit: usize) -> Result<Value>;
     fn log_tail(&self, lines: usize, path: Option<&str>) -> Result<Value>;
 }

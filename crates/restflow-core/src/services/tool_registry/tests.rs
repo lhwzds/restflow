@@ -484,7 +484,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_manage_ops_background_summary_response_schema() {
+async fn test_manage_ops_task_summary_response_schema() {
     let dir = tempdir().expect("temp dir should be created");
     let db_path = dir.path().join("ops-registry.db");
     let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -504,12 +504,12 @@ async fn test_manage_ops_background_summary_response_schema() {
     let output = registry
         .execute_safe(
             "manage_ops",
-            json!({ "operation": "background_summary", "limit": 5 }),
+            json!({ "operation": "task_summary", "limit": 5 }),
         )
         .await
         .unwrap();
     assert!(output.success);
-    assert_eq!(output.result["operation"], "background_summary");
+    assert_eq!(output.result["operation"], "task_summary");
     assert!(output.result.get("evidence").is_some());
     assert!(output.result.get("verification").is_some());
 }

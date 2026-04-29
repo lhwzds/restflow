@@ -28,7 +28,7 @@ function eventSummary(event: TaskEvent): string | null {
 function mapEventToMessage(event: TaskEvent): ChatMessage {
   if (event.output && event.output.trim().length > 0) {
     return {
-      id: `bg-event-output-${event.id}`,
+      id: `task-event-output-${event.id}`,
       role: 'assistant',
       content: event.output,
       timestamp: toTimestamp(event.timestamp),
@@ -42,7 +42,7 @@ function mapEventToMessage(event: TaskEvent): ChatMessage {
   const messageLine = event.message ? `\n\n${event.message}` : ''
 
   return {
-    id: `bg-event-meta-${event.id}`,
+    id: `task-event-meta-${event.id}`,
     role: 'system',
     content: `**${heading}**${summaryLine}${messageLine}`,
     timestamp: toTimestamp(event.timestamp),
@@ -53,7 +53,7 @@ function mapEventToMessage(event: TaskEvent): ChatMessage {
 function mapMemoryToMessage(chunk: MemoryChunk): ChatMessage {
   const title = new Date(chunk.created_at).toLocaleString()
   return {
-    id: `bg-memory-${chunk.id}`,
+    id: `task-memory-${chunk.id}`,
     role: 'system',
     content: `**Memory Snapshot · ${title}**\n\n${chunk.content}`,
     timestamp: toTimestamp(chunk.created_at),
@@ -61,7 +61,7 @@ function mapMemoryToMessage(chunk: MemoryChunk): ChatMessage {
   }
 }
 
-export function buildBackgroundTimelineMessages(input: {
+export function buildTaskTimelineMessages(input: {
   events: TaskEvent[]
   memoryChunks: MemoryChunk[]
 }): ChatMessage[] {

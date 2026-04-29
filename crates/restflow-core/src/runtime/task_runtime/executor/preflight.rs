@@ -57,7 +57,7 @@ impl AgentRuntimeExecutor {
         Ok(available_tools)
     }
 
-    pub(super) fn build_background_system_prompt(
+    pub(super) fn build_task_system_prompt(
         &self,
         agent_node: &AgentNode,
         agent_id: Option<&str>,

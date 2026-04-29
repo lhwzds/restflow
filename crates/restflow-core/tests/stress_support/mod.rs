@@ -492,7 +492,7 @@ pub fn chat_smoke_profiles() -> Vec<ModelProfile> {
     ]
 }
 
-pub fn background_smoke_profiles() -> Vec<ModelProfile> {
+pub fn task_smoke_profiles() -> Vec<ModelProfile> {
     vec![
         ModelProfile {
             provider: ProviderFamily::CodexCli,
@@ -781,7 +781,7 @@ pub async fn run_chat_workload_with_real_http_io(
     summary
 }
 
-pub async fn run_background_workload(
+pub async fn run_task_workload(
     profile: &ModelProfile,
     task_count: usize,
     failure_mode: FailureMode,
@@ -798,12 +798,10 @@ pub async fn run_background_workload(
                     run_at: now + 1_000,
                 },
             )
-            .expect("create background stress task");
-        task.input = Some(format!("background-input-{index}"));
+            .expect("create task stress task");
+        task.input = Some(format!("task-input-{index}"));
         task.next_run_at = Some(now - 1_000);
-        storage
-            .update_task(&task)
-            .expect("update background stress task");
+        storage.update_task(&task).expect("update task stress task");
     }
 
     let executor = Arc::new(ProviderAwareMockExecutor::new(
@@ -840,7 +838,7 @@ pub async fn run_background_workload(
             Duration::from_secs(180),
         );
     loop {
-        let tasks = storage.list_tasks().expect("list background stress tasks");
+        let tasks = storage.list_tasks().expect("list task stress tasks");
         let terminal = tasks
             .iter()
             .filter(|task| matches!(task.status, TaskStatus::Completed | TaskStatus::Failed))
@@ -849,15 +847,13 @@ pub async fn run_background_workload(
             break;
         }
         if tokio::time::Instant::now() >= deadline {
-            panic!("background workload timed out before all tasks reached terminal state");
+            panic!("task workload timed out before all tasks reached terminal state");
         }
         sleep(Duration::from_millis(50)).await;
     }
-    handle.stop().await.expect("stop background stress runner");
+    handle.stop().await.expect("stop task stress runner");
 
-    let tasks = storage
-        .list_tasks()
-        .expect("load background stress results");
+    let tasks = storage.list_tasks().expect("load task stress results");
     let orphan_running = tasks
         .iter()
         .filter(|task| task.status == TaskStatus::Running)
@@ -898,7 +894,7 @@ fn create_full_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
     (Arc::new(storage), temp_dir)
 }
 
-fn create_real_background_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
+fn create_real_task_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
     let auth_manager = Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
     let (completion_tx, completion_rx) = mpsc::channel(32);
     let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
@@ -913,7 +909,7 @@ fn create_real_background_executor(storage: Arc<Storage>) -> AgentRuntimeExecuto
     )
 }
 
-pub async fn run_background_workload_with_real_runtime(
+pub async fn run_task_workload_with_real_runtime(
     profile: &ModelProfile,
     level: StressLevel,
     task_count: usize,
@@ -969,7 +965,7 @@ pub async fn run_background_workload_with_real_runtime(
             )
             .expect("create real runtime task");
         task.input = Some(format!(
-            "background real task {index} for {} tool_url={} tool_file_path={}/background-{}.txt tool_workdir={} tool_steps={} payload_words={}",
+            "task real task {index} for {} tool_url={} tool_file_path={}/task-{}.txt tool_workdir={} tool_steps={} payload_words={}",
             profile.model_id,
             tool_server.stable_url_for_round(index),
             std::env::temp_dir().display(),
@@ -982,7 +978,7 @@ pub async fn run_background_workload_with_real_runtime(
         storage.tasks.update_task(&task).expect("update real task");
     }
 
-    let executor = Arc::new(create_real_background_executor(storage.clone()));
+    let executor = Arc::new(create_real_task_executor(storage.clone()));
     let notifier = Arc::new(MockNotificationSender::new());
     let max_concurrent = match level {
         StressLevel::Smoke => task_count.min(4),
@@ -1021,7 +1017,7 @@ pub async fn run_background_workload_with_real_runtime(
             break;
         }
         if tokio::time::Instant::now() >= deadline {
-            panic!("real runtime background workload timed out before terminal state");
+            panic!("real runtime task workload timed out before terminal state");
         }
         sleep(Duration::from_millis(50)).await;
     }

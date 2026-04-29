@@ -263,7 +263,7 @@ fn test_build_ack_system_prompt_appends_phase_directive() {
 /// Skills are now registered as callable tools, not injected into the prompt.
 /// Triggered skills are resolved but do not appear in the system prompt.
 #[test]
-fn test_build_background_system_prompt_does_not_inject_triggered_skill() {
+fn test_build_task_system_prompt_does_not_inject_triggered_skill() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
     let skill = create_trigger_skill("triggered-skill", "code review", "Triggered Content");
@@ -275,7 +275,7 @@ fn test_build_background_system_prompt_does_not_inject_triggered_skill() {
         ..AgentNode::new()
     };
     let prompt = executor
-        .build_background_system_prompt(&node, None, None, Some("please do code review"))
+        .build_task_system_prompt(&node, None, None, Some("please do code review"))
         .unwrap();
 
     assert!(prompt.contains("Base Prompt"));
@@ -284,7 +284,7 @@ fn test_build_background_system_prompt_does_not_inject_triggered_skill() {
 }
 
 #[test]
-fn test_build_background_system_prompt_skips_non_matching_skill() {
+fn test_build_task_system_prompt_skips_non_matching_skill() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
     let skill = create_trigger_skill("triggered-skill", "deploy release", "Triggered Content");
@@ -295,7 +295,7 @@ fn test_build_background_system_prompt_skips_non_matching_skill() {
         ..AgentNode::new()
     };
     let prompt = executor
-        .build_background_system_prompt(&node, None, None, Some("review this patch"))
+        .build_task_system_prompt(&node, None, None, Some("review this patch"))
         .unwrap();
 
     assert!(prompt.contains("Base Prompt"));
@@ -305,7 +305,7 @@ fn test_build_background_system_prompt_skips_non_matching_skill() {
 /// SECURITY TEST: Triggered skills NOT in agent's skill list must be ignored
 /// to prevent capability scope expansion via crafted input
 #[test]
-fn test_build_background_system_prompt_ignores_unauthorized_triggered_skill() {
+fn test_build_task_system_prompt_ignores_unauthorized_triggered_skill() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
 
@@ -322,7 +322,7 @@ fn test_build_background_system_prompt_ignores_unauthorized_triggered_skill() {
 
     // User input triggers the privileged skill
     let prompt = executor
-        .build_background_system_prompt(&node, None, None, Some("please do admin"))
+        .build_task_system_prompt(&node, None, None, Some("please do admin"))
         .unwrap();
 
     assert!(prompt.contains("Base Prompt"));
@@ -332,7 +332,7 @@ fn test_build_background_system_prompt_ignores_unauthorized_triggered_skill() {
 
 /// Even authorized triggered skills are not injected into prompt (skills are now tools).
 #[test]
-fn test_build_background_system_prompt_does_not_inject_authorized_triggered_skill() {
+fn test_build_task_system_prompt_does_not_inject_authorized_triggered_skill() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
 
@@ -346,7 +346,7 @@ fn test_build_background_system_prompt_does_not_inject_authorized_triggered_skil
     };
 
     let prompt = executor
-        .build_background_system_prompt(&node, None, None, Some("please do code review"))
+        .build_task_system_prompt(&node, None, None, Some("please do code review"))
         .unwrap();
 
     assert!(prompt.contains("Base Prompt"));

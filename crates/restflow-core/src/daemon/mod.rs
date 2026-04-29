@@ -1,4 +1,3 @@
-mod background_events;
 mod core_access;
 mod health;
 mod ipc_client;
@@ -12,9 +11,9 @@ pub mod recovery;
 pub mod request_mapper;
 pub(crate) mod session_events;
 mod supervisor;
+mod task_events;
 pub(crate) mod tool_result_mapper;
 
-pub use background_events::{publish_background_event, subscribe_background_events};
 pub use core_access::CoreAccess;
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use ipc_client::{IpcClient, is_daemon_available};
@@ -33,3 +32,4 @@ pub use process::{DaemonConfig, ProcessManager};
 pub use restflow_contracts::{ToolDefinition, ToolExecutionResult};
 pub use session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 pub use supervisor::{Supervisor, SupervisorConfig};
+pub use task_events::{publish_task_event, subscribe_task_events};

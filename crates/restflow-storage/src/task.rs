@@ -24,7 +24,7 @@ const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
 /// Reverse index: task_id -> status:task_id (for direct status cleanup)
 const TASK_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("task_status_lookup");
-/// Background execution attempt payload table.
+/// Task execution attempt payload table.
 const TASK_RUN_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_runs");
 /// Index table: task_id:run_id -> run_id
 const TASK_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =

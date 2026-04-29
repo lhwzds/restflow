@@ -49,7 +49,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
         anyhow::bail!("Interactive execution is not supported in service subagent backend")
     }
 
-    async fn execute_background(
+    async fn execute_task(
         &self,
         _agent_id: &str,
         _task_id: Option<&str>,
@@ -58,10 +58,10 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
         _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
         _emitter: Option<Box<dyn StreamEmitter>>,
     ) -> anyhow::Result<crate::runtime::ExecutionResult> {
-        anyhow::bail!("Background execution is not supported in service subagent backend")
+        anyhow::bail!("Task execution is not supported in service subagent backend")
     }
 
-    async fn execute_background_from_state(
+    async fn execute_task_from_state(
         &self,
         _agent_id: &str,
         _task_id: Option<&str>,

@@ -162,7 +162,7 @@ impl ExecutionPlan {
                     .unwrap_or(true)
                 {
                     return Err(ToolError::Tool(
-                        "Background execution requires 'agent_id'.".to_string(),
+                        "Task execution requires 'agent_id'.".to_string(),
                     ));
                 }
             }

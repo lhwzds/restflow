@@ -4,17 +4,16 @@ mod stress_support;
 
 use stress_support::{
     FailureMode, MockLlmHttpServer, MockToolHttpServer, StressLevel, assert_no_orphan_running,
-    assert_notifications_within_attempt_budget, assert_terminal_coverage,
-    background_smoke_profiles, rounds_for, run_background_workload,
-    run_background_workload_with_real_runtime, task_count_for,
+    assert_notifications_within_attempt_budget, assert_terminal_coverage, rounds_for,
+    run_task_workload, run_task_workload_with_real_runtime, task_count_for, task_smoke_profiles,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn smoke_background_profiles_reach_terminal_states() {
+async fn smoke_task_profiles_reach_terminal_states() {
     let level = StressLevel::current();
-    let profiles = background_smoke_profiles();
+    let profiles = task_smoke_profiles();
 
-    let stable = run_background_workload(
+    let stable = run_task_workload(
         &profiles[0],
         task_count_for(level, 8, 40, 140),
         FailureMode::Never,
@@ -24,7 +23,7 @@ async fn smoke_background_profiles_reach_terminal_states() {
     assert_notifications_within_attempt_budget(&stable);
     assert_no_orphan_running(&stable);
 
-    let flaky = run_background_workload(
+    let flaky = run_task_workload(
         &profiles[1],
         task_count_for(level, 10, 48, 168),
         FailureMode::RetryableEvery(3),
@@ -40,16 +39,16 @@ async fn smoke_background_profiles_reach_terminal_states() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn smoke_background_real_runtime_handles_tool_io() {
+async fn smoke_task_real_runtime_handles_tool_io() {
     let level = StressLevel::current();
-    let profile = background_smoke_profiles()
+    let profile = task_smoke_profiles()
         .into_iter()
         .last()
-        .expect("background profile");
+        .expect("task profile");
     let llm_server = MockLlmHttpServer::start(level).await;
     let tool_server = MockToolHttpServer::start().await;
 
-    let summary = run_background_workload_with_real_runtime(
+    let summary = run_task_workload_with_real_runtime(
         &profile,
         level,
         task_count_for(level, 4, 32, 96),

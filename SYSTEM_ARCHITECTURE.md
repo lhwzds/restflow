@@ -133,7 +133,7 @@ flowchart TD
 
 ### Daemon/Core Runtime
 
-- Owns chat routing, background execution, and event emission.
+- Owns chat routing, task execution, and event emission.
 - Owns all persistence updates.
 - Owns channel/session binding and policy enforcement.
 
@@ -209,7 +209,7 @@ Operational notes:
 - `ModelProvider`: canonical provider identity
 - `ClientKind`: concrete execution path
 - `LlmProvider`: runtime provider bucket used by the LLM factory
-- `LlmSwitcher`: runtime model switching interface used by tools and background execution
+- `LlmSwitcher`: runtime model switching interface used by tools and task execution
 
 `restflow-models` owns shared model/provider data and parsing logic:
 
@@ -578,7 +578,7 @@ After architecture-sensitive changes, verify at least these flows:
    - request
    - stream
    - persisted history replay
-3. Background execution:
+3. Task execution:
    - trigger
    - observe progress
    - read persisted history

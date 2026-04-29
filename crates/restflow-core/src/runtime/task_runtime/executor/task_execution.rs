@@ -15,7 +15,7 @@ fn generated_run_id() -> String {
 }
 
 impl AgentRuntimeExecutor {
-    fn background_telemetry_context(
+    fn task_telemetry_context(
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
         task_id: Option<&str>,
         task_snapshot: Option<&crate::models::Task>,
@@ -114,8 +114,7 @@ impl AgentRuntimeExecutor {
             reply_sender,
             workspace_root.as_deref(),
         )?;
-        let system_prompt =
-            self.build_background_system_prompt(agent_node, agent_id, task_id, input)?;
+        let system_prompt = self.build_task_system_prompt(agent_node, agent_id, task_id, input)?;
         let goal = input.unwrap_or("Execute the agent task");
         let catalog = ModelCatalog::global().await;
         let model_entry = catalog.resolve(model).await;
@@ -731,15 +730,11 @@ impl AgentRuntimeExecutor {
         let mut steer_rx = steer_rx;
         let shared_emitter = share_stream_emitter(emitter);
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
-        let base_telemetry_context = Self::background_telemetry_context(
-            telemetry_context,
-            task_id,
-            task.as_ref(),
-            Some(agent_id),
-        )
-        .with_requested_model(primary_model.as_serialized_str())
-        .with_effective_model(primary_model.as_serialized_str())
-        .with_provider(primary_provider.as_canonical_str());
+        let base_telemetry_context =
+            Self::task_telemetry_context(telemetry_context, task_id, task.as_ref(), Some(agent_id))
+                .with_requested_model(primary_model.as_serialized_str())
+                .with_effective_model(primary_model.as_serialized_str())
+                .with_provider(primary_provider.as_canonical_str());
         let mut attempt_tracker = RunAttemptTracker::default();
 
         loop {
@@ -889,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn background_telemetry_context_uses_runner_supplied_run_id() {
+    fn task_telemetry_context_uses_runner_supplied_run_id() {
         let temp_dir = tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("background-telemetry-context.db");
         let storage = Arc::new(Storage::new(db_path.to_str().expect("db path")).expect("storage"));
@@ -930,7 +925,7 @@ mod tests {
                 task.id.clone(),
                 "agent-stale",
             ));
-        let context = AgentRuntimeExecutor::background_telemetry_context(
+        let context = AgentRuntimeExecutor::task_telemetry_context(
             Some(explicit_context),
             Some(&task.id),
             Some(&task),

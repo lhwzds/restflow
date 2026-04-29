@@ -1124,7 +1124,7 @@ impl TaskRunner {
                     self.recover_active_run_with_finalizer(
                         &task,
                         &run,
-                        "Recovered stalled background execution",
+                        "Recovered stalled task execution",
                         current_time,
                     )
                     .await;

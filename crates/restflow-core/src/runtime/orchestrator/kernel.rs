@@ -31,7 +31,7 @@ pub trait ExecutionBackend: Send + Sync {
         options: SessionTurnRuntimeOptions,
     ) -> Result<SessionExecutionResult>;
 
-    async fn execute_background(
+    async fn execute_task(
         &self,
         agent_id: &str,
         task_id: Option<&str>,
@@ -41,7 +41,7 @@ pub trait ExecutionBackend: Send + Sync {
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult>;
 
-    async fn execute_background_from_state(
+    async fn execute_task_from_state(
         &self,
         agent_id: &str,
         task_id: Option<&str>,
@@ -100,7 +100,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         .await
     }
 
-    async fn execute_background(
+    async fn execute_task(
         &self,
         agent_id: &str,
         task_id: Option<&str>,
@@ -113,7 +113,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
             .await
     }
 
-    async fn execute_background_from_state(
+    async fn execute_task_from_state(
         &self,
         agent_id: &str,
         task_id: Option<&str>,

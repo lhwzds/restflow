@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, MemoryConfig, SteerMessage};
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
-use crate::runtime::orchestrator::modes::{background, interactive, subagent};
+use crate::runtime::orchestrator::modes::{interactive, subagent, task};
 use crate::runtime::task_runtime::{
     AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionInputMode,
     SessionTurnRuntimeOptions,
@@ -225,7 +225,7 @@ impl AgentOrchestratorImpl {
         })
     }
 
-    pub async fn run_background_execution(
+    pub async fn run_task_execution(
         &self,
         agent_id: &str,
         task_id: Option<&str>,
@@ -234,9 +234,9 @@ impl AgentOrchestratorImpl {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        background::run_with_request(
+        task::run_with_request(
             self.kernel.as_ref(),
-            background::BackgroundExecutionRequest {
+            task::TaskExecutionRequest {
                 agent_id: agent_id.to_string(),
                 task_id: task_id.map(ToOwned::to_owned),
                 input: input.map(ToOwned::to_owned),
@@ -249,7 +249,7 @@ impl AgentOrchestratorImpl {
         .await
     }
 
-    pub async fn run_background_execution_from_state(
+    pub async fn run_task_execution_from_state(
         &self,
         agent_id: &str,
         task_id: Option<&str>,
@@ -258,9 +258,9 @@ impl AgentOrchestratorImpl {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        background::run_with_request(
+        task::run_with_request(
             self.kernel.as_ref(),
-            background::BackgroundExecutionRequest {
+            task::TaskExecutionRequest {
                 agent_id: agent_id.to_string(),
                 task_id: task_id.map(ToOwned::to_owned),
                 input: None,
@@ -283,7 +283,7 @@ impl AgentOrchestrator for AgentOrchestratorImpl {
                 interactive::run_plan(self.kernel.as_ref(), plan).await
             }
             restflow_traits::ExecutionMode::Background => {
-                background::run_plan(self.kernel.as_ref(), plan).await
+                task::run_plan(self.kernel.as_ref(), plan).await
             }
             restflow_traits::ExecutionMode::Subagent => {
                 subagent::run_plan(self.kernel.as_ref(), plan).await
@@ -324,7 +324,7 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_background_execution(agent_id, task_id, input, memory_config, steer_rx, None)
+            .run_task_execution(agent_id, task_id, input, memory_config, steer_rx, None)
             .await
     }
 
@@ -338,7 +338,7 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_background_execution(agent_id, task_id, input, memory_config, steer_rx, emitter)
+            .run_task_execution(agent_id, task_id, input, memory_config, steer_rx, emitter)
             .await
     }
 
@@ -352,7 +352,7 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_background_execution_from_state(
+            .run_task_execution_from_state(
                 agent_id,
                 task_id,
                 state,
@@ -431,7 +431,7 @@ mod tests {
             Ok(result)
         }
 
-        async fn execute_background(
+        async fn execute_task(
             &self,
             agent_id: &str,
             task_id: Option<&str>,
@@ -450,7 +450,7 @@ mod tests {
             ))
         }
 
-        async fn execute_background_from_state(
+        async fn execute_task_from_state(
             &self,
             agent_id: &str,
             task_id: Option<&str>,
@@ -715,7 +715,7 @@ mod tests {
                 ))
             }
 
-            async fn execute_background(
+            async fn execute_task(
                 &self,
                 _agent_id: &str,
                 _task_id: Option<&str>,
@@ -727,7 +727,7 @@ mod tests {
                 unreachable!("background path not used")
             }
 
-            async fn execute_background_from_state(
+            async fn execute_task_from_state(
                 &self,
                 _agent_id: &str,
                 _task_id: Option<&str>,
@@ -870,7 +870,7 @@ mod tests {
                 ))
             }
 
-            async fn execute_background(
+            async fn execute_task(
                 &self,
                 _agent_id: &str,
                 _task_id: Option<&str>,
@@ -882,7 +882,7 @@ mod tests {
                 unreachable!("background path not used")
             }
 
-            async fn execute_background_from_state(
+            async fn execute_task_from_state(
                 &self,
                 _agent_id: &str,
                 _task_id: Option<&str>,
@@ -943,7 +943,7 @@ mod tests {
                 None,
             )
             .await
-            .expect("background execution should succeed");
+            .expect("task execution should succeed");
 
         assert!(result.success);
         assert_eq!(result.output, "background-output");

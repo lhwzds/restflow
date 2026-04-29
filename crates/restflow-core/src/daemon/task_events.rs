@@ -13,12 +13,12 @@ fn stream_sender() -> &'static broadcast::Sender<TaskStreamEvent> {
 }
 
 /// Publish a task stream event to daemon subscribers.
-pub fn publish_background_event(event: TaskStreamEvent) {
+pub fn publish_task_event(event: TaskStreamEvent) {
     let _ = stream_sender().send(event);
 }
 
 /// Subscribe to the daemon task stream bus.
-pub fn subscribe_background_events() -> broadcast::Receiver<TaskStreamEvent> {
+pub fn subscribe_task_events() -> broadcast::Receiver<TaskStreamEvent> {
     stream_sender().subscribe()
 }
 
@@ -27,8 +27,8 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_publish_and_subscribe_background_event() {
-        let mut receiver = subscribe_background_events();
+    async fn test_publish_and_subscribe_task_event() {
+        let mut receiver = subscribe_task_events();
         let event = TaskStreamEvent::progress(
             "task-1",
             "notification",
@@ -36,7 +36,7 @@ mod tests {
             Some("streaming".to_string()),
         );
 
-        publish_background_event(event.clone());
+        publish_task_event(event.clone());
         let received = receiver.recv().await.unwrap();
 
         assert_eq!(received.task_id, event.task_id);

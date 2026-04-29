@@ -11,7 +11,7 @@ use restflow_ai::AgentState;
 use restflow_ai::agent::StreamEmitter;
 use restflow_traits::{ExecutionOutcome, ExecutionPlan};
 
-pub struct BackgroundExecutionRequest {
+pub struct TaskExecutionRequest {
     pub agent_id: String,
     pub task_id: Option<String>,
     pub input: Option<String>,
@@ -23,12 +23,12 @@ pub struct BackgroundExecutionRequest {
 
 pub async fn run_with_request(
     kernel: &ExecutionKernel,
-    request: BackgroundExecutionRequest,
+    request: TaskExecutionRequest,
 ) -> Result<ExecutionResult> {
     if let Some(state) = request.state {
         kernel
             .backend()
-            .execute_background_from_state(
+            .execute_task_from_state(
                 &request.agent_id,
                 request.task_id.as_deref(),
                 state,
@@ -40,7 +40,7 @@ pub async fn run_with_request(
     } else {
         kernel
             .backend()
-            .execute_background(
+            .execute_task(
                 &request.agent_id,
                 request.task_id.as_deref(),
                 request.input.as_deref(),
@@ -57,13 +57,13 @@ pub async fn run_plan(
     plan: ExecutionPlan,
 ) -> std::result::Result<ExecutionOutcome, restflow_traits::ToolError> {
     let agent_id = plan.agent_id.clone().ok_or_else(|| {
-        restflow_traits::ToolError::Tool("Background execution requires 'agent_id'.".to_string())
+        restflow_traits::ToolError::Tool("Task execution requires 'agent_id'.".to_string())
     })?;
     let memory_config =
         parse_optional_metadata::<MemoryConfig>(&plan, "memory_config")?.unwrap_or_default();
     let state = parse_optional_metadata::<AgentState>(&plan, "agent_state")?;
 
-    let request = BackgroundExecutionRequest {
+    let request = TaskExecutionRequest {
         agent_id,
         task_id: plan.task_id.clone(),
         input: plan.input.clone(),

@@ -19,12 +19,12 @@ fn build_ops_response(operation: &str, evidence: Value, verification: Value) -> 
 }
 
 pub struct OpsProviderAdapter {
-    background_storage: TaskStorage,
+    task_storage: TaskStorage,
 }
 
 impl OpsProviderAdapter {
-    pub fn new(background_storage: TaskStorage) -> Self {
-        Self { background_storage }
+    pub fn new(task_storage: TaskStorage) -> Self {
+        Self { task_storage }
     }
 
     fn parse_status_filter(status: Option<&str>) -> restflow_tools::Result<Option<TaskStatus>> {
@@ -134,15 +134,11 @@ impl OpsProvider for OpsProviderAdapter {
         })
     }
 
-    fn background_summary(
-        &self,
-        status: Option<&str>,
-        limit: usize,
-    ) -> restflow_tools::Result<Value> {
+    fn task_summary(&self, status: Option<&str>, limit: usize) -> restflow_tools::Result<Value> {
         let status_filter = Self::parse_status_filter(status)?;
         let tasks = match status_filter.clone() {
-            Some(s) => self.background_storage.list_tasks_by_status(s)?,
-            None => self.background_storage.list_tasks()?,
+            Some(s) => self.task_storage.list_tasks_by_status(s)?,
+            None => self.task_storage.list_tasks()?,
         };
         let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
         for task in &tasks {
@@ -173,11 +169,7 @@ impl OpsProvider for OpsProviderAdapter {
             "sample_limit": limit,
             "derived_from": "task_storage"
         });
-        Ok(build_ops_response(
-            "background_summary",
-            evidence,
-            verification,
-        ))
+        Ok(build_ops_response("task_summary", evidence, verification))
     }
 
     fn log_tail(&self, lines: usize, path: Option<&str>) -> restflow_tools::Result<Value> {
@@ -265,10 +257,10 @@ mod tests_adapter {
     }
 
     #[test]
-    fn test_background_summary_empty() {
+    fn test_task_summary_empty() {
         let (adapter, _dir) = setup();
-        let result = adapter.background_summary(None, 10).unwrap();
-        assert_eq!(result["operation"], "background_summary");
+        let result = adapter.task_summary(None, 10).unwrap();
+        assert_eq!(result["operation"], "task_summary");
         assert_eq!(result["evidence"]["total"], 0);
     }
 

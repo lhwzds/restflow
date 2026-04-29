@@ -4,7 +4,7 @@ use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::{ChannelRouter, PairingManager};
-use restflow_core::daemon::publish_background_event;
+use restflow_core::daemon::publish_task_event;
 use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{Task, TaskControlAction, TaskMessageSource, TaskStatus};
 use restflow_core::paths;
@@ -32,7 +32,7 @@ struct TaskIpcEventEmitter;
 #[async_trait]
 impl TaskEventEmitter for TaskIpcEventEmitter {
     async fn emit(&self, event: TaskStreamEvent) {
-        publish_background_event(event);
+        publish_task_event(event);
     }
 }
 
@@ -625,7 +625,7 @@ mod tests {
             .storage
             .tasks
             .list_task_messages(&task.id, 10)
-            .expect("failed to list background messages");
+            .expect("failed to list task messages");
 
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, TaskMessageSource::User);
@@ -647,7 +647,7 @@ mod tests {
             .storage
             .tasks
             .list_task_messages(&task.id, 10)
-            .expect("failed to list background messages");
+            .expect("failed to list task messages");
 
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, TaskMessageSource::System);

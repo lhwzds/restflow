@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBackgroundTimelineMessages } from '../backgroundTimeline'
+import { buildTaskTimelineMessages } from '../taskTimeline'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 
@@ -33,9 +33,9 @@ function createChunk(overrides: Partial<MemoryChunk> = {}): MemoryChunk {
   }
 }
 
-describe('buildBackgroundTimelineMessages', () => {
+describe('buildTaskTimelineMessages', () => {
   it('maps output events to assistant messages', () => {
-    const messages = buildBackgroundTimelineMessages({
+    const messages = buildTaskTimelineMessages({
       events: [createEvent({ output: 'final output', event_type: 'completed' })],
       memoryChunks: [],
     })
@@ -48,7 +48,7 @@ describe('buildBackgroundTimelineMessages', () => {
   })
 
   it('maps non-output events to system messages with summary', () => {
-    const messages = buildBackgroundTimelineMessages({
+    const messages = buildTaskTimelineMessages({
       events: [
         createEvent({
           event_type: 'completed',
@@ -70,7 +70,7 @@ describe('buildBackgroundTimelineMessages', () => {
   })
 
   it('sorts events and memory chunks by timestamp', () => {
-    const messages = buildBackgroundTimelineMessages({
+    const messages = buildTaskTimelineMessages({
       events: [createEvent({ id: 'event-1', timestamp: 2000, output: 'event output' })],
       memoryChunks: [createChunk({ id: 'chunk-1', created_at: 1000, content: 'memory output' })],
     })
@@ -80,7 +80,7 @@ describe('buildBackgroundTimelineMessages', () => {
     const second = messages[1]
     expect(first).toBeDefined()
     expect(second).toBeDefined()
-    expect(first!.id).toBe('bg-memory-chunk-1')
-    expect(second!.id).toBe('bg-event-output-event-1')
+    expect(first!.id).toBe('task-memory-chunk-1')
+    expect(second!.id).toBe('task-event-output-event-1')
   })
 })

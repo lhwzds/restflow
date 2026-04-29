@@ -1048,7 +1048,7 @@ mod tests {
         let db_path = temp_dir.path().join("background-command.db");
         let db = Arc::new(redb::Database::create(&db_path).expect("create db"));
 
-        let background_storage = TaskStorage::new(db.clone()).expect("bg storage");
+        let task_storage = TaskStorage::new(db.clone()).expect("task storage");
         let agent_storage = AgentStorage::new(db.clone()).expect("agent storage");
         let chat_storage = ChatSessionStorage::new(db.clone()).expect("chat storage");
         let binding_storage =
@@ -1060,7 +1060,7 @@ mod tests {
         let session_service = SessionService::new(
             session_storage,
             Some(agent_storage.clone()),
-            background_storage.clone(),
+            task_storage.clone(),
             Some(memory_storage),
         );
 
@@ -1091,12 +1091,7 @@ mod tests {
         chat_storage.create(&session).expect("create session");
 
         (
-            TaskCommandService::new(
-                background_storage,
-                agent_storage,
-                session_service,
-                Some(assessor),
-            ),
+            TaskCommandService::new(task_storage, agent_storage, session_service, Some(assessor)),
             session,
             temp_dir,
         )
