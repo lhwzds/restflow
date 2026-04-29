@@ -577,7 +577,7 @@ impl AgentNode {
                     Ok(true) => {}
                     Ok(false) => errors.push(ValidationError::new(
                         "api_key_config",
-                        format!("secret not found in storage or env: {}", normalized),
+                        format!("secret not found in storage: {}", normalized),
                     )),
                     Err(err) => errors.push(ValidationError::new(
                         "api_key_config",

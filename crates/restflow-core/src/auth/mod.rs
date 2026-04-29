@@ -15,7 +15,6 @@ pub mod writer;
 pub use manager::{AuthManagerConfig, AuthProfileManager, ManagerSummary, ProfileUpdate};
 pub(crate) use provider_access::{
     build_runtime_api_keys, provider_available, resolve_model_from_credentials, secret_exists,
-    secret_or_env_exists,
 };
 pub use refresh::{AnthropicRefresher, OAuthRefresher, RefreshedCredential};
 pub use resolver::CredentialResolver;

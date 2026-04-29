@@ -113,7 +113,7 @@ impl AgentStoreAdapter {
                     Ok(true) => {}
                     Ok(false) => errors.push(crate::models::ValidationError::new(
                         "api_key_config",
-                        format!("secret not found in storage or env: {}", normalized),
+                        format!("secret not found in storage: {}", normalized),
                     )),
                     Err(err) => errors.push(crate::models::ValidationError::new(
                         "api_key_config",

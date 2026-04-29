@@ -77,7 +77,7 @@ pub async fn has_secret(core: &Arc<AppCore>, key: &str) -> Result<bool> {
         .with_context(|| format!("Failed to check secret {}", key))
 }
 
-/// Check whether a secret is available from storage or environment fallback.
+/// Check whether a secret is available from managed storage.
 pub async fn has_available_secret(core: &Arc<AppCore>, key: &str) -> Result<bool> {
     core.storage
         .secrets

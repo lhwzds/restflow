@@ -195,13 +195,12 @@ impl SecretStorage {
         }
     }
 
-    /// Get secret value, falling back to environment variable
+    /// Get a managed secret value from storage.
     pub fn get_secret(&self, key: &str) -> Result<Option<String>> {
         if let Some(secret) = self.get_secret_model(key)? {
             Ok(Some(secret.value))
         } else {
-            // Fallback to environment variable (e.g., OPENAI_API_KEY)
-            Ok(std::env::var(Self::env_fallback_key(key)).ok())
+            Ok(None)
         }
     }
 
@@ -245,26 +244,16 @@ impl SecretStorage {
         Ok(secrets)
     }
 
-    /// Check whether the secret is managed in storage only.
-    ///
-    /// This does not check environment-variable fallback. Use
-    /// `has_available_secret` when callers need runtime availability semantics.
+    /// Check whether the secret is managed in storage.
     pub fn has_secret(&self, key: &str) -> Result<bool> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SECRETS_TABLE)?;
         Ok(table.get(key)?.is_some())
     }
 
-    /// Check whether the secret is available from managed storage or env fallback.
+    /// Check whether the secret is available from managed storage.
     pub fn has_available_secret(&self, key: &str) -> Result<bool> {
-        if self.has_secret(key)? {
-            return Ok(true);
-        }
-        Ok(std::env::var(Self::env_fallback_key(key)).is_ok())
-    }
-
-    fn env_fallback_key(key: &str) -> String {
-        key.to_uppercase().replace('-', "_")
+        self.has_secret(key)
     }
 
     fn encode_secret(&self, secret: &Secret) -> Result<Vec<u8>> {
@@ -586,32 +575,13 @@ mod tests {
     }
 
     #[test]
-    fn test_has_available_secret_checks_env_fallback() {
-        let _env_lock = env_lock();
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-        // SAFETY: protected by env_lock.
-        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, &state_dir) };
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = SecretStorage::new_insecure(db).unwrap();
-        // SAFETY: protected by env_lock.
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
-        let key = "ENV_ONLY_SECRET";
+    fn test_has_available_secret_checks_storage_only() {
+        let (storage, _temp_dir) = setup();
+        let key = "MANAGED_SECRET";
 
-        // SAFETY: protected by env_lock.
-        unsafe {
-            std::env::set_var(key, "env-value");
-        }
-
-        assert!(!storage.has_secret(key).unwrap());
+        assert!(!storage.has_available_secret(key).unwrap());
+        storage.set_secret(key, "managed-value", None).unwrap();
         assert!(storage.has_available_secret(key).unwrap());
-
-        // SAFETY: protected by env_lock.
-        unsafe {
-            std::env::remove_var(key);
-        }
     }
 
     #[test]

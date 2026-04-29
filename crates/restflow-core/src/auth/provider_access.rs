@@ -13,17 +13,6 @@ pub(crate) fn secret_exists(storage: &SecretStorage, key: &str) -> bool {
     storage.get_non_empty(key).ok().flatten().is_some()
 }
 
-pub(crate) fn secret_or_env_exists(storage: &SecretStorage, key: &str) -> bool {
-    if secret_exists(storage, key) {
-        return true;
-    }
-
-    std::env::var(key)
-        .ok()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
-}
-
 fn provider_has_secret<F>(provider: Provider, has_secret: &F) -> bool
 where
     F: Fn(&str) -> bool,
@@ -89,12 +78,6 @@ fn resolve_provider_api_key(
     for secret_name in provider.api_key_env_candidates() {
         if let Some(storage) = secret_storage
             && let Ok(Some(value)) = storage.get_secret(secret_name)
-            && !value.trim().is_empty()
-        {
-            return Some(value);
-        }
-
-        if let Ok(value) = std::env::var(secret_name)
             && !value.trim().is_empty()
         {
             return Some(value);

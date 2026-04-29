@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::auth::secret_or_env_exists;
+use crate::auth::secret_exists;
 use crate::models::{
     ModelId, ModelMetadataDTO, Provider, provider_allows_secret_env, provider_display_order,
 };
@@ -27,7 +27,7 @@ fn available_providers(core: &Arc<AppCore>) -> Vec<Provider> {
             || provider_allows_secret_env(provider)
                 && provider
                     .api_key_env_candidates()
-                    .any(|key| secret_or_env_exists(&core.storage.secrets, key));
+                    .any(|key| secret_exists(&core.storage.secrets, key));
 
         if available {
             providers.push(provider);

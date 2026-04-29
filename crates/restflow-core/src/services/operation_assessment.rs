@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use crate::AppCore;
 use crate::auth::{
     AuthManagerConfig, AuthProfileManager, provider_available as auth_provider_available,
-    resolve_model_from_credentials, secret_or_env_exists,
+    resolve_model_from_credentials, secret_exists,
 };
 use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDefinitionLookup;
@@ -285,9 +285,7 @@ async fn build_auth(context: &AssessmentContext) -> Result<AuthProfileManager> {
 fn agent_has_local_credential(context: &AssessmentContext, agent: &AgentNode) -> bool {
     match agent.api_key_config.as_ref() {
         Some(ApiKeyConfig::Direct(value)) => !value.trim().is_empty(),
-        Some(ApiKeyConfig::Secret(secret_name)) => {
-            secret_or_env_exists(&context.secrets, secret_name)
-        }
+        Some(ApiKeyConfig::Secret(secret_name)) => secret_exists(&context.secrets, secret_name),
         None => false,
     }
 }
@@ -298,7 +296,7 @@ async fn provider_available(
     provider: Provider,
 ) -> bool {
     auth_provider_available(auth_manager, provider, |key| {
-        secret_or_env_exists(&context.secrets, key)
+        secret_exists(&context.secrets, key)
     })
     .await
 }
@@ -307,10 +305,10 @@ async fn resolve_model_from_stored_credentials(
     context: &AssessmentContext,
     auth_manager: &AuthProfileManager,
 ) -> Result<Option<ModelId>> {
-    Ok(resolve_model_from_credentials(auth_manager, |key| {
-        secret_or_env_exists(&context.secrets, key)
-    })
-    .await)
+    Ok(
+        resolve_model_from_credentials(auth_manager, |key| secret_exists(&context.secrets, key))
+            .await,
+    )
 }
 
 fn to_assessment_model_ref(model_ref: ModelRef) -> AssessmentModelRef {
@@ -470,7 +468,7 @@ async fn validate_agent_async(
                 Ok(true) => {}
                 Ok(false) => errors.push(ValidationError::new(
                     "api_key_config",
-                    format!("secret not found in storage or env: {}", normalized),
+                    format!("secret not found in storage: {}", normalized),
                 )),
                 Err(err) => errors.push(ValidationError::new(
                     "api_key_config",
