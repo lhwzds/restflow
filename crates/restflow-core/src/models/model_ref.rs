@@ -69,16 +69,12 @@ impl TryFrom<WireModelRef> for ModelRef {
                 format!("unknown provider '{}'", value.provider),
             )
         })?;
-        let model = ModelId::for_provider_and_model(provider, &value.model)
-            .or_else(|| ModelId::from_api_name(&value.model))
-            .or_else(|| ModelId::from_canonical_id(&value.model))
-            .or_else(|| ModelId::from_serialized_str(&value.model))
-            .ok_or_else(|| {
-                ValidationError::new(
-                    "model_ref.model",
-                    format!("unknown model '{}'", value.model),
-                )
-            })?;
+        let model = ModelId::for_provider_and_model(provider, &value.model).ok_or_else(|| {
+            ValidationError::new(
+                "model_ref.model",
+                format!("unknown model '{}'", value.model),
+            )
+        })?;
 
         let model_ref = Self { provider, model }.normalized();
         model_ref.validate()?;

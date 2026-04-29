@@ -686,18 +686,10 @@ fn test_from_canonical_id() {
         Some(ModelId::CodexCli)
     );
 
-    // Test legacy model-only strings (fallback)
-    assert_eq!(ModelId::from_canonical_id("gpt-5"), Some(ModelId::Gpt5));
-    assert_eq!(
-        ModelId::from_canonical_id("gpt-5.4"),
-        Some(ModelId::Gpt5_4Codex)
-    );
-    assert_eq!(
-        ModelId::from_canonical_id("claude-sonnet-4-5"),
-        Some(ModelId::ClaudeSonnet4_5)
-    );
-
-    // Test invalid IDs
+    // Test invalid IDs and model-only strings
+    assert_eq!(ModelId::from_canonical_id("gpt-5"), None);
+    assert_eq!(ModelId::from_canonical_id("gpt-5.4"), None);
+    assert_eq!(ModelId::from_canonical_id("claude-sonnet-4-5"), None);
     assert_eq!(ModelId::from_canonical_id("unknown:model"), None);
     assert_eq!(ModelId::from_canonical_id("invalid-model"), None);
 }
@@ -775,6 +767,18 @@ fn test_model_ref_try_from_wire_rejects_unknown_model() {
         model: "missing-model".to_string(),
     })
     .expect_err("unknown model should fail");
+
+    assert_eq!(error.field, "model_ref.model");
+    assert!(error.message.contains("unknown model"));
+}
+
+#[test]
+fn test_model_ref_try_from_wire_rejects_nested_canonical_model() {
+    let error = ModelRef::try_from(WireModelRef {
+        provider: "openai".to_string(),
+        model: "openai:gpt-5".to_string(),
+    })
+    .expect_err("model_ref.model should be provider-scoped");
 
     assert_eq!(error.field, "model_ref.model");
     assert!(error.message.contains("unknown model"));

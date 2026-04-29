@@ -138,20 +138,19 @@ impl ModelId {
     }
 
     /// Parse a canonical model ID back to ModelId.
-    /// Accepts both "provider:model" format and legacy model-only strings.
+    /// Accepts only "provider:model" format.
     ///
     /// Returns None if the model string is not recognized.
     pub fn from_canonical_id(canonical_id: &str) -> Option<Self> {
         let normalized = canonical_id.trim().to_lowercase();
 
-        // Try "provider:model" format first
         if let Some((provider_str, model_str)) = normalized.split_once(':')
             && let Some(provider) = Provider::from_canonical_str(provider_str)
         {
             return Self::for_provider_and_model(provider, model_str);
         }
 
-        catalog::lookup_by_name(&normalized)
+        None
     }
 
     /// Check if this model supports temperature parameter
