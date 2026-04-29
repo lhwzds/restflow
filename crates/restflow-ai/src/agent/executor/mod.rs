@@ -699,7 +699,7 @@ impl AgentExecutor {
                         telemetry_sink: config.telemetry_sink.as_ref(),
                         telemetry_context: config.telemetry_context.as_ref(),
                         invocation: ToolInvocationContext {
-                            parent_execution_id: Some(state.execution_id.as_str()),
+                            parent_run_id: Some(state.execution_id.as_str()),
                             chat_session_id,
                             trace_session_id,
                             trace_scope_id,

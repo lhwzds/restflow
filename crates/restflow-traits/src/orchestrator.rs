@@ -49,11 +49,8 @@ pub struct ExecutionPlan {
     #[serde(default)]
     pub max_iterations: Option<u32>,
     /// Optional parent run ID.
-    ///
-    /// The serialized field name is canonicalized to `parent_run_id` while
-    /// still accepting legacy `parent_execution_id` input for compatibility.
-    #[serde(default, rename = "parent_run_id", alias = "parent_execution_id")]
-    pub parent_execution_id: Option<String>,
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
     /// Optional trace session ID.
     #[serde(default)]
     pub trace_session_id: Option<String>,
@@ -75,12 +72,12 @@ pub struct ExecutionPlan {
 impl ExecutionPlan {
     /// Returns the canonical parent run identifier for this execution plan.
     pub fn parent_run_id(&self) -> Option<&str> {
-        self.parent_execution_id.as_deref()
+        self.parent_run_id.as_deref()
     }
 
-    /// Sets the canonical parent run identifier while preserving legacy storage.
+    /// Sets the canonical parent run identifier.
     pub fn set_parent_run_id(&mut self, parent_run_id: Option<String>) {
-        self.parent_execution_id = parent_run_id;
+        self.parent_run_id = parent_run_id;
     }
 
     /// Validate that the plan contains the minimum fields required for its mode.
@@ -249,7 +246,6 @@ mod tests {
 
         plan.set_parent_run_id(Some("parent-1".to_string()));
         assert_eq!(plan.parent_run_id(), Some("parent-1"));
-        assert_eq!(plan.parent_execution_id.as_deref(), Some("parent-1"));
     }
 
     #[test]
@@ -259,21 +255,6 @@ mod tests {
 
         let serialized = serde_json::to_value(plan).expect("serialize execution plan");
         assert_eq!(serialized["parent_run_id"], "parent-1");
-        assert!(serialized.get("parent_execution_id").is_none());
-    }
-
-    #[test]
-    fn test_execution_plan_accepts_legacy_parent_execution_id_alias() {
-        let plan: ExecutionPlan = serde_json::from_value(serde_json::json!({
-            "mode": "subagent",
-            "input": "task",
-            "inline_subagent": {},
-            "parent_execution_id": "legacy-parent"
-        }))
-        .expect("deserialize execution plan");
-
-        assert_eq!(plan.parent_run_id(), Some("legacy-parent"));
-        assert_eq!(plan.parent_execution_id.as_deref(), Some("legacy-parent"));
     }
 
     #[test]

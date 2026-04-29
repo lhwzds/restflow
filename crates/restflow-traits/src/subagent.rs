@@ -12,8 +12,6 @@ use crate::{
 pub use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 /// Canonical contract request alias for child run spawning.
 pub type ContractChildRunSpawnRequest = ContractRunSpawnRequest;
-/// Legacy alias kept for compatibility with existing callers.
-pub type ContractSubagentSpawnRequest = ContractRunSpawnRequest;
 
 /// Snapshot of a sub-agent definition with all fields needed for execution.
 ///
@@ -124,11 +122,8 @@ pub struct SpawnRequest {
     pub model_provider: Option<String>,
 
     /// Optional parent run ID used for context propagation.
-    ///
-    /// The serialized field name is canonicalized to `parent_run_id` while
-    /// still accepting legacy `parent_execution_id` input for compatibility.
-    #[serde(default, rename = "parent_run_id", alias = "parent_execution_id")]
-    pub parent_execution_id: Option<String>,
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
 
     /// Optional trace session identifier used to keep child runs in the same trace session.
     ///
@@ -152,12 +147,12 @@ pub struct SpawnRequest {
 impl SpawnRequest {
     /// Returns the canonical parent run identifier for this child spawn.
     pub fn parent_run_id(&self) -> Option<&str> {
-        self.parent_execution_id.as_deref()
+        self.parent_run_id.as_deref()
     }
 
-    /// Sets the canonical parent run identifier while preserving legacy storage.
+    /// Sets the canonical parent run identifier.
     pub fn set_parent_run_id(&mut self, parent_run_id: Option<String>) {
-        self.parent_execution_id = parent_run_id;
+        self.parent_run_id = parent_run_id;
     }
 }
 
@@ -491,7 +486,7 @@ mod tests {
             priority: None,
             model: None,
             model_provider: None,
-            parent_execution_id: None,
+            parent_run_id: None,
             trace_session_id: None,
             trace_scope_id: None,
             run_id: None,
@@ -500,21 +495,5 @@ mod tests {
 
         let serialized = serde_json::to_value(request).expect("serialize spawn request");
         assert_eq!(serialized["parent_run_id"], "parent-1");
-        assert!(serialized.get("parent_execution_id").is_none());
-    }
-
-    #[test]
-    fn test_spawn_request_accepts_legacy_parent_execution_id_alias() {
-        let request: SpawnRequest = serde_json::from_value(serde_json::json!({
-            "task": "Investigate",
-            "parent_execution_id": "legacy-parent"
-        }))
-        .expect("deserialize spawn request");
-
-        assert_eq!(request.parent_run_id(), Some("legacy-parent"));
-        assert_eq!(
-            request.parent_execution_id.as_deref(),
-            Some("legacy-parent")
-        );
     }
 }

@@ -476,7 +476,7 @@ mod tests {
         TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
         TaskMessageRequest, TaskStore, TaskTraceReadRequest, TaskUpdateRequest,
     };
-    use restflow_traits::{ContractSubagentSpawnRequest, ToolError};
+    use restflow_traits::{ContractRunSpawnRequest, ToolError};
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -569,7 +569,7 @@ mod tests {
         async fn assess_subagent_spawn(
             &self,
             operation: &str,
-            _request: ContractSubagentSpawnRequest,
+            _request: ContractRunSpawnRequest,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
@@ -581,7 +581,7 @@ mod tests {
         async fn assess_subagent_batch(
             &self,
             operation: &str,
-            _requests: Vec<ContractSubagentSpawnRequest>,
+            _requests: Vec<ContractRunSpawnRequest>,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
@@ -687,7 +687,7 @@ mod tests {
         async fn assess_subagent_spawn(
             &self,
             operation: &str,
-            _request: ContractSubagentSpawnRequest,
+            _request: ContractRunSpawnRequest,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
@@ -700,7 +700,7 @@ mod tests {
         async fn assess_subagent_batch(
             &self,
             operation: &str,
-            _requests: Vec<ContractSubagentSpawnRequest>,
+            _requests: Vec<ContractRunSpawnRequest>,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(

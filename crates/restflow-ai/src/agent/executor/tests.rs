@@ -2038,7 +2038,7 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: Some("exec-parent-1"),
+                    parent_run_id: Some("exec-parent-1"),
                     chat_session_id: None,
                     trace_session_id: Some("session-main-1"),
                     trace_scope_id: Some("scope-main-1"),
@@ -2053,7 +2053,6 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
     assert_eq!(output.result["parent_run_id"], "exec-parent-1");
-    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "session-main-1");
     assert_eq!(output.result["trace_scope_id"], "scope-main-1");
 
@@ -2061,7 +2060,6 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
     assert_eq!(start_arguments.len(), 1);
     let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
     assert_eq!(start_payload["parent_run_id"], "exec-parent-1");
-    assert!(start_payload.get("parent_execution_id").is_none());
     assert_eq!(start_payload["trace_session_id"], "session-main-1");
     assert_eq!(start_payload["trace_scope_id"], "scope-main-1");
 }
@@ -2080,7 +2078,7 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
         arguments: serde_json::json!({
             "agent": "default",
             "task": "Investigate",
-            "parent_execution_id": "explicit-parent"
+            "parent_run_id": "explicit-parent"
         }),
     }];
 
@@ -2096,7 +2094,7 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: Some("runtime-parent"),
+                    parent_run_id: Some("runtime-parent"),
                     chat_session_id: None,
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
@@ -2111,7 +2109,6 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
     assert_eq!(output.result["parent_run_id"], "runtime-parent");
-    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 }
@@ -2132,7 +2129,7 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
             "task": "Investigate",
             "trace_session_id": "explicit-session",
             "trace_scope_id": "explicit-scope",
-            "parent_execution_id": "explicit-parent"
+            "parent_run_id": "explicit-parent"
         }),
     }];
 
@@ -2148,7 +2145,7 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: Some("runtime-parent"),
+                    parent_run_id: Some("runtime-parent"),
                     chat_session_id: None,
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
@@ -2163,7 +2160,6 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
     assert_eq!(output.result["parent_run_id"], "runtime-parent");
-    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 }
@@ -2187,7 +2183,7 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
                     "task": "Investigate"
                 }
             ],
-            "parent_execution_id": "explicit-parent",
+            "parent_run_id": "explicit-parent",
             "trace_session_id": "explicit-session",
             "trace_scope_id": "explicit-scope"
         }),
@@ -2205,7 +2201,7 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: Some("runtime-parent"),
+                    parent_run_id: Some("runtime-parent"),
                     chat_session_id: None,
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
@@ -2219,14 +2215,12 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_batch_call should succeed: {e}"));
     assert_eq!(output.result["parent_run_id"], "runtime-parent");
-    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 
     let start_arguments = emitter.start_arguments.lock().await;
     let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
     assert_eq!(start_payload["parent_run_id"], "runtime-parent");
-    assert!(start_payload.get("parent_execution_id").is_none());
     assert_eq!(start_payload["trace_session_id"], "runtime-session");
     assert_eq!(start_payload["trace_scope_id"], "runtime-scope");
 }
@@ -2260,7 +2254,7 @@ async fn test_promote_to_background_injects_chat_session_id() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: None,
+                    parent_run_id: None,
                     chat_session_id: Some("session-main-1"),
                     trace_session_id: None,
                     trace_scope_id: None,
@@ -2312,7 +2306,7 @@ async fn test_promote_to_background_overrides_explicit_session_id() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: None,
+                    parent_run_id: None,
                     chat_session_id: Some("session-main-1"),
                     trace_session_id: None,
                     trace_scope_id: None,
@@ -2356,7 +2350,7 @@ async fn test_list_subagents_injects_parent_run_id() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: Some("parent-run-1"),
+                    parent_run_id: Some("parent-run-1"),
                     chat_session_id: None,
                     trace_session_id: None,
                     trace_scope_id: None,
@@ -2406,7 +2400,7 @@ async fn test_wait_subagents_overrides_explicit_parent_run_id() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext {
-                    parent_execution_id: Some("runtime-parent"),
+                    parent_run_id: Some("runtime-parent"),
                     chat_session_id: None,
                     trace_session_id: None,
                     trace_scope_id: None,

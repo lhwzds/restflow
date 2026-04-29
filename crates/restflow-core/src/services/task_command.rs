@@ -634,7 +634,7 @@ mod tests {
         MemoryStorage, SessionStorage, TaskStorage,
     };
     use async_trait::async_trait;
-    use restflow_traits::ContractSubagentSpawnRequest;
+    use restflow_traits::ContractRunSpawnRequest;
     use restflow_traits::TaskCommandOutcome;
     use restflow_traits::ToolError;
     use restflow_traits::assessment::{
@@ -741,7 +741,7 @@ mod tests {
         async fn assess_subagent_spawn(
             &self,
             operation: &str,
-            _request: ContractSubagentSpawnRequest,
+            _request: ContractRunSpawnRequest,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
@@ -753,7 +753,7 @@ mod tests {
         async fn assess_subagent_batch(
             &self,
             operation: &str,
-            _requests: Vec<ContractSubagentSpawnRequest>,
+            _requests: Vec<ContractRunSpawnRequest>,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::ok(
@@ -899,7 +899,7 @@ mod tests {
         async fn assess_subagent_spawn(
             &self,
             operation: &str,
-            _request: ContractSubagentSpawnRequest,
+            _request: ContractRunSpawnRequest,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
@@ -917,7 +917,7 @@ mod tests {
         async fn assess_subagent_batch(
             &self,
             operation: &str,
-            _requests: Vec<ContractSubagentSpawnRequest>,
+            _requests: Vec<ContractRunSpawnRequest>,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             Ok(OperationAssessment::warning_with_confirmation(
@@ -1020,7 +1020,7 @@ mod tests {
         async fn assess_subagent_spawn(
             &self,
             _operation: &str,
-            _request: ContractSubagentSpawnRequest,
+            _request: ContractRunSpawnRequest,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             panic!("subagent spawn should not be called")
@@ -1029,7 +1029,7 @@ mod tests {
         async fn assess_subagent_batch(
             &self,
             _operation: &str,
-            _requests: Vec<ContractSubagentSpawnRequest>,
+            _requests: Vec<ContractRunSpawnRequest>,
             _template_mode: bool,
         ) -> std::result::Result<OperationAssessment, ToolError> {
             panic!("subagent batch should not be called")

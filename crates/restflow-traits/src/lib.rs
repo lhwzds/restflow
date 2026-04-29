@@ -85,11 +85,11 @@ pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, Execu
 
 // Sub-agent types
 pub use subagent::{
-    ContractChildRunSpawnRequest, ContractRunSpawnRequest, ContractSubagentSpawnRequest,
-    InlineChildRunConfig, InlineRunConfig, InlineSubagentConfig, SpawnHandle, SpawnPriority,
-    SpawnRequest, SubagentCompletion, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
-    SubagentDefSummary, SubagentEffectiveLimits, SubagentLimitSource, SubagentManager,
-    SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
+    ContractChildRunSpawnRequest, ContractRunSpawnRequest, InlineChildRunConfig, InlineRunConfig,
+    InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion,
+    SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+    SubagentEffectiveLimits, SubagentLimitSource, SubagentManager, SubagentResult, SubagentSpawner,
+    SubagentState, SubagentStatus,
 };
 
 // LLM switching

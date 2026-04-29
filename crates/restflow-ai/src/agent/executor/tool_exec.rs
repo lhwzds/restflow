@@ -23,8 +23,7 @@ use super::{AgentExecutor, MAX_TOOL_RETRIES};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ToolInvocationContext<'a> {
-    /// Legacy field name kept for compatibility with existing runtime call sites.
-    pub parent_execution_id: Option<&'a str>,
+    pub parent_run_id: Option<&'a str>,
     pub chat_session_id: Option<&'a str>,
     pub trace_session_id: Option<&'a str>,
     pub trace_scope_id: Option<&'a str>,
@@ -32,7 +31,7 @@ pub(crate) struct ToolInvocationContext<'a> {
 
 impl<'a> ToolInvocationContext<'a> {
     fn parent_run_id(self) -> Option<&'a str> {
-        self.parent_execution_id
+        self.parent_run_id
     }
 }
 
@@ -59,7 +58,7 @@ impl AgentExecutor {
             return;
         };
         if let Some(map) = args.as_object_mut() {
-            map.remove("parent_execution_id");
+            map.remove("parent_run_id");
             map.insert(
                 "parent_run_id".to_string(),
                 Value::String(parent_run_id.to_string()),

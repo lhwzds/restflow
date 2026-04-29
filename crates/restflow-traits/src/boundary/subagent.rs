@@ -181,7 +181,7 @@ pub fn spawn_request_from_contract(
         priority: request.priority.map(Into::into),
         model,
         model_provider,
-        parent_execution_id: None,
+        parent_run_id: None,
         trace_session_id: request.trace_session_id,
         trace_scope_id: request.trace_scope_id,
         run_id: None,

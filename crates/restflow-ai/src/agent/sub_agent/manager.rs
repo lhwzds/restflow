@@ -6,8 +6,8 @@ use restflow_traits::AgentOrchestrator;
 use restflow_traits::ToolError;
 use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::subagent::{
-    ContractSubagentSpawnRequest, SpawnHandle, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSummary, SubagentManager, SubagentState,
+    ContractRunSpawnRequest, SpawnHandle, SubagentCompletion, SubagentConfig, SubagentDefLookup,
+    SubagentDefSummary, SubagentManager, SubagentState,
 };
 
 use super::spawn::{SubagentExecutionBridge, spawn_subagent};
@@ -97,7 +97,7 @@ impl SubagentManagerImpl {
 impl SubagentManager for SubagentManagerImpl {
     fn spawn(
         &self,
-        request: ContractSubagentSpawnRequest,
+        request: ContractRunSpawnRequest,
     ) -> std::result::Result<SpawnHandle, ToolError> {
         let available_agents = self.definitions.list_callable();
         let request = spawn_request_from_contract(&available_agents, request)?;

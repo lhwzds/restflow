@@ -215,7 +215,7 @@ impl AgentOperationAssessor for WarningAssessor {
     async fn assess_subagent_spawn(
         &self,
         _operation: &str,
-        _request: restflow_traits::subagent::ContractSubagentSpawnRequest,
+        _request: restflow_traits::subagent::ContractRunSpawnRequest,
         _template_mode: bool,
     ) -> crate::Result<OperationAssessment> {
         Ok(OperationAssessment::warning_with_confirmation(
@@ -233,7 +233,7 @@ impl AgentOperationAssessor for WarningAssessor {
     async fn assess_subagent_batch(
         &self,
         _operation: &str,
-        _requests: Vec<restflow_traits::subagent::ContractSubagentSpawnRequest>,
+        _requests: Vec<restflow_traits::subagent::ContractRunSpawnRequest>,
         _template_mode: bool,
     ) -> crate::Result<OperationAssessment> {
         unreachable!("unused in this test")
@@ -271,21 +271,6 @@ fn test_params_with_model_and_provider() {
 }
 
 #[test]
-fn test_params_accept_legacy_parent_execution_id_alias() {
-    let params: SpawnSubagentParams = serde_json::from_value(json!({
-        "task": "Research topic X",
-        "parent_execution_id": "run-123"
-    }))
-    .unwrap();
-
-    assert_eq!(params.parent_run_id.as_deref(), Some("run-123"));
-
-    let serialized = serde_json::to_value(&params).unwrap();
-    assert_eq!(serialized["parent_run_id"], "run-123");
-    assert!(serialized.get("parent_execution_id").is_none());
-}
-
-#[test]
 fn test_params_serialize_canonical_parent_run_id() {
     let params = SpawnSubagentParams {
         operation: SpawnSubagentBatchOperation::Spawn,
@@ -310,7 +295,6 @@ fn test_params_serialize_canonical_parent_run_id() {
 
     let serialized = serde_json::to_value(&params).unwrap();
     assert_eq!(serialized["parent_run_id"], "run-456");
-    assert!(serialized.get("parent_execution_id").is_none());
 }
 
 #[tokio::test]

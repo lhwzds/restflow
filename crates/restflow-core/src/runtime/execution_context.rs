@@ -32,7 +32,6 @@ pub struct ExecutionContext {
     pub chat_session_id: Option<String>,
     #[serde(alias = "task_id")]
     pub task_id: Option<String>,
-    #[serde(rename = "parent_run_id", alias = "parent_execution_id")]
     pub parent_run_id: Option<String>,
 }
 
@@ -110,7 +109,6 @@ mod tests {
         let context = ExecutionContext::subagent("agent-2", "exec-1");
         let value = context.to_value();
         assert_eq!(value["parent_run_id"], "exec-1");
-        assert!(value.get("parent_execution_id").is_none());
     }
 
     #[test]

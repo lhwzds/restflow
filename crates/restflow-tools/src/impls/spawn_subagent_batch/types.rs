@@ -87,7 +87,7 @@ pub struct BatchSubagentSpec {
 }
 
 /// Parameters for spawn_subagent_batch tool.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct SpawnSubagentBatchParams {
@@ -146,56 +146,6 @@ pub struct SpawnSubagentBatchParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub approval_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawSpawnSubagentBatchParams {
-    #[serde(default)]
-    operation: SpawnSubagentBatchOperation,
-    #[serde(default)]
-    specs: Option<Vec<BatchSubagentSpec>>,
-    #[serde(default)]
-    task: Option<String>,
-    #[serde(default)]
-    tasks: Option<Vec<String>>,
-    #[serde(default)]
-    wait: bool,
-    #[serde(default)]
-    timeout_secs: Option<u64>,
-    #[serde(default)]
-    parent_run_id: Option<String>,
-    #[serde(default)]
-    parent_execution_id: Option<String>,
-    #[serde(default)]
-    trace_session_id: Option<String>,
-    #[serde(default)]
-    trace_scope_id: Option<String>,
-    #[serde(default)]
-    preview: bool,
-    #[serde(default)]
-    approval_id: Option<String>,
-}
-
-impl<'de> Deserialize<'de> for SpawnSubagentBatchParams {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = RawSpawnSubagentBatchParams::deserialize(deserializer)?;
-        Ok(Self {
-            operation: raw.operation,
-            specs: raw.specs,
-            task: raw.task,
-            tasks: raw.tasks,
-            wait: raw.wait,
-            timeout_secs: raw.timeout_secs,
-            parent_run_id: raw.parent_run_id.or(raw.parent_execution_id),
-            trace_session_id: raw.trace_session_id,
-            trace_scope_id: raw.trace_scope_id,
-            preview: raw.preview,
-            approval_id: raw.approval_id,
-        })
-    }
 }
 
 #[derive(Debug, Clone)]

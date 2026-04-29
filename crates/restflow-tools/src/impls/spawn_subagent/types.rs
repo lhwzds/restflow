@@ -1,9 +1,9 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use super::super::spawn_subagent_batch::{BatchSubagentSpec, SpawnSubagentBatchOperation};
 
 /// Parameters for spawn_subagent tool.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct SpawnSubagentParams {
@@ -101,75 +101,4 @@ pub struct SpawnSubagentParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub approval_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawSpawnSubagentParams {
-    #[serde(default)]
-    operation: SpawnSubagentBatchOperation,
-    #[serde(default)]
-    agent: Option<String>,
-    #[serde(default)]
-    task: Option<String>,
-    #[serde(default)]
-    tasks: Option<Vec<String>>,
-    #[serde(default)]
-    wait: bool,
-    #[serde(default)]
-    timeout_secs: Option<u64>,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    provider: Option<String>,
-    #[serde(default)]
-    parent_run_id: Option<String>,
-    #[serde(default)]
-    parent_execution_id: Option<String>,
-    #[serde(default)]
-    trace_session_id: Option<String>,
-    #[serde(default)]
-    trace_scope_id: Option<String>,
-    #[serde(default)]
-    inline_name: Option<String>,
-    #[serde(default)]
-    inline_system_prompt: Option<String>,
-    #[serde(default)]
-    inline_allowed_tools: Option<Vec<String>>,
-    #[serde(default)]
-    inline_max_iterations: Option<u32>,
-    #[serde(default)]
-    workers: Option<Vec<BatchSubagentSpec>>,
-    #[serde(default)]
-    preview: bool,
-    #[serde(default)]
-    approval_id: Option<String>,
-}
-
-impl<'de> Deserialize<'de> for SpawnSubagentParams {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = RawSpawnSubagentParams::deserialize(deserializer)?;
-        Ok(Self {
-            operation: raw.operation,
-            agent: raw.agent,
-            task: raw.task,
-            tasks: raw.tasks,
-            wait: raw.wait,
-            timeout_secs: raw.timeout_secs,
-            model: raw.model,
-            provider: raw.provider,
-            parent_run_id: raw.parent_run_id.or(raw.parent_execution_id),
-            trace_session_id: raw.trace_session_id,
-            trace_scope_id: raw.trace_scope_id,
-            inline_name: raw.inline_name,
-            inline_system_prompt: raw.inline_system_prompt,
-            inline_allowed_tools: raw.inline_allowed_tools,
-            inline_max_iterations: raw.inline_max_iterations,
-            workers: raw.workers,
-            preview: raw.preview,
-            approval_id: raw.approval_id,
-        })
-    }
 }

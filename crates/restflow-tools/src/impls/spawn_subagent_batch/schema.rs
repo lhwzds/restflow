@@ -90,7 +90,7 @@ pub(super) fn parameters_schema() -> Value {
             },
             "parent_run_id": {
                 "type": "string",
-                "description": "Optional parent run ID for context propagation (runtime-injected). Legacy 'parent_execution_id' is accepted by the raw decoder."
+                "description": "Optional parent run ID for context propagation (runtime-injected)."
             },
             "trace_session_id": {
                 "type": "string",

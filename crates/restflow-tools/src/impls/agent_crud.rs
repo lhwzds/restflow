@@ -466,7 +466,7 @@ mod tests {
         async fn assess_subagent_spawn(
             &self,
             _operation: &str,
-            _request: restflow_traits::subagent::ContractSubagentSpawnRequest,
+            _request: restflow_traits::subagent::ContractRunSpawnRequest,
             _template_mode: bool,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
@@ -475,7 +475,7 @@ mod tests {
         async fn assess_subagent_batch(
             &self,
             _operation: &str,
-            _requests: Vec<restflow_traits::subagent::ContractSubagentSpawnRequest>,
+            _requests: Vec<restflow_traits::subagent::ContractRunSpawnRequest>,
             _template_mode: bool,
         ) -> Result<OperationAssessment> {
             unreachable!("unused in this test")
