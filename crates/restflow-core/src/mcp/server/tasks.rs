@@ -129,34 +129,33 @@ impl RestFlowMcpServer {
                     .cloned()
                     .collect();
 
+                let mut response = serde_json::json!({
+                    "events": serde_json::to_value(events).map_err(|e| e.to_string())?,
+                    "query": {
+                        "task_id": query_task_id,
+                        "id": query_id,
+                        "agent_id": params.agent_id,
+                        "category": category,
+                        "source": source_filter,
+                        "from_time_ms": params.from_time_ms,
+                        "to_time_ms": params.to_time_ms,
+                        "limit": limit,
+                        "offset": offset,
+                        "total": total,
+                    },
+                });
                 if include_stats {
-                    serde_json::json!({
-                        "events": serde_json::to_value(events).map_err(|e| e.to_string())?,
-                        "stats": Self::build_trace_stats(
-                            &filtered_traces,
-                            limit,
-                            offset,
-                            scoped_tasks.len(),
-                            scoped_tasks.len(),
-                            params.from_time_ms,
-                            params.to_time_ms,
-                        ),
-                        "query": {
-                            "task_id": query_task_id,
-                            "id": query_id,
-                            "agent_id": params.agent_id,
-                            "category": category,
-                            "source": source_filter,
-                            "from_time_ms": params.from_time_ms,
-                            "to_time_ms": params.to_time_ms,
-                            "limit": limit,
-                            "offset": offset,
-                            "total": total,
-                        },
-                    })
-                } else {
-                    serde_json::to_value(events).map_err(|e| e.to_string())?
+                    response["stats"] = Self::build_trace_stats(
+                        &filtered_traces,
+                        limit,
+                        offset,
+                        scoped_tasks.len(),
+                        scoped_tasks.len(),
+                        params.from_time_ms,
+                        params.to_time_ms,
+                    );
                 }
+                response
             }
             "read_trace" => {
                 let trace_id = params.trace_id.ok_or("trace_id is required")?;

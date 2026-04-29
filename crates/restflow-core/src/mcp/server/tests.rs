@@ -1886,7 +1886,7 @@ fn test_parse_trace_category_rejects_unknown_value() {
 }
 
 #[tokio::test]
-async fn test_manage_tasks_list_traces_keeps_backward_compatible_array_shape() {
+async fn test_manage_tasks_list_traces_returns_canonical_object_shape() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
     let mut params = base_manage_tasks_params("list_traces");
     params.id = Some("task-1".to_string());
@@ -1897,7 +1897,9 @@ async fn test_manage_tasks_list_traces_keeps_backward_compatible_array_shape() {
         .expect("list_traces should succeed");
     let value: serde_json::Value =
         serde_json::from_str(&json).expect("list_traces response should be valid json");
-    assert!(value.is_array());
+    assert!(value["events"].is_array());
+    assert!(value["query"].is_object());
+    assert!(value.get("stats").is_none());
 }
 
 #[tokio::test]
