@@ -36,11 +36,12 @@ pub async fn run_route(
         RouteCommands::List => list_routes(executor, format).await,
         RouteCommands::Bind {
             peer,
-            group,
+            account,
+            channel,
             default,
             agent,
         } => {
-            let (binding_type, target_id) = route_binding_input(peer, group, default)?;
+            let (binding_type, target_id) = route_binding_input(peer, account, channel, default)?;
             bind_route(executor, binding_type, &target_id, &agent, format).await
         }
         RouteCommands::Unbind { id } => unbind_route(executor, &id, format).await,
@@ -281,22 +282,29 @@ async fn unbind_route(
 
 fn route_binding_input(
     peer: Option<String>,
-    group: Option<String>,
+    account: Option<String>,
+    channel: Option<String>,
     default: bool,
 ) -> Result<(&'static str, String)> {
     if let Some(peer_id) = peer {
         return Ok(("peer", peer_id));
     }
 
-    if let Some(group_id) = group {
-        return Ok(("group", group_id));
+    if let Some(account_id) = account {
+        return Ok(("account", account_id));
+    }
+
+    if let Some(channel_id) = channel {
+        return Ok(("channel", channel_id));
     }
 
     if default {
         return Ok(("default", "*".to_string()));
     }
 
-    Err(anyhow!("Must specify --peer, --group, or --default"))
+    Err(anyhow!(
+        "Must specify --peer, --account, --channel, or --default"
+    ))
 }
 
 fn short_id(value: &str) -> &str {
@@ -310,23 +318,33 @@ mod tests {
     #[test]
     fn route_binding_input_prefers_peer() {
         let (binding_type, target_id) =
-            route_binding_input(Some("peer-1".to_string()), None, false).expect("peer input");
+            route_binding_input(Some("peer-1".to_string()), None, None, false).expect("peer input");
         assert_eq!(binding_type, "peer");
         assert_eq!(target_id, "peer-1");
     }
 
     #[test]
-    fn route_binding_input_preserves_group_legacy_type() {
+    fn route_binding_input_supports_account() {
         let (binding_type, target_id) =
-            route_binding_input(None, Some("chat-1".to_string()), false).expect("group input");
-        assert_eq!(binding_type, "group");
-        assert_eq!(target_id, "chat-1");
+            route_binding_input(None, Some("bot-1".to_string()), None, false)
+                .expect("account input");
+        assert_eq!(binding_type, "account");
+        assert_eq!(target_id, "bot-1");
+    }
+
+    #[test]
+    fn route_binding_input_supports_channel() {
+        let (binding_type, target_id) =
+            route_binding_input(None, None, Some("telegram".to_string()), false)
+                .expect("channel input");
+        assert_eq!(binding_type, "channel");
+        assert_eq!(target_id, "telegram");
     }
 
     #[test]
     fn route_binding_input_supports_default() {
         let (binding_type, target_id) =
-            route_binding_input(None, None, true).expect("default input");
+            route_binding_input(None, None, None, true).expect("default input");
         assert_eq!(binding_type, "default");
         assert_eq!(target_id, "*");
     }

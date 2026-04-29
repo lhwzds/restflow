@@ -22,10 +22,6 @@ pub enum RouteBindingType {
     Channel,
     /// Fallback for all (priority 3)
     Default,
-    /// Legacy group binding (deprecated, maps to channel-level priority)
-    /// Kept for backward compatibility with existing persisted data.
-    #[serde(rename = "group")]
-    Group,
 }
 
 impl RouteBindingType {
@@ -36,13 +32,7 @@ impl RouteBindingType {
             Self::Account => "account",
             Self::Channel => "channel",
             Self::Default => "default",
-            Self::Group => "group", // Legacy: kept for migration
         }
-    }
-
-    /// Check if this is a legacy binding type that should be migrated.
-    pub fn is_legacy(&self) -> bool {
-        matches!(self, Self::Group)
     }
 }
 
@@ -53,7 +43,6 @@ impl std::fmt::Display for RouteBindingType {
             Self::Account => write!(f, "account"),
             Self::Channel => write!(f, "channel"),
             Self::Default => write!(f, "default"),
-            Self::Group => write!(f, "group"), // Legacy
         }
     }
 }
@@ -83,9 +72,6 @@ pub enum MatchedBy {
     Channel,
     /// Matched by default binding
     Default,
-    /// Matched by legacy group binding (deprecated)
-    #[serde(rename = "group")]
-    Group,
 }
 
 /// Resolved route with agent ID and match metadata.
@@ -179,9 +165,7 @@ impl RouteResolver {
         }
 
         // 3. Check channel binding
-        // Try plugin_id first (stable), then display name (backward compatibility)
         let channel_key_plugin = format!("channel:{}", channel_plugin_id);
-        let channel_key_display = format!("channel:{}", channel_display);
 
         if let Ok(Some(data)) = self.storage.resolve_route_by_key(&channel_key_plugin)
             && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
@@ -197,38 +181,7 @@ impl RouteResolver {
             });
         }
 
-        // Also try display name for backward compatibility with existing bindings
-        if let Ok(Some(data)) = self.storage.resolve_route_by_key(&channel_key_display)
-            && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
-        {
-            let session_key = format!(
-                "agent:{}:{}:{}:{}:{}",
-                binding.agent_id, channel_display, account_id, peer_id, chat_id
-            );
-            return Some(ResolvedRoute {
-                agent_id: binding.agent_id,
-                session_key,
-                matched_by: MatchedBy::Channel,
-            });
-        }
-
-        // 4. Check legacy group binding keyed by conversation/chat id.
-        let group_key = format!("group:{}", chat_id);
-        if let Ok(Some(data)) = self.storage.resolve_route_by_key(&group_key)
-            && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
-        {
-            let session_key = format!(
-                "agent:{}:{}:{}:{}:{}",
-                binding.agent_id, channel_display, account_id, peer_id, chat_id
-            );
-            return Some(ResolvedRoute {
-                agent_id: binding.agent_id,
-                session_key,
-                matched_by: MatchedBy::Group,
-            });
-        }
-
-        // 5. Check default binding
+        // 4. Check default binding
         if let Ok(Some(data)) = self.storage.resolve_route_by_key("default:*")
             && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
         {
@@ -246,51 +199,7 @@ impl RouteResolver {
         None
     }
 
-    /// Legacy method for backward compatibility.
-    /// Resolves agent using the original priority: Peer > Group > Default.
-    ///
-    /// # Arguments
-    /// * `sender_id` - The sender's peer ID
-    /// * `chat_id` - The chat/conversation ID (used for group-level binding)
-    #[deprecated(note = "Use resolve_route() instead for full multi-dimension routing")]
-    pub fn resolve_agent(&self, sender_id: &str, chat_id: &str) -> Option<String> {
-        // 1. Check peer binding (most specific)
-        let peer_key = format!("peer:{}", sender_id);
-        if let Ok(Some(data)) = self.storage.resolve_route_by_key(&peer_key)
-            && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
-        {
-            return Some(binding.agent_id);
-        }
-
-        // 2. Check legacy group binding (backward compatibility)
-        // This preserves the original Peer > Group > Default semantics
-        let group_key = format!("group:{}", chat_id);
-        if let Ok(Some(data)) = self.storage.resolve_route_by_key(&group_key)
-            && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
-        {
-            // Migrate legacy group binding to channel binding
-            tracing::warn!(
-                group_key = %group_key,
-                agent_id = %binding.agent_id,
-                "Using legacy group binding, consider migrating to channel binding"
-            );
-            return Some(binding.agent_id);
-        }
-
-        // 3. Check default binding
-        if let Ok(Some(data)) = self.storage.resolve_route_by_key("default:*")
-            && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
-        {
-            return Some(binding.agent_id);
-        }
-
-        None
-    }
-
     /// Add a route binding.
-    ///
-    /// Note: Creating a Group binding is deprecated and will log a warning.
-    /// Use Channel binding instead.
     ///
     /// For Channel bindings, the target_id is normalized to plugin_id format
     /// (e.g., "telegram" instead of "Telegram") for stable key generation.
@@ -315,14 +224,6 @@ impl RouteResolver {
             RouteBindingType::Account => 1,
             RouteBindingType::Channel => 2,
             RouteBindingType::Default => 3,
-            RouteBindingType::Group => {
-                tracing::warn!(
-                    target_id = %target_id,
-                    agent_id = %agent_id,
-                    "Creating legacy Group binding, consider using Channel binding instead"
-                );
-                2 // Treat as Channel-level priority
-            }
         };
 
         let binding = RouteBinding {
@@ -334,7 +235,11 @@ impl RouteResolver {
             priority,
         };
 
-        let index_key = format!("{}:{}", binding_type.index_prefix(), target_id);
+        let index_key = format!(
+            "{}:{}",
+            binding_type.index_prefix(),
+            binding.target_id.as_str()
+        );
         let data = serde_json::to_vec(&binding)?;
         self.storage.add_route_binding(&id, &index_key, &data)?;
 
@@ -349,7 +254,6 @@ impl RouteResolver {
     /// List all route bindings.
     ///
     /// Note: Silently skips bindings that fail to deserialize (e.g., corrupted data).
-    /// This ensures backward compatibility when old binding types are removed.
     pub fn list(&self) -> Result<Vec<RouteBinding>> {
         let raw = self.storage.list_route_bindings()?;
         let mut bindings = Vec::with_capacity(raw.len());
@@ -357,11 +261,9 @@ impl RouteResolver {
             match serde_json::from_slice::<RouteBinding>(&data) {
                 Ok(binding) => bindings.push(binding),
                 Err(e) => {
-                    // Log and skip bindings that fail to deserialize
-                    // This handles legacy binding types gracefully
                     tracing::warn!(
                         error = %e,
-                        "Skipping route binding that failed to deserialize, possibly a legacy type"
+                        "Skipping route binding that failed to deserialize"
                     );
                 }
             }
@@ -369,51 +271,6 @@ impl RouteResolver {
         // Sort by priority
         bindings.sort_by_key(|b| b.priority);
         Ok(bindings)
-    }
-
-    /// Migrate legacy group bindings to channel bindings.
-    ///
-    /// This is a one-time migration that converts all `group:{chat_id}` bindings
-    /// to `channel:Telegram` bindings (or another appropriate channel type).
-    pub fn migrate_group_bindings(&self) -> Result<usize> {
-        let raw = self.storage.list_route_bindings()?;
-        let mut migrated = 0;
-
-        for (id, data) in raw {
-            if let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
-                && binding.binding_type == RouteBindingType::Group
-            {
-                // Create a new channel binding with the same agent
-                // Use stable plugin_id format for target_id
-                let new_target_id = "telegram".to_string(); // Default to Telegram (plugin_id format)
-                let new_binding = RouteBinding {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    binding_type: RouteBindingType::Channel,
-                    target_id: new_target_id.clone(),
-                    agent_id: binding.agent_id.clone(),
-                    created_at: binding.created_at,
-                    priority: 2,
-                };
-
-                let new_key = format!("channel:{}", new_target_id);
-                let new_data = serde_json::to_vec(&new_binding)?;
-                self.storage
-                    .add_route_binding(&new_binding.id, &new_key, &new_data)?;
-
-                // Remove old binding
-                self.storage.remove_route_binding(&id)?;
-
-                migrated += 1;
-                tracing::info!(
-                    old_id = %id,
-                    new_id = %new_binding.id,
-                    agent_id = %binding.agent_id,
-                    "Migrated group binding to channel binding"
-                );
-            }
-        }
-
-        Ok(migrated)
     }
 }
 
@@ -656,57 +513,6 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_resolve_agent_with_group_binding() {
-        let resolver = create_test_resolver();
-
-        // Create a legacy group binding
-        resolver
-            .bind(RouteBindingType::Group, "chat-123", "group-agent")
-            .unwrap();
-
-        // Test legacy resolve_agent method
-        #[allow(deprecated)]
-        let agent = resolver.resolve_agent("any-user", "chat-123");
-        assert_eq!(agent, Some("group-agent".to_string()));
-    }
-
-    #[test]
-    fn test_legacy_resolve_agent_peer_over_group() {
-        let resolver = create_test_resolver();
-
-        // Create both peer and group bindings
-        resolver
-            .bind(RouteBindingType::Peer, "user-1", "peer-agent")
-            .unwrap();
-        resolver
-            .bind(RouteBindingType::Group, "chat-123", "group-agent")
-            .unwrap();
-
-        // Peer should win over group
-        #[allow(deprecated)]
-        let agent = resolver.resolve_agent("user-1", "chat-123");
-        assert_eq!(agent, Some("peer-agent".to_string()));
-    }
-
-    #[test]
-    fn test_group_over_default() {
-        let resolver = create_test_resolver();
-
-        // Create group and default bindings
-        resolver
-            .bind(RouteBindingType::Default, "*", "default-agent")
-            .unwrap();
-        resolver
-            .bind(RouteBindingType::Group, "chat-123", "group-agent")
-            .unwrap();
-
-        // Group should win over default
-        #[allow(deprecated)]
-        let agent = resolver.resolve_agent("any-user", "chat-123");
-        assert_eq!(agent, Some("group-agent".to_string()));
-    }
-
-    #[test]
     fn test_list_skips_corrupted_bindings() {
         let resolver = create_test_resolver();
 
@@ -728,47 +534,6 @@ mod tests {
         let bindings = resolver.list().unwrap();
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].agent_id, "peer-agent");
-    }
-
-    #[test]
-    fn test_group_is_legacy() {
-        assert!(RouteBindingType::Group.is_legacy());
-        assert!(!RouteBindingType::Peer.is_legacy());
-        assert!(!RouteBindingType::Channel.is_legacy());
-    }
-
-    #[test]
-    fn test_migrate_group_bindings() {
-        let resolver = create_test_resolver();
-
-        // Create a single legacy group binding for clear migration test
-        resolver
-            .bind(RouteBindingType::Group, "chat-1", "agent-1")
-            .unwrap();
-        // Also create a non-group binding
-        resolver
-            .bind(RouteBindingType::Peer, "user-1", "peer-agent")
-            .unwrap();
-
-        // Migrate
-        let migrated = resolver.migrate_group_bindings().unwrap();
-        assert_eq!(migrated, 1);
-
-        // Verify old group binding is gone
-        #[allow(deprecated)]
-        let agent = resolver.resolve_agent("any-user", "chat-1");
-        assert_eq!(agent, None);
-
-        // Verify peer binding still exists
-        #[allow(deprecated)]
-        let agent = resolver.resolve_agent("user-1", "chat-1");
-        assert_eq!(agent, Some("peer-agent".to_string()));
-
-        // Verify the migrated channel binding exists
-        let route =
-            resolver.resolve_route(ChannelType::Telegram, "any-bot", "any-user", "any-chat");
-        assert!(route.is_some());
-        assert_eq!(route.unwrap().agent_id, "agent-1");
     }
 
     #[test]
@@ -807,32 +572,5 @@ mod tests {
             .resolve_route(ChannelType::Telegram, "any-bot", "any-user", "chat-1")
             .unwrap();
         assert_eq!(route.agent_id, "channel-agent");
-    }
-
-    #[test]
-    fn test_channel_binding_backward_compatible_display_name() {
-        let resolver = create_test_resolver();
-
-        // Simulate a legacy binding stored with display name by manually inserting
-        let storage = resolver.storage.clone();
-        let legacy_binding = RouteBinding {
-            id: uuid::Uuid::new_v4().to_string(),
-            binding_type: RouteBindingType::Channel,
-            target_id: "Telegram".to_string(), // Old display name format
-            agent_id: "legacy-agent".to_string(),
-            created_at: chrono::Utc::now().timestamp_millis(),
-            priority: 2,
-        };
-        let legacy_key = "channel:Telegram".to_string();
-        let legacy_data = serde_json::to_vec(&legacy_binding).unwrap();
-        storage
-            .add_route_binding(&legacy_binding.id, &legacy_key, &legacy_data)
-            .unwrap();
-
-        // Should still resolve via backward-compatible lookup
-        let route = resolver
-            .resolve_route(ChannelType::Telegram, "any-bot", "any-user", "chat-1")
-            .unwrap();
-        assert_eq!(route.agent_id, "legacy-agent");
     }
 }

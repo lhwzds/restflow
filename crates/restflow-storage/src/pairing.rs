@@ -437,19 +437,19 @@ mod tests {
             )
             .unwrap();
 
-        // Add group binding
-        let group_binding = json!({
-            "id": "rb-group",
-            "binding_type": "group",
-            "target_id": "group-1",
-            "agent_id": "group-agent",
+        // Add channel binding
+        let channel_binding = json!({
+            "id": "rb-channel",
+            "binding_type": "channel",
+            "target_id": "telegram",
+            "agent_id": "channel-agent",
             "priority": 1
         });
         storage
             .add_route_binding(
-                "rb-group",
-                "group:group-1",
-                &serde_json::to_vec(&group_binding).unwrap(),
+                "rb-channel",
+                "channel:telegram",
+                &serde_json::to_vec(&channel_binding).unwrap(),
             )
             .unwrap();
 
@@ -476,10 +476,10 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        // Group binding should resolve
+        // Channel binding should resolve
         assert!(
             storage
-                .resolve_route_by_key("group:group-1")
+                .resolve_route_by_key("channel:telegram")
                 .unwrap()
                 .is_some()
         );

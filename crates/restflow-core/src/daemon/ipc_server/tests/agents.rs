@@ -623,7 +623,7 @@ async fn process_approve_pairing_auto_binds_owner_chat_id() {
 }
 
 #[tokio::test]
-async fn process_bind_route_preserves_legacy_group_binding() {
+async fn process_bind_route_binds_channel() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
@@ -631,8 +631,8 @@ async fn process_bind_route_preserves_legacy_group_binding() {
         &core,
         &runtime_tool_registry,
         IpcRequest::BindRoute {
-            binding_type: "group".to_string(),
-            target_id: "chat-1".to_string(),
+            binding_type: "channel".to_string(),
+            target_id: "Telegram".to_string(),
             agent_id: "agent-1".to_string(),
         },
     )
@@ -642,8 +642,8 @@ async fn process_bind_route_preserves_legacy_group_binding() {
         IpcResponse::Success(value) => {
             let binding: RouteBindingResponse =
                 serde_json::from_value(value).expect("route binding");
-            assert_eq!(binding.binding_type, "group");
-            assert_eq!(binding.target_id, "chat-1");
+            assert_eq!(binding.binding_type, "channel");
+            assert_eq!(binding.target_id, "telegram");
             assert_eq!(binding.agent_id, "agent-1");
             assert_eq!(binding.priority, 2);
         }

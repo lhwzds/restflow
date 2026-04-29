@@ -147,7 +147,7 @@ impl IpcServer {
         target_id: String,
         agent_id: String,
     ) -> IpcResponse {
-        let binding_type = match parse_route_binding_type(&binding_type, &target_id) {
+        let binding_type = match parse_route_binding_type(&binding_type) {
             Ok(binding_type) => binding_type,
             Err(err) => return IpcResponse::error(400, err),
         };
@@ -206,22 +206,12 @@ fn auto_bind_owner_chat_id_if_missing(
     Ok(true)
 }
 
-fn parse_route_binding_type(
-    value: &str,
-    target_id: &str,
-) -> Result<crate::channel::RouteBindingType, String> {
+fn parse_route_binding_type(value: &str) -> Result<crate::channel::RouteBindingType, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "peer" => Ok(crate::channel::RouteBindingType::Peer),
         "account" => Ok(crate::channel::RouteBindingType::Account),
         "channel" => Ok(crate::channel::RouteBindingType::Channel),
         "default" => Ok(crate::channel::RouteBindingType::Default),
-        "group" => {
-            tracing::warn!(
-                target_id = %target_id,
-                "Using deprecated --group flag, consider using --channel instead"
-            );
-            Ok(crate::channel::RouteBindingType::Group)
-        }
         other => Err(format!("Unsupported route binding type: {other}")),
     }
 }

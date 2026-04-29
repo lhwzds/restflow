@@ -505,17 +505,12 @@ fn auto_bind_owner_chat_id_if_missing(
     Ok(true)
 }
 
-fn normalize_route_binding_type(binding_type: &str, target_id: &str) -> RouteBindingType {
+fn normalize_route_binding_type(binding_type: &str, _target_id: &str) -> RouteBindingType {
     match binding_type {
         "peer" => RouteBindingType::Peer,
+        "account" => RouteBindingType::Account,
+        "channel" => RouteBindingType::Channel,
         "default" => RouteBindingType::Default,
-        "group" => {
-            tracing::warn!(
-                target_id = %target_id,
-                "Using deprecated --group flag, consider using --channel instead"
-            );
-            RouteBindingType::Channel
-        }
         _ => RouteBindingType::Channel,
     }
 }

@@ -989,13 +989,17 @@ pub enum RouteCommands {
 
     /// Bind a target to an agent
     Bind {
-        /// Binding type: peer, group, or default
+        /// Peer ID
         #[arg(long)]
         peer: Option<String>,
 
-        /// Group/chat ID
+        /// Bot account ID
         #[arg(long)]
-        group: Option<String>,
+        account: Option<String>,
+
+        /// Channel ID, for example telegram, discord, or slack
+        #[arg(long)]
+        channel: Option<String>,
 
         /// Set as default agent
         #[arg(long)]
