@@ -1,0 +1,93 @@
+# V2 Architecture
+
+## Target Shape
+
+```text
+Product shell
+  CLI / TUI / Web / daemon / MCP / packages
+
+Kernel modules
+  agent / skill / tool / run / chat / store / model / auth / event
+
+Python package
+  restflow.agent / restflow.skill / restflow.tool / ...
+```
+
+## Boundary Diagram
+
+```mermaid
+flowchart TD
+    UI["ui\nTUI and Web interactions"] --> Server["server\ndaemon and transports"]
+    Server --> Chat["chat\nsessions and turns"]
+    Server --> Run["run\ntasks and runs"]
+
+    Chat --> Skill["skill\nTurnPlan"]
+    Run --> Skill
+    Skill --> Tool["tool\nRegistry"]
+    Tool --> Agent["agent\nexecution loop"]
+    Agent --> Event["event\nstream and trace"]
+    Agent --> Model["model\nprovider/model specs"]
+    Server --> Auth["auth\nsecrets and access"]
+    Server --> Store["store\nrepositories"]
+    Chat --> Store
+    Run --> Store
+
+    Python["python/restflow"] --> Agent
+    Python --> Skill
+    Python --> Tool
+    Python --> Event
+```
+
+## Ownership
+
+### agent
+
+Owns the execution loop, prompt assembly, tool-call orchestration, context
+management, cancellation, and subagent execution.
+
+### skill
+
+Owns skill metadata, catalogs, mention parsing as text semantics, assigned skill
+resolution, trigger matching, variables, gating, and per-turn capability
+planning.
+
+### tool
+
+Owns the `Tool` trait, registry, schema metadata, and pure tool execution
+contracts.
+
+### run
+
+Owns durable task/run execution concepts, checkpoints, run status, and run
+artifacts.
+
+### chat
+
+Owns sessions, messages, turns, and stream-to-history finalization.
+
+### store
+
+Owns backend-neutral repository traits and backend capability contracts.
+
+### model
+
+Owns provider/model identity, catalog, selectors, and runtime model specs.
+
+### auth
+
+Owns secret references, auth profiles, provider access, and credential
+resolution policy.
+
+### event
+
+Owns event types shared by agent, chat, run, server, and Python bindings.
+
+## @skill Boundary
+
+`@skill` has two separate layers:
+
+- UI layer: opens a picker and inserts plain text such as `@team`.
+- Runtime layer: parses final message text and builds a `TurnPlan`.
+
+The UI never grants tools. The runtime never knows how the mention was typed.
+
