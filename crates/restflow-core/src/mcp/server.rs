@@ -132,8 +132,7 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<TaskMessage, String>;
     async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String>;
     async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String>;
-    async fn list_execution_sessions(&self, query: RunListQuery)
-    -> Result<Vec<RunSummary>, String>;
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String>;
 
     async fn query_execution_traces(
         &self,

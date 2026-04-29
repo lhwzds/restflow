@@ -170,10 +170,6 @@ impl ExecutionConsoleService {
         }
     }
 
-    pub fn list_execution_sessions(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
-        self.list_runs(query)
-    }
-
     pub fn get_execution_run_thread(
         &self,
         run_id: &str,
@@ -237,10 +233,6 @@ impl ExecutionConsoleService {
                 .then_with(|| left.id.cmp(&right.id))
         });
         Ok(sessions)
-    }
-
-    pub fn list_child_execution_sessions(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
-        self.list_child_runs(parent_run_id)
     }
 
     fn build_workspace_container(
@@ -1169,9 +1161,7 @@ mod tests {
                 .any(|run| run.run_id.as_deref() == Some("run-parent"))
         );
 
-        let child_runs = service
-            .list_child_execution_sessions("run-parent")
-            .expect("child runs");
+        let child_runs = service.list_child_runs("run-parent").expect("child runs");
         assert_eq!(child_runs.len(), 1);
         assert_eq!(child_runs[0].run_id.as_deref(), Some("run-child"));
         assert_eq!(child_runs[0].container_id, task.id);
@@ -1203,9 +1193,7 @@ mod tests {
         assert_eq!(thread.focus.root_run_id.as_deref(), Some("run-1"));
         assert!(thread.timeline.events.len() >= 2);
 
-        let child_runs = service
-            .list_child_execution_sessions("run-1")
-            .expect("child runs");
+        let child_runs = service.list_child_runs("run-1").expect("child runs");
         assert_eq!(child_runs.len(), 1);
         assert_eq!(child_runs[0].run_id.as_deref(), Some("run-2"));
         assert_eq!(child_runs[0].container_id, session_id);

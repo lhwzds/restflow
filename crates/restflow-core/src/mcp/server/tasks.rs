@@ -90,7 +90,7 @@ impl RestFlowMcpServer {
                 for task in &scoped_tasks {
                     let runs = self
                         .backend
-                        .list_execution_sessions(RunListQuery {
+                        .list_runs(RunListQuery {
                             container: ExecutionContainerRef {
                                 kind: ExecutionContainerKind::Task,
                                 id: task.id.clone(),

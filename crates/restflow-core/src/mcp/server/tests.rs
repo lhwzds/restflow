@@ -1215,10 +1215,7 @@ impl McpBackend for MockBackend {
         Ok(Vec::new())
     }
 
-    async fn list_execution_sessions(
-        &self,
-        query: RunListQuery,
-    ) -> Result<Vec<RunSummary>, String> {
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String> {
         Ok(vec![RunSummary {
             id: format!("{}-run-summary", query.container.id),
             kind: RunKind::TaskRun,

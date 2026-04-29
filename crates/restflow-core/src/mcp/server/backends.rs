@@ -284,14 +284,11 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_execution_sessions(
-        &self,
-        query: RunListQuery,
-    ) -> Result<Vec<RunSummary>, String> {
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String> {
         crate::services::execution_console::ExecutionConsoleService::from_storage(
             &self.core.storage,
         )
-        .list_execution_sessions(&query)
+        .list_runs(&query)
         .map_err(|e| e.to_string())
     }
 
@@ -631,10 +628,7 @@ impl McpBackend for IpcBackend {
         .await
     }
 
-    async fn list_execution_sessions(
-        &self,
-        query: RunListQuery,
-    ) -> Result<Vec<RunSummary>, String> {
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String> {
         let query = to_contract(query).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::ListRuns { query }).await
     }

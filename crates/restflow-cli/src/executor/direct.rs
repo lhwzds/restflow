@@ -432,8 +432,8 @@ impl CommandExecutor for DirectExecutor {
         bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
-        ExecutionConsoleService::from_storage(&self.core.storage).list_execution_sessions(&query)
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
+        ExecutionConsoleService::from_storage(&self.core.storage).list_runs(&query)
     }
 
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {

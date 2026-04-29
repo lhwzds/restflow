@@ -134,7 +134,7 @@ pub trait CommandExecutor: Send + Sync {
     async fn get_task_progress(&self, id: &str, event_limit: Option<usize>)
     -> Result<TaskProgress>;
     async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;
-    async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
 }
 

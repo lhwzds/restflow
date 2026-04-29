@@ -203,7 +203,7 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
 }
 
 #[tokio::test]
-async fn list_child_execution_sessions_returns_bad_request_for_blank_parent_run_id() {
+async fn list_child_runs_returns_bad_request_for_blank_parent_run_id() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
@@ -222,7 +222,7 @@ async fn list_child_execution_sessions_returns_bad_request_for_blank_parent_run_
 }
 
 #[tokio::test]
-async fn list_child_execution_sessions_returns_empty_for_leaf_runs() {
+async fn list_child_runs_returns_empty_for_leaf_runs() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
@@ -252,7 +252,7 @@ async fn list_child_execution_sessions_returns_empty_for_leaf_runs() {
 }
 
 #[tokio::test]
-async fn list_child_execution_sessions_returns_direct_children_for_parent_runs() {
+async fn list_child_runs_returns_direct_children_for_parent_runs() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 

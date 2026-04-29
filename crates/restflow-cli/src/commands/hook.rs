@@ -593,10 +593,7 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn list_execution_sessions(
-            &self,
-            _query: RunListQuery,
-        ) -> anyhow::Result<Vec<RunSummary>> {
+        async fn list_runs(&self, _query: RunListQuery) -> anyhow::Result<Vec<RunSummary>> {
             panic!("unexpected executor call")
         }
 

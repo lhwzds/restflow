@@ -455,9 +455,9 @@ impl CommandExecutor for IpcExecutor {
         Ok(())
     }
 
-    async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
+    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
         let mut client = self.client.lock().await;
-        client.list_execution_sessions(query).await
+        client.list_runs(query).await
     }
 
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {

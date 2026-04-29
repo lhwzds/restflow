@@ -455,7 +455,7 @@ async fn show_run_log(
 
     let runs = collect_run_ids(
         &executor
-            .list_execution_sessions(RunListQuery {
+            .list_runs(RunListQuery {
                 container: ExecutionContainerRef {
                     kind: ExecutionContainerKind::Task,
                     id: task_id.to_string(),

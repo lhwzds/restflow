@@ -149,13 +149,6 @@ impl IpcClient {
         self.request_typed(IpcRequest::ListRuns { query }).await
     }
 
-    pub async fn list_execution_sessions(
-        &mut self,
-        query: RunListQuery,
-    ) -> Result<Vec<RunSummary>> {
-        self.list_runs(query).await
-    }
-
     pub async fn query_execution_traces(
         &mut self,
         query: ExecutionTraceQuery,
