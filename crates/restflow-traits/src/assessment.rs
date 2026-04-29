@@ -106,24 +106,6 @@ fn build_approval_id(assessment: &OperationAssessment) -> String {
     format!("{hash:016x}")
 }
 
-pub fn normalize_legacy_approval_replay(value: &mut serde_json::Value) {
-    let serde_json::Value::Object(map) = value else {
-        return;
-    };
-
-    let needs_approval_id = map
-        .get("approval_id")
-        .map(serde_json::Value::is_null)
-        .unwrap_or(true);
-    if needs_approval_id
-        && let Some(legacy) = map.get("confirmation_token").cloned()
-        && !legacy.is_null()
-    {
-        map.insert("approval_id".to_string(), legacy);
-    }
-    map.remove("confirmation_token");
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum TaskCommandOutcome<T> {
@@ -196,7 +178,6 @@ pub trait AgentOperationAssessor: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn operation_assessment_serializes_with_approval_id() {
@@ -218,33 +199,5 @@ mod tests {
                 .and_then(|value| value.as_str())
                 .is_some()
         );
-        assert!(payload.get("confirmation_token").is_none());
-    }
-
-    #[test]
-    fn normalize_legacy_approval_replay_promotes_confirmation_token() {
-        let mut payload = json!({
-            "operation": "delete",
-            "confirmation_token": "approval-1"
-        });
-
-        normalize_legacy_approval_replay(&mut payload);
-
-        assert_eq!(payload["approval_id"], "approval-1");
-        assert!(payload.get("confirmation_token").is_none());
-    }
-
-    #[test]
-    fn normalize_legacy_approval_replay_does_not_override_approval_id() {
-        let mut payload = json!({
-            "operation": "delete",
-            "approval_id": "preferred",
-            "confirmation_token": "legacy"
-        });
-
-        normalize_legacy_approval_replay(&mut payload);
-
-        assert_eq!(payload["approval_id"], "preferred");
-        assert!(payload.get("confirmation_token").is_none());
     }
 }

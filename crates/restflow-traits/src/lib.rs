@@ -42,7 +42,6 @@ pub use error::{Result as ToolResult, ToolError};
 pub use assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, OperationAssessmentStatus, TaskCommandOutcome,
-    normalize_legacy_approval_replay,
 };
 
 // Tool trait and core types

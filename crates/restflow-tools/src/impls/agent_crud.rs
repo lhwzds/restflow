@@ -9,8 +9,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
-use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 
 #[derive(Clone)]
 pub struct AgentCrudTool {
@@ -129,8 +129,7 @@ impl Tool for AgentCrudTool {
         })
     }
 
-    async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
-        normalize_legacy_approval_replay(&mut input);
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: AgentAction = serde_json::from_value(input)?;
 
         let output = match action {
@@ -503,7 +502,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_accepts_legacy_confirmation_token_alias() {
+    async fn test_create_accepts_approval_id_for_replay() {
         let tool = AgentCrudTool::new(Arc::new(MockStore))
             .with_assessor(Arc::new(WarningAssessor))
             .with_write(true);
@@ -527,10 +526,10 @@ mod tests {
                 "operation": "create",
                 "name": "Agent",
                 "agent": {},
-                "confirmation_token": approval_id,
+                "approval_id": approval_id,
             }))
             .await
-            .expect("legacy alias should replay successfully");
+            .expect("approval id should replay successfully");
 
         assert!(replay.success);
     }

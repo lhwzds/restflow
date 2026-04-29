@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{MANAGE_TASK_OPERATIONS_CSV, MANAGE_TASKS_TOOL_NAME, TaskStore};
-use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::TaskAction;
 
 #[derive(Clone)]
@@ -91,8 +91,7 @@ impl Tool for TaskTool {
         schema::parameters_schema()
     }
 
-    async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
-        normalize_legacy_approval_replay(&mut input);
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: TaskAction = match serde_json::from_value(input) {
             Ok(action) => action,
             Err(e) => {

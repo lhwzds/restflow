@@ -20,9 +20,7 @@ describe('generated contract types', () => {
     const batchOperationSource = readGeneratedFile('SpawnSubagentBatchOperation.ts')
 
     expect(spawnParamsSource).toContain('approval_id?: string')
-    expect(spawnParamsSource).not.toContain('confirmation_token?: string')
     expect(batchParamsSource).toContain('approval_id?: string')
-    expect(batchParamsSource).not.toContain('confirmation_token?: string')
     expect(spawnParamsSource).not.toContain('save_as_team')
     expect(spawnParamsSource).not.toContain('team?: string')
     expect(batchParamsSource).not.toContain('save_as_team')

@@ -8,10 +8,7 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
-use restflow_traits::{
-    SpawnHandle, SubagentCompletion, SubagentManager, SubagentState,
-    normalize_legacy_approval_replay,
-};
+use restflow_traits::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -356,15 +353,6 @@ async fn test_spawn_batch_returns_spawned_tasks_on_partial_failure() {
         .expect("tasks should be array");
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["instance_index"], 0);
-}
-
-#[test]
-fn test_batch_params_accept_legacy_confirmation_token_alias() {
-    let mut value = json!({"confirmation_token":"approval-1"});
-    normalize_legacy_approval_replay(&mut value);
-    let params: SpawnSubagentBatchParams =
-        serde_json::from_value(value).expect("params should deserialize");
-    assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
 }
 
 #[test]

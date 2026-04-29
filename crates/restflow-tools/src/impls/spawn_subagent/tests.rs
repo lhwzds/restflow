@@ -10,7 +10,6 @@ use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,
-    normalize_legacy_approval_replay,
 };
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
 use serde_json::json;
@@ -323,14 +322,6 @@ async fn test_spawn_subagent_preserves_parent_run_id() {
             .as_deref(),
         Some("run-789")
     );
-}
-
-#[test]
-fn test_params_accept_legacy_confirmation_token_alias() {
-    let mut value = json!({"task":"Review work","confirmation_token":"approval-1"});
-    normalize_legacy_approval_replay(&mut value);
-    let params: SpawnSubagentParams = serde_json::from_value(value).unwrap();
-    assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
 }
 
 #[tokio::test]

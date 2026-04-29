@@ -29,8 +29,8 @@ pub(crate) use restflow_contracts::ToolDefinition as RuntimeToolDefinition;
 pub(crate) use restflow_contracts::ToolExecutionResult as RuntimeToolResult;
 use restflow_storage::ApiDefaults;
 use restflow_tools::SwitchModelTool;
+use restflow_traits::TaskCommandOutcome;
 use restflow_traits::store::TaskDeleteRequest;
-use restflow_traits::{TaskCommandOutcome, normalize_legacy_approval_replay};
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -1034,12 +1034,11 @@ impl ServerHandler for RestFlowMcpServer {
                 self.handle_chat_session_get(params).await
             }
             "manage_tasks" => {
-                let mut raw_params = Value::Object(request.arguments.unwrap_or_default());
-                normalize_legacy_approval_replay(&mut raw_params);
                 let params: ManageTasksParams =
-                    serde_json::from_value(raw_params).map_err(|e| {
-                        McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                    })?;
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
                 self.handle_manage_tasks(params).await
             }
             "manage_hooks" => {
