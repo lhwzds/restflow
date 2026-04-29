@@ -4,11 +4,7 @@
 //! execution events using the redb embedded database.
 
 use anyhow::Result;
-use redb::{
-    Database, Key, ReadableDatabase, ReadableTable, TableDefinition, TableHandle, Value,
-    WriteTransaction,
-};
-use std::collections::HashSet;
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
 use crate::range_utils::prefix_range;
@@ -44,30 +40,6 @@ const TASK_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
 const TASK_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("task_message_status_lookup");
 
-const LEGACY_TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("background_agents");
-const LEGACY_TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_agent_events");
-const LEGACY_TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_event_index");
-const LEGACY_TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_status_index");
-const LEGACY_TASK_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_status_lookup");
-const LEGACY_TASK_RUN_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_agent_runs");
-const LEGACY_TASK_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_run_task_index");
-const LEGACY_TASK_ACTIVE_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_agent_active_run_index");
-const LEGACY_TASK_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("background_messages");
-const LEGACY_TASK_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_message_task_index");
-const LEGACY_TASK_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_message_status_index");
-const LEGACY_TASK_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("background_message_status_lookup");
-
 /// Low-level task storage with byte-level API.
 #[derive(Clone)]
 pub struct TaskStorage {
@@ -75,99 +47,6 @@ pub struct TaskStorage {
 }
 
 impl TaskStorage {
-    fn migrate_legacy_tables(write_txn: &WriteTransaction) -> Result<()> {
-        let existing_tables = write_txn
-            .list_tables()?
-            .map(|table| table.name().to_string())
-            .collect::<HashSet<_>>();
-
-        Self::rename_legacy_table(write_txn, &existing_tables, LEGACY_TASK_TABLE, TASK_TABLE)?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_EVENT_TABLE,
-            TASK_EVENT_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_EVENT_INDEX_TABLE,
-            TASK_EVENT_INDEX_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_STATUS_INDEX_TABLE,
-            TASK_STATUS_INDEX_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_STATUS_LOOKUP_TABLE,
-            TASK_STATUS_LOOKUP_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_RUN_TABLE,
-            TASK_RUN_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_RUN_TASK_INDEX_TABLE,
-            TASK_RUN_TASK_INDEX_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_ACTIVE_RUN_INDEX_TABLE,
-            TASK_ACTIVE_RUN_INDEX_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_MESSAGE_TABLE,
-            TASK_MESSAGE_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_MESSAGE_TASK_INDEX_TABLE,
-            TASK_MESSAGE_TASK_INDEX_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_MESSAGE_STATUS_INDEX_TABLE,
-            TASK_MESSAGE_STATUS_INDEX_TABLE,
-        )?;
-        Self::rename_legacy_table(
-            write_txn,
-            &existing_tables,
-            LEGACY_TASK_MESSAGE_STATUS_LOOKUP_TABLE,
-            TASK_MESSAGE_STATUS_LOOKUP_TABLE,
-        )?;
-
-        Ok(())
-    }
-
-    fn rename_legacy_table<K, V>(
-        write_txn: &WriteTransaction,
-        existing_tables: &HashSet<String>,
-        legacy: TableDefinition<K, V>,
-        current: TableDefinition<K, V>,
-    ) -> Result<()>
-    where
-        K: Key + 'static,
-        V: Value + 'static,
-    {
-        if existing_tables.contains(legacy.name()) && !existing_tables.contains(current.name()) {
-            write_txn.rename_table(legacy, current)?;
-        }
-        Ok(())
-    }
-
     fn parse_chat_session_id(data: &[u8]) -> Result<Option<String>> {
         let value: serde_json::Value =
             serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
@@ -356,7 +235,6 @@ impl TaskStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
         let write_txn = db.begin_write()?;
-        Self::migrate_legacy_tables(&write_txn)?;
         write_txn.open_table(TASK_TABLE)?;
         write_txn.open_table(TASK_EVENT_TABLE)?;
         write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
@@ -1213,82 +1091,6 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         TaskStorage::new(db).unwrap()
-    }
-
-    #[test]
-    fn test_migrates_legacy_tables_to_task_tables() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-
-        {
-            let db = Arc::new(Database::create(&db_path).unwrap());
-            let write_txn = db.begin_write().unwrap();
-            {
-                let mut task_table = write_txn.open_table(LEGACY_TASK_TABLE).unwrap();
-                let task_data: &[u8] = b"legacy-task";
-                task_table.insert("task-1", &task_data).unwrap();
-            }
-            {
-                let mut message_table = write_txn.open_table(LEGACY_TASK_MESSAGE_TABLE).unwrap();
-                let message_data: &[u8] = b"legacy-message";
-                message_table.insert("msg-1", &message_data).unwrap();
-            }
-            {
-                let mut message_index = write_txn
-                    .open_table(LEGACY_TASK_MESSAGE_TASK_INDEX_TABLE)
-                    .unwrap();
-                message_index.insert("task-1:msg-1", "msg-1").unwrap();
-            }
-            write_txn.open_table(LEGACY_TASK_EVENT_TABLE).unwrap();
-            write_txn.open_table(LEGACY_TASK_EVENT_INDEX_TABLE).unwrap();
-            write_txn
-                .open_table(LEGACY_TASK_STATUS_INDEX_TABLE)
-                .unwrap();
-            write_txn
-                .open_table(LEGACY_TASK_STATUS_LOOKUP_TABLE)
-                .unwrap();
-            write_txn.open_table(LEGACY_TASK_RUN_TABLE).unwrap();
-            write_txn
-                .open_table(LEGACY_TASK_RUN_TASK_INDEX_TABLE)
-                .unwrap();
-            write_txn
-                .open_table(LEGACY_TASK_ACTIVE_RUN_INDEX_TABLE)
-                .unwrap();
-            write_txn
-                .open_table(LEGACY_TASK_MESSAGE_STATUS_INDEX_TABLE)
-                .unwrap();
-            write_txn
-                .open_table(LEGACY_TASK_MESSAGE_STATUS_LOOKUP_TABLE)
-                .unwrap();
-            write_txn.commit().unwrap();
-        }
-
-        let db = Arc::new(Database::open(&db_path).unwrap());
-        let storage = TaskStorage::new(db.clone()).unwrap();
-
-        assert_eq!(
-            storage.get_task_raw("task-1").unwrap().as_deref(),
-            Some(&b"legacy-task"[..])
-        );
-        assert_eq!(
-            storage
-                .list_task_messages_for_task_raw("task-1")
-                .unwrap()
-                .first()
-                .map(|(_, data)| data.as_slice()),
-            Some(&b"legacy-message"[..])
-        );
-
-        let read_txn = db.begin_read().unwrap();
-        let tables = read_txn
-            .list_tables()
-            .unwrap()
-            .map(|table| table.name().to_string())
-            .collect::<HashSet<_>>();
-        assert!(tables.contains(TASK_TABLE.name()));
-        assert!(tables.contains(TASK_MESSAGE_TABLE.name()));
-        assert!(!tables.contains(LEGACY_TASK_TABLE.name()));
-        assert!(!tables.contains(LEGACY_TASK_MESSAGE_TABLE.name()));
     }
 
     #[test]

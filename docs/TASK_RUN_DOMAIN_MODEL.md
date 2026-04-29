@@ -40,11 +40,8 @@ These layers must use canonical task/run terms:
 - `RunListQuery`
 - `ChildRunListQuery`
 
-Legacy background-agent and execution-session names are only allowed at:
-
-- explicit migration tests
-- local persisted-data cleanup scripts
-- persisted-data read compatibility during active migrations
+Non-canonical execution names must not appear in task/run runtime, storage, or
+transport surfaces.
 
 ### CLI and Browser API
 
@@ -55,7 +52,7 @@ CLI commands, daemon request wrappers, stores, stream state, and route parameter
 - `Task*`
 - `Run*`
 
-Compatibility wrappers may exist temporarily, but they must be thin aliases around the canonical surface.
+Compatibility wrappers should be removed instead of extending dual task/run surfaces.
 
 ### User-Facing UI Copy
 
@@ -72,12 +69,7 @@ These terms are presentation vocabulary only. They must not create a second stat
 
 Shared public exports should expose canonical names only.
 
-Legacy names should not remain as primary public exports from `restflow-core`.
-If compatibility is still required, keep it as:
-
-- crate-private aliases for internal migration
-- deprecated wrapper files in the browser client
-- ingress-only compatibility in transport parsing
+Legacy names should not remain as public exports from `restflow-core`.
 
 ## Migration Guardrails
 
@@ -85,5 +77,4 @@ When changing execution-related code:
 
 1. Introduce or consume canonical `Task / Run` types first.
 2. Keep legacy names out of new APIs and new shared exports.
-3. Restrict compatibility to explicit wrappers or ingress normalization.
-4. Prefer deleting wrapper logic instead of maintaining dual business paths.
+3. Prefer deleting wrapper logic instead of maintaining dual business paths.
