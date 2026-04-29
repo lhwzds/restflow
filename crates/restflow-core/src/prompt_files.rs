@@ -2,11 +2,8 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::warn;
-use uuid::Uuid;
 
 const AGENTS_DIR: &str = "agents";
-const DEFAULT_AGENT_PROMPT_FILE: &str = "default.md";
 const TASK_POLICY_FILE: &str = "task.md";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
@@ -41,8 +38,8 @@ pub fn load_agent_prompt_for_agent(
     agent_name: &str,
     prompt_file: Option<&str>,
 ) -> Result<LoadedAgentPrompt> {
-    let id = validate_agent_id(agent_id)?;
-    let Some(path) = resolve_prompt_path_for_read(id, agent_name, prompt_file)? else {
+    validate_agent_id(agent_id)?;
+    let Some(path) = resolve_prompt_path_for_read(agent_name, prompt_file)? else {
         return Ok(LoadedAgentPrompt {
             content: None,
             prompt_file: None,
@@ -76,88 +73,6 @@ fn read_prompt_file_if_exists(path: &Path) -> Result<Option<String>> {
     }
 }
 
-pub fn load_all_agent_prompts() -> Result<std::collections::HashMap<String, String>> {
-    let agents_dir = ensure_agents_dir()?;
-    let mut selected: std::collections::HashMap<String, PromptSelection> =
-        std::collections::HashMap::new();
-
-    for entry in fs::read_dir(&agents_dir)
-        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?
-    {
-        let Ok(entry) = entry else {
-            warn!("Skipping unreadable entry in agents directory");
-            continue;
-        };
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
-            continue;
-        }
-        let Some(stem) = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .map(|value| value.to_string())
-        else {
-            continue;
-        };
-        if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
-            || stem == TASK_POLICY_FILE.trim_end_matches(".md")
-        {
-            continue;
-        }
-
-        let content = match fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(err) => {
-                warn!(
-                    path = %path.display(),
-                    error = %err,
-                    "Skipping unreadable agent prompt file"
-                );
-                continue;
-            }
-        };
-        if Uuid::parse_str(&stem).is_err() {
-            continue;
-        }
-        let path_key = path.to_string_lossy().to_string();
-
-        match selected.get_mut(&stem) {
-            Some(existing) => {
-                if path_key.as_str() < existing.path_key.as_str() {
-                    warn!(
-                        agent_id = %stem,
-                        old = %existing.path_key,
-                        new = %path_key,
-                        "Multiple prompt files found for agent; selecting deterministic candidate"
-                    );
-                    *existing = PromptSelection {
-                        path_key,
-                        body: content,
-                    };
-                }
-            }
-            None => {
-                selected.insert(
-                    stem,
-                    PromptSelection {
-                        path_key,
-                        body: content,
-                    },
-                );
-            }
-        }
-    }
-
-    let mut prompts = std::collections::HashMap::new();
-    for (agent_id, selection) in selected {
-        prompts.insert(agent_id, selection.body);
-    }
-    Ok(prompts)
-}
-
 pub fn ensure_agent_prompt_file(
     agent_id: &str,
     agent_name: &str,
@@ -165,8 +80,8 @@ pub fn ensure_agent_prompt_file(
     prompt_override: Option<&str>,
 ) -> Result<PathBuf> {
     ensure_prompt_templates()?;
-    let id = validate_agent_id(agent_id)?;
-    let path = resolve_prompt_path_for_write(id, agent_name, current_prompt_file)?;
+    validate_agent_id(agent_id)?;
+    let path = resolve_prompt_path_for_write(agent_name, current_prompt_file)?;
 
     if let Some(prompt) = prompt_override {
         fs::write(&path, prompt)
@@ -189,84 +104,15 @@ pub fn delete_agent_prompt_file_for_agent(
     _agent_name: &str,
     prompt_file: Option<&str>,
 ) -> Result<()> {
-    let id = validate_agent_id(agent_id)?;
+    validate_agent_id(agent_id)?;
     if let Some(prompt_file) = prompt_file
         && let Some(path) = resolve_prompt_path_from_file_name(prompt_file)?
         && path.exists()
     {
         fs::remove_file(&path)
             .with_context(|| format!("Failed to remove agent prompt file: {}", path.display()))?;
-        return Ok(());
-    }
-
-    if let Some(path) = find_agent_prompt_path_by_id(id)? {
-        fs::remove_file(&path)
-            .with_context(|| format!("Failed to remove agent prompt file: {}", path.display()))?;
     }
     Ok(())
-}
-
-pub fn delete_agent_prompt_file(agent_id: &str) -> Result<()> {
-    let id = validate_agent_id(agent_id)?;
-    if let Some(path) = find_agent_prompt_path_by_id(id)? {
-        fs::remove_file(&path)
-            .with_context(|| format!("Failed to remove agent prompt file: {}", path.display()))?;
-    }
-    Ok(())
-}
-
-pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<usize> {
-    let active_ids: std::collections::HashSet<&str> =
-        active_agent_ids.iter().map(String::as_str).collect();
-    let agents_dir = ensure_agents_dir()?;
-    let mut deleted = 0usize;
-
-    for entry in fs::read_dir(&agents_dir)
-        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-
-        if !path.is_file() {
-            continue;
-        }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
-            continue;
-        }
-
-        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-            continue;
-        };
-
-        if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
-            || stem == TASK_POLICY_FILE.trim_end_matches(".md")
-        {
-            continue;
-        }
-        let should_delete = if Uuid::parse_str(stem).is_ok() {
-            !active_ids.contains(stem)
-        } else {
-            // Preserve non-agent Markdown files in the folder.
-            false
-        };
-
-        if should_delete {
-            match fs::remove_file(&path) {
-                Ok(_) => {
-                    deleted += 1;
-                }
-                Err(err) => {
-                    warn!(
-                        path = %path.display(),
-                        error = %err,
-                        "Failed to remove orphan prompt file; skipping"
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(deleted)
 }
 
 fn apply_task_id_placeholder(content: &str, task_id: Option<&str>) -> String {
@@ -321,15 +167,6 @@ fn validate_agent_id(agent_id: &str) -> Result<&str> {
     Ok(id)
 }
 
-fn find_agent_prompt_path_by_id(agent_id: &str) -> Result<Option<PathBuf>> {
-    let agents_dir = ensure_agents_dir()?;
-    let legacy_path = agents_dir.join(format!("{agent_id}.md"));
-    if legacy_path.exists() {
-        return Ok(Some(legacy_path));
-    }
-    Ok(None)
-}
-
 fn resolve_prompt_path_from_file_name(prompt_file: &str) -> Result<Option<PathBuf>> {
     let trimmed = prompt_file.trim();
     if trimmed.is_empty() {
@@ -353,7 +190,6 @@ fn extract_prompt_file_name(path: &Path) -> Result<String> {
 }
 
 fn resolve_prompt_path_for_read(
-    agent_id: &str,
     agent_name: &str,
     prompt_file: Option<&str>,
 ) -> Result<Option<PathBuf>> {
@@ -370,14 +206,10 @@ fn resolve_prompt_path_for_read(
         return Ok(Some(desired));
     }
 
-    find_agent_prompt_path_by_id(agent_id)
+    Ok(None)
 }
 
-fn resolve_prompt_path_for_write(
-    agent_id: &str,
-    agent_name: &str,
-    prompt_file: Option<&str>,
-) -> Result<PathBuf> {
+fn resolve_prompt_path_for_write(agent_name: &str, prompt_file: Option<&str>) -> Result<PathBuf> {
     let agents_dir = ensure_agents_dir()?;
     let desired = agents_dir.join(format!("{}.md", sanitize_agent_file_stem(agent_name)));
     let current_from_prompt_file = if let Some(prompt_file) = prompt_file {
@@ -385,11 +217,7 @@ fn resolve_prompt_path_for_write(
     } else {
         None
     };
-    let current = if current_from_prompt_file.is_some() {
-        current_from_prompt_file
-    } else {
-        find_agent_prompt_path_by_id(agent_id)?
-    };
+    let current = current_from_prompt_file;
 
     if let Some(current_path) = current {
         if current_path == desired {
@@ -511,11 +339,6 @@ fn is_windows_reserved_stem(stem: &str) -> bool {
     )
 }
 
-struct PromptSelection {
-    path_key: String,
-    body: String,
-}
-
 /// Shared lock for tests that mutate the RESTFLOW_AGENTS_DIR env var.
 /// All tests that set/remove this env var MUST acquire this lock first
 /// to avoid cross-module race conditions.
@@ -566,7 +389,7 @@ mod tests {
         unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
 
         ensure_prompt_templates().unwrap();
-        assert!(!temp.path().join(DEFAULT_AGENT_PROMPT_FILE).exists());
+        assert!(!temp.path().join("default.md").exists());
         assert!(temp.path().join(TASK_POLICY_FILE).exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
@@ -597,27 +420,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ensure_agent_prompt_file_uses_numeric_suffix_on_name_conflict() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-        fs::write(temp.path().join("agent-one.md"), "existing").unwrap();
-        let legacy_id = "550e8400-e29b-41d4-a716-446655440000";
-        fs::write(temp.path().join(format!("{legacy_id}.md")), "legacy").unwrap();
-        let path = ensure_agent_prompt_file(legacy_id, "Agent One", None, None).unwrap();
-
-        assert_eq!(
-            path.file_name().and_then(|value| value.to_str()),
-            Some("agent-one-2.md")
-        );
-        let content = fs::read_to_string(path).unwrap();
-        assert_eq!(content, "legacy");
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-    }
-
-    #[test]
     fn test_load_agent_prompt_returns_override_content() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
@@ -628,23 +430,6 @@ mod tests {
         let loaded = load_agent_prompt_for_agent(id, "My Custom Agent", None).unwrap();
         assert_eq!(loaded.content.as_deref(), Some("Custom prompt"));
         assert_eq!(loaded.prompt_file.as_deref(), Some("my-custom-agent.md"));
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_load_all_agent_prompts_reads_uuid_named_files() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-        let id = "f7e39ba8-f1ed-4e6c-a4f4-1983f671b1d5";
-        fs::write(temp.path().join(format!("{id}.md")), "agent content").unwrap();
-        fs::write(temp.path().join("custom-note.md"), "ignored").unwrap();
-
-        let prompts = load_all_agent_prompts().unwrap();
-        assert_eq!(prompts.get(id).map(String::as_str), Some("agent content"));
-        assert_eq!(prompts.len(), 1);
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
@@ -693,29 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup_orphan_agent_prompt_files_removes_only_orphans() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-        ensure_prompt_templates().unwrap();
-
-        let active = "750bf7ee-91fa-47b2-9498-25007fd99919".to_string();
-        let orphan = "016e8f2a-944d-4126-af6f-f19b0110d8d6".to_string();
-        fs::write(temp.path().join(format!("{active}.md")), "active").unwrap();
-        fs::write(temp.path().join(format!("{orphan}.md")), "orphan").unwrap();
-        fs::write(temp.path().join("custom-note.md"), "keep").unwrap();
-
-        let deleted = cleanup_orphan_agent_prompt_files(std::slice::from_ref(&active)).unwrap();
-        assert_eq!(deleted, 1);
-        assert!(temp.path().join(format!("{active}.md")).exists());
-        assert!(!temp.path().join(format!("{orphan}.md")).exists());
-        assert!(temp.path().join("custom-note.md").exists());
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-    }
-
-    #[test]
     fn test_agent_prompt_path_rejects_path_traversal() {
         assert!(validate_agent_id("../etc/passwd").is_err());
         assert!(validate_agent_id("foo/bar").is_err());
@@ -730,31 +492,6 @@ mod tests {
         assert!(validate_agent_id("agent_1").is_ok());
         assert!(validate_agent_id("default").is_ok());
         assert!(validate_agent_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
-    }
-
-    #[test]
-    fn test_ensure_agent_prompt_file_migrates_legacy_id_filename() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-        let id = "4a14a8dd-5a5e-4f12-ae3e-fe40476d8f9b";
-        let legacy = temp.path().join(format!("{id}.md"));
-        fs::write(&legacy, "legacy content").unwrap();
-        let migrated = ensure_agent_prompt_file(id, "Renamed Agent", None, None).unwrap();
-
-        assert!(!legacy.exists());
-        assert_eq!(
-            migrated.file_name().and_then(|v| v.to_str()),
-            Some("renamed-agent.md")
-        );
-        let migrated_raw = fs::read_to_string(&migrated).unwrap();
-        assert_eq!(migrated_raw, "legacy content");
-        let loaded = load_agent_prompt_for_agent(id, "Renamed Agent", None).unwrap();
-        assert_eq!(loaded.content.as_deref(), Some("legacy content"));
-        assert_eq!(loaded.prompt_file.as_deref(), Some("renamed-agent.md"));
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]

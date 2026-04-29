@@ -79,20 +79,6 @@ impl AppCore {
                 "Failed to reconcile agent prompt file names; continuing startup"
             );
         }
-        match storage.agents.cleanup_orphan_prompt_files() {
-            Ok(cleaned) => {
-                if cleaned > 0 {
-                    info!(cleaned, "Cleaned orphan agent prompt files");
-                }
-            }
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    "Failed to cleanup orphan agent prompt files; continuing startup"
-                );
-            }
-        }
-
         info!("Initializing RestFlow (Agent-centric mode)");
 
         let config = storage.config.get_effective_config()?;

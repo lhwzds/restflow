@@ -236,15 +236,6 @@ impl AgentStorage {
         }
     }
 
-    pub fn cleanup_orphan_prompt_files(&self) -> Result<usize> {
-        let active_ids: Vec<String> = self
-            .list_agents()?
-            .into_iter()
-            .map(|agent| agent.id)
-            .collect();
-        prompt_files::cleanup_orphan_agent_prompt_files(&active_ids)
-    }
-
     pub fn reconcile_prompt_file_names(&self) -> Result<()> {
         let agents = self.list_agents()?;
         for mut agent in agents {
@@ -539,32 +530,6 @@ mod tests {
             .unwrap()
             .expect("agent should resolve");
         assert_eq!(resolved.id, stored.id);
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_cleanup_orphan_prompt_files_only_deletes_removed_agents() {
-        let _lock = env_lock();
-        let temp_dir = tempdir().unwrap();
-        let prompts_dir = temp_dir.path().join("agents");
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = AgentStorage::new(db).unwrap();
-
-        let stored = storage
-            .create_agent("To Remove".to_string(), create_test_agent_node())
-            .unwrap();
-        assert!(prompts_dir.join("to-remove.md").exists());
-        storage.delete_agent(stored.id.clone()).unwrap();
-
-        // Recreate orphan file to emulate historical residue.
-        std::fs::write(prompts_dir.join(format!("{}.md", stored.id)), "orphan").unwrap();
-        assert!(prompts_dir.join(format!("{}.md", stored.id)).exists());
-        let deleted = storage.cleanup_orphan_prompt_files().unwrap();
-        assert_eq!(deleted, 1);
-        assert!(!prompts_dir.join(format!("{}.md", stored.id)).exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
