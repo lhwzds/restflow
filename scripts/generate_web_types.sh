@@ -26,16 +26,6 @@ STALE_GENERATED_FILES=(
   "AuditQuery.ts"
   "AuditStats.ts"
   "AuditTimeRange.ts"
-  "BackgroundAgent.ts"
-  "BackgroundAgentControlAction.ts"
-  "BackgroundAgentConversionResult.ts"
-  "BackgroundAgentPatch.ts"
-  "BackgroundAgentSpec.ts"
-  "BackgroundAgentStatus.ts"
-  "BackgroundMessage.ts"
-  "BackgroundMessageSource.ts"
-  "BackgroundMessageStatus.ts"
-  "BackgroundProgress.ts"
   "ChildExecutionSessionQuery.ts"
   "ExecutionSessionListQuery.ts"
   "ExecutionSessionSummary.ts"
@@ -58,16 +48,6 @@ from pathlib import Path
 generated_dir = Path("web/src/types/generated")
 index_path = generated_dir / "index.ts"
 stale_exports = {
-    "BackgroundAgent",
-    "BackgroundAgentControlAction",
-    "BackgroundAgentConversionResult",
-    "BackgroundAgentPatch",
-    "BackgroundAgentSpec",
-    "BackgroundAgentStatus",
-    "BackgroundMessage",
-    "BackgroundMessageSource",
-    "BackgroundMessageStatus",
-    "BackgroundProgress",
     "ChildExecutionSessionQuery",
     "ExecutionSessionListQuery",
     "ExecutionSessionSummary",

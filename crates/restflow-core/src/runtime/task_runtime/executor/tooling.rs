@@ -193,14 +193,14 @@ impl AgentRuntimeExecutor {
 
     pub(super) fn resolve_reply_sender(
         &self,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         agent_id: Option<&str>,
     ) -> Option<Arc<dyn ReplySender>> {
-        if let Some(task_id) = background_task_id
+        if let Some(task_id) = task_id
             && let Some(factory) = &self.reply_sender_factory
         {
             let current_agent_id = agent_id.unwrap_or_default();
-            if let Some(sender) = factory.for_background_task(task_id, current_agent_id) {
+            if let Some(sender) = factory.for_task(task_id, current_agent_id) {
                 return Some(sender);
             }
         }

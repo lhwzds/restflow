@@ -19,7 +19,7 @@ impl TaskStorage {
         Ok(bg_message)
     }
 
-    /// Persist an agent-originated reply message for a background task.
+    /// Persist an agent-originated reply message for a task.
     ///
     /// The message is stored directly as consumed to avoid re-injection into
     /// the pending message pump (which only processes queued entries).

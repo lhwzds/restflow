@@ -794,7 +794,7 @@ impl SystemConfig {
 
         if self.task_retention_days < MIN_RETENTION_DAYS {
             return Err(anyhow::anyhow!(
-                "Background task retention must be at least {} day",
+                "Task retention must be at least {} day",
                 MIN_RETENTION_DAYS
             ));
         }

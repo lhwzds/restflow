@@ -46,7 +46,7 @@ import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type {
   AgentFile,
-  BackgroundTaskFolder,
+  TaskFolder,
   ChildRunLoadState,
   ExternalChannelFolder,
   RunListItem,
@@ -78,14 +78,14 @@ const selectedAgentId = ref<string | null>(null)
 const selectedSessionId = ref<string | null>(null)
 const activeContainerId = ref<string | null>(null)
 const activeRunId = ref<string | null>(null)
-const activeBackgroundTaskId = ref<string | null>(null)
+const activeTaskId = ref<string | null>(null)
 const activeExecutionThread = ref<ExecutionThread | null>(null)
 const runThreadByRunId = ref<Record<string, ExecutionThread>>({})
 const executionContainers = ref<ExecutionContainerSummary[]>([])
 const expandedWorkspaceContainerIds = ref<Set<string>>(new Set())
 const workspaceRunsByContainerId = ref<Record<string, RunSummary[]>>({})
-const expandedBackgroundTaskIds = ref<Set<string>>(new Set())
-const backgroundRunsByTaskId = ref<Record<string, RunSummary[]>>({})
+const expandedTaskIds = ref<Set<string>>(new Set())
+const taskRunsByTaskId = ref<Record<string, RunSummary[]>>({})
 const expandedExternalContainerIds = ref<Set<string>>(new Set())
 const externalRunsByContainerId = ref<Record<string, RunSummary[]>>({})
 const childRunsByParentRunId = ref<Record<string, RunSummary[]>>({})
@@ -228,8 +228,8 @@ const workspaceContainers = computed(() =>
   executionContainers.value.filter((container) => container.kind === 'workspace'),
 )
 
-const backgroundTaskContainers = computed(() =>
-  executionContainers.value.filter((container) => container.kind === 'background_task'),
+const taskContainers = computed(() =>
+  executionContainers.value.filter((container) => container.kind === 'task'),
 )
 
 const externalChannelContainers = computed(() =>
@@ -262,16 +262,16 @@ const workspaceFolders = computed<WorkspaceSessionFolder[]>(() =>
     ),
 )
 
-const backgroundFolders = computed<BackgroundTaskFolder[]>(() =>
-  backgroundTaskContainers.value.map((container) => ({
+const taskFolders = computed<TaskFolder[]>(() =>
+  taskContainers.value.map((container) => ({
     taskId: container.id,
     chatSessionId: container.latest_session_id ?? null,
     name: container.title,
     subtitle: container.subtitle ?? null,
     status: container.status ?? 'idle',
     updatedAt: container.updated_at,
-    expanded: expandedBackgroundTaskIds.value.has(container.id),
-    runs: (backgroundRunsByTaskId.value[container.id] ?? []).map((summary) =>
+    expanded: expandedTaskIds.value.has(container.id),
+    runs: (taskRunsByTaskId.value[container.id] ?? []).map((summary) =>
       toRunListItem(summary),
     ),
   })),
@@ -332,7 +332,7 @@ const showContainerEmptyState = computed(
 const containerEmptyStateTitle = computed(() => activeContainer.value?.title ?? 'Container')
 const containerEmptyStateDescription = computed(() => {
   switch (activeContainer.value?.kind) {
-    case 'background_task':
+    case 'task':
       return 'No runs have been created for this task yet.'
     case 'external_channel':
       return 'No runs have been created for this external channel yet.'
@@ -374,8 +374,8 @@ async function clearWorkspaceSelection(containerId: string | null = null) {
   activeRunId.value = null
   activeExecutionThread.value = null
   toolPanelRunNavigation.value = []
-  activeBackgroundTaskId.value =
-    containerId && findContainerById(containerId)?.kind === 'background_task' ? containerId : null
+  activeTaskId.value =
+    containerId && findContainerById(containerId)?.kind === 'task' ? containerId : null
   selectedSessionId.value = null
   await chatSessionStore.selectSession(null)
   toolPanel.clearHistory()
@@ -444,7 +444,7 @@ async function onNewSession() {
   selectedSessionId.value = session.id
   activeContainerId.value = session.id
   activeRunId.value = null
-  activeBackgroundTaskId.value = null
+  activeTaskId.value = null
   await chatSessionStore.selectSession(session.id)
   await refreshNavigationProjection()
   await ensureWorkspaceRunsLoaded(session.id)
@@ -597,8 +597,8 @@ function onRunStarted(payload: { containerId: string; runId: string }) {
   activeContainerId.value = payload.containerId
   activeRunId.value = payload.runId
   selectedSessionId.value = chatSessionStore.currentSessionId
-  activeBackgroundTaskId.value =
-    findContainerById(payload.containerId)?.kind === 'background_task' ? payload.containerId : null
+  activeTaskId.value =
+    findContainerById(payload.containerId)?.kind === 'task' ? payload.containerId : null
   void router.push(canonicalContainerRunRoute(payload.containerId, payload.runId))
 }
 
@@ -707,23 +707,23 @@ async function ensureWorkspaceRunsLoaded(
   return runs
 }
 
-async function ensureBackgroundRunsLoaded(
+async function ensureTaskRunsLoaded(
   taskId: string,
   forceRefresh = false,
 ): Promise<RunSummary[]> {
-  if (!forceRefresh && backgroundRunsByTaskId.value[taskId]) {
-    return backgroundRunsByTaskId.value[taskId]
+  if (!forceRefresh && taskRunsByTaskId.value[taskId]) {
+    return taskRunsByTaskId.value[taskId]
   }
 
   const runs = await listRuns({
     container: {
-      kind: 'background_task',
+      kind: 'task',
       id: taskId,
     },
   })
 
-  backgroundRunsByTaskId.value = {
-    ...backgroundRunsByTaskId.value,
+  taskRunsByTaskId.value = {
+    ...taskRunsByTaskId.value,
     [taskId]: runs,
   }
   return runs
@@ -778,21 +778,21 @@ async function onToggleWorkspaceFolder(containerId: string) {
   }
 }
 
-async function onToggleBackgroundTask(taskId: string) {
-  const next = new Set(expandedBackgroundTaskIds.value)
+async function onToggleTask(taskId: string) {
+  const next = new Set(expandedTaskIds.value)
   if (next.has(taskId)) {
     next.delete(taskId)
-    expandedBackgroundTaskIds.value = next
+    expandedTaskIds.value = next
     return
   }
 
   next.add(taskId)
-  expandedBackgroundTaskIds.value = next
+  expandedTaskIds.value = next
   try {
-    await ensureBackgroundRunsLoaded(taskId)
+    await ensureTaskRunsLoaded(taskId)
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : t('backgroundAgent.runTraceDescription')
+      error instanceof Error ? error.message : t('taskRun.runTraceDescription')
     toast.error(message)
   }
 }
@@ -816,7 +816,7 @@ async function onToggleExternalChannel(containerId: string) {
 }
 
 async function onSelectContainer(
-  kind: 'workspace' | 'background_task' | 'external_channel',
+  kind: 'workspace' | 'task' | 'external_channel',
   containerId: string,
 ) {
   sidebarMode.value = 'sessions'
@@ -826,7 +826,7 @@ async function onSelectContainer(
 
   activeContainerId.value = containerId
   activeRunId.value = null
-  activeBackgroundTaskId.value = kind === 'background_task' ? containerId : null
+  activeTaskId.value = kind === 'task' ? containerId : null
   selectedSessionId.value = sessionId
   await chatSessionStore.selectSession(sessionId)
 
@@ -844,17 +844,17 @@ async function onSelectRun(containerId: string, runId: string) {
 }
 
 async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = false) {
-  if (focus.kind === 'background_run' && focus.task_id) {
-    activeBackgroundTaskId.value = focus.task_id
-    const next = new Set(expandedBackgroundTaskIds.value)
+  if (focus.kind === 'task_run' && focus.task_id) {
+    activeTaskId.value = focus.task_id
+    const next = new Set(expandedTaskIds.value)
     next.add(focus.task_id)
-    expandedBackgroundTaskIds.value = next
-    await ensureBackgroundRunsLoaded(focus.task_id, forceRefreshRuns)
+    expandedTaskIds.value = next
+    await ensureTaskRunsLoaded(focus.task_id, forceRefreshRuns)
     return
   }
 
   if (focus.kind === 'workspace_run') {
-    activeBackgroundTaskId.value = null
+    activeTaskId.value = null
     const next = new Set(expandedWorkspaceContainerIds.value)
     next.add(focus.container_id)
     expandedWorkspaceContainerIds.value = next
@@ -863,7 +863,7 @@ async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = fal
   }
 
   if (focus.kind === 'external_run') {
-    activeBackgroundTaskId.value = null
+    activeTaskId.value = null
     const next = new Set(expandedExternalContainerIds.value)
     next.add(focus.container_id)
     expandedExternalContainerIds.value = next
@@ -873,7 +873,7 @@ async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = fal
 
   const container = findContainerById(focus.container_id)
   if (focus.kind === 'subagent_run' && container) {
-    activeBackgroundTaskId.value = container.kind === 'background_task' ? container.id : null
+    activeTaskId.value = container.kind === 'task' ? container.id : null
 
     if (container.kind === 'workspace') {
       const next = new Set(expandedWorkspaceContainerIds.value)
@@ -883,11 +883,11 @@ async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = fal
       return
     }
 
-    if (container.kind === 'background_task') {
-      const next = new Set(expandedBackgroundTaskIds.value)
+    if (container.kind === 'task') {
+      const next = new Set(expandedTaskIds.value)
       next.add(container.id)
-      expandedBackgroundTaskIds.value = next
-      await ensureBackgroundRunsLoaded(container.id, forceRefreshRuns)
+      expandedTaskIds.value = next
+      await ensureTaskRunsLoaded(container.id, forceRefreshRuns)
       return
     }
 
@@ -898,7 +898,7 @@ async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = fal
     return
   }
 
-  activeBackgroundTaskId.value = null
+  activeTaskId.value = null
 }
 
 async function resolveRunRoute(
@@ -952,17 +952,17 @@ async function resolveContainerRoute(containerId: string, version: number) {
 
   activeContainerId.value = container.id
   activeRunId.value = null
-  activeBackgroundTaskId.value = container.kind === 'background_task' ? container.id : null
+  activeTaskId.value = container.kind === 'task' ? container.id : null
   selectedSessionId.value = container.latest_session_id ?? null
 
   if (container.kind === 'workspace') {
     const next = new Set(expandedWorkspaceContainerIds.value)
     next.add(container.id)
     expandedWorkspaceContainerIds.value = next
-  } else if (container.kind === 'background_task') {
-    const next = new Set(expandedBackgroundTaskIds.value)
+  } else if (container.kind === 'task') {
+    const next = new Set(expandedTaskIds.value)
     next.add(container.id)
-    expandedBackgroundTaskIds.value = next
+    expandedTaskIds.value = next
   } else {
     const next = new Set(expandedExternalContainerIds.value)
     next.add(container.id)
@@ -1189,7 +1189,7 @@ function resolveAgentDeleteErrorMessage(error: unknown): string {
   if (normalized.includes('cannot delete default assistant agent')) {
     return t('workspace.agent.deleteDefaultBlocked')
   }
-  if (normalized.includes('active background tasks exist')) {
+  if (normalized.includes('active tasks exist')) {
     return t('workspace.agent.deleteBlockedByTasks')
   }
   if (normalized.includes('external channel sessions exist')) {
@@ -1237,8 +1237,8 @@ watch(
       if (containerRunId) {
         activeContainerId.value = containerId || null
         activeRunId.value = containerRunId
-        activeBackgroundTaskId.value =
-          containerId && findContainerById(containerId)?.kind === 'background_task'
+        activeTaskId.value =
+          containerId && findContainerById(containerId)?.kind === 'task'
             ? containerId
             : null
         const pending = pendingRunNavigation.value
@@ -1260,7 +1260,7 @@ watch(
         return
       }
 
-      activeBackgroundTaskId.value = null
+      activeTaskId.value = null
       activeRunId.value = null
       pendingRunNavigation.value = null
       selectedSessionId.value = chatSessionStore.currentSessionId
@@ -1394,7 +1394,7 @@ onUnmounted(() => {
         <SessionList
           v-if="sidebarMode === 'sessions'"
           :workspace-folders="workspaceFolders"
-          :background-folders="backgroundFolders"
+          :background-folders="taskFolders"
           :external-folders="externalFolders"
           :current-container-id="activeContainerId"
           :current-run-id="activeRunId"
@@ -1409,7 +1409,7 @@ onUnmounted(() => {
           @convert-to-workspace-session="onConvertToWorkspaceSession"
           @rebuild="onRebuildSession"
           @toggle-workspace-folder="onToggleWorkspaceFolder"
-          @toggle-background-task="onToggleBackgroundTask"
+          @toggle-background-task="onToggleTask"
           @toggle-external-channel="onToggleExternalChannel"
           @toggle-run-children="onToggleRunChildren"
         />
@@ -1480,7 +1480,7 @@ onUnmounted(() => {
         v-else-if="sidebarMode === 'sessions'"
         :container-id="chatPanelContainerId"
         :selected-run-id="chatPanelSelectedRunId"
-        :background-task-id="activeBackgroundTaskId"
+        :background-task-id="activeTaskId"
         :auto-select-recent="chatPanelAutoSelectRecent"
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"

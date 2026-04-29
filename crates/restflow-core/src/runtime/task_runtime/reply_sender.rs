@@ -1,6 +1,6 @@
 //! Background-agent reply sender integration for the `reply` tool.
 //!
-//! This module wires execution-scoped reply semantics for background tasks:
+//! This module wires execution-scoped reply semantics for tasks:
 //! - emit a live task stream output event
 //! - deliver to task-linked channel conversations (when available)
 //! - persist agent-originated reply messages for trace/debug history
@@ -19,13 +19,13 @@ use super::events::{TaskEventEmitter, TaskStreamEvent};
 use super::executor::ReplySenderFactory;
 
 /// Builds task-scoped reply senders for task execution.
-pub struct BackgroundReplySenderFactory {
+pub struct TaskReplySenderFactory {
     storage: Arc<TaskStorage>,
     event_emitter: Arc<dyn TaskEventEmitter>,
     channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
-impl BackgroundReplySenderFactory {
+impl TaskReplySenderFactory {
     pub fn new(
         storage: Arc<TaskStorage>,
         event_emitter: Arc<dyn TaskEventEmitter>,
@@ -39,9 +39,9 @@ impl BackgroundReplySenderFactory {
     }
 }
 
-impl ReplySenderFactory for BackgroundReplySenderFactory {
-    fn for_background_task(&self, task_id: &str, _agent_id: &str) -> Option<Arc<dyn ReplySender>> {
-        Some(Arc::new(BackgroundTaskReplySender {
+impl ReplySenderFactory for TaskReplySenderFactory {
+    fn for_task(&self, task_id: &str, _agent_id: &str) -> Option<Arc<dyn ReplySender>> {
+        Some(Arc::new(TaskReplySender {
             task_id: task_id.to_string(),
             storage: self.storage.clone(),
             event_emitter: self.event_emitter.clone(),
@@ -50,14 +50,14 @@ impl ReplySenderFactory for BackgroundReplySenderFactory {
     }
 }
 
-struct BackgroundTaskReplySender {
+struct TaskReplySender {
     task_id: String,
     storage: Arc<TaskStorage>,
     event_emitter: Arc<dyn TaskEventEmitter>,
     channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
-impl ReplySender for BackgroundTaskReplySender {
+impl ReplySender for TaskReplySender {
     fn send(&self, message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
         let task_id = self.task_id.clone();
         let storage = self.storage.clone();
@@ -207,14 +207,9 @@ mod tests {
 
         let channel_router = Arc::new(RwLock::new(Some(router)));
         let event_emitter = Arc::new(CaptureEventEmitter::default());
-        let factory = BackgroundReplySenderFactory::new(
-            storage.clone(),
-            event_emitter.clone(),
-            channel_router,
-        );
-        let sender = factory
-            .for_background_task(&task.id, "agent-001")
-            .expect("sender");
+        let factory =
+            TaskReplySenderFactory::new(storage.clone(), event_emitter.clone(), channel_router);
+        let sender = factory.for_task(&task.id, "agent-001").expect("sender");
 
         sender
             .send("Received, starting now.".to_string())
@@ -263,10 +258,8 @@ mod tests {
 
         let event_emitter = Arc::new(CaptureEventEmitter::default());
         let factory =
-            BackgroundReplySenderFactory::new(storage, event_emitter, Arc::new(RwLock::new(None)));
-        let sender = factory
-            .for_background_task(&task.id, "agent-001")
-            .expect("sender");
+            TaskReplySenderFactory::new(storage, event_emitter, Arc::new(RwLock::new(None)));
+        let sender = factory.for_task(&task.id, "agent-001").expect("sender");
 
         sender
             .send("working on it".to_string())

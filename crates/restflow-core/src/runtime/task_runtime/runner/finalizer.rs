@@ -2,14 +2,14 @@ use super::*;
 use crate::models::{TaskRunMetrics, TaskRunStatus};
 use restflow_telemetry::RunHandle;
 
-pub(super) struct BackgroundRunFinalizer<'a> {
+pub(super) struct TaskRunFinalizer<'a> {
     runner: &'a TaskRunner,
     task: Task,
     resolved_input: Option<String>,
     run_handle: RunHandle,
 }
 
-impl<'a> BackgroundRunFinalizer<'a> {
+impl<'a> TaskRunFinalizer<'a> {
     pub(super) fn new(
         runner: &'a TaskRunner,
         task: Task,
@@ -69,7 +69,7 @@ impl<'a> BackgroundRunFinalizer<'a> {
                 task_id = %self.task.id,
                 run_id = %self.run_handle.run_id(),
                 error = %err,
-                "Failed to persist background task run terminal state"
+                "Failed to persist task run terminal state"
             );
         }
     }
@@ -279,7 +279,7 @@ impl<'a> BackgroundRunFinalizer<'a> {
                 task_id = %self.task.id,
                 run_id = %self.run_handle.run_id(),
                 error = %err,
-                "Failed to persist interrupted background task run"
+                "Failed to persist interrupted task run"
             );
         }
 

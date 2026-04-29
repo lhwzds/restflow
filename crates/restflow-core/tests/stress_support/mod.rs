@@ -43,7 +43,7 @@ pub use mock_backends::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionSurface {
     InteractiveChat,
-    BackgroundTask,
+    Task,
     Mixed,
 }
 
@@ -359,7 +359,7 @@ impl AgentExecutor for ProviderAwareMockExecutor {
     async fn execute(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         _memory_config: &restflow_core::models::MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<restflow_core::models::SteerMessage>>,
@@ -378,7 +378,7 @@ impl AgentExecutor for ProviderAwareMockExecutor {
             return Err(anyhow!(
                 "{} failure for {} on attempt {} ({:?})",
                 self.model_profile.provider.as_str(),
-                background_task_id.unwrap_or("unknown-task"),
+                task_id.unwrap_or("unknown-task"),
                 call_index,
                 self.failure_mode
             ));
@@ -967,7 +967,7 @@ pub async fn run_background_workload_with_real_runtime(
                     run_at: now + 1_000,
                 },
             )
-            .expect("create real runtime background task");
+            .expect("create real runtime task");
         task.input = Some(format!(
             "background real task {index} for {} tool_url={} tool_file_path={}/background-{}.txt tool_workdir={} tool_steps={} payload_words={}",
             profile.model_id,
@@ -979,10 +979,7 @@ pub async fn run_background_workload_with_real_runtime(
             rounds_for(level, 128, 256, 512)
         ));
         task.next_run_at = Some(now - 1_000);
-        storage
-            .tasks
-            .update_task(&task)
-            .expect("update real background task");
+        storage.tasks.update_task(&task).expect("update real task");
     }
 
     let executor = Arc::new(create_real_background_executor(storage.clone()));

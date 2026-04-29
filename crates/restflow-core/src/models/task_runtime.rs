@@ -31,7 +31,7 @@ pub enum ExecutionMode {
 pub enum DurabilityMode {
     /// Persist checkpoints before each tool execution.
     Sync,
-    /// Persist checkpoints in a background task while execution continues.
+    /// Persist checkpoints in a task while execution continues.
     #[default]
     Async,
     /// Persist checkpoints only at execution exit.

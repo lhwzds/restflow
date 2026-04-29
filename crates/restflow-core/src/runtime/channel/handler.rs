@@ -66,7 +66,7 @@ impl MessageHandlerHandle {
 
 /// Start the message handler loop (without AI chat support)
 ///
-/// This spawns background tasks to listen for messages on all interactive channels
+/// This spawns tasks to listen for messages on all interactive channels
 /// and routes them appropriately. Natural language messages will show a help message.
 pub fn start_message_handler<T: TaskTrigger + 'static>(
     router: Arc<ChannelRouter>,
@@ -78,7 +78,7 @@ pub fn start_message_handler<T: TaskTrigger + 'static>(
 
 /// Start the message handler loop with AI chat support
 ///
-/// This spawns background tasks to listen for messages on all interactive channels
+/// This spawns tasks to listen for messages on all interactive channels
 /// and routes them appropriately. Natural language messages are dispatched to
 /// the AI chat dispatcher.
 pub fn start_message_handler_with_chat<T: TaskTrigger + 'static>(

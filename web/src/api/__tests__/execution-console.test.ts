@@ -18,12 +18,12 @@ describe('execution-console api', () => {
     vi.resetAllMocks()
   })
 
-  it('lists runs for a background task container', async () => {
+  it('lists runs for a task container', async () => {
     vi.mocked(requestTyped).mockResolvedValue([])
 
     await listRuns({
       container: {
-        kind: 'background_task',
+        kind: 'task',
         id: 'task-1',
       },
     })
@@ -33,7 +33,7 @@ describe('execution-console api', () => {
       data: {
         query: {
           container: {
-            kind: 'background_task',
+            kind: 'task',
             id: 'task-1',
           },
         },
@@ -87,7 +87,7 @@ describe('execution-console api', () => {
 
     await listExecutionSessions({
       container: {
-        kind: 'background_task',
+        kind: 'task',
         id: 'task-legacy',
       },
     })
@@ -98,7 +98,7 @@ describe('execution-console api', () => {
       data: {
         query: {
           container: {
-            kind: 'background_task',
+            kind: 'task',
             id: 'task-legacy',
           },
         },

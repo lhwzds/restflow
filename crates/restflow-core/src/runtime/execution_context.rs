@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum ExecutionRole {
     /// Foreground interactive chat turn.
     MainAgent,
-    /// Scheduled or manually triggered background task run.
+    /// Scheduled or manually triggered task run.
     Task,
     /// Child agent spawned by another agent.
     Subagent,
@@ -30,7 +30,7 @@ pub struct ExecutionContext {
     pub role: ExecutionRole,
     pub agent_id: String,
     pub chat_session_id: Option<String>,
-    #[serde(alias = "background_task_id")]
+    #[serde(alias = "task_id")]
     pub task_id: Option<String>,
     #[serde(rename = "parent_run_id", alias = "parent_execution_id")]
     pub parent_run_id: Option<String>,

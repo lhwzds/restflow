@@ -675,21 +675,18 @@ impl AgentExecutor {
 
             // 3. Execute tools with timeout and optional stream events.
             let chat_session_id = state.context.get("chat_session_id").and_then(Value::as_str);
-            let background_task_id = state
-                .context
-                .get("background_task_id")
-                .and_then(Value::as_str);
+            let task_id = state.context.get("task_id").and_then(Value::as_str);
             let trace_session_id = state
                 .context
                 .get("trace_session_id")
                 .and_then(Value::as_str)
                 .or(chat_session_id)
-                .or(background_task_id);
+                .or(task_id);
             let trace_scope_id = state
                 .context
                 .get("trace_scope_id")
                 .and_then(Value::as_str)
-                .or(background_task_id)
+                .or(task_id)
                 .or(chat_session_id);
             let results = self
                 .execute_tools_with_events(

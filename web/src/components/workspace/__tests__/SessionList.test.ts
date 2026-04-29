@@ -73,7 +73,7 @@ describe('SessionList', () => {
           ],
         },
       ],
-      backgroundFolders: [],
+      taskFolders: [],
       externalFolders: [],
       currentContainerId: 'session-1',
       currentRunId: null,
@@ -134,10 +134,10 @@ describe('SessionList', () => {
     expect(wrapper.emitted('delete')).toEqual([['session-1', 'Workspace Session']])
   })
 
-  it('renders background folders and emits toggle/select events', async () => {
+  it('renders task folders and emits toggle/select events', async () => {
     const wrapper = mountSessionList({
       workspaceFolders: [],
-      backgroundFolders: [
+      taskFolders: [
         {
           taskId: 'task-1',
           chatSessionId: 'session-task-1',
@@ -171,14 +171,14 @@ describe('SessionList', () => {
       .findAll('button')
     await backgroundButtons[backgroundButtons.length - 1]!.trigger('click')
 
-    expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
+    expect(wrapper.emitted('toggleTask')).toEqual([['task-1']])
     expect(wrapper.emitted('selectRun')).toEqual([['task-1', 'run-1']])
   })
 
   it('renders external folders with nested runs and rebuild action', async () => {
     const wrapper = mountSessionList({
       workspaceFolders: [],
-      backgroundFolders: [],
+      taskFolders: [],
       externalFolders: [
         {
           containerId: 'telegram:conversation-1',
@@ -245,7 +245,7 @@ describe('SessionList', () => {
           runs: [],
         },
       ],
-      backgroundFolders: [],
+      taskFolders: [],
       externalFolders: [],
       currentContainerId: 'session-empty',
       currentRunId: null,
@@ -289,7 +289,7 @@ describe('SessionList', () => {
           ],
         },
       ],
-      backgroundFolders: [],
+      taskFolders: [],
       externalFolders: [],
       currentContainerId: null,
       currentRunId: null,

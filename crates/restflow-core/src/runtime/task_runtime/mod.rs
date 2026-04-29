@@ -8,7 +8,7 @@
 //!
 //! # Architecture
 //!
-//! - `runner`: The background task runner that polls for and executes tasks
+//! - `runner`: The task runner that polls for and executes tasks
 //! - `executor`: Real agent executor that bridges to restflow_ai
 //! - `cli_executor`: CLI agent executor for external tools (Claude Code, Aider)
 //! - `notifier`: Telegram notification sender for task results
@@ -179,7 +179,7 @@ pub use outcome::{
     ExecutionMetrics, ExecutionOutcome, RetryClass, SessionExecutionResult,
 };
 pub use persist::{MemoryPersister, PersistConfig, PersistResult};
-pub use reply_sender::BackgroundReplySenderFactory;
+pub use reply_sender::TaskReplySenderFactory;
 pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use runner::{
     AgentExecutor, ExecutionResult, NoopNotificationSender, NotificationSender, TaskRunner,

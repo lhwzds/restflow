@@ -1097,7 +1097,7 @@ fn test_create_task_rejects_reused_chat_session_binding() {
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("already bound to background task"));
+    assert!(err.contains("already bound to task"));
 }
 
 #[test]
@@ -1914,7 +1914,7 @@ fn test_update_task_rejects_reused_chat_session_binding() {
     );
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("already bound to background task"));
+    assert!(err.contains("already bound to task"));
 }
 
 #[test]

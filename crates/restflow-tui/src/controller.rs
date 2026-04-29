@@ -1045,7 +1045,7 @@ fn skill_source_order(source: SkillSource) -> u8 {
 }
 
 fn delete_session_error_message(session_id: &str, error: String) -> String {
-    if error.contains("bound to background task") {
+    if error.contains("bound to task") {
         format!("Cannot delete background-bound session {session_id}")
     } else {
         format!("Failed to delete session {session_id}: {error}")
@@ -1110,7 +1110,7 @@ mod tests {
     fn delete_session_error_message_summarizes_background_bound_conflict() {
         let message = delete_session_error_message(
             "session-1",
-            "IPC error 409: Session session-1 is bound to background task task-1".to_string(),
+            "IPC error 409: Session session-1 is bound to task task-1".to_string(),
         );
 
         assert_eq!(message, "Cannot delete background-bound session session-1");

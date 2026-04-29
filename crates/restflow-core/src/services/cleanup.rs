@@ -12,7 +12,7 @@ const DAY_SECS: u64 = 24 * 60 * 60;
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct CleanupReport {
     pub chat_sessions: usize,
-    pub background_tasks: usize,
+    pub tasks: usize,
     pub checkpoints: usize,
     pub memory_chunks: usize,
     pub audit_events: usize,
@@ -37,12 +37,11 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         .cleanup_workspace_sessions_by_retention(now_ms)?
         .deleted;
 
-    let background_tasks =
-        if let Some(cutoff) = retention_cutoff(now_ms, config.task_retention_days) {
-            core.storage.tasks.cleanup_old_tasks(cutoff)?
-        } else {
-            0
-        };
+    let tasks = if let Some(cutoff) = retention_cutoff(now_ms, config.task_retention_days) {
+        core.storage.tasks.cleanup_old_tasks(cutoff)?
+    } else {
+        0
+    };
 
     let checkpoints = core.storage.tasks.cleanup_expired_checkpoints()?;
 
@@ -84,7 +83,7 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
             .unwrap_or(0);
     Ok(CleanupReport {
         chat_sessions,
-        background_tasks,
+        tasks,
         checkpoints,
         memory_chunks,
         audit_events,

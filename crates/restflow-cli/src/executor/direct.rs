@@ -377,7 +377,7 @@ impl CommandExecutor for DirectExecutor {
         let report = restflow_core::services::cleanup::run_cleanup(&self.core).await?;
         Ok(CleanupReportResponse {
             chat_sessions: report.chat_sessions,
-            background_tasks: report.background_tasks,
+            tasks: report.tasks,
             checkpoints: report.checkpoints,
             memory_chunks: report.memory_chunks,
             audit_events: report.audit_events,

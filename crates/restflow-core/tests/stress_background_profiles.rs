@@ -69,16 +69,16 @@ async fn smoke_background_real_runtime_handles_tool_io() {
     let llm_metrics = llm_server.metrics();
     assert!(
         llm_metrics.request_count >= summary.total_runs,
-        "expected mock llm backend requests for background runtime"
+        "expected mock llm backend requests for task runtime"
     );
     let tool_metrics = tool_server.metrics();
     assert!(
         summary.tool_calls >= summary.total_runs * rounds_for(level, 3, 4, 6),
-        "expected multi-step real tool calls for background runtime, summary={summary:?}"
+        "expected multi-step real tool calls for task runtime, summary={summary:?}"
     );
     assert!(
         tool_metrics.request_count >= summary.total_runs,
-        "expected at least one http_request backend call per background task, summary={summary:?}"
+        "expected at least one http_request backend call per task, summary={summary:?}"
     );
 
     tool_server.shutdown().await;

@@ -1,4 +1,4 @@
-//! Real-time streaming events for background task execution.
+//! Real-time streaming events for task execution.
 //!
 //! These event types are shared across daemon HTTP streams and any in-process
 //! publishers that need to broadcast task execution updates.
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-/// Event name constant for background task streams.
+/// Event name constant for task streams.
 pub const TASK_STREAM_EVENT: &str = "task:stream";
 
 /// Real-time streaming event for task execution.

@@ -33,9 +33,9 @@ pub struct ExecutionPlan {
     /// Optional chat session ID for interactive mode.
     #[serde(default)]
     pub chat_session_id: Option<String>,
-    /// Optional background task ID for background mode.
+    /// Optional task ID for background mode.
     #[serde(default)]
-    pub background_task_id: Option<String>,
+    pub task_id: Option<String>,
     /// Optional timeout override in seconds.
     #[serde(default)]
     pub timeout_secs: Option<u64>,

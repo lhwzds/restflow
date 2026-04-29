@@ -18,7 +18,7 @@ pub enum SessionPolicyError {
         session_id: String,
         operation: &'static str,
     },
-    BoundToBackgroundTask {
+    BoundToTask {
         session_id: String,
         task_id: String,
         task_name: String,
@@ -31,7 +31,7 @@ impl SessionPolicyError {
         match self {
             Self::NotWorkspaceManaged { .. } => 403,
             Self::NotExternallyManaged { .. } | Self::MissingExternalRoute { .. } => 400,
-            Self::BoundToBackgroundTask { .. } => 409,
+            Self::BoundToTask { .. } => 409,
         }
     }
 }
@@ -64,14 +64,14 @@ impl std::fmt::Display for SessionPolicyError {
                 "Session {} is missing an external route and cannot be {}",
                 session_id, operation
             ),
-            Self::BoundToBackgroundTask {
+            Self::BoundToTask {
                 session_id,
                 task_id,
                 task_name,
                 operation,
             } => write!(
                 f,
-                "Session {} is bound to background task {} ({}) and cannot be {}",
+                "Session {} is bound to task {} ({}) and cannot be {}",
                 session_id, task_id, task_name, operation
             ),
         }
@@ -85,7 +85,7 @@ pub struct SessionPolicyCleanupStats {
     pub scanned: usize,
     pub deleted: usize,
     pub skipped_non_workspace: usize,
-    pub skipped_bound_background: usize,
+    pub skipped_bound_task: usize,
     pub skipped_not_expired: usize,
     pub skipped_no_retention: usize,
     pub failed: usize,
@@ -131,7 +131,7 @@ impl SessionPolicy {
         }
     }
 
-    fn background_task_by_session_map(&self) -> Result<HashMap<String, Task>> {
+    fn task_by_session_map(&self) -> Result<HashMap<String, Task>> {
         let mut map = HashMap::new();
         for task in self.tasks.list_tasks()? {
             if let Some(session_id) = Self::normalize_session_id(&task.chat_session_id) {
@@ -152,7 +152,7 @@ impl SessionPolicy {
             });
         }
 
-        if self.bound_background_task(&session.id)?.is_some()
+        if self.bound_task(&session.id)?.is_some()
             || session.source_channel == Some(ChatSessionSource::Background)
         {
             return Ok(EffectiveSessionSource {
@@ -182,13 +182,11 @@ impl SessionPolicy {
         Ok(self.management_owner(session)?.is_none())
     }
 
-    pub fn bound_background_task(&self, session_id: &str) -> Result<Option<Task>> {
+    pub fn bound_task(&self, session_id: &str) -> Result<Option<Task>> {
         let Some(session_id) = Self::normalize_session_id(session_id) else {
             return Ok(None);
         };
-        Ok(self
-            .background_task_by_session_map()?
-            .remove(session_id.as_str()))
+        Ok(self.task_by_session_map()?.remove(session_id.as_str()))
     }
 
     pub fn ensure_workspace_operation_allowed(
@@ -196,8 +194,8 @@ impl SessionPolicy {
         session: &ChatSession,
         operation: &'static str,
     ) -> Result<()> {
-        if let Some(task) = self.bound_background_task(&session.id)? {
-            return Err(SessionPolicyError::BoundToBackgroundTask {
+        if let Some(task) = self.bound_task(&session.id)? {
+            return Err(SessionPolicyError::BoundToTask {
                 session_id: session.id.clone(),
                 task_id: task.id,
                 task_name: task.name,
@@ -242,8 +240,8 @@ impl SessionPolicy {
             }
             .into());
         }
-        if let Some(task) = self.bound_background_task(&session.id)? {
-            return Err(SessionPolicyError::BoundToBackgroundTask {
+        if let Some(task) = self.bound_task(&session.id)? {
+            return Err(SessionPolicyError::BoundToTask {
                 session_id: session.id.clone(),
                 task_id: task.id,
                 task_name: task.name,
@@ -285,7 +283,7 @@ impl SessionPolicy {
         older_than_ms: i64,
     ) -> Result<SessionPolicyCleanupStats> {
         let sessions = self.sessions.list_sessions_all()?;
-        let task_map = self.background_task_by_session_map()?;
+        let task_map = self.task_by_session_map()?;
         let mut stats = SessionPolicyCleanupStats {
             scanned: sessions.len(),
             ..SessionPolicyCleanupStats::default()
@@ -298,7 +296,7 @@ impl SessionPolicy {
             }
 
             if task_map.contains_key(&session.id) {
-                stats.skipped_bound_background += 1;
+                stats.skipped_bound_task += 1;
                 continue;
             }
 
@@ -325,7 +323,7 @@ impl SessionPolicy {
         now_ms: i64,
     ) -> Result<SessionPolicyCleanupStats> {
         let sessions = self.sessions.list_sessions_all()?;
-        let task_map = self.background_task_by_session_map()?;
+        let task_map = self.task_by_session_map()?;
         let mut stats = SessionPolicyCleanupStats {
             scanned: sessions.len(),
             ..SessionPolicyCleanupStats::default()
@@ -349,7 +347,7 @@ impl SessionPolicy {
             }
 
             if task_map.contains_key(&session.id) {
-                stats.skipped_bound_background += 1;
+                stats.skipped_bound_task += 1;
                 continue;
             }
 
@@ -490,10 +488,7 @@ mod tests {
             .delete_workspace_session(&session.id)
             .expect_err("bound session should be rejected");
         let error = error.downcast::<SessionPolicyError>().unwrap();
-        assert!(matches!(
-            error,
-            SessionPolicyError::BoundToBackgroundTask { .. }
-        ));
+        assert!(matches!(error, SessionPolicyError::BoundToTask { .. }));
     }
 
     #[test]
@@ -530,7 +525,7 @@ mod tests {
 
         assert_eq!(stats.deleted, 1);
         assert_eq!(stats.skipped_non_workspace, 1);
-        assert_eq!(stats.skipped_bound_background, 1);
+        assert_eq!(stats.skipped_bound_task, 1);
         assert!(
             storage
                 .chat_sessions

@@ -9,7 +9,7 @@ use crate::{
 #[serde(rename_all = "snake_case")]
 pub enum RunKind {
     Interactive,
-    BackgroundTask,
+    Task,
     Subagent,
 }
 

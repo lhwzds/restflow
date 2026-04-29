@@ -362,7 +362,7 @@ impl ChatSessionMetadata {
 pub enum ChatSessionSource {
     /// Created from workspace UI / local API entrypoints.
     Workspace,
-    /// Created for durable background task execution.
+    /// Created for durable task execution.
     Background,
     /// Created from Telegram inbound messages.
     Telegram,

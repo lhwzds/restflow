@@ -52,7 +52,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
     async fn execute_background(
         &self,
         _agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         _input: Option<&str>,
         _memory_config: &crate::models::MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
@@ -64,7 +64,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
     async fn execute_background_from_state(
         &self,
         _agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         _state: AgentState,
         _memory_config: &crate::models::MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,

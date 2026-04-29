@@ -10,7 +10,7 @@ use crate::models::{ChatSessionSource, ExecutionTimeline};
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionContainerKind {
     Workspace,
-    BackgroundTask,
+    Task,
     ExternalChannel,
 }
 
@@ -20,7 +20,7 @@ pub enum ExecutionContainerKind {
 #[serde(rename_all = "snake_case")]
 pub enum RunKind {
     WorkspaceRun,
-    BackgroundRun,
+    TaskRun,
     ExternalRun,
     SubagentRun,
 }
@@ -134,7 +134,7 @@ mod tests {
     fn run_types_expose_canonical_surface() {
         let summary = RunSummary {
             id: "run-1".to_string(),
-            kind: RunKind::BackgroundRun,
+            kind: RunKind::TaskRun,
             container_id: "task-1".to_string(),
             root_run_id: Some("run-1".to_string()),
             title: "Example Run".to_string(),
@@ -156,7 +156,7 @@ mod tests {
         };
         let query = RunListQuery {
             container: ExecutionContainerRef {
-                kind: ExecutionContainerKind::BackgroundTask,
+                kind: ExecutionContainerKind::Task,
                 id: "task-1".to_string(),
             },
         };

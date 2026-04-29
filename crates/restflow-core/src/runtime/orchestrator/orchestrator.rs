@@ -228,7 +228,7 @@ impl AgentOrchestratorImpl {
     pub async fn run_background_execution(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -238,7 +238,7 @@ impl AgentOrchestratorImpl {
             self.kernel.as_ref(),
             background::BackgroundExecutionRequest {
                 agent_id: agent_id.to_string(),
-                task_id: background_task_id.map(ToOwned::to_owned),
+                task_id: task_id.map(ToOwned::to_owned),
                 input: input.map(ToOwned::to_owned),
                 memory_config: memory_config.clone(),
                 steer_rx,
@@ -252,7 +252,7 @@ impl AgentOrchestratorImpl {
     pub async fn run_background_execution_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -262,7 +262,7 @@ impl AgentOrchestratorImpl {
             self.kernel.as_ref(),
             background::BackgroundExecutionRequest {
                 agent_id: agent_id.to_string(),
-                task_id: background_task_id.map(ToOwned::to_owned),
+                task_id: task_id.map(ToOwned::to_owned),
                 input: None,
                 memory_config: memory_config.clone(),
                 steer_rx,
@@ -318,48 +318,34 @@ impl AgentExecutor for OrchestratingAgentExecutor {
     async fn execute(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_background_execution(
-                agent_id,
-                background_task_id,
-                input,
-                memory_config,
-                steer_rx,
-                None,
-            )
+            .run_background_execution(agent_id, task_id, input, memory_config, steer_rx, None)
             .await
     }
 
     async fn execute_with_emitter(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_background_execution(
-                agent_id,
-                background_task_id,
-                input,
-                memory_config,
-                steer_rx,
-                emitter,
-            )
+            .run_background_execution(agent_id, task_id, input, memory_config, steer_rx, emitter)
             .await
     }
 
     async fn execute_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -368,7 +354,7 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         self.orchestrator
             .run_background_execution_from_state(
                 agent_id,
-                background_task_id,
+                task_id,
                 state,
                 memory_config,
                 steer_rx,
@@ -448,7 +434,7 @@ mod tests {
         async fn execute_background(
             &self,
             agent_id: &str,
-            background_task_id: Option<&str>,
+            task_id: Option<&str>,
             _input: Option<&str>,
             _memory_config: &MemoryConfig,
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -457,11 +443,7 @@ mod tests {
             self.last_background
                 .lock()
                 .expect("background lock")
-                .push(format!(
-                    "{}:{}",
-                    agent_id,
-                    background_task_id.unwrap_or_default()
-                ));
+                .push(format!("{}:{}", agent_id, task_id.unwrap_or_default()));
             Ok(ExecutionResult::success(
                 "background-output".to_string(),
                 vec![Message::assistant("done".to_string())],
@@ -471,7 +453,7 @@ mod tests {
         async fn execute_background_from_state(
             &self,
             agent_id: &str,
-            background_task_id: Option<&str>,
+            task_id: Option<&str>,
             _state: AgentState,
             _memory_config: &MemoryConfig,
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -483,7 +465,7 @@ mod tests {
                 .push(format!(
                     "resume:{}:{}",
                     agent_id,
-                    background_task_id.unwrap_or_default()
+                    task_id.unwrap_or_default()
                 ));
             Ok(ExecutionResult::success(
                 "resumed-output".to_string(),
@@ -736,7 +718,7 @@ mod tests {
             async fn execute_background(
                 &self,
                 _agent_id: &str,
-                _background_task_id: Option<&str>,
+                _task_id: Option<&str>,
                 _input: Option<&str>,
                 _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -748,7 +730,7 @@ mod tests {
             async fn execute_background_from_state(
                 &self,
                 _agent_id: &str,
-                _background_task_id: Option<&str>,
+                _task_id: Option<&str>,
                 _state: AgentState,
                 _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -891,7 +873,7 @@ mod tests {
             async fn execute_background(
                 &self,
                 _agent_id: &str,
-                _background_task_id: Option<&str>,
+                _task_id: Option<&str>,
                 _input: Option<&str>,
                 _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -903,7 +885,7 @@ mod tests {
             async fn execute_background_from_state(
                 &self,
                 _agent_id: &str,
-                _background_task_id: Option<&str>,
+                _task_id: Option<&str>,
                 _state: AgentState,
                 _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,

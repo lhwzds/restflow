@@ -61,7 +61,7 @@ impl AgentRuntimeExecutor {
         &self,
         agent_node: &AgentNode,
         agent_id: Option<&str>,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         user_input: Option<&str>,
     ) -> Result<String> {
         let mut prompt_agent = agent_node.clone();
@@ -99,7 +99,7 @@ impl AgentRuntimeExecutor {
         }
 
         let base_prompt = build_agent_system_prompt(self.storage.clone(), &prompt_agent, agent_id)?;
-        let policy_prompt = prompt_files::load_task_policy(background_task_id)?;
+        let policy_prompt = prompt_files::load_task_policy(task_id)?;
         if policy_prompt.trim().is_empty() {
             return Ok(base_prompt);
         }

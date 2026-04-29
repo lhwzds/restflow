@@ -669,7 +669,7 @@ async fn delete_session_rejects_background_bound_workspace_session() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 409);
-            assert!(error.message.contains("bound to background task"));
+            assert!(error.message.contains("bound to task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -720,7 +720,7 @@ async fn switch_session_model_rejects_background_bound_workspace_session() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 409);
-            assert!(error.message.contains("bound to background task"));
+            assert!(error.message.contains("bound to task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -766,7 +766,7 @@ async fn archive_session_rejects_background_bound_workspace_session() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 409);
-            assert!(error.message.contains("bound to background task"));
+            assert!(error.message.contains("bound to task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }

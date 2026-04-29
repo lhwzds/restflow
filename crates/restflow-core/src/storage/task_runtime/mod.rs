@@ -158,7 +158,7 @@ impl TaskStorage {
             same_session && !same_task
         }) {
             return Err(anyhow::anyhow!(
-                "chat_session_id '{}' is already bound to background task '{}' ({})",
+                "chat_session_id '{}' is already bound to task '{}' ({})",
                 target,
                 conflict.id,
                 conflict.name

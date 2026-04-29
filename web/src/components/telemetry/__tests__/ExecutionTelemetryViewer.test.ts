@@ -83,7 +83,7 @@ describe('ExecutionTelemetryViewer', () => {
     })
 
     expect(wrapper.get('[data-testid="execution-telemetry-empty"]').text()).toContain(
-      'backgroundAgent.timelineEmpty',
+      'taskRun.timelineEmpty',
     )
   })
 

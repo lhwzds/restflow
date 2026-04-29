@@ -59,7 +59,7 @@ pub async fn update_agent(
         .with_context(|| format!("Failed to update agent {}", id))
 }
 
-/// Check whether an agent has active background tasks.
+/// Check whether an agent has active tasks.
 /// Returns `Ok(Some(task_names))` when active tasks exist, `Ok(None)` otherwise.
 pub(crate) fn check_agent_has_active_tasks(
     bg_storage: &TaskStorage,
@@ -192,10 +192,10 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
     }
 
     if let Some(task_names) = check_agent_has_active_tasks(&core.storage.tasks, &resolved_id)
-        .with_context(|| format!("Failed to query background tasks for agent {}", id))?
+        .with_context(|| format!("Failed to query tasks for agent {}", id))?
     {
         anyhow::bail!(
-            "Cannot delete agent {}: active background tasks exist ({})",
+            "Cannot delete agent {}: active tasks exist ({})",
             resolved_id,
             task_names
         );

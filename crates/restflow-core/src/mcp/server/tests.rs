@@ -1221,7 +1221,7 @@ impl McpBackend for MockBackend {
     ) -> Result<Vec<RunSummary>, String> {
         Ok(vec![RunSummary {
             id: format!("{}-run-summary", query.container.id),
-            kind: RunKind::BackgroundRun,
+            kind: RunKind::TaskRun,
             container_id: query.container.id.clone(),
             root_run_id: Some("run-123".to_string()),
             title: "Mock Run".to_string(),

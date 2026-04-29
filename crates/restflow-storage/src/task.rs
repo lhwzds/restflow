@@ -258,7 +258,7 @@ impl TaskStorage {
     ) -> Result<()> {
         if table.get(task_id)?.is_none() {
             anyhow::bail!(
-                "task run '{}' references missing background task '{}'",
+                "task run '{}' references missing task '{}'",
                 run_id,
                 task_id
             );
@@ -286,7 +286,7 @@ impl TaskStorage {
                     if existing_task_id == task_id && existing_status == "running" {
                         if wants_active {
                             anyhow::bail!(
-                                "background task '{}' already has active run '{}'",
+                                "task '{}' already has active run '{}'",
                                 task_id,
                                 existing_run_id
                             );
@@ -329,7 +329,7 @@ impl TaskStorage {
             let existing_chat_session_id = Self::parse_chat_session_id(value.value()).map_err(
                 |error| {
                     anyhow::anyhow!(
-                        "failed to parse existing background task '{}' while validating chat_session_id uniqueness: {}",
+                        "failed to parse existing task '{}' while validating chat_session_id uniqueness: {}",
                         existing_task_id,
                         error
                     )
@@ -342,7 +342,7 @@ impl TaskStorage {
             let existing_task_name =
                 Self::extract_task_name(value.value()).unwrap_or_else(|| "unknown".to_string());
             return Err(anyhow::anyhow!(
-                "chat_session_id '{}' is already bound to background task '{}' ({})",
+                "chat_session_id '{}' is already bound to task '{}' ({})",
                 target_chat_session_id,
                 existing_task_id,
                 existing_task_name
@@ -1913,7 +1913,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("already bound to background task")
+                .contains("already bound to task")
         );
     }
 
@@ -1940,7 +1940,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("already bound to background task")
+                .contains("already bound to task")
         );
     }
 
@@ -1963,7 +1963,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("failed to parse existing background task")
+                .contains("failed to parse existing task")
         );
     }
 

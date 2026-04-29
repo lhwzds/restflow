@@ -70,7 +70,7 @@ impl TaskStorage {
         self.checkpoints.delete(checkpoint)
     }
 
-    /// Delete all checkpoints/savepoints owned by one background task.
+    /// Delete all checkpoints/savepoints owned by one task.
     pub fn delete_checkpoints_for_task(&self, task_id: &str) -> Result<usize> {
         let mut deleted = 0usize;
         let mut seen_ids = std::collections::HashSet::new();

@@ -115,7 +115,7 @@ pub struct RouteBindingResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CleanupReportResponse {
     pub chat_sessions: usize,
-    pub background_tasks: usize,
+    pub tasks: usize,
     pub checkpoints: usize,
     pub memory_chunks: usize,
     pub audit_events: usize,
@@ -283,7 +283,7 @@ mod tests {
     fn cleanup_report_response_round_trips() {
         let response = CleanupReportResponse {
             chat_sessions: 1,
-            background_tasks: 2,
+            tasks: 2,
             checkpoints: 3,
             memory_chunks: 4,
             audit_events: 5,

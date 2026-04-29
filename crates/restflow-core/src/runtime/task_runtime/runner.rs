@@ -44,7 +44,7 @@ use super::heartbeat::{
     RunnerStatusEvent,
 };
 use super::outcome::ExecutionOutcome;
-use finalizer::BackgroundRunFinalizer;
+use finalizer::TaskRunFinalizer;
 mod finalizer;
 mod notification;
 mod persistence;
@@ -186,7 +186,7 @@ pub trait AgentExecutor: Send + Sync {
     async fn execute(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -199,27 +199,27 @@ pub trait AgentExecutor: Send + Sync {
     async fn execute_with_emitter(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         let _ = emitter;
-        self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
+        self.execute(agent_id, task_id, input, memory_config, steer_rx)
             .await
     }
 
     /// Execute an agent with an emitter and an explicit telemetry context.
     ///
-    /// Background task execution should prefer this method so the runner can
+    /// Task execution should prefer this method so the runner can
     /// provide the authoritative top-level run identity for the current
     /// execution attempt.
     #[allow(clippy::too_many_arguments)]
     async fn execute_with_emitter_and_telemetry(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -227,15 +227,8 @@ pub trait AgentExecutor: Send + Sync {
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let _ = telemetry_context;
-        self.execute_with_emitter(
-            agent_id,
-            background_task_id,
-            input,
-            memory_config,
-            steer_rx,
-            emitter,
-        )
-        .await
+        self.execute_with_emitter(agent_id, task_id, input, memory_config, steer_rx, emitter)
+            .await
     }
 
     /// Execute an agent from a previously persisted state.
@@ -244,22 +237,15 @@ pub trait AgentExecutor: Send + Sync {
     async fn execute_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: restflow_ai::AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         let _ = state;
-        self.execute_with_emitter(
-            agent_id,
-            background_task_id,
-            None,
-            memory_config,
-            steer_rx,
-            emitter,
-        )
-        .await
+        self.execute_with_emitter(agent_id, task_id, None, memory_config, steer_rx, emitter)
+            .await
     }
 
     /// Execute an agent from a previously persisted state with an explicit
@@ -268,7 +254,7 @@ pub trait AgentExecutor: Send + Sync {
     async fn execute_from_state_with_emitter_and_telemetry(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: restflow_ai::AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -276,15 +262,8 @@ pub trait AgentExecutor: Send + Sync {
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let _ = telemetry_context;
-        self.execute_from_state(
-            agent_id,
-            background_task_id,
-            state,
-            memory_config,
-            steer_rx,
-            emitter,
-        )
-        .await
+        self.execute_from_state(agent_id, task_id, state, memory_config, steer_rx, emitter)
+            .await
     }
 }
 
@@ -675,7 +654,7 @@ impl TaskRunner {
         let telemetry_sink =
             crate::telemetry::build_execution_trace_sink(self.execution_trace_storage());
         RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
-            RunKind::BackgroundTask,
+            RunKind::Task,
             run.run_id.clone(),
             trace_session_id,
             task.id.clone(),
@@ -745,7 +724,7 @@ impl TaskRunner {
                 task_id = %task_id,
                 run_id = %run_id,
                 error = %err,
-                "Failed to mark pre-commit background run as interrupted"
+                "Failed to mark pre-commit task run as interrupted"
             );
         }
 
@@ -793,7 +772,7 @@ impl TaskRunner {
         ended_at: i64,
     ) {
         let run_handle = self.build_run_handle_for_task_run(task, run);
-        let finalizer = BackgroundRunFinalizer::new(self, task.clone(), None, run_handle);
+        let finalizer = TaskRunFinalizer::new(self, task.clone(), None, run_handle);
         let duration_ms = ended_at.saturating_sub(run.started_at);
         finalizer.finalize_interrupted(reason, duration_ms).await;
     }
@@ -1000,10 +979,7 @@ impl TaskRunner {
                 }
             }
             Err(err) => {
-                error!(
-                    "Failed to list background task runs for startup recovery: {}",
-                    err
-                );
+                error!("Failed to list task runs for startup recovery: {}", err);
             }
         }
 
@@ -1165,7 +1141,7 @@ impl TaskRunner {
             }
             Err(error) => {
                 warn!(
-                    "Failed to list background task runs for stalled-task recovery: {}",
+                    "Failed to list task runs for stalled-task recovery: {}",
                     error
                 );
             }
@@ -1714,7 +1690,7 @@ impl TaskRunner {
         let execution_trace_storage = self.execution_trace_storage();
         let telemetry_sink = crate::telemetry::build_execution_trace_sink(execution_trace_storage);
         let run_handle = RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
-            RunKind::BackgroundTask,
+            RunKind::Task,
             run_id,
             trace_session_id,
             task.id.clone(),
@@ -1739,7 +1715,7 @@ impl TaskRunner {
             )
             .await;
             return Err(anyhow!(
-                "Injected background task run creation failure for {}",
+                "Injected task run creation failure for {}",
                 task.id
             ));
         }
@@ -1760,17 +1736,17 @@ impl TaskRunner {
                 &original_task,
                 resume_launch,
                 None,
-                "Failed to create background task run",
+                "Failed to create task run",
             )
             .await;
             return Err(anyhow!(
-                "Failed to create background task run for {}: {}",
+                "Failed to create task run for {}: {}",
                 task.id,
                 err
             ));
         }
         run_handle.start().await;
-        let finalizer = BackgroundRunFinalizer::new(
+        let finalizer = TaskRunFinalizer::new(
             self,
             task.clone(),
             resolved_input.clone(),
@@ -1811,7 +1787,7 @@ impl TaskRunner {
             .is_none_or(|value: &str| value.trim().is_empty())
         {
             let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
-            let reason = "Background task requires non-empty input or input_template";
+            let reason = "Task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
 
             error!("Task '{}' failed preflight: {}", task.name, reason);

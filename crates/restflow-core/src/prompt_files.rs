@@ -316,10 +316,7 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
 
 fn apply_task_id_placeholder(content: &str, task_id: Option<&str>) -> String {
     let task_id = task_id.unwrap_or("unknown");
-    let replacements = HashMap::from([
-        ("{{task_id}}", task_id),
-        ("{{background_task_id}}", task_id),
-    ]);
+    let replacements = HashMap::from([("{{task_id}}", task_id), ("{{task_id}}", task_id)]);
     crate::template::render_template_single_pass(content, &replacements)
 }
 
@@ -968,7 +965,7 @@ mod tests {
     #[test]
     fn test_apply_task_id_placeholder_prevents_double_substitution() {
         // Test that a malicious task_id containing placeholder syntax doesn't get re-processed
-        let content = "{{task_id}} - {{background_task_id}}";
+        let content = "{{task_id}} - {{task_id}}";
         let malicious_task_id = "injected{{task_id}}"; // If double-substitution happens, this would become "injectedinjected{{task_id}}"
         let result = apply_task_id_placeholder(content, Some(malicious_task_id));
 
@@ -978,7 +975,7 @@ mod tests {
 
     #[test]
     fn test_apply_task_id_placeholder_handles_none() {
-        let content = "{{task_id}} - {{background_task_id}}";
+        let content = "{{task_id}} - {{task_id}}";
         let result = apply_task_id_placeholder(content, None);
         assert_eq!(result, "unknown - unknown");
     }

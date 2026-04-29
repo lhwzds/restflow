@@ -1438,7 +1438,7 @@ pub struct ExecutionTraceQuery {
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionContainerKind {
     Workspace,
-    BackgroundTask,
+    Task,
     ExternalChannel,
 }
 
@@ -1824,7 +1824,7 @@ mod tests {
         let request = IpcRequest::ListRuns {
             query: RunListQuery {
                 container: ExecutionContainerRef {
-                    kind: ExecutionContainerKind::BackgroundTask,
+                    kind: ExecutionContainerKind::Task,
                     id: "task-1".to_string(),
                 },
             },

@@ -96,14 +96,14 @@ impl ExecutionConsoleService {
             })
             .collect::<Vec<_>>();
         let external_groups = self.group_external_sessions(&session_contexts);
-        let background_tasks = self.storage.tasks.list_tasks()?;
+        let tasks = self.storage.tasks.list_tasks()?;
 
         let mut containers = workspace_containers;
 
-        for task in background_tasks {
+        for task in tasks {
             containers.push(ExecutionContainerSummary {
                 id: task.id.clone(),
-                kind: ExecutionContainerKind::BackgroundTask,
+                kind: ExecutionContainerKind::Task,
                 title: task.name.clone(),
                 subtitle: task.description.clone(),
                 updated_at: task.updated_at,
@@ -163,9 +163,7 @@ impl ExecutionConsoleService {
     pub fn list_runs(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
         match query.container.kind {
             ExecutionContainerKind::Workspace => self.list_workspace_runs(&query.container.id),
-            ExecutionContainerKind::BackgroundTask => {
-                self.list_background_task_sessions(&query.container.id)
-            }
+            ExecutionContainerKind::Task => self.list_task_sessions(&query.container.id),
             ExecutionContainerKind::ExternalChannel => {
                 self.list_external_channel_runs(&query.container.id)
             }
@@ -343,7 +341,7 @@ impl ExecutionConsoleService {
             .ok_or_else(|| anyhow!("workspace session '{}' not found", session_id))?;
         let policy = SessionPolicy::from_storage(&self.storage);
         let source = policy.effective_source(&session)?;
-        let bound_task = policy.bound_background_task(session_id)?;
+        let bound_task = policy.bound_task(session_id)?;
         if source.source != ChatSessionSource::Workspace || bound_task.is_some() {
             return Err(anyhow!("workspace session '{}' not found", session_id));
         }
@@ -358,16 +356,16 @@ impl ExecutionConsoleService {
         )
     }
 
-    fn list_background_task_sessions(&self, task_id: &str) -> Result<Vec<RunSummary>> {
+    fn list_task_sessions(&self, task_id: &str) -> Result<Vec<RunSummary>> {
         let task = self
             .storage
             .tasks
             .get_task(task_id)?
-            .ok_or_else(|| anyhow!("background task '{}' not found", task_id))?;
-        self.list_background_task_runs(&task)
+            .ok_or_else(|| anyhow!("task '{}' not found", task_id))?;
+        self.list_task_runs(&task)
     }
 
-    fn list_background_task_runs(&self, task: &Task) -> Result<Vec<RunSummary>> {
+    fn list_task_runs(&self, task: &Task) -> Result<Vec<RunSummary>> {
         let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             task_id: Some(task.id.clone()),
             limit: Some(usize::MAX),
@@ -392,7 +390,7 @@ impl ExecutionConsoleService {
                 self.build_run_summary(
                     &run_id,
                     &task.id,
-                    RunKind::BackgroundRun,
+                    RunKind::TaskRun,
                     &run_events,
                     RunSummaryMeta {
                         title: Some(format_run_title(
@@ -685,7 +683,7 @@ impl ExecutionConsoleService {
             return Ok(self.build_run_summary(
                 run_id,
                 &task.id,
-                RunKind::BackgroundRun,
+                RunKind::TaskRun,
                 events,
                 RunSummaryMeta {
                     title: Some(format_run_title(
@@ -727,11 +725,11 @@ impl ExecutionConsoleService {
         {
             let policy = SessionPolicy::from_storage(&self.storage);
             let source = policy.effective_source(&session)?;
-            if let Some(task) = policy.bound_background_task(session_id)? {
+            if let Some(task) = policy.bound_task(session_id)? {
                 return Ok(self.build_run_summary(
                     run_id,
                     &task.id,
-                    RunKind::BackgroundRun,
+                    RunKind::TaskRun,
                     events,
                     RunSummaryMeta {
                         title: Some(format_run_title(
@@ -878,7 +876,7 @@ fn is_external_channel_source(source: ChatSessionSource) -> bool {
 fn execution_container_sort_key(container: &ExecutionContainerSummary) -> u8 {
     match container.kind {
         ExecutionContainerKind::Workspace => 0,
-        ExecutionContainerKind::BackgroundTask => 1,
+        ExecutionContainerKind::Task => 1,
         ExecutionContainerKind::ExternalChannel => 2,
     }
 }
@@ -1109,7 +1107,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_background_task_runs_and_child_runs() {
+    fn lists_task_runs_and_child_runs() {
         let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
@@ -1152,7 +1150,7 @@ mod tests {
         let runs = service
             .list_runs(&RunListQuery {
                 container: ExecutionContainerRef {
-                    kind: ExecutionContainerKind::BackgroundTask,
+                    kind: ExecutionContainerKind::Task,
                     id: task.id.clone(),
                 },
             })

@@ -6,7 +6,7 @@ impl IpcServer {
         match crate::services::cleanup::run_cleanup(core).await {
             Ok(report) => IpcResponse::success(CleanupReportResponse {
                 chat_sessions: report.chat_sessions,
-                background_tasks: report.background_tasks,
+                tasks: report.tasks,
                 checkpoints: report.checkpoints,
                 memory_chunks: report.memory_chunks,
                 audit_events: report.audit_events,

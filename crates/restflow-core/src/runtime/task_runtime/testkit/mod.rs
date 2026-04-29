@@ -50,7 +50,7 @@ impl AgentExecutor for DeterministicMockExecutor {
     async fn execute(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         _input: Option<&str>,
         _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -68,7 +68,7 @@ impl AgentExecutor for DeterministicMockExecutor {
             return Err(anyhow!(
                 "deterministic mock failure at call {} for task {:?}",
                 call_index,
-                background_task_id
+                task_id
             ));
         }
 

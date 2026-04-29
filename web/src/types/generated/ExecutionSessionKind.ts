@@ -2,6 +2,6 @@
 
 export type ExecutionSessionKind =
   | 'workspace_run'
-  | 'background_run'
+  | 'task_run'
   | 'external_run'
   | 'subagent_run'

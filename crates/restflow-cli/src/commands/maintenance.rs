@@ -22,7 +22,7 @@ async fn run_cleanup(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     if format.is_json() {
         return print_json(&json!({
             "chat_sessions": report.chat_sessions,
-            "background_tasks": report.background_tasks,
+            "tasks": report.tasks,
             "checkpoints": report.checkpoints,
             "memory_chunks": report.memory_chunks,
             "audit_events": report.audit_events,
@@ -35,7 +35,7 @@ async fn run_cleanup(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
 
     println!("Cleanup finished:");
     println!("  chat_sessions: {}", report.chat_sessions);
-    println!("  background_tasks: {}", report.background_tasks);
+    println!("  tasks: {}", report.tasks);
     println!("  checkpoints: {}", report.checkpoints);
     println!("  memory_chunks: {}", report.memory_chunks);
     println!("  audit_events: {}", report.audit_events);

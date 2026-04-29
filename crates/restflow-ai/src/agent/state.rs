@@ -49,7 +49,7 @@ pub struct AgentState {
 
     /// Hidden context not exposed to LLM (Swarm-inspired).
     /// TODO: Rename to `metadata` to avoid confusion with AgentContext (prompt injection context).
-    /// This field stores internal execution metadata (chat_session_id, background_task_id, etc.)
+    /// This field stores internal execution metadata (chat_session_id, task_id, etc.)
     /// whereas AgentContext contains external info to inject into prompts.
     pub context: HashMap<String, Value>,
 

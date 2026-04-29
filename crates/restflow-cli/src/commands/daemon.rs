@@ -339,7 +339,7 @@ async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
     let report = restflow_core::services::cleanup::run_cleanup(&core).await?;
     info!(
         chat_sessions = report.chat_sessions,
-        background_tasks = report.background_tasks,
+        tasks = report.tasks,
         checkpoints = report.checkpoints,
         memory_chunks = report.memory_chunks,
         audit_events = report.audit_events,

@@ -243,7 +243,7 @@ mod tests {
         let err = adapter
             .delete_session(&session_id)
             .expect_err("bound session must not be deleted");
-        assert!(err.to_string().contains("bound to background task"));
+        assert!(err.to_string().contains("bound to task"));
     }
 
     #[test]

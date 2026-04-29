@@ -42,7 +42,7 @@
       "deleteSuccess": "会话已删除",
       "deleteFailed": "删除会话失败",
       "renameSuccess": "会话已重命名",
-      "convertToBackground": "转为后台 Agent",
+      "convertToBackground": "转为任务",
       "convertToTask": "转为任务",
       "convertToWorkspace": "转为工作区会话",
       "convertDescription": "将此聊天会话转为定时任务。",
@@ -58,7 +58,7 @@
       "rebuildConfirm": "重建",
       "rebuildSuccess": "外部会话已重建",
       "rebuildFailed": "重建外部会话失败",
-      "backgroundName": "后台 Agent 名称",
+      "backgroundName": "任务 名称",
       "taskName": "任务名称",
       "inputOverride": "输入覆盖（可选）",
       "inputOverridePlaceholder": "覆盖从最后一条消息推导的输入...",
@@ -403,16 +403,16 @@
       "tagRequired": "Tag 必填。"
     }
   },
-  "backgroundAgent": {
+  "taskRun": {
     "loadingHistory": "加载历史记录...",
     "processing": "处理中...",
     "noExecutions": "暂无执行记录",
     "clickRunToStart": "点击运行以启动 Agent",
     "openRunTrace": "查看运行 Trace",
     "runTraceTitle": "运行 Trace",
-    "runTraceDescription": "查看这个后台 Agent 运行的执行遥测详情。",
-    "runNotFound": "未找到对应的后台 Agent 运行任务",
-    "loadingRun": "正在加载后台 Agent 运行任务...",
+    "runTraceDescription": "查看这个任务运行的执行遥测详情。",
+    "runNotFound": "未找到对应的任务运行",
+    "loadingRun": "正在加载任务运行...",
     "backToWorkspace": "返回工作区",
     "timelineTab": "时间线",
     "metricsTab": "指标",

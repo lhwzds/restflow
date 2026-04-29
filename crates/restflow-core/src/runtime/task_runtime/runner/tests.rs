@@ -90,7 +90,7 @@ impl AgentExecutor for MockExecutor {
     async fn execute(
         &self,
         agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         input: Option<&str>,
         _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -113,7 +113,7 @@ impl AgentExecutor for MockExecutor {
     async fn execute_with_emitter(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -122,14 +122,14 @@ impl AgentExecutor for MockExecutor {
         if emitter.is_some() {
             self.saw_emitter.store(true, Ordering::SeqCst);
         }
-        self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
+        self.execute(agent_id, task_id, input, memory_config, steer_rx)
             .await
     }
 
     async fn execute_from_state(
         &self,
         _agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         state: restflow_ai::AgentState,
         _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -148,7 +148,7 @@ impl AgentExecutor for FailsOnceExecutor {
     async fn execute(
         &self,
         agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         input: Option<&str>,
         _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -167,7 +167,7 @@ impl AgentExecutor for FailsOnceExecutor {
     async fn execute_with_emitter(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -176,14 +176,14 @@ impl AgentExecutor for FailsOnceExecutor {
         if emitter.is_some() {
             self.saw_emitter.store(true, Ordering::SeqCst);
         }
-        self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
+        self.execute(agent_id, task_id, input, memory_config, steer_rx)
             .await
     }
 
     async fn execute_from_state(
         &self,
         _agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         state: restflow_ai::AgentState,
         _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -255,7 +255,7 @@ impl AgentExecutor for DefaultDelegatingExecutor {
     async fn execute(
         &self,
         _agent_id: &str,
-        _background_task_id: Option<&str>,
+        _task_id: Option<&str>,
         _input: Option<&str>,
         _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,

@@ -34,7 +34,7 @@ export interface WorkspaceSessionFolder {
   runs: RunListItem[]
 }
 
-export interface BackgroundTaskFolder {
+export interface TaskFolder {
   taskId: string
   chatSessionId?: string | null
   name: string

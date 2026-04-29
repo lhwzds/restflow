@@ -464,7 +464,7 @@ describe('Workspace', () => {
     mockListExecutionContainers.mockResolvedValue([
       {
         id: 'task-1',
-        kind: 'background_task',
+        kind: 'task',
         title: 'Digest',
         subtitle: null,
         updated_at: 1,
@@ -480,7 +480,7 @@ describe('Workspace', () => {
     mockListRuns.mockResolvedValue([
       {
         id: 'run-summary-1',
-        kind: 'background_run',
+        kind: 'task_run',
         container_id: 'task-1',
         title: 'Run #1',
         subtitle: null,

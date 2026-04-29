@@ -34,7 +34,7 @@ pub trait ExecutionBackend: Send + Sync {
     async fn execute_background(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -44,7 +44,7 @@ pub trait ExecutionBackend: Send + Sync {
     async fn execute_background_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -103,41 +103,27 @@ impl ExecutionBackend for AgentRuntimeExecutor {
     async fn execute_background(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_with_emitter(
-            agent_id,
-            background_task_id,
-            input,
-            memory_config,
-            steer_rx,
-            emitter,
-        )
-        .await
+        self.execute_with_emitter(agent_id, task_id, input, memory_config, steer_rx, emitter)
+            .await
     }
 
     async fn execute_background_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_from_state(
-            agent_id,
-            background_task_id,
-            state,
-            memory_config,
-            steer_rx,
-            emitter,
-        )
-        .await
+        self.execute_from_state(agent_id, task_id, state, memory_config, steer_rx, emitter)
+            .await
     }
 
     async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> Result<ExecutionOutcome> {

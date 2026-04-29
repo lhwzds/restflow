@@ -36,10 +36,10 @@ pub const DEFAULT_MAX_PARALLEL_SUBAGENTS: usize = 200;
 /// Default sub-agent nesting depth.
 pub const DEFAULT_SUBAGENT_MAX_DEPTH: usize = 1;
 
-/// Default timeout (seconds) for background task execution.
+/// Default timeout (seconds) for task execution.
 pub const DEFAULT_AGENT_TASK_TIMEOUT_SECS: u64 = 1800;
 
-/// Default maximum execution duration (seconds) for background tasks.
+/// Default maximum execution duration (seconds) for tasks.
 pub const DEFAULT_AGENT_MAX_DURATION_SECS: u64 = 1800;
 
 /// Default TTL (seconds) for finished process sessions.

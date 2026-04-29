@@ -52,7 +52,7 @@ export async function resolveTaskAliasRoute(
   try {
     const runs = await listRuns({
       container: {
-        kind: 'background_task',
+        kind: 'task',
         id: taskId,
       },
     })

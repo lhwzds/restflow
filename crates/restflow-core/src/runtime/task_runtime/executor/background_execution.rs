@@ -17,8 +17,8 @@ fn generated_run_id() -> String {
 impl AgentRuntimeExecutor {
     fn background_telemetry_context(
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
-        background_task_id: Option<&str>,
-        background_task_snapshot: Option<&crate::models::Task>,
+        task_id: Option<&str>,
+        task_snapshot: Option<&crate::models::Task>,
         agent_id: Option<&str>,
     ) -> restflow_telemetry::TelemetryContext {
         let resolved_agent_id = agent_id.unwrap_or("unknown-agent").to_string();
@@ -28,12 +28,12 @@ impl AgentRuntimeExecutor {
         }
 
         let run_id = generated_run_id();
-        let session_id = background_task_snapshot
+        let session_id = task_snapshot
             .as_ref()
             .map(|task| task.chat_session_id.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| run_id.clone());
-        let scope_id = background_task_id.unwrap_or(run_id.as_str()).to_string();
+        let scope_id = task_id.unwrap_or(run_id.as_str()).to_string();
         restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
             run_id,
             session_id,
@@ -48,7 +48,7 @@ impl AgentRuntimeExecutor {
         agent_node: &AgentNode,
         model: ModelId,
         llm_client: Arc<dyn LlmClient>,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         _memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
@@ -59,14 +59,14 @@ impl AgentRuntimeExecutor {
         initial_state: Option<restflow_ai::AgentState>,
         telemetry_context: restflow_telemetry::TelemetryContext,
     ) -> Result<ExecutionResult> {
-        let background_task_snapshot = if let Some(task_id) = background_task_id {
+        let task_snapshot = if let Some(task_id) = task_id {
             match self.storage.tasks.get_task(task_id) {
                 Ok(task) => task,
                 Err(error) => {
                     warn!(
                         task_id,
                         error = %error,
-                        "Failed to load background task for execution context"
+                        "Failed to load task for execution context"
                     );
                     None
                 }
@@ -74,7 +74,7 @@ impl AgentRuntimeExecutor {
         } else {
             None
         };
-        let workspace_root = background_task_snapshot
+        let workspace_root = task_snapshot
             .as_ref()
             .and_then(|task| match &task.execution_mode {
                 crate::models::ExecutionMode::Cli(config) => config.working_dir.as_deref(),
@@ -103,7 +103,7 @@ impl AgentRuntimeExecutor {
             timeout_secs: agent_defaults.bash_timeout_secs,
             ..BashConfig::default()
         };
-        let reply_sender = self.resolve_reply_sender(background_task_id, agent_id);
+        let reply_sender = self.resolve_reply_sender(task_id, agent_id);
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
@@ -115,7 +115,7 @@ impl AgentRuntimeExecutor {
             workspace_root.as_deref(),
         )?;
         let system_prompt =
-            self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
+            self.build_background_system_prompt(agent_node, agent_id, task_id, input)?;
         let goal = input.unwrap_or("Execute the agent task");
         let catalog = ModelCatalog::global().await;
         let model_entry = catalog.resolve(model).await;
@@ -131,8 +131,8 @@ impl AgentRuntimeExecutor {
             resource_limits.max_output_bytes,
             context_window,
         );
-        let execution_context = background_task_id.map(|task_id| {
-            let chat_session_id = background_task_snapshot
+        let execution_context = task_id.map(|task_id| {
+            let chat_session_id = task_snapshot
                 .as_ref()
                 .map(|task| task.chat_session_id.trim().to_string())
                 .filter(|session_id| !session_id.is_empty())
@@ -164,13 +164,13 @@ impl AgentRuntimeExecutor {
             .with_max_tool_concurrency(agent_defaults.max_tool_concurrency)
             .with_prune_tool_max_chars(agent_defaults.prune_tool_max_chars)
             .with_compact_preserve_tokens(agent_defaults.compact_preserve_tokens)
-            .with_yolo_mode(background_task_id.is_some());
+            .with_yolo_mode(task_id.is_some());
         if let Some(entry) = model_entry
             && !model.is_cli_model()
         {
             config = config.with_max_output_tokens(entry.capabilities.output_limit as u32);
         }
-        if let Some(task_id) = background_task_id
+        if let Some(task_id) = task_id
             && let Ok(tool_output_dir) = Self::create_tool_output_dir_for_task(task_id)
         {
             config = config.with_tool_output_dir(tool_output_dir);
@@ -200,7 +200,7 @@ impl AgentRuntimeExecutor {
                 self.storage.as_ref(),
             ))
             .with_telemetry_context(telemetry_context.clone());
-        if let Some(task) = background_task_snapshot.as_ref() {
+        if let Some(task) = task_snapshot.as_ref() {
             let checkpoint_durability = match task.durability_mode {
                 DurabilityMode::Sync => CheckpointDurability::PerTurn,
                 DurabilityMode::Async => CheckpointDurability::Periodic { interval: 5 },
@@ -245,9 +245,7 @@ impl AgentRuntimeExecutor {
                     checkpoints
                         .set_task_run_checkpoint(&run_id, Some(checkpoint.id.clone()))
                         .map_err(|e| {
-                            AiError::Agent(format!(
-                                "Failed to update background run checkpoint: {e}"
-                            ))
+                            AiError::Agent(format!("Failed to update task run checkpoint: {e}"))
                         })?;
                     Ok(())
                 }
@@ -326,7 +324,7 @@ impl AgentRuntimeExecutor {
         &self,
         agent_node: &AgentNode,
         model: ModelId,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
@@ -370,7 +368,7 @@ impl AgentRuntimeExecutor {
             agent_node,
             model,
             llm_client,
-            background_task_id,
+            task_id,
             input,
             memory_config,
             resource_limits,
@@ -389,7 +387,7 @@ impl AgentRuntimeExecutor {
         &self,
         agent_node: &AgentNode,
         model: ModelId,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
@@ -405,7 +403,7 @@ impl AgentRuntimeExecutor {
                 .execute_with_model(
                     agent_node,
                     model,
-                    background_task_id,
+                    task_id,
                     input,
                     memory_config,
                     resource_limits,
@@ -424,7 +422,7 @@ impl AgentRuntimeExecutor {
                 .execute_with_model(
                     agent_node,
                     model,
-                    background_task_id,
+                    task_id,
                     input,
                     memory_config,
                     resource_limits,
@@ -448,7 +446,7 @@ impl AgentRuntimeExecutor {
                 .execute_with_model(
                     agent_node,
                     model,
-                    background_task_id,
+                    task_id,
                     input,
                     memory_config,
                     resource_limits,
@@ -502,7 +500,7 @@ impl AgentRuntimeExecutor {
                     agent_node,
                     model,
                     llm_client,
-                    background_task_id,
+                    task_id,
                     input,
                     memory_config,
                     resource_limits,
@@ -576,14 +574,14 @@ impl AgentExecutor for AgentRuntimeExecutor {
     async fn execute(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         self.execute_internal(
             agent_id,
-            background_task_id,
+            task_id,
             input,
             memory_config,
             steer_rx,
@@ -596,7 +594,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     async fn execute_with_emitter(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -604,7 +602,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     ) -> Result<ExecutionResult> {
         self.execute_with_emitter_and_telemetry(
             agent_id,
-            background_task_id,
+            task_id,
             input,
             memory_config,
             steer_rx,
@@ -617,7 +615,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     async fn execute_with_emitter_and_telemetry(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -626,7 +624,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     ) -> Result<ExecutionResult> {
         self.execute_internal(
             agent_id,
-            background_task_id,
+            task_id,
             input,
             memory_config,
             steer_rx,
@@ -639,7 +637,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     async fn execute_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: restflow_ai::AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -647,7 +645,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     ) -> Result<ExecutionResult> {
         self.execute_from_state_with_emitter_and_telemetry(
             agent_id,
-            background_task_id,
+            task_id,
             state,
             memory_config,
             steer_rx,
@@ -660,7 +658,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     async fn execute_from_state_with_emitter_and_telemetry(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: restflow_ai::AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -669,7 +667,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     ) -> Result<ExecutionResult> {
         self.execute_internal_from_state(
             agent_id,
-            background_task_id,
+            task_id,
             state,
             memory_config,
             steer_rx,
@@ -685,7 +683,7 @@ impl AgentRuntimeExecutor {
     async fn execute_internal_with_optional_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
         memory_config: &MemoryConfig,
@@ -699,20 +697,20 @@ impl AgentRuntimeExecutor {
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
         // Fail closed on storage errors - do not silently swallow DB failures.
-        let background_task = match background_task_id {
+        let task = match task_id {
             Some(task_id) => match self.storage.tasks.get_task(task_id) {
                 Ok(task_opt) => task_opt,
                 Err(e) => {
-                    warn!(task_id, error = %e, "Failed to load background task");
+                    warn!(task_id, error = %e, "Failed to load task");
                     return Err(e);
                 }
             },
             None => None,
         };
-        if let Some(task) = background_task.as_ref() {
+        if let Some(task) = task.as_ref() {
             self.validate_prerequisites(&task.prerequisites)?;
         }
-        let resolved_resource_limits = background_task
+        let resolved_resource_limits = task
             .as_ref()
             .map(|task| task.resource_limits.clone())
             .unwrap_or_default();
@@ -735,8 +733,8 @@ impl AgentRuntimeExecutor {
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
         let base_telemetry_context = Self::background_telemetry_context(
             telemetry_context,
-            background_task_id,
-            background_task.as_ref(),
+            task_id,
+            task.as_ref(),
             Some(agent_id),
         )
         .with_requested_model(primary_model.as_serialized_str())
@@ -785,7 +783,7 @@ impl AgentRuntimeExecutor {
                     self.execute_with_profiles(
                         &node,
                         model,
-                        background_task_id,
+                        task_id,
                         input_ref,
                         memory_config,
                         &limits,
@@ -805,7 +803,7 @@ impl AgentRuntimeExecutor {
                 Ok((mut exec_result, final_model)) => {
                     exec_result.metrics.final_model = Some(final_model);
                     self.persist_artifact_if_needed(
-                        background_task_id,
+                        task_id,
                         &base_telemetry_context.trace.run_id,
                         agent_id,
                         &exec_result.output,
@@ -830,7 +828,7 @@ impl AgentRuntimeExecutor {
     async fn execute_internal(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -839,7 +837,7 @@ impl AgentRuntimeExecutor {
     ) -> Result<ExecutionResult> {
         self.execute_internal_with_optional_state(
             agent_id,
-            background_task_id,
+            task_id,
             input,
             None,
             memory_config,
@@ -854,7 +852,7 @@ impl AgentRuntimeExecutor {
     async fn execute_internal_from_state(
         &self,
         agent_id: &str,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         state: restflow_ai::AgentState,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -863,7 +861,7 @@ impl AgentRuntimeExecutor {
     ) -> Result<ExecutionResult> {
         self.execute_internal_with_optional_state(
             agent_id,
-            background_task_id,
+            task_id,
             None,
             Some(state),
             memory_config,

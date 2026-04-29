@@ -4,7 +4,7 @@ import {
   createOpenAiSessionForTest,
   goToWorkspace,
   requestIpc,
-  trackCreatedBackgroundTask,
+  trackCreatedTask,
 } from "./helpers";
 
 type TaskSummary = {
@@ -102,7 +102,7 @@ test.describe("Task Web Flow", () => {
     await expect(dialog).not.toBeVisible();
 
     const taskId = (await waitForTaskBySession(page, sessionId)).id;
-    trackCreatedBackgroundTask(page, taskId);
+    trackCreatedTask(page, taskId);
 
     await expect(page.getByTestId(`background-folder-${taskId}`)).toBeVisible();
   });
@@ -124,18 +124,18 @@ test.describe("Task Web Flow", () => {
     await dialog.locator("input").first().fill(`Trace View ${Date.now()}`);
     await dialog
       .locator("textarea")
-      .fill("Prepare a background task for run trace viewing");
+      .fill("Prepare a task for run trace viewing");
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
     const taskId = (await waitForTaskBySession(page, sessionId)).id;
-    trackCreatedBackgroundTask(page, taskId);
+    trackCreatedTask(page, taskId);
     const runId = `run-${Date.now()}`;
     await page.route("**/api/request", async (route) => {
       const payload = route.request().postDataJSON();
       if (
         payload?.type === "ListRuns" &&
-        payload?.data?.query?.container?.kind === "background_task" &&
+        payload?.data?.query?.container?.kind === "task" &&
         payload?.data?.query?.container?.id === taskId
       ) {
         await route.fulfill({
@@ -146,7 +146,7 @@ test.describe("Task Web Flow", () => {
             data: [
               {
                 id: `${taskId}:${runId}`,
-                kind: "background_run",
+                kind: "task_run",
                 title: "Trace View Run",
                 subtitle: null,
                 status: "completed",
@@ -174,7 +174,7 @@ test.describe("Task Web Flow", () => {
             data: {
               focus: {
                 id: `${taskId}:${runId}`,
-                kind: "background_run",
+                kind: "task_run",
                 container_id: taskId,
                 title: "Trace View Run",
                 subtitle: null,
@@ -223,7 +223,7 @@ test.describe("Task Web Flow", () => {
     });
   });
 
-  test("normalizes legacy background task routes to the canonical container run route", async ({
+  test("normalizes legacy task routes to the canonical container run route", async ({
     page,
   }) => {
     await goToWorkspace(page);
@@ -240,19 +240,19 @@ test.describe("Task Web Flow", () => {
     await dialog.locator("input").first().fill(`Legacy Route ${Date.now()}`);
     await dialog
       .locator("textarea")
-      .fill("Prepare a background task for legacy route normalization");
+      .fill("Prepare a task for legacy route normalization");
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
     const taskId = (await waitForTaskBySession(page, sessionId)).id;
-    trackCreatedBackgroundTask(page, taskId);
+    trackCreatedTask(page, taskId);
 
     const runId = `run-${Date.now()}`;
     await page.route("**/api/request", async (route) => {
       const payload = route.request().postDataJSON();
       if (
         payload?.type === "ListRuns" &&
-        payload?.data?.query?.container?.kind === "background_task" &&
+        payload?.data?.query?.container?.kind === "task" &&
         payload?.data?.query?.container?.id === taskId
       ) {
         await route.fulfill({
@@ -263,7 +263,7 @@ test.describe("Task Web Flow", () => {
             data: [
               {
                 id: `${taskId}:${runId}`,
-                kind: "background_run",
+                kind: "task_run",
                 title: "Legacy Route Run",
                 subtitle: null,
                 status: "completed",
@@ -291,7 +291,7 @@ test.describe("Task Web Flow", () => {
             data: {
               focus: {
                 id: `${taskId}:${runId}`,
-                kind: "background_run",
+                kind: "task_run",
                 container_id: taskId,
                 title: "Legacy Route Run",
                 subtitle: null,
@@ -353,13 +353,13 @@ test.describe("Task Web Flow", () => {
     await expect(dialog).not.toBeVisible();
 
     const taskId = (await waitForTaskBySession(page, sessionId)).id;
-    trackCreatedBackgroundTask(page, taskId);
+    trackCreatedTask(page, taskId);
 
     const folder = page.getByTestId(`background-folder-${taskId}`);
     await expect(folder).toBeVisible();
     const emptyRunState = folder.getByTestId("background-run-empty");
     if ((await emptyRunState.count()) === 0) {
-      await folder.getByRole("button", { name: /background folder/i }).click();
+      await folder.getByRole("button", { name: /task folder/i }).click();
     }
 
     await expect(emptyRunState).toBeVisible();

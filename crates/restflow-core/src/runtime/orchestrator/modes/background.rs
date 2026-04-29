@@ -65,7 +65,7 @@ pub async fn run_plan(
 
     let request = BackgroundExecutionRequest {
         agent_id,
-        task_id: plan.background_task_id.clone(),
+        task_id: plan.task_id.clone(),
         input: plan.input.clone(),
         memory_config,
         steer_rx: None,
@@ -90,7 +90,7 @@ pub async fn run_plan(
                 metadata: Some(json!({
                     "message_count": result.messages.len(),
                     "compaction": compaction,
-                    "task_id": plan.background_task_id,
+                    "task_id": plan.task_id,
                 })),
                 ..ExecutionOutcome::default()
             }

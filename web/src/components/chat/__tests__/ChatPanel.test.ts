@@ -696,7 +696,7 @@ describe('ChatPanel', () => {
     })
   })
 
-  it('shows a run trace entry for linked background sessions', async () => {
+  it('shows a run trace entry for linked task sessions', async () => {
     vi.mocked(useTaskStore).mockReturnValue({
       agents: [],
       tasks: [],
@@ -1308,7 +1308,7 @@ describe('ChatPanel', () => {
     mockListExecutionContainers.mockResolvedValue([
       {
         id: 'task-1',
-        kind: 'background_task',
+        kind: 'task',
         title: 'Digest Agent',
         subtitle: null,
         status: 'completed',
@@ -1342,7 +1342,7 @@ describe('ChatPanel', () => {
 
     expect(mockListRuns).toHaveBeenCalledWith({
       container: {
-        kind: 'background_task',
+        kind: 'task',
         id: 'task-1',
       },
     })

@@ -457,7 +457,7 @@ async fn show_run_log(
         &executor
             .list_execution_sessions(RunListQuery {
                 container: ExecutionContainerRef {
-                    kind: ExecutionContainerKind::BackgroundTask,
+                    kind: ExecutionContainerKind::Task,
                     id: task_id.to_string(),
                 },
             })
@@ -582,7 +582,7 @@ mod tests {
     fn collect_run_ids_uses_run_summaries_in_order() {
         let first = RunSummary {
             id: "run-session-1".to_string(),
-            kind: RunKind::BackgroundRun,
+            kind: RunKind::TaskRun,
             container_id: "task-1".to_string(),
             root_run_id: Some("run-1".to_string()),
             title: "Run 1".to_string(),
@@ -605,7 +605,7 @@ mod tests {
 
         let second = RunSummary {
             id: "run-session-2".to_string(),
-            kind: RunKind::BackgroundRun,
+            kind: RunKind::TaskRun,
             container_id: "task-1".to_string(),
             root_run_id: Some("run-2".to_string()),
             title: "Run 2".to_string(),

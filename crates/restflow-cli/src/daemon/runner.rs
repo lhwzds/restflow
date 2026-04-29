@@ -10,7 +10,7 @@ use restflow_core::models::{Task, TaskControlAction, TaskMessageSource, TaskStat
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
-use restflow_core::runtime::task_runtime::BackgroundReplySenderFactory;
+use restflow_core::runtime::task_runtime::TaskReplySenderFactory;
 use restflow_core::runtime::{
     AgentRuntimeExecutor, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
     MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, NoopHeartbeatEmitter,
@@ -101,7 +101,7 @@ impl CliTaskRunner {
         let event_emitter: Arc<dyn TaskEventEmitter> = Arc::new(TaskIpcEventEmitter);
         let channel_router = Arc::new(RwLock::new(None));
 
-        let reply_sender_factory = Arc::new(BackgroundReplySenderFactory::new(
+        let reply_sender_factory = Arc::new(TaskReplySenderFactory::new(
             Arc::new(storage.tasks.clone()),
             event_emitter.clone(),
             channel_router.clone(),

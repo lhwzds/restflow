@@ -20,7 +20,7 @@ type CreateSessionRequest = {
 type TrackedState = {
   agentIds: Set<string>
   sessionIds: Set<string>
-  backgroundTaskIds: Set<string>
+  taskIds: Set<string>
 }
 
 const E2E_OPENAI_MODEL = 'gpt-5-4-mini'
@@ -42,7 +42,7 @@ function getTrackedState(page: Page): TrackedState {
   const created: TrackedState = {
     agentIds: new Set(),
     sessionIds: new Set(),
-    backgroundTaskIds: new Set(),
+    taskIds: new Set(),
   }
   trackedState.set(page, created)
   return created
@@ -60,8 +60,8 @@ function rememberAgentId(page: Page, agentId: string) {
   getTrackedState(page).agentIds.add(agentId)
 }
 
-function rememberBackgroundTaskId(page: Page, taskId: string) {
-  getTrackedState(page).backgroundTaskIds.add(taskId)
+function rememberTaskId(page: Page, taskId: string) {
+  getTrackedState(page).taskIds.add(taskId)
 }
 
 /**
@@ -229,7 +229,7 @@ function readTaskDeleted(value: unknown): boolean {
   return false
 }
 
-async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
+async function deleteTaskDirect(taskId: string): Promise<void> {
   const preview = await executeManageTasksDirect({
     operation: 'delete',
     id: taskId,
@@ -243,7 +243,7 @@ async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
   })
 
   if (!readTaskDeleted(result)) {
-    throw new Error(`Failed to delete background task ${taskId}`)
+    throw new Error(`Failed to delete task ${taskId}`)
   }
 }
 
@@ -251,8 +251,8 @@ export function trackCreatedSession(page: Page, sessionId: string) {
   rememberSessionId(page, sessionId)
 }
 
-export function trackCreatedBackgroundTask(page: Page, taskId: string) {
-  rememberBackgroundTaskId(page, taskId)
+export function trackCreatedTask(page: Page, taskId: string) {
+  rememberTaskId(page, taskId)
 }
 
 export async function createSessionForTest(page: Page): Promise<string> {
@@ -343,18 +343,18 @@ export async function cleanupTrackedState(page: Page) {
 
   const agentIds = [...state.agentIds].reverse()
   const sessionIds = [...state.sessionIds].reverse()
-  const backgroundTaskIds = [...state.backgroundTaskIds].reverse()
+  const taskIds = [...state.taskIds].reverse()
   trackedState.delete(page)
 
   const cleanupErrors: string[] = []
 
-  for (const taskId of backgroundTaskIds) {
+  for (const taskId of taskIds) {
     try {
-      await deleteBackgroundTaskDirect(taskId)
+      await deleteTaskDirect(taskId)
     } catch (error) {
       if (!isNotFoundError(error)) {
         cleanupErrors.push(
-          `Failed to delete background task ${taskId}: ${
+          `Failed to delete task ${taskId}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         )

@@ -45,13 +45,13 @@ const props = withDefaults(
   defineProps<{
     selectedRunId?: string | null
     containerId?: string | null
-    backgroundTaskId?: string | null
+    taskId?: string | null
     autoSelectRecent?: boolean
   }>(),
   {
     selectedRunId: null,
     containerId: null,
-    backgroundTaskId: null,
+    taskId: null,
     autoSelectRecent: true,
   },
 )
@@ -361,8 +361,8 @@ const durationMs = computed(() => chatStream.duration.value)
 
 // Task linked to current session (if any)
 const linkedTask = computed(() => {
-  if (props.backgroundTaskId) {
-    return taskStore?.tasks?.find((task) => task.id === props.backgroundTaskId) ?? null
+  if (props.taskId) {
+    return taskStore?.tasks?.find((task) => task.id === props.taskId) ?? null
   }
   const sessionId = chatSessionStore.currentSessionId
   if (!sessionId) return null
@@ -390,7 +390,7 @@ const isExternalSessionManaged = computed(() => {
   return !!source && source !== 'workspace'
 })
 const activeContainerKind = computed<ExecutionContainerKind | null>(() => {
-  if (props.backgroundTaskId) return 'background_task'
+  if (props.taskId) return 'task'
   if (isExternalSessionManaged.value) return 'external_channel'
   return resolvedContainerId.value ? 'workspace' : null
 })
@@ -425,7 +425,7 @@ async function handleOpenRunTrace() {
   const runId = props.selectedRunId || executionThread.value?.focus.run_id || null
   const containerId =
     executionThread.value?.focus.container_id ||
-    props.backgroundTaskId ||
+    props.taskId ||
     linkedTask.value?.id ||
     chatSessionStore.currentSessionId ||
     null
@@ -442,7 +442,7 @@ async function handleOpenRunTrace() {
   try {
     const runs = await listRuns({
       container: {
-        kind: 'background_task',
+        kind: 'task',
         id: linkedTask.value.id,
       },
     })
@@ -457,7 +457,7 @@ async function handleOpenRunTrace() {
       return
     }
   } catch (error) {
-    console.warn('Failed to resolve latest background run for trace view:', error)
+    console.warn('Failed to resolve latest task run for trace view:', error)
   }
 
   await router.push({

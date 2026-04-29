@@ -92,7 +92,7 @@ impl RestFlowMcpServer {
                         .backend
                         .list_execution_sessions(RunListQuery {
                             container: ExecutionContainerRef {
-                                kind: ExecutionContainerKind::BackgroundTask,
+                                kind: ExecutionContainerKind::Task,
                                 id: task.id.clone(),
                             },
                         })

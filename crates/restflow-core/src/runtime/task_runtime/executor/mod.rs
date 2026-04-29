@@ -141,7 +141,7 @@ pub struct AgentRuntimeExecutor {
 /// Background-agent execution needs a sender bound to the current task ID,
 /// while interactive chat execution usually uses a static sender per session.
 pub trait ReplySenderFactory: Send + Sync {
-    fn for_background_task(&self, task_id: &str, agent_id: &str) -> Option<Arc<dyn ReplySender>>;
+    fn for_task(&self, task_id: &str, agent_id: &str) -> Option<Arc<dyn ReplySender>>;
 }
 
 const TOOL_RESULT_CONTEXT_RATIO: f64 = 0.08;
@@ -349,21 +349,21 @@ impl AgentRuntimeExecutor {
 
     fn persist_artifact_if_needed(
         &self,
-        background_task_id: Option<&str>,
+        task_id: Option<&str>,
         run_id: &str,
         agent_id: &str,
         output: &str,
     ) -> Result<()> {
-        if let Some(task_id) = background_task_id {
+        if let Some(task_id) = task_id {
             self.save_task_artifact(task_id, run_id, agent_id, output)?;
         }
         Ok(())
     }
 
-    fn create_tool_output_dir_for_task(background_task_id: &str) -> Result<std::path::PathBuf> {
+    fn create_tool_output_dir_for_task(task_id: &str) -> Result<std::path::PathBuf> {
         let base_dir = crate::paths::ensure_restflow_dir()?.join("tool-output");
         std::fs::create_dir_all(&base_dir)?;
-        let path = base_dir.join(background_task_id);
+        let path = base_dir.join(task_id);
         std::fs::create_dir_all(&path)?;
         Ok(path)
     }

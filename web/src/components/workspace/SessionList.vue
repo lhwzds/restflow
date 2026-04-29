@@ -31,7 +31,7 @@ import {
 import { cn } from '@/lib/utils'
 import { TIME_THRESHOLDS, TIME_UNITS } from '@/constants'
 import type {
-  BackgroundTaskFolder,
+  TaskFolder,
   ChildRunLoadState,
   ExternalChannelFolder,
   RunListItem,
@@ -42,13 +42,13 @@ import type { ChatSessionSource } from '@/types/generated/ChatSessionSource'
 const props = withDefaults(
   defineProps<{
     workspaceFolders: WorkspaceSessionFolder[]
-    backgroundFolders?: BackgroundTaskFolder[]
+    taskFolders?: TaskFolder[]
     externalFolders?: ExternalChannelFolder[]
     currentContainerId?: string | null
     currentRunId?: string | null
   }>(),
   {
-    backgroundFolders: () => [],
+    taskFolders: () => [],
     externalFolders: () => [],
     currentContainerId: null,
     currentRunId: null,
@@ -59,7 +59,7 @@ const { t } = useI18n()
 
 const emit = defineEmits<{
   newSession: []
-  selectContainer: [kind: 'workspace' | 'background_task' | 'external_channel', containerId: string]
+  selectContainer: [kind: 'workspace' | 'task' | 'external_channel', containerId: string]
   selectRun: [containerId: string, runId: string]
   rename: [id: string, currentName: string]
   archive: [id: string, name: string]
@@ -68,7 +68,7 @@ const emit = defineEmits<{
   convertToWorkspaceSession: [id: string, name: string]
   rebuild: [id: string, name: string]
   toggleWorkspaceFolder: [containerId: string]
-  toggleBackgroundTask: [taskId: string]
+  toggleTask: [taskId: string]
   toggleExternalChannel: [containerId: string]
   toggleRunChildren: [containerId: string, runId: string]
 }>()
@@ -162,10 +162,10 @@ const filteredWorkspaceFolders = computed(() => {
   return props.workspaceFolders.filter((f) => displayLabel(f.name).toLowerCase().includes(q))
 })
 
-const filteredBackgroundFolders = computed(() => {
+const filteredTaskFolders = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return props.backgroundFolders
-  return props.backgroundFolders.filter((f) => f.name.toLowerCase().includes(q))
+  if (!q) return props.taskFolders
+  return props.taskFolders.filter((f) => f.name.toLowerCase().includes(q))
 })
 
 const filteredExternalFolders = computed(() => {
@@ -511,7 +511,7 @@ function runTitleClass(run: FlattenedRunRow): string {
         Tasks
       </div>
       <div
-        v-for="folder in filteredBackgroundFolders"
+        v-for="folder in filteredTaskFolders"
         :key="folder.taskId"
         :data-testid="`background-folder-${folder.taskId}`"
       >
@@ -526,9 +526,9 @@ function runTitleClass(run: FlattenedRunRow): string {
           <button
             class="shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
             :aria-label="
-              folder.expanded ? 'Collapse background folder' : 'Expand background folder'
+              folder.expanded ? 'Collapse task folder' : 'Expand task folder'
             "
-            @click="emit('toggleBackgroundTask', folder.taskId)"
+            @click="emit('toggleTask', folder.taskId)"
           >
             <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="12" />
           </button>
@@ -545,7 +545,7 @@ function runTitleClass(run: FlattenedRunRow): string {
           />
           <button
             class="min-w-0 flex-1 text-left"
-            @click="emit('selectContainer', 'background_task', folder.taskId)"
+            @click="emit('selectContainer', 'task', folder.taskId)"
           >
             <div class="truncate text-sm leading-snug">{{ folder.name }}</div>
             <div class="text-[11px] text-muted-foreground/70">
@@ -673,7 +673,7 @@ function runTitleClass(run: FlattenedRunRow): string {
             v-if="folder.runs.length === 0"
             class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
             data-testid="background-run-empty"
-            @click="emit('selectContainer', 'background_task', folder.taskId)"
+            @click="emit('selectContainer', 'task', folder.taskId)"
           >
             No runs yet
           </button>
@@ -850,7 +850,7 @@ function runTitleClass(run: FlattenedRunRow): string {
         v-if="
           searchQuery &&
           filteredWorkspaceFolders.length === 0 &&
-          filteredBackgroundFolders.length === 0 &&
+          filteredTaskFolders.length === 0 &&
           filteredExternalFolders.length === 0
         "
         class="px-3 py-6 text-center text-xs text-muted-foreground"
@@ -861,7 +861,7 @@ function runTitleClass(run: FlattenedRunRow): string {
         v-else-if="
           !searchQuery &&
           workspaceFolders.length === 0 &&
-          backgroundFolders.length === 0 &&
+          taskFolders.length === 0 &&
           externalFolders.length === 0
         "
         data-testid="session-empty-state"

@@ -131,7 +131,7 @@ impl MemoryPersister {
         Self { storage, config }
     }
 
-    /// Persist background task conversation to long-term memory.
+    /// Persist task conversation to long-term memory.
     ///
     /// Uses `MemorySource::TaskExecution` as the source type.
     /// For chat session persistence, use `persist_conversation()` instead.

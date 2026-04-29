@@ -75,7 +75,7 @@ pub trait Channel: Send + Sync {
 
     /// Start receiving messages (returns None if channel doesn't support receiving)
     ///
-    /// The returned stream should be spawned in a background task.
+    /// The returned stream should be spawned in a task.
     /// Messages are yielded as they arrive from the channel.
     fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>>;
 }
@@ -116,7 +116,7 @@ pub trait WebhookReceiver: Channel {
 pub trait StreamReceiver: Channel {
     /// Start the message polling/streaming loop
     ///
-    /// This should spawn a background task that polls for messages
+    /// This should spawn a task that polls for messages
     /// and feeds them to the stream returned by `start_receiving()`.
     async fn start_polling(&self) -> Result<()>;
 

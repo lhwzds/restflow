@@ -134,24 +134,24 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
     <div class="flex items-center justify-between gap-3 px-4 py-3">
       <div class="min-w-0">
         <h3 class="text-sm font-medium text-foreground">
-          {{ t('backgroundAgent.runTraceTitle') }}
+          {{ t('taskRun.runTraceTitle') }}
         </h3>
         <p class="text-xs text-muted-foreground">
-          {{ t('backgroundAgent.runTraceDescription') }}
+          {{ t('taskRun.runTraceDescription') }}
         </p>
       </div>
       <div v-if="stats" class="flex flex-wrap justify-end gap-2 text-[11px] text-muted-foreground">
         <span class="rounded-full border border-border px-2 py-1">
-          {{ t('backgroundAgent.statsEvents', { count: formatCount(stats.total_events) }) }}
+          {{ t('taskRun.statsEvents', { count: formatCount(stats.total_events) }) }}
         </span>
         <span class="rounded-full border border-border px-2 py-1">
-          {{ t('backgroundAgent.statsModels', { count: formatCount(stats.model_switch_count) }) }}
+          {{ t('taskRun.statsModels', { count: formatCount(stats.model_switch_count) }) }}
         </span>
         <span class="rounded-full border border-border px-2 py-1">
-          {{ t('backgroundAgent.statsTools', { count: formatCount(stats.tool_call_count) }) }}
+          {{ t('taskRun.statsTools', { count: formatCount(stats.tool_call_count) }) }}
         </span>
         <span class="rounded-full border border-border px-2 py-1">
-          {{ t('backgroundAgent.statsTokens', { count: formatCount(stats.total_tokens) }) }}
+          {{ t('taskRun.statsTokens', { count: formatCount(stats.total_tokens) }) }}
         </span>
       </div>
     </div>
@@ -164,32 +164,32 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
             value="timeline"
             data-testid="execution-telemetry-tab-timeline"
           >
-            {{ t('backgroundAgent.timelineTab') }}
+            {{ t('taskRun.timelineTab') }}
           </TabsTrigger>
           <TabsTrigger value="metrics" data-testid="execution-telemetry-tab-metrics">
-            {{ t('backgroundAgent.metricsTab') }}
+            {{ t('taskRun.metricsTab') }}
           </TabsTrigger>
           <TabsTrigger value="logs" data-testid="execution-telemetry-tab-logs">
-            {{ t('backgroundAgent.logsTab') }}
+            {{ t('taskRun.logsTab') }}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent v-if="!hideTimeline" value="timeline" class="mt-3">
           <div v-if="isLoadingTimeline" class="text-sm text-muted-foreground">
-            {{ t('backgroundAgent.loadingRun') }}
+            {{ t('taskRun.loadingRun') }}
           </div>
           <div
             v-else-if="timelineError"
             class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
           >
-            {{ t('backgroundAgent.timelineError') }}: {{ timelineError }}
+            {{ t('taskRun.timelineError') }}: {{ timelineError }}
           </div>
           <div
             v-else-if="timelineEvents.length === 0"
             class="rounded-md border border-dashed border-border px-3 py-6 text-sm text-muted-foreground"
             data-testid="execution-telemetry-empty"
           >
-            {{ t('backgroundAgent.timelineEmpty') }}
+            {{ t('taskRun.timelineEmpty') }}
           </div>
           <div v-else class="space-y-2" data-testid="execution-telemetry-timeline-list">
             <article
@@ -230,19 +230,19 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
 
         <TabsContent value="metrics" class="mt-3">
           <div v-if="isLoadingMetrics" class="text-sm text-muted-foreground">
-            {{ t('backgroundAgent.loadingRun') }}
+            {{ t('taskRun.loadingRun') }}
           </div>
           <div
             v-else-if="metricsError"
             class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
           >
-            {{ t('backgroundAgent.metricsError') }}: {{ metricsError }}
+            {{ t('taskRun.metricsError') }}: {{ metricsError }}
           </div>
           <div
             v-else-if="metricEvents.length === 0"
             class="rounded-md border border-dashed border-border px-3 py-6 text-sm text-muted-foreground"
           >
-            {{ t('backgroundAgent.metricsEmpty') }}
+            {{ t('taskRun.metricsEmpty') }}
           </div>
           <div v-else class="space-y-2" data-testid="execution-telemetry-metrics-list">
             <article
@@ -270,19 +270,19 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
 
         <TabsContent value="logs" class="mt-3">
           <div v-if="isLoadingLogs" class="text-sm text-muted-foreground">
-            {{ t('backgroundAgent.loadingRun') }}
+            {{ t('taskRun.loadingRun') }}
           </div>
           <div
             v-else-if="logsError"
             class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
           >
-            {{ t('backgroundAgent.logsError') }}: {{ logsError }}
+            {{ t('taskRun.logsError') }}: {{ logsError }}
           </div>
           <div
             v-else-if="logEvents.length === 0"
             class="rounded-md border border-dashed border-border px-3 py-6 text-sm text-muted-foreground"
           >
-            {{ t('backgroundAgent.logsEmpty') }}
+            {{ t('taskRun.logsEmpty') }}
           </div>
           <div v-else class="space-y-2" data-testid="execution-telemetry-logs-list">
             <article

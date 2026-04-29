@@ -173,7 +173,7 @@ impl AgentStore for AgentStoreAdapter {
                 .map_err(|e| ToolError::Tool(e.to_string()))?
         {
             return Err(ToolError::Tool(format!(
-                "Cannot delete agent {}: active background tasks exist ({})",
+                "Cannot delete agent {}: active tasks exist ({})",
                 id, task_names
             )));
         }

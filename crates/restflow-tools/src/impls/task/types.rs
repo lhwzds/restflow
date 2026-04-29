@@ -46,7 +46,7 @@ pub(super) fn workers_schema() -> Value {
             "type": "object",
             "properties": {
                 "agent_id": { "type": "string", "description": "Optional per-worker agent ID override." },
-                "name": { "type": "string", "description": "Optional per-worker background task name." },
+                "name": { "type": "string", "description": "Optional per-worker task name." },
                 "input": { "type": "string", "description": "Optional per-worker input text." },
                 "inputs": {
                     "type": "array",
