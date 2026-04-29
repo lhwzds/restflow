@@ -20,22 +20,11 @@ cargo test -p restflow-tools --features ts --lib export_bindings -- --test-threa
 
 GENERATED_DIR="${REPO_ROOT}/web/src/types/generated"
 STALE_GENERATED_FILES=(
-  "AuditEvent.ts"
-  "AuditEventCategory.ts"
-  "AuditEventSource.ts"
-  "AuditQuery.ts"
-  "AuditStats.ts"
-  "AuditTimeRange.ts"
   "ChildExecutionSessionQuery.ts"
   "ExecutionSessionListQuery.ts"
   "ExecutionSessionSummary.ts"
   "IpcRequest.ts"
   "IpcResponse.ts"
-  "LifecycleAudit.ts"
-  "LlmCallAudit.ts"
-  "MessageAudit.ts"
-  "ModelSwitchAudit.ts"
-  "ToolCallAudit.ts"
 )
 
 for file in "${STALE_GENERATED_FILES[@]}"; do

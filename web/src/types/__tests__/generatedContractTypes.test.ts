@@ -7,15 +7,9 @@ function readGeneratedFile(name: string): string {
 }
 
 describe('generated contract types', () => {
-  it('exports only canonical trace files from the generated index', () => {
+  it('does not export raw IPC contract files from the generated index', () => {
     const indexSource = readGeneratedFile('index.ts')
 
-    expect(indexSource).not.toContain("export * from './AuditEvent'")
-    expect(indexSource).not.toContain("export * from './AuditEventCategory'")
-    expect(indexSource).not.toContain("export * from './AuditEventSource'")
-    expect(indexSource).not.toContain("export * from './AuditQuery'")
-    expect(indexSource).not.toContain("export * from './AuditStats'")
-    expect(indexSource).not.toContain("export * from './AuditTimeRange'")
     expect(indexSource).not.toContain("export * from './IpcRequest'")
     expect(indexSource).not.toContain("export * from './IpcResponse'")
   })

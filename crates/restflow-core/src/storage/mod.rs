@@ -4,7 +4,6 @@
 //! the byte-level APIs from restflow-storage with Rust types from our models.
 
 pub mod agent;
-pub mod audit;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
@@ -35,7 +34,6 @@ pub use restflow_storage::{
 };
 
 pub use agent::AgentStorage;
-pub use audit::AuditStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
@@ -80,8 +78,6 @@ pub struct Storage {
     pub provider_health_snapshots: ProviderHealthSnapshotStorage,
     /// Structured execution log projection storage.
     pub structured_execution_logs: StructuredExecutionLogStorage,
-    /// Backward-compatible alias storage.
-    pub audit: AuditStorage,
 }
 
 impl Storage {
@@ -131,7 +127,6 @@ impl Storage {
         let telemetry_metric_samples = TelemetryMetricSampleStorage::new(db.clone())?;
         let provider_health_snapshots = ProviderHealthSnapshotStorage::new(db.clone())?;
         let structured_execution_logs = StructuredExecutionLogStorage::new(db.clone())?;
-        let audit = AuditStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -154,7 +149,6 @@ impl Storage {
             telemetry_metric_samples,
             provider_health_snapshots,
             structured_execution_logs,
-            audit,
         })
     }
 

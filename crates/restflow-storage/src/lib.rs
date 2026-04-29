@@ -10,7 +10,6 @@
 //! restflow-core.
 
 pub mod agent;
-pub mod audit;
 pub mod auth_profiles;
 pub mod channel_session_binding;
 pub mod chat_session;
@@ -51,7 +50,6 @@ pub use config::{
     load_cli_config, load_global_cli_config, write_cli_config,
 };
 pub use daemon_state::DaemonStateStorage;
-pub use execution_trace::ExecutionTraceStorage as AuditStorageBackend;
 pub use execution_trace::ExecutionTraceStorage as ExecutionTraceStorageBackend;
 pub use memory::{MemoryStorage, PutChunkResult};
 pub use memory_index::{IndexableChunk, MemoryIndex, SearchHit};

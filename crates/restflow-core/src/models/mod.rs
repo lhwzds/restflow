@@ -1,7 +1,6 @@
 pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
-pub mod audit;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
@@ -69,12 +68,6 @@ pub use execution_trace::{
     LifecycleTrace, LlmCallTrace, LogRecordTrace, MessageTrace, MetricDimension, MetricSampleTrace,
     ModelSwitchTrace, ProviderHealthQuery, ProviderHealthResponse, ProviderHealthTrace,
     ToolCallCompletion, ToolCallPhase, ToolCallTrace,
-};
-
-// Re-export audit types for backward compatibility (aliases to execution_trace)
-pub use audit::{
-    AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery, AuditStats, AuditTimeRange,
-    LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
 };
 
 pub use chat_session::{
