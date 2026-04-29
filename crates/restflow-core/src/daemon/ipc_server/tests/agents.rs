@@ -347,7 +347,7 @@ async fn process_update_task_resolves_unique_prefix() {
 }
 
 #[tokio::test]
-async fn process_create_task_accepts_default_agent_alias() {
+async fn process_create_task_accepts_agent_id() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let default_agent_id = configure_default_agent(&core);
@@ -357,8 +357,8 @@ async fn process_create_task_accepts_default_agent_alias() {
         &runtime_tool_registry,
         IpcRequest::CreateTask {
             spec: to_contract(crate::models::TaskSpec {
-                agent_id: "default".to_string(),
-                ..task_spec("ipc-default-alias")
+                agent_id: default_agent_id.clone(),
+                ..task_spec("ipc-explicit-agent")
             })
             .expect("contract spec"),
         },
@@ -369,14 +369,14 @@ async fn process_create_task_accepts_default_agent_alias() {
         IpcResponse::Success(value) => {
             let created: crate::models::Task = serde_json::from_value(value).expect("task");
             assert_eq!(created.agent_id, default_agent_id);
-            assert_eq!(created.name, "ipc-default-alias");
+            assert_eq!(created.name, "ipc-explicit-agent");
         }
         other => panic!("expected success response, got {other:?}"),
     }
 }
 
 #[tokio::test]
-async fn process_update_task_accepts_default_agent_alias() {
+async fn process_update_task_accepts_agent_id() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let default_agent_id = configure_default_agent(&core);
@@ -388,7 +388,7 @@ async fn process_update_task_accepts_default_agent_alias() {
         IpcRequest::UpdateTask {
             id: task.id.clone(),
             patch: to_contract(crate::models::TaskPatch {
-                agent_id: Some("default".to_string()),
+                agent_id: Some(default_agent_id.clone()),
                 ..Default::default()
             })
             .expect("contract patch"),

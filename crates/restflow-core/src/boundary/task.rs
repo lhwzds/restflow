@@ -16,8 +16,6 @@ use restflow_traits::store::{TaskConvertSessionRequest, TaskCreateRequest, TaskU
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-// Phase 2 boundary owner shift: expose task-oriented names as canonical in this file
-// while keeping legacy wrappers for unchanged callers.
 type CoreTaskControlAction = TaskControlAction;
 type CoreTaskPatch = TaskPatch;
 type CoreTaskSchedule = TaskSchedule;
@@ -64,23 +62,6 @@ pub(crate) fn contract_task_patch_to_core_task_patch(
 
 pub(crate) fn contract_patch_to_core(patch: ContractTaskPatch) -> anyhow::Result<CoreTaskPatch> {
     contract_task_patch_to_core_task_patch(patch)
-}
-
-pub(crate) fn resolve_agent_id_alias<E, ResolveDefault, ResolveExisting>(
-    id_or_alias: &str,
-    resolve_default: ResolveDefault,
-    resolve_existing: ResolveExisting,
-) -> Result<String, E>
-where
-    ResolveDefault: FnOnce() -> Result<String, E>,
-    ResolveExisting: FnOnce(&str) -> Result<String, E>,
-{
-    let trimmed = id_or_alias.trim();
-    if trimmed.eq_ignore_ascii_case("default") {
-        resolve_default()
-    } else {
-        resolve_existing(trimmed)
-    }
 }
 
 #[allow(dead_code)]
@@ -459,28 +440,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_agent_id_alias_accepts_default_alias() {
-        let resolved = resolve_agent_id_alias(
-            " default ",
-            || Ok::<_, &'static str>("agent-default".to_string()),
-            |_| Err("should not use explicit resolver"),
-        )
-        .expect("default alias should resolve");
-
-        assert_eq!(resolved, "agent-default");
-    }
-
-    #[test]
-    fn resolve_patch_agent_id_resolves_present_alias() {
+    fn resolve_patch_agent_id_resolves_present_id() {
         let patch = resolve_patch_agent_id(
             TaskPatch {
-                agent_id: Some("default".to_string()),
+                agent_id: Some("agent-123".to_string()),
                 ..TaskPatch::default()
             },
             |value| Ok::<_, &'static str>(format!("resolved:{value}")),
         )
-        .expect("patch should resolve alias");
+        .expect("patch should resolve id");
 
-        assert_eq!(patch.agent_id.as_deref(), Some("resolved:default"));
+        assert_eq!(patch.agent_id.as_deref(), Some("resolved:agent-123"));
     }
 }

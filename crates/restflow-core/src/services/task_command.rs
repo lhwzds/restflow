@@ -285,12 +285,9 @@ impl TaskCommandService {
     }
 
     pub fn resolve_default_or_existing_agent_id(&self, id_or_alias: &str) -> CommandResult<String> {
-        crate::boundary::task::resolve_agent_id_alias(
-            id_or_alias,
-            || self.agents.resolve_default_agent_id(),
-            |trimmed| self.agents.resolve_existing_agent_id(trimmed),
-        )
-        .map_err(TaskCommandError::from_anyhow)
+        self.agents
+            .resolve_existing_agent_id(id_or_alias.trim())
+            .map_err(TaskCommandError::from_anyhow)
     }
 
     fn assessor(&self) -> CommandResult<Arc<dyn AgentOperationAssessor>> {
@@ -1181,7 +1178,7 @@ mod tests {
             .create_from_request(
                 TaskCreateRequest {
                     name: "   ".to_string(),
-                    agent_id: "default".to_string(),
+                    agent_id: "agent-ignored".to_string(),
                     chat_session_id: None,
                     schedule: restflow_contracts::request::TaskSchedule::default(),
                     input: Some("run".to_string()),

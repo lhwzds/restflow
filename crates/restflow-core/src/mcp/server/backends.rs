@@ -741,15 +741,21 @@ mod tests {
     use crate::models::TaskSchedule;
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn core_backend_task_mutations_use_command_service_resolution() {
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
         let temp_dir = tempfile::tempdir().expect("temp dir");
+        let agents_dir = tempfile::tempdir().expect("agents dir");
+        unsafe {
+            std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_dir.path());
+        }
         let db_path = temp_dir.path().join("mcp-core-backend.db");
         let core = Arc::new(
             AppCore::new(db_path.to_str().expect("db path"))
                 .await
                 .expect("core"),
         );
-        let default_agent_id = core
+        let agent_id = core
             .storage
             .agents
             .resolve_default_agent_id()
@@ -762,7 +768,7 @@ mod tests {
         let created = backend
             .create_task(TaskSpec {
                 name: "MCP Core Task".to_string(),
-                agent_id: "default".to_string(),
+                agent_id: agent_id.clone(),
                 chat_session_id: None,
                 description: None,
                 input: Some("Run from MCP core backend".to_string()),
@@ -780,7 +786,7 @@ mod tests {
             .await
             .expect("create task");
 
-        assert_eq!(created.agent_id, default_agent_id);
+        assert_eq!(created.agent_id, agent_id);
 
         let prefix = created.id[..8].to_string();
         let updated = backend
@@ -788,7 +794,7 @@ mod tests {
                 &prefix,
                 TaskPatch {
                     name: Some("Updated MCP Core Task".to_string()),
-                    agent_id: Some("default".to_string()),
+                    agent_id: Some(agent_id.clone()),
                     ..TaskPatch::default()
                 },
             )
@@ -796,7 +802,7 @@ mod tests {
             .expect("update task by prefix");
 
         assert_eq!(updated.id, created.id);
-        assert_eq!(updated.agent_id, default_agent_id);
+        assert_eq!(updated.agent_id, agent_id);
         assert_eq!(updated.name, "Updated MCP Core Task");
 
         let paused = backend
@@ -806,5 +812,8 @@ mod tests {
 
         assert_eq!(paused.id, created.id);
         assert_eq!(paused.status, TaskStatus::Paused);
+        unsafe {
+            std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV);
+        }
     }
 }

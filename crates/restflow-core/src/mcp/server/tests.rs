@@ -1600,7 +1600,12 @@ async fn test_manage_tasks_promote_to_background_defaults_run_now_to_false() {
 
 #[tokio::test]
 async fn test_mcp_manage_tasks_run_batch_accepts_runtime_inputs() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let agent_id = core
+        .storage
+        .agents
+        .resolve_default_agent_id()
+        .expect("default agent");
 
     let run = call_tool_through_mcp(
         server,
@@ -1610,7 +1615,7 @@ async fn test_mcp_manage_tasks_run_batch_accepts_runtime_inputs() {
             "workers": [
                 {
                     "count": 2,
-                    "agent_id": "default"
+                    "agent_id": agent_id
                 }
             ],
             "inputs": ["scan backend", "scan frontend"],
@@ -1629,6 +1634,11 @@ async fn test_mcp_manage_tasks_run_batch_accepts_runtime_inputs() {
 #[tokio::test]
 async fn test_mcp_manage_tasks_stop_uses_stop_semantics() {
     let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let agent_id = core
+        .storage
+        .agents
+        .resolve_default_agent_id()
+        .expect("default agent");
 
     let create = call_tool_through_mcp(
         server.clone(),
@@ -1636,7 +1646,7 @@ async fn test_mcp_manage_tasks_stop_uses_stop_semantics() {
         serde_json::json!({
             "operation": "create",
             "name": "stop-contract",
-            "agent_id": "default",
+            "agent_id": agent_id,
             "input": "do not run",
             "schedule": {
                 "type": "interval",
@@ -1685,6 +1695,11 @@ async fn test_mcp_manage_tasks_stop_uses_stop_semantics() {
 #[tokio::test]
 async fn test_mcp_manage_tasks_start_returns_active_status() {
     let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let agent_id = core
+        .storage
+        .agents
+        .resolve_default_agent_id()
+        .expect("default agent");
 
     let create = call_tool_through_mcp(
         server.clone(),
@@ -1692,7 +1707,7 @@ async fn test_mcp_manage_tasks_start_returns_active_status() {
         serde_json::json!({
             "operation": "create",
             "name": "start-contract",
-            "agent_id": "default",
+            "agent_id": agent_id,
             "input": "start later",
             "schedule": {
                 "type": "interval",
@@ -1752,13 +1767,18 @@ async fn test_mcp_manage_tasks_start_returns_active_status() {
 
 #[tokio::test]
 async fn test_mcp_manage_tasks_delete_returns_canonical_id_for_prefix() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let agent_id = core
+        .storage
+        .agents
+        .resolve_default_agent_id()
+        .expect("default agent");
 
     let create = server
         .handle_manage_tasks(ManageTasksParams {
             operation: "create".to_string(),
             name: Some("delete-prefix-contract".to_string()),
-            agent_id: Some("default".to_string()),
+            agent_id: Some(agent_id),
             input: Some("delete later".to_string()),
             schedule: Some(serde_json::json!(
                 restflow_contracts::request::TaskSchedule::Interval {
@@ -1808,7 +1828,12 @@ async fn test_mcp_manage_tasks_delete_returns_canonical_id_for_prefix() {
 
 #[tokio::test]
 async fn test_mcp_manage_tasks_list_artifacts_accepts_prefix() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let agent_id = core
+        .storage
+        .agents
+        .resolve_default_agent_id()
+        .expect("default agent");
 
     let create = call_tool_through_mcp(
         server.clone(),
@@ -1816,7 +1841,7 @@ async fn test_mcp_manage_tasks_list_artifacts_accepts_prefix() {
         serde_json::json!({
             "operation": "create",
             "name": "artifact-prefix-contract",
-            "agent_id": "default",
+            "agent_id": agent_id,
             "input": "deliver later",
             "schedule": {
                 "type": "interval",
@@ -2306,7 +2331,12 @@ async fn test_standalone_runtime_spawn_subagent_returns_actionable_error() {
 
 #[tokio::test]
 async fn test_mcp_manage_tasks_stress_path_emits_latency_summary() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let agent_id = core
+        .storage
+        .agents
+        .resolve_default_agent_id()
+        .expect("default agent");
     let artifacts_dir = stress_artifacts_dir();
     std::fs::create_dir_all(&artifacts_dir).expect("failed to create stress artifacts dir");
 
@@ -2326,7 +2356,7 @@ async fn test_mcp_manage_tasks_stress_path_emits_latency_summary() {
 
     let mut create_params = base_manage_tasks_params("create");
     create_params.name = Some("mcp-stress-task".to_string());
-    create_params.agent_id = Some("default".to_string());
+    create_params.agent_id = Some(agent_id);
     create_params.description = Some("stress path create/run/control/progress/list".to_string());
     create_params.input = Some("deterministic".to_string());
     create_params.schedule = Some(serde_json::json!({

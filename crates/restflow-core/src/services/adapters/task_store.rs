@@ -824,14 +824,15 @@ mod tests {
     }
 
     #[test]
-    fn test_create_task_accepts_default_agent_alias() {
+    fn test_create_task_accepts_agent_id() {
         let (adapter, _dir, _guard) = setup();
+        let agent_id = get_agent_id(&adapter);
         let created = adapter
             .create_task(TaskCreateRequest {
-                name: "Default Alias".to_string(),
-                agent_id: "default".to_string(),
+                name: "Explicit Agent".to_string(),
+                agent_id,
                 chat_session_id: None,
-                input: Some("use default alias".to_string()),
+                input: Some("use explicit agent id".to_string()),
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
@@ -842,7 +843,7 @@ mod tests {
                 preview: false,
                 approval_id: None,
             })
-            .expect("default alias should resolve to the only/default agent");
+            .expect("agent id should resolve");
         assert_eq!(created["status"], "executed");
         assert!(created["result"]["id"].as_str().is_some());
     }
@@ -1111,10 +1112,11 @@ mod tests {
             .as_str()
             .expect("preview token")
             .to_string();
+        let agent_id = get_agent_id(&adapter);
         let created = adapter
             .create_task(TaskCreateRequest {
                 name: "Update Guarded".to_string(),
-                agent_id: "default".to_string(),
+                agent_id,
                 chat_session_id: None,
                 input: Some("update".to_string()),
                 input_template: None,
