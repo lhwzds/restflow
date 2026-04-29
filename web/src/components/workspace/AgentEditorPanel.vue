@@ -66,7 +66,7 @@ const effectiveSkillCount = computed(() => {
 const templateType = computed(() => {
   const promptFile = current.value?.prompt_file?.toLowerCase()
   if (promptFile === 'default.md') return t('workspace.agent.templateDefault')
-  if (promptFile === 'background_agent.md') return t('workspace.agent.templateBackground')
+  if (promptFile === 'task.md') return t('workspace.agent.templateTask')
   return t('workspace.agent.templateCustom')
 })
 

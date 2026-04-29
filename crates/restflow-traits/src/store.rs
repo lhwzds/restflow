@@ -308,7 +308,6 @@ mod tests {
     #[test]
     fn task_management_tool_name_accepts_only_canonical_name() {
         assert!(is_task_management_tool_name(MANAGE_TASKS_TOOL_NAME));
-        assert!(!is_task_management_tool_name("manage_background_agents"));
         assert!(!is_task_management_tool_name("manage_agents"));
     }
 

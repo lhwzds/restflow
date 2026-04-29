@@ -100,7 +100,7 @@
       "promptFile": "提示词文件",
       "templateType": "模板类型",
       "templateDefault": "default",
-      "templateBackground": "background",
+      "templateTask": "task",
       "templateCustom": "custom",
       "modelPlaceholder": "选择模型",
       "createButton": "创建",

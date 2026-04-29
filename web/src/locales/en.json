@@ -100,7 +100,7 @@
       "promptFile": "Prompt File",
       "templateType": "Template",
       "templateDefault": "default",
-      "templateBackground": "background",
+      "templateTask": "task",
       "templateCustom": "custom",
       "modelPlaceholder": "Select a model",
       "createButton": "Create",

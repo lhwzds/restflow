@@ -121,12 +121,12 @@ describe('AgentEditorPanel', () => {
     )
   })
 
-  it('uses configured counts and recognizes background template', async () => {
+  it('uses configured counts and recognizes task template', async () => {
     mockGetAgent.mockResolvedValue(
       baseAgent({
         tools: ['bash', 'http_request'],
         skills: ['s1'],
-        prompt_file: 'background_agent.md',
+        prompt_file: 'task.md',
       }),
     )
 
@@ -154,7 +154,7 @@ describe('AgentEditorPanel', () => {
     expect(wrapper.get('[data-testid=\"agent-tool-count\"]').text()).toBe('2')
     expect(wrapper.get('[data-testid=\"agent-skill-count\"]').text()).toBe('1')
     expect(wrapper.get('[data-testid=\"agent-template-type\"]').text()).toBe(
-      'workspace.agent.templateBackground',
+      'workspace.agent.templateTask',
     )
   })
 

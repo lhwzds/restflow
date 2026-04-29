@@ -336,12 +336,6 @@ async fn test_daemon_mcp_manage_tasks_run_batch_contract() -> Result<()> {
             .any(|tool| tool["name"].as_str() == Some("manage_tasks")),
         "manage_tasks must be exposed over MCP"
     );
-    assert!(
-        tools_list
-            .iter()
-            .all(|tool| tool["name"].as_str() != Some("manage_background_agents")),
-        "manage_background_agents alias must not be exposed over MCP"
-    );
 
     let run_batch_initial = post_json_rpc(
         &client,
