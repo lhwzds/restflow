@@ -48,7 +48,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use store::{MemoryStore, Repository};
+use store::{Repository, SharedStore};
 
 pub mod bridge;
 pub mod migrate;
@@ -120,28 +120,53 @@ pub struct CoreSnapshot {
 }
 
 #[derive(Clone)]
+pub struct CoreStores {
+    pub skills: SharedStore<skill::Skill>,
+    pub sessions: SharedStore<chat::Session>,
+    pub tasks: SharedStore<run::Task>,
+    pub runs: SharedStore<run::Run>,
+    pub profiles: SharedStore<auth::Profile>,
+}
+
+impl CoreStores {
+    pub fn memory() -> Self {
+        Self {
+            skills: store::memory_store(),
+            sessions: store::memory_store(),
+            tasks: store::memory_store(),
+            runs: store::memory_store(),
+            profiles: store::memory_store(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Core {
     pub agent: agent::Agent,
     pub tools: tool::Registry,
     pub models: model::ModelCatalog,
-    pub skills: MemoryStore<skill::Skill>,
-    pub sessions: MemoryStore<chat::Session>,
-    pub tasks: MemoryStore<run::Task>,
-    pub runs: MemoryStore<run::Run>,
-    pub profiles: MemoryStore<auth::Profile>,
+    pub skills: SharedStore<skill::Skill>,
+    pub sessions: SharedStore<chat::Session>,
+    pub tasks: SharedStore<run::Task>,
+    pub runs: SharedStore<run::Run>,
+    pub profiles: SharedStore<auth::Profile>,
 }
 
 impl Core {
     pub fn new(model: model::Model) -> Self {
+        Self::with_stores(model, CoreStores::memory())
+    }
+
+    pub fn with_stores(model: model::Model, stores: CoreStores) -> Self {
         Self {
             agent: agent::Agent::new(model),
             tools: tool::Registry::new(),
             models: model::ModelCatalog::new(),
-            skills: MemoryStore::new(),
-            sessions: MemoryStore::new(),
-            tasks: MemoryStore::new(),
-            runs: MemoryStore::new(),
-            profiles: MemoryStore::new(),
+            skills: stores.skills,
+            sessions: stores.sessions,
+            tasks: stores.tasks,
+            runs: stores.runs,
+            profiles: stores.profiles,
         }
     }
 
@@ -325,7 +350,7 @@ impl Core {
 }
 
 async fn persist_assistant_text(
-    sessions: &MemoryStore<chat::Session>,
+    sessions: &SharedStore<chat::Session>,
     session_id: &str,
     events: &[event::Event],
 ) -> Result<()> {
@@ -399,6 +424,26 @@ mod tests {
 
             let run = core.runs.get("run-1").await.unwrap().unwrap();
             assert_eq!(run.status, run::Status::Done);
+        });
+    }
+
+    #[test]
+    fn core_can_use_injected_stores() {
+        block_on_once(async {
+            let stores = CoreStores::memory();
+            let skill_store = stores.skills.clone();
+            let session_store = stores.sessions.clone();
+            let core = Core::with_stores(model::Model::new("openai", "gpt-5.5"), stores);
+
+            core.save_skill(skill::Skill::new("team", "Team", skill::Source::System))
+                .await
+                .unwrap();
+            core.chat_turn("session-1", chat::TurnRequest::new("hello"))
+                .await
+                .unwrap();
+
+            assert!(skill_store.exists("team").await.unwrap());
+            assert!(session_store.exists("session-1").await.unwrap());
         });
     }
 

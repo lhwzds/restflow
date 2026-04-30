@@ -11,6 +11,7 @@ from .event import Event
 from .model import Model, ModelSpec
 from .run import Run, Task
 from .skill import Skill
+from .store import MemoryStore, Store
 from .tool import Registry, ToolCall, ToolSpec
 
 
@@ -43,17 +44,17 @@ class Core:
     model: Model
     tools: Registry = field(default_factory=Registry)
     models: list[ModelSpec] = field(default_factory=list)
-    skills: dict[str, Skill] = field(default_factory=dict)
-    sessions: dict[str, Session] = field(default_factory=dict)
-    tasks: dict[str, Task] = field(default_factory=dict)
-    runs: dict[str, Run] = field(default_factory=dict)
-    profiles: dict[str, Profile] = field(default_factory=dict)
+    skills: Store[Skill] = field(default_factory=MemoryStore)
+    sessions: Store[Session] = field(default_factory=MemoryStore)
+    tasks: Store[Task] = field(default_factory=MemoryStore)
+    runs: Store[Run] = field(default_factory=MemoryStore)
+    profiles: Store[Profile] = field(default_factory=MemoryStore)
 
     def save_skill(self, skill: Skill) -> None:
-        self.skills[skill.id] = skill
+        self.skills.put(skill.id, skill)
 
     def save_profile(self, profile: Profile) -> None:
-        self.profiles[profile.provider.id] = profile
+        self.profiles.put(profile.provider.id, profile)
 
     def switch_model(self, model: Model) -> None:
         self.model = model
@@ -62,36 +63,38 @@ class Core:
     def from_snapshot(cls, snapshot: CoreSnapshot) -> "Core":
         core = cls(model=snapshot.current_model)
         core.models.extend(snapshot.models)
-        core.skills.update({skill.id: skill for skill in snapshot.skills})
-        core.sessions.update({session.id: session for session in snapshot.sessions})
-        core.tasks.update({task.id: task for task in snapshot.tasks})
-        core.runs.update({run.id: run for run in snapshot.runs})
-        core.profiles.update({profile.provider.id: profile for profile in snapshot.profiles})
+        core.skills.replace_all([(skill.id, skill) for skill in snapshot.skills])
+        core.sessions.replace_all([(session.id, session) for session in snapshot.sessions])
+        core.tasks.replace_all([(task.id, task) for task in snapshot.tasks])
+        core.runs.replace_all([(run.id, run) for run in snapshot.runs])
+        core.profiles.replace_all(
+            [(profile.provider.id, profile) for profile in snapshot.profiles]
+        )
         return core
 
     def snapshot(self) -> CoreSnapshot:
         return CoreSnapshot(
             current_model=self.model,
             models=list(self.models),
-            skills=list(self.skills.values()),
-            sessions=list(self.sessions.values()),
-            tasks=list(self.tasks.values()),
-            runs=list(self.runs.values()),
-            profiles=list(self.profiles.values()),
+            skills=self.skills.list(),
+            sessions=self.sessions.list(),
+            tasks=self.tasks.list(),
+            runs=self.runs.list(),
+            profiles=self.profiles.list(),
             tool_specs=[ToolSpec(name=name) for name in self.tools.names()],
         )
 
     def start_run(self, task: Task, run_id: str, session_id: str) -> Run:
-        self.tasks[task.id] = task
+        self.tasks.put(task.id, task)
         run = Run(id=run_id, task_id=task.id, status="running", session_id=session_id)
-        self.runs[run_id] = run
+        self.runs.put(run_id, run)
         return run
 
     def run_task(self, run_id: str, task: Task) -> Run:
-        self.tasks[task.id] = task
-        run = self.runs.get(run_id, Run(id=run_id, task_id=task.id, status="pending"))
+        self.tasks.put(task.id, task)
+        run = self.runs.get(run_id) or Run(id=run_id, task_id=task.id, status="pending")
         run.status = "done"
-        self.runs[run_id] = run
+        self.runs.put(run_id, run)
         return run
 
     def call_tool_events(self, call: ToolCall) -> list[Event]:
@@ -115,8 +118,9 @@ class Core:
             return CoreResponse(type="model_switched", payload={"model": model})
         if command.type == "chat_turn":
             session_id = command.payload["session_id"]
-            session = self.sessions.setdefault(session_id, Session(id=session_id))
+            session = self.sessions.get(session_id) or Session(id=session_id)
             session.push(Message(role="user", text=command.payload["message"]))
+            self.sessions.put(session_id, session)
             return CoreResponse(type="chat_turn", payload={"events": []})
         if command.type == "start_run":
             run = self.start_run(

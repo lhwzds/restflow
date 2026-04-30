@@ -31,6 +31,7 @@ from .migrate import (
     inspect_bridge_snapshot,
     replace_bridge_snapshot,
 )
+from .store import MemoryStore, Store
 
 __all__ = [
     "BridgeChatTurn",
@@ -55,6 +56,8 @@ __all__ = [
     "CoreSnapshot",
     "MigrationIssue",
     "MigrationReport",
+    "MemoryStore",
+    "Store",
     "core_from_bridge_snapshot",
     "import_bridge_snapshot",
     "inspect_bridge_snapshot",

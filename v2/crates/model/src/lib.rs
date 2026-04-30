@@ -124,6 +124,10 @@ impl ModelCatalog {
         self.specs.insert(key, spec);
     }
 
+    pub fn clear(&mut self) {
+        self.specs.clear();
+    }
+
     pub fn get(&self, provider: &str, model: &str) -> Option<&ModelSpec> {
         self.specs.get(&(provider.to_string(), model.to_string()))
     }

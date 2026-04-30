@@ -86,11 +86,16 @@ def _apply_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> None:
         }
     )
     core.models = list(existing_models.values())
-    core.skills.update({skill.id: skill.to_skill() for skill in snapshot.skills})
-    core.sessions.update({session.id: session.to_session() for session in snapshot.sessions})
-    core.tasks.update({task.id: task.to_task() for task in snapshot.tasks})
-    core.runs.update({run.id: run.to_run() for run in snapshot.runs})
-    core.profiles.update({profile.provider: profile.to_profile() for profile in snapshot.profiles})
+    for skill in snapshot.skills:
+        core.skills.put(skill.id, skill.to_skill())
+    for session in snapshot.sessions:
+        core.sessions.put(session.id, session.to_session())
+    for task in snapshot.tasks:
+        core.tasks.put(task.id, task.to_task())
+    for run in snapshot.runs:
+        core.runs.put(run.id, run.to_run())
+    for profile in snapshot.profiles:
+        core.profiles.put(profile.provider, profile.to_profile())
 
 
 def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
@@ -202,11 +207,11 @@ def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
 
 def _reset_core_records(core: Core) -> None:
     core.models.clear()
-    core.skills.clear()
-    core.sessions.clear()
-    core.tasks.clear()
-    core.runs.clear()
-    core.profiles.clear()
+    core.skills.replace_all([])
+    core.sessions.replace_all([])
+    core.tasks.replace_all([])
+    core.runs.replace_all([])
+    core.profiles.replace_all([])
 
 
 def _existing_record_issues(core: Core, snapshot: BridgeSnapshot) -> list[MigrationIssue]:
@@ -216,19 +221,19 @@ def _existing_record_issues(core: Core, snapshot: BridgeSnapshot) -> list[Migrat
         if (model.provider, model.model) in model_keys:
             issues.append(_existing_record("model", f"{model.provider}:{model.model}"))
     for skill in snapshot.skills:
-        if skill.id in core.skills:
+        if core.skills.exists(skill.id):
             issues.append(_existing_record("skill", skill.id))
     for session in snapshot.sessions:
-        if session.id in core.sessions:
+        if core.sessions.exists(session.id):
             issues.append(_existing_record("session", session.id))
     for task in snapshot.tasks:
-        if task.id in core.tasks:
+        if core.tasks.exists(task.id):
             issues.append(_existing_record("task", task.id))
     for run in snapshot.runs:
-        if run.id in core.runs:
+        if core.runs.exists(run.id):
             issues.append(_existing_record("run", run.id))
     for profile in snapshot.profiles:
-        if profile.provider in core.profiles:
+        if core.profiles.exists(profile.provider):
             issues.append(_existing_record("profile", profile.provider))
     return issues
 

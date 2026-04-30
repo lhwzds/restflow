@@ -37,7 +37,7 @@ use crate::{Core, bridge::BridgeSnapshot, chat, model, run};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use store::{MemoryStore, Repository};
+use store::Repository;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -150,29 +150,9 @@ pub async fn import_bridge_snapshot_with_mode(
         return Ok(report);
     }
 
-    if mode == ImportMode::ReplaceExisting {
-        reset_core_records(core);
-    }
-
-    core.set_model(snapshot.current_model.into());
-    for spec in snapshot.models {
-        core.insert_model(spec.into());
-    }
-    for skill in snapshot.skills {
-        core.save_skill(skill.into()).await?;
-    }
-    for session in snapshot.sessions {
-        let session: chat::Session = session.into();
-        chat::save_session(&core.sessions, session).await?;
-    }
-    for task in snapshot.tasks {
-        run::save_task(&core.tasks, task.into()).await?;
-    }
-    for run in snapshot.runs {
-        run::save_run(&core.runs, run.into()).await?;
-    }
-    for profile in snapshot.profiles {
-        core.save_profile(profile.into()).await?;
+    match mode {
+        ImportMode::CreateOnly => merge_core_records(core, snapshot).await?,
+        ImportMode::ReplaceExisting => replace_core_records(core, snapshot).await?,
     }
 
     report.applied = true;
@@ -370,13 +350,94 @@ async fn existing_record_issues(
     Ok(issues)
 }
 
-fn reset_core_records(core: &mut Core) {
-    core.models = model::ModelCatalog::new();
-    core.skills = MemoryStore::new();
-    core.sessions = MemoryStore::new();
-    core.tasks = MemoryStore::new();
-    core.runs = MemoryStore::new();
-    core.profiles = MemoryStore::new();
+async fn merge_core_records(core: &mut Core, snapshot: BridgeSnapshot) -> Result<()> {
+    core.set_model(snapshot.current_model.into());
+    for spec in snapshot.models {
+        core.insert_model(spec.into());
+    }
+    for skill in snapshot.skills {
+        core.save_skill(skill.into()).await?;
+    }
+    for session in snapshot.sessions {
+        let session: chat::Session = session.into();
+        chat::save_session(&core.sessions, session).await?;
+    }
+    for task in snapshot.tasks {
+        run::save_task(&core.tasks, task.into()).await?;
+    }
+    for run in snapshot.runs {
+        run::save_run(&core.runs, run.into()).await?;
+    }
+    for profile in snapshot.profiles {
+        core.save_profile(profile.into()).await?;
+    }
+    Ok(())
+}
+
+async fn replace_core_records(core: &mut Core, snapshot: BridgeSnapshot) -> Result<()> {
+    core.set_model(snapshot.current_model.into());
+    core.models.clear();
+    for spec in snapshot.models {
+        core.insert_model(spec.into());
+    }
+    core.skills
+        .replace_all(
+            snapshot
+                .skills
+                .into_iter()
+                .map(|skill| (skill.id.clone(), skill.into()))
+                .collect(),
+        )
+        .await?;
+    core.sessions
+        .replace_all(
+            snapshot
+                .sessions
+                .into_iter()
+                .map(|session| {
+                    let session: chat::Session = session.into();
+                    (session.id.clone(), session)
+                })
+                .collect(),
+        )
+        .await?;
+    core.tasks
+        .replace_all(
+            snapshot
+                .tasks
+                .into_iter()
+                .map(|task| {
+                    let task: run::Task = task.into();
+                    (task.id.clone(), task)
+                })
+                .collect(),
+        )
+        .await?;
+    core.runs
+        .replace_all(
+            snapshot
+                .runs
+                .into_iter()
+                .map(|run| {
+                    let run: run::Run = run.into();
+                    (run.id.clone(), run)
+                })
+                .collect(),
+        )
+        .await?;
+    core.profiles
+        .replace_all(
+            snapshot
+                .profiles
+                .into_iter()
+                .map(|profile| {
+                    let profile: auth::Profile = profile.into();
+                    (profile.provider.id.clone(), profile)
+                })
+                .collect(),
+        )
+        .await?;
+    Ok(())
 }
 
 fn existing_record(domain: &str, id: String) -> MigrationIssue {

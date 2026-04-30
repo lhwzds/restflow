@@ -45,6 +45,7 @@ where
     async fn list(&self) -> Result<Vec<T>>;
     async fn put(&self, id: &str, value: T) -> Result<()>;
     async fn delete(&self, id: &str) -> Result<bool>;
+    async fn replace_all(&self, records: Vec<(String, T)>) -> Result<()>;
 
     async fn exists(&self, id: &str) -> Result<bool> {
         Ok(self.get(id).await?.is_some())
@@ -83,6 +84,13 @@ impl<T> Default for MemoryStore<T> {
 impl<T> MemoryStore<T> {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn shared() -> SharedStore<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        Arc::new(Self::new())
     }
 }
 
@@ -126,9 +134,51 @@ where
             .remove(id)
             .is_some())
     }
+
+    async fn replace_all(&self, records: Vec<(String, T)>) -> Result<()> {
+        let mut current = self.records.write().expect("memory store lock");
+        current.clear();
+        current.extend(records);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl<T, R> Repository<T> for Arc<R>
+where
+    T: Clone + Send + Sync + 'static,
+    R: Repository<T> + ?Sized,
+{
+    async fn get(&self, id: &str) -> Result<Option<T>> {
+        self.as_ref().get(id).await
+    }
+
+    async fn list(&self) -> Result<Vec<T>> {
+        self.as_ref().list().await
+    }
+
+    async fn put(&self, id: &str, value: T) -> Result<()> {
+        self.as_ref().put(id, value).await
+    }
+
+    async fn delete(&self, id: &str) -> Result<bool> {
+        self.as_ref().delete(id).await
+    }
+
+    async fn replace_all(&self, records: Vec<(String, T)>) -> Result<()> {
+        self.as_ref().replace_all(records).await
+    }
 }
 
 pub type Store<T> = dyn Repository<T>;
+pub type SharedStore<T> = Arc<Store<T>>;
+
+pub fn memory_store<T>() -> SharedStore<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    MemoryStore::shared()
+}
 
 #[cfg(test)]
 mod tests {
@@ -164,6 +214,27 @@ mod tests {
             assert!(store.delete("a").await.unwrap());
             assert!(!store.exists("a").await.unwrap());
             assert!(!store.delete("a").await.unwrap());
+        });
+    }
+
+    #[test]
+    fn shared_store_uses_repository_trait_object() {
+        block_on_once(async {
+            let store: SharedStore<Item> = memory_store();
+            store
+                .put(
+                    "a",
+                    Item {
+                        id: "a".to_string(),
+                        value: "one".to_string(),
+                    },
+                )
+                .await
+                .unwrap();
+
+            assert!(store.exists("a").await.unwrap());
+            store.replace_all(Vec::new()).await.unwrap();
+            assert!(!store.exists("a").await.unwrap());
         });
     }
 
