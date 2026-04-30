@@ -448,6 +448,49 @@ mod tests {
     }
 
     #[test]
+    fn core_can_use_redb_stores() {
+        block_on_once(async {
+            let path = temp_db_path("core-redb-stores");
+            let core = Core::with_stores(
+                model::Model::new("openai", "gpt-5.5"),
+                redb_core_stores(&path),
+            );
+
+            core.save_skill(skill::Skill::new("team", "Team", skill::Source::System))
+                .await
+                .unwrap();
+            core.save_profile(auth::Profile::new("openai", "OPENAI_API_KEY"))
+                .await
+                .unwrap();
+            core.chat_turn("session-1", chat::TurnRequest::new("hello"))
+                .await
+                .unwrap();
+            core.start_run(
+                run::Task::new("task-1", "Review branch"),
+                "run-1",
+                "session-1",
+            )
+            .await
+            .unwrap();
+            drop(core);
+
+            let restored = Core::with_stores(
+                model::Model::new("openai", "gpt-5.5"),
+                redb_core_stores(&path),
+            );
+            let snapshot = restored.snapshot().await.unwrap();
+
+            assert_eq!(snapshot.skills.len(), 1);
+            assert_eq!(snapshot.sessions.len(), 1);
+            assert_eq!(snapshot.tasks.len(), 1);
+            assert_eq!(snapshot.runs.len(), 1);
+            assert_eq!(snapshot.profiles.len(), 1);
+
+            let _ = std::fs::remove_file(path);
+        });
+    }
+
+    #[test]
     fn core_tool_calls_emit_call_and_result_events() {
         block_on_once(async {
             let mut core = Core::new(model::Model::new("openai", "gpt-5.5"));
@@ -650,6 +693,25 @@ mod tests {
         async fn call(&self, input: serde_json::Value) -> Result<serde_json::Value> {
             Ok(input)
         }
+    }
+
+    fn redb_core_stores(path: &std::path::Path) -> CoreStores {
+        let database = store::open_redb_database(path).unwrap();
+        CoreStores {
+            skills: store::redb_store(database.clone(), "skills").unwrap(),
+            sessions: store::redb_store(database.clone(), "sessions").unwrap(),
+            tasks: store::redb_store(database.clone(), "tasks").unwrap(),
+            runs: store::redb_store(database.clone(), "runs").unwrap(),
+            profiles: store::redb_store(database, "profiles").unwrap(),
+        }
+    }
+
+    fn temp_db_path(name: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{name}-{nanos}.redb"))
     }
 
     fn block_on_once<T>(future: impl Future<Output = T>) -> T {

@@ -7,4 +7,6 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+redb.workspace = true
 serde.workspace = true
+serde_json.workspace = true
