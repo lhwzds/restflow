@@ -4,6 +4,7 @@
 //!
 //! ## Owns
 //! - public module re-exports
+//! - bridge DTO conversions
 //! - core API entrypoint
 //! - in-memory core composition
 //! - adapter-friendly command boundary
@@ -21,6 +22,7 @@
 //! - task run requests
 //! - tool calls
 //! - model/profile/skill updates
+//! - bridge DTOs
 //! - migration snapshots
 //!
 //! ## Outputs
@@ -46,6 +48,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use store::{MemoryStore, Repository};
+
+pub mod bridge;
 
 pub use agent;
 pub use auth;

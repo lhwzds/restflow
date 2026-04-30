@@ -1,6 +1,6 @@
 //! # codocia
 //!
-//! Agent owns the execution kernel and model/tool orchestration.
+//! Agent owns execution planning and model/tool orchestration.
 //!
 //! ## Owns
 //! - Agent

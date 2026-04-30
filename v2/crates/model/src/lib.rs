@@ -1,6 +1,6 @@
 //! # codocia
 //!
-//! Model owns provider and model identity for the V2 kernel.
+//! Model owns provider and model identity for the V2 core.
 //!
 //! ## Owns
 //! - provider identity
