@@ -4,11 +4,12 @@
 //!
 //! ## Owns
 //! - public module re-exports
+//! - proto re-exports
 //! - bridge DTO conversions
 //! - migration adapter entrypoints
 //! - core API entrypoint
 //! - in-memory core composition
-//! - adapter-friendly command boundary
+//! - adapter-friendly command handling
 //! - migration snapshot boundary
 //! - stable import shape for examples
 //!
@@ -29,7 +30,7 @@
 //! ## Outputs
 //! - unified Rust API surface
 //! - composed core outputs
-//! - command responses
+//! - command responses from proto
 //! - core snapshots
 //!
 //! ## Depends On
@@ -47,7 +48,6 @@
 //! - cargo check -p restflow-v2
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use store::{Repository, SharedStore};
 
 pub mod bridge;
@@ -58,66 +58,11 @@ pub use auth;
 pub use chat;
 pub use event;
 pub use model;
+pub use proto::{CoreCommand, CoreResponse, CoreSnapshot};
 pub use run;
 pub use skill;
 pub use store;
 pub use tool;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CoreCommand {
-    SaveSkill {
-        skill: skill::Skill,
-    },
-    SaveProfile {
-        profile: auth::Profile,
-    },
-    SwitchModel {
-        model: model::Model,
-    },
-    ChatTurn {
-        session_id: String,
-        message: String,
-        assigned_skills: Vec<String>,
-    },
-    StartRun {
-        task: run::Task,
-        run_id: String,
-        session_id: String,
-    },
-    RunTask {
-        run_id: String,
-        task: run::Task,
-        message: String,
-        assigned_skills: Vec<String>,
-    },
-    CallTool {
-        call: tool::ToolCall,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CoreResponse {
-    Saved,
-    ModelSwitched { model: model::Model },
-    ChatTurn { events: Vec<event::Event> },
-    RunStarted { run: run::Run },
-    RunTask { events: Vec<event::Event> },
-    ToolEvents { events: Vec<event::Event> },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CoreSnapshot {
-    pub current_model: model::Model,
-    pub models: Vec<model::ModelSpec>,
-    pub skills: Vec<skill::Skill>,
-    pub sessions: Vec<chat::Session>,
-    pub tasks: Vec<run::Task>,
-    pub runs: Vec<run::Run>,
-    pub profiles: Vec<auth::Profile>,
-    pub tool_specs: Vec<tool::ToolSpec>,
-}
 
 #[derive(Clone)]
 pub struct CoreStores {

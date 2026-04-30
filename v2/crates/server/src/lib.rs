@@ -23,6 +23,7 @@
 //! - CoreResponse JSON
 //!
 //! ## Depends On
+//! - proto
 //! - restflow-v2
 //!
 //! ## Used By
@@ -34,7 +35,8 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use restflow::{Core, CoreCommand, CoreResponse};
+use proto::{CoreCommand, CoreResponse};
+use restflow::Core;
 
 #[async_trait]
 pub trait CommandTransport {

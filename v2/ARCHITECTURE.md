@@ -7,7 +7,7 @@ Product shell
   CLI / TUI / Web / daemon / MCP / packages
 
 Core modules
-  server / agent / skill / tool / run / chat / store / model / auth / event
+  proto / server / agent / skill / tool / run / chat / store / model / auth / event
 
 Python package
   restflow.agent / restflow.skill / restflow.tool / ...
@@ -18,7 +18,9 @@ Python package
 ```mermaid
 flowchart TD
     UI["ui\nTUI and Web interactions"] --> Server["server\ndaemon and transports"]
+    Server --> Proto["proto\nCoreCommand/CoreResponse/CoreSnapshot"]
     Server --> Core["core\nCoreCommand -> CoreResponse"]
+    Core --> Proto
     Core --> Chat["chat\nsessions and turns"]
     Core --> Run["run\ntasks and runs"]
 
@@ -68,6 +70,12 @@ Owns sessions, messages, turns, and stream-to-history finalization.
 ### store
 
 Owns backend-neutral repository traits and backend capability contracts.
+
+### proto
+
+Owns stable command, response, and snapshot protocol types shared across Rust
+modules, server transports, and Python bindings. It depends only on domain value
+crates and must not execute commands or own transport details.
 
 ### server
 

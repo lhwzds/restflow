@@ -136,6 +136,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "proto"
+version = "0.1.0"
+dependencies = [
+ "auth",
+ "chat",
+ "event",
+ "model",
+ "run",
+ "serde",
+ "serde_json",
+ "skill",
+ "tool",
+]
+
+[[package]]
 name = "pyo3"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -238,6 +253,7 @@ dependencies = [
  "chat",
  "event",
  "model",
+ "proto",
  "run",
  "serde",
  "serde_json",
@@ -313,6 +329,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "proto",
  "restflow-v2",
  "serde_json",
 ]
