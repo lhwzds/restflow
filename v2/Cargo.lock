@@ -34,7 +34,10 @@ dependencies = [
 name = "auth"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "model",
  "serde",
+ "store",
 ]
 
 [[package]]
@@ -42,8 +45,10 @@ name = "chat"
 version = "0.1.0"
 dependencies = [
  "agent",
+ "anyhow",
  "serde",
  "skill",
+ "store",
 ]
 
 [[package]]
@@ -111,8 +116,11 @@ name = "run"
 version = "0.1.0"
 dependencies = [
  "agent",
+ "anyhow",
+ "chat",
  "serde",
  "skill",
+ "store",
 ]
 
 [[package]]
@@ -193,6 +201,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "serde",
  "serde_json",
 ]
 

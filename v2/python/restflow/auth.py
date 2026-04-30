@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from .model import Provider
+
 
 @dataclass
 class SecretRef:
@@ -10,6 +12,5 @@ class SecretRef:
 
 @dataclass
 class Profile:
-    provider: str
+    provider: Provider
     secret: SecretRef
-

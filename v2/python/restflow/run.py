@@ -14,4 +14,4 @@ class Run:
     id: str
     task_id: str
     status: str
-
+    session_id: str | None = None

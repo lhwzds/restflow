@@ -14,3 +14,5 @@ class Session:
     id: str
     messages: list[Message] = field(default_factory=list)
 
+    def push(self, message: Message) -> None:
+        self.messages.append(message)

@@ -9,3 +9,5 @@ class Event:
     type: str
     value: Any = None
 
+    def is_terminal(self) -> bool:
+        return self.type in {"done", "error"}

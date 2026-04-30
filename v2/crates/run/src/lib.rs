@@ -7,6 +7,7 @@
 //! - Run
 //! - run status
 //! - durable execution vocabulary
+//! - task and run repository helpers
 //!
 //! ## Must Not
 //! - become a second agent loop
@@ -18,12 +19,14 @@
 //! - agent execution events
 //! - checkpoint state
 //! - skill catalog
+//! - task and run repositories
 //!
 //! ## Outputs
 //! - run status
 //! - run history
 //! - run artifacts
 //! - agent run input
+//! - persisted task and run records
 //!
 //! ## Depends On
 //! - agent
@@ -36,8 +39,11 @@
 //! - cargo check -p run
 
 use agent::RunInput;
+use anyhow::Result;
+use chat::Session;
 use serde::{Deserialize, Serialize};
 use skill::{Catalog, resolve_context};
+use store::Repository;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
@@ -50,6 +56,7 @@ pub struct Run {
     pub id: String,
     pub task_id: String,
     pub status: Status,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +67,99 @@ pub enum Status {
     Done,
     Failed,
     Canceled,
+}
+
+impl Task {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+        }
+    }
+}
+
+impl Run {
+    pub fn new(id: impl Into<String>, task_id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            task_id: task_id.into(),
+            status: Status::Pending,
+            session_id: None,
+        }
+    }
+
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn with_status(mut self, status: Status) -> Self {
+        self.status = status;
+        self
+    }
+}
+
+pub async fn load_task<R>(repository: &R, id: &str) -> Result<Option<Task>>
+where
+    R: Repository<Task> + ?Sized,
+{
+    repository.get(id).await
+}
+
+pub async fn save_task<R>(repository: &R, task: Task) -> Result<()>
+where
+    R: Repository<Task> + ?Sized,
+{
+    repository.put(&task.id.clone(), task).await
+}
+
+pub async fn load_run<R>(repository: &R, id: &str) -> Result<Option<Run>>
+where
+    R: Repository<Run> + ?Sized,
+{
+    repository.get(id).await
+}
+
+pub async fn save_run<R>(repository: &R, run: Run) -> Result<()>
+where
+    R: Repository<Run> + ?Sized,
+{
+    repository.put(&run.id.clone(), run).await
+}
+
+pub async fn list_task_runs<R>(repository: &R, task_id: &str) -> Result<Vec<Run>>
+where
+    R: Repository<Run> + ?Sized,
+{
+    Ok(repository
+        .list()
+        .await?
+        .into_iter()
+        .filter(|run| run.task_id == task_id)
+        .collect())
+}
+
+pub async fn update_run_status<R>(repository: &R, run_id: &str, status: Status) -> Result<Run>
+where
+    R: Repository<Run> + ?Sized,
+{
+    let mut run = repository
+        .get(run_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("run not found: {run_id}"))?;
+    run.status = status;
+    repository.put(run_id, run.clone()).await?;
+    Ok(run)
+}
+
+pub async fn load_run_session<R>(repository: &R, run: &Run) -> Result<Option<Session>>
+where
+    R: Repository<Session> + ?Sized,
+{
+    let Some(session_id) = &run.session_id else {
+        return Ok(None);
+    };
+    repository.get(session_id).await
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +201,10 @@ pub fn build_agent_input(catalog: &Catalog, request: &TaskRequest) -> RunInput {
 mod tests {
     use super::*;
     use skill::{Skill, Source};
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+    use store::MemoryStore;
 
     #[test]
     fn task_request_resolves_skill_context_for_agent() {
@@ -123,5 +227,87 @@ mod tests {
         assert_eq!(input.skill_context.assigned.len(), 1);
         assert_eq!(input.skill_context.mentioned.len(), 1);
         assert!(input.skill_context.issues.is_empty());
+    }
+
+    #[test]
+    fn task_and_run_repository_helpers_persist_records() {
+        block_on_once(async {
+            let task_store = MemoryStore::new();
+            let run_store = MemoryStore::new();
+            let task = Task::new("task-1", "Review branch");
+            let run = Run::new("run-1", "task-1").with_session("session-1");
+
+            save_task(&task_store, task.clone()).await.unwrap();
+            save_run(&run_store, run.clone()).await.unwrap();
+
+            assert_eq!(load_task(&task_store, "task-1").await.unwrap(), Some(task));
+            assert_eq!(load_run(&run_store, "run-1").await.unwrap(), Some(run));
+        });
+    }
+
+    #[test]
+    fn list_task_runs_filters_by_task_id() {
+        block_on_once(async {
+            let store = MemoryStore::new();
+            save_run(&store, Run::new("run-1", "task-1")).await.unwrap();
+            save_run(&store, Run::new("run-2", "task-2")).await.unwrap();
+            save_run(&store, Run::new("run-3", "task-1")).await.unwrap();
+
+            let runs = list_task_runs(&store, "task-1").await.unwrap();
+
+            assert_eq!(runs.len(), 2);
+            assert!(runs.iter().all(|run| run.task_id == "task-1"));
+        });
+    }
+
+    #[test]
+    fn update_run_status_rewrites_existing_run() {
+        block_on_once(async {
+            let store = MemoryStore::new();
+            save_run(&store, Run::new("run-1", "task-1")).await.unwrap();
+
+            let run = update_run_status(&store, "run-1", Status::Running)
+                .await
+                .unwrap();
+
+            assert_eq!(run.status, Status::Running);
+            assert_eq!(
+                load_run(&store, "run-1").await.unwrap().unwrap().status,
+                Status::Running
+            );
+        });
+    }
+
+    #[test]
+    fn load_run_session_returns_bound_session() {
+        block_on_once(async {
+            let session_store = MemoryStore::new();
+            session_store
+                .put("session-1", Session::new("session-1"))
+                .await
+                .unwrap();
+            let run = Run::new("run-1", "task-1").with_session("session-1");
+
+            let session = load_run_session(&session_store, &run).await.unwrap();
+
+            assert_eq!(session.unwrap().id, "session-1");
+        });
+    }
+
+    fn block_on_once<T>(future: impl Future<Output = T>) -> T {
+        let waker = Waker::from(Arc::new(NoopWake));
+        let mut context = Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("run repository future unexpectedly yielded"),
+        }
+    }
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
     }
 }

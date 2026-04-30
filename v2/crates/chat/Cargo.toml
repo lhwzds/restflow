@@ -6,5 +6,7 @@ license.workspace = true
 
 [dependencies]
 agent.workspace = true
+anyhow.workspace = true
 serde.workspace = true
 skill.workspace = true
+store.workspace = true

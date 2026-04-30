@@ -4,7 +4,23 @@ from dataclasses import dataclass
 
 
 @dataclass
-class Model:
-    provider: str
+class Provider:
     id: str
 
+
+@dataclass
+class Model:
+    provider: Provider
+    id: str
+
+
+@dataclass
+class ModelSpec:
+    model: Model
+    name: str
+    description: str | None = None
+
+
+@dataclass
+class ModelSelection:
+    current: Model
