@@ -29,6 +29,22 @@ auth    secrets, auth profiles, and provider access policy
 event   stream, trace, and telemetry event types
 ```
 
+## Python Package Loop
+
+The Python package is backed by the Rust `restflow-native` PyO3 module. Use the
+packaging helper so local installs and release wheels use the same settings:
+
+```bash
+python3 -m pip install maturin
+python3 v2/python/scripts/package.py develop
+python3 v2/python/scripts/package.py smoke
+python3 v2/python/scripts/package.py build
+```
+
+The helper sets `PYO3_PYTHON` and keeps Cargo artifacts under
+`/tmp/restflow-v2-python-target` by default, which avoids executing Rust build
+artifacts from an external macOS volume.
+
 ## Non-Goals
 
 - Do not run the existing daemon from here.
