@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
 
 [project]
 name = "restflow"
@@ -8,5 +8,9 @@ version = "0.1.0"
 description = "Prototype Python API for the RestFlow V2 core"
 requires-python = ">=3.11"
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.maturin]
+bindings = "pyo3"
+features = ["python-module"]
+manifest-path = "../crates/py/Cargo.toml"
+module-name = "restflow_native"
+python-source = "."

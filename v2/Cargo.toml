@@ -6,6 +6,19 @@ members = [
     "crates/chat",
     "crates/event",
     "crates/model",
+    "crates/py",
+    "crates/run",
+    "crates/skill",
+    "crates/store",
+    "crates/tool",
+]
+default-members = [
+    "crates/restflow",
+    "crates/agent",
+    "crates/auth",
+    "crates/chat",
+    "crates/event",
+    "crates/model",
     "crates/run",
     "crates/skill",
     "crates/store",
@@ -28,6 +41,7 @@ run = { path = "crates/run" }
 skill = { path = "crates/skill" }
 store = { path = "crates/store" }
 tool = { path = "crates/tool" }
+restflow-v2 = { path = "crates/restflow" }
 anyhow = "1"
 async-trait = "0.1"
 redb = "3.1"

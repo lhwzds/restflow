@@ -1,11 +1,11 @@
-"""Migration helpers for importing bridge DTOs into the Python Core."""
+"""Migration helpers for importing bridge DTOs into the Python harness."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from .bridge import BridgeSnapshot
-from .core import Core
+from .core import InMemoryCoreHarness
 
 
 @dataclass
@@ -46,13 +46,17 @@ class MigrationReport:
         )
 
 
-def core_from_bridge_snapshot(snapshot: BridgeSnapshot) -> tuple[Core, MigrationReport]:
-    core = Core(model=snapshot.current_model.to_model())
+def core_from_bridge_snapshot(
+    snapshot: BridgeSnapshot,
+) -> tuple[InMemoryCoreHarness, MigrationReport]:
+    core = InMemoryCoreHarness(model=snapshot.current_model.to_model())
     report = import_bridge_snapshot(core, snapshot)
     return core, report
 
 
-def import_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationReport:
+def import_bridge_snapshot(
+    core: InMemoryCoreHarness, snapshot: BridgeSnapshot
+) -> MigrationReport:
     report = inspect_bridge_snapshot(snapshot)
     report.issues.extend(_existing_record_issues(core, snapshot))
     if report.has_blocking_issues():
@@ -63,7 +67,9 @@ def import_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationRep
     return report
 
 
-def replace_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationReport:
+def replace_bridge_snapshot(
+    core: InMemoryCoreHarness, snapshot: BridgeSnapshot
+) -> MigrationReport:
     report = inspect_bridge_snapshot(snapshot)
     if report.has_blocking_issues():
         return report
@@ -74,7 +80,7 @@ def replace_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationRe
     return report
 
 
-def _apply_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> None:
+def _apply_bridge_snapshot(core: InMemoryCoreHarness, snapshot: BridgeSnapshot) -> None:
     core.switch_model(snapshot.current_model.to_model())
     existing_models = {
         (spec.model.provider.id, spec.model.id): spec for spec in core.models
@@ -205,7 +211,7 @@ def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
     )
 
 
-def _reset_core_records(core: Core) -> None:
+def _reset_core_records(core: InMemoryCoreHarness) -> None:
     core.models.clear()
     core.skills.replace_all([])
     core.sessions.replace_all([])
@@ -214,7 +220,9 @@ def _reset_core_records(core: Core) -> None:
     core.profiles.replace_all([])
 
 
-def _existing_record_issues(core: Core, snapshot: BridgeSnapshot) -> list[MigrationIssue]:
+def _existing_record_issues(
+    core: InMemoryCoreHarness, snapshot: BridgeSnapshot
+) -> list[MigrationIssue]:
     issues: list[MigrationIssue] = []
     model_keys = {(model.model.provider.id, model.model.id) for model in core.models}
     for model in snapshot.models:

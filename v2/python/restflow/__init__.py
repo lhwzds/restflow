@@ -22,7 +22,17 @@ from .bridge import (
     BridgeToolCall,
     BridgeToolSpec,
 )
-from .core import Core, CoreCommand, CoreResponse, CoreSnapshot
+from .core import (
+    CallableTransport,
+    CoreClient,
+    CoreCommand,
+    CoreResponse,
+    CoreSnapshot,
+    CoreTransport,
+    InMemoryCoreHarness,
+    NativeTransport,
+    load_native_transport,
+)
 from .migrate import (
     MigrationIssue,
     MigrationReport,
@@ -50,10 +60,14 @@ __all__ = [
     "BridgeTask",
     "BridgeToolCall",
     "BridgeToolSpec",
-    "Core",
+    "CallableTransport",
+    "CoreClient",
     "CoreCommand",
     "CoreResponse",
     "CoreSnapshot",
+    "CoreTransport",
+    "InMemoryCoreHarness",
+    "NativeTransport",
     "MigrationIssue",
     "MigrationReport",
     "MemoryStore",
@@ -61,5 +75,6 @@ __all__ = [
     "core_from_bridge_snapshot",
     "import_bridge_snapshot",
     "inspect_bridge_snapshot",
+    "load_native_transport",
     "replace_bridge_snapshot",
 ]
