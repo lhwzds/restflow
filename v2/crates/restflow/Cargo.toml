@@ -9,12 +9,17 @@ name = "restflow"
 
 [dependencies]
 agent.workspace = true
+anyhow.workspace = true
 auth.workspace = true
 chat.workspace = true
 event.workspace = true
 model.workspace = true
 run.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 skill.workspace = true
 store.workspace = true
 tool.workspace = true
 
+[dev-dependencies]
+async-trait.workspace = true

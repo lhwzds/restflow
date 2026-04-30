@@ -101,11 +101,15 @@ name = "restflow-v2"
 version = "0.1.0"
 dependencies = [
  "agent",
+ "anyhow",
+ "async-trait",
  "auth",
  "chat",
  "event",
  "model",
  "run",
+ "serde",
+ "serde_json",
  "skill",
  "store",
  "tool",
