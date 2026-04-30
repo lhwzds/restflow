@@ -24,6 +24,7 @@ flowchart TD
     Chat --> Skill["skill\nSkillContext"]
     Run --> Skill
     Skill --> Agent
+    Skill --> Store
     Tool["tool\nRegistry"] --> Agent
     Agent["agent\nexecution loop"]
     Agent --> Event["event\nstream and trace"]
@@ -49,7 +50,8 @@ management, cancellation, and subagent execution.
 ### skill
 
 Owns skill metadata, catalogs, mention parsing as text semantics, assigned skill
-summaries, mentioned skill content, and AI-facing context resolution.
+summaries, mentioned skill content, repository-backed catalog loading, and
+AI-facing context resolution.
 
 ### tool
 

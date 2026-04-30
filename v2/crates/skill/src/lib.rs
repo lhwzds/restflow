@@ -4,6 +4,7 @@
 //!
 //! ## Owns
 //! - skill catalog
+//! - skill repository loading
 //! - skill source metadata
 //! - @skill mention parsing
 //! - SkillContext resolution
@@ -20,12 +21,16 @@
 //! - user message text
 //! - assigned skill IDs
 //! - skill catalog
+//! - skill repository
 //!
 //! ## Outputs
 //! - SkillContext
 //! - assigned skill summaries
 //! - mentioned skill content
 //! - context issues
+//!
+//! ## Depends On
+//! - store
 //!
 //! ## Used By
 //! - chat
@@ -34,8 +39,10 @@
 //! ## Verify
 //! - cargo check -p skill
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use store::Repository;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -114,6 +121,31 @@ pub struct Catalog {
 impl Catalog {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn from_skills(skills: impl IntoIterator<Item = Skill>) -> Self {
+        let mut catalog = Self::new();
+        for skill in skills {
+            catalog.insert(skill);
+        }
+        catalog
+    }
+
+    pub async fn from_repository<R>(repository: &R) -> Result<Self>
+    where
+        R: Repository<Skill> + ?Sized,
+    {
+        Ok(Self::from_skills(repository.list().await?))
+    }
+
+    pub async fn merge_repository<R>(&mut self, repository: &R) -> Result<()>
+    where
+        R: Repository<Skill> + ?Sized,
+    {
+        for skill in repository.list().await? {
+            self.insert(skill);
+        }
+        Ok(())
     }
 
     pub fn insert(&mut self, skill: Skill) {
@@ -226,6 +258,10 @@ fn sanitize_mention(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+    use store::MemoryStore;
 
     fn catalog() -> Catalog {
         let mut catalog = Catalog::new();
@@ -319,5 +355,69 @@ mod tests {
         let context = resolve_context(&catalog, &[], "@team");
 
         assert_eq!(context.mentioned[0].content, "system");
+    }
+
+    #[test]
+    fn catalog_loads_from_repository() {
+        block_on_once(async {
+            let store = MemoryStore::new();
+            store
+                .put(
+                    "team",
+                    Skill::new("team", "Team", Source::System)
+                        .with_description("Coordinate subagents.")
+                        .with_content("Use workers for independent tasks."),
+                )
+                .await
+                .unwrap();
+
+            let catalog = Catalog::from_repository(&store).await.unwrap();
+            let context = resolve_context(&catalog, &[], "use @team");
+
+            assert_eq!(context.mentioned.len(), 1);
+            assert_eq!(context.mentioned[0].id, "team");
+            assert!(context.issues.is_empty());
+        });
+    }
+
+    #[test]
+    fn repository_merge_does_not_override_existing_system_skill() {
+        block_on_once(async {
+            let store = MemoryStore::new();
+            store
+                .put(
+                    "team",
+                    Skill::new("team", "User Team", Source::User).with_content("user"),
+                )
+                .await
+                .unwrap();
+            let mut catalog =
+                Catalog::from_skills([
+                    Skill::new("team", "System Team", Source::System).with_content("system")
+                ]);
+
+            catalog.merge_repository(&store).await.unwrap();
+            let context = resolve_context(&catalog, &[], "@team");
+
+            assert_eq!(context.mentioned[0].source, Source::System);
+            assert_eq!(context.mentioned[0].content, "system");
+        });
+    }
+
+    fn block_on_once<T>(future: impl Future<Output = T>) -> T {
+        let waker = Waker::from(Arc::new(NoopWake));
+        let mut context = Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("skill repository future unexpectedly yielded"),
+        }
+    }
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
     }
 }

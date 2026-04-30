@@ -11,6 +11,7 @@
 /doc/
 /docs/*
 !/docs/TASK_RUN_DOMAIN_MODEL.md
+/v2/docs/
 
 # Local agent guidance files
 CLAUDE.md
