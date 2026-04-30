@@ -36,8 +36,8 @@
 use crate::{Core, bridge::BridgeSnapshot, chat, model, run};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
-use store::Repository;
+use std::collections::{BTreeMap, BTreeSet};
+use store::{MemoryStore, Repository};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -90,6 +90,8 @@ impl MigrationIssue {
             MigrationIssueKind::CurrentModelMissingFromCatalog
                 | MigrationIssueKind::RunReferencesMissingTask
                 | MigrationIssueKind::RunReferencesMissingSession
+                | MigrationIssueKind::TaskReferencesMissingSession
+                | MigrationIssueKind::RunSessionDiffersFromTask
                 | MigrationIssueKind::DuplicateId
                 | MigrationIssueKind::ExistingRecord
         )
@@ -102,6 +104,8 @@ pub enum MigrationIssueKind {
     CurrentModelMissingFromCatalog,
     RunReferencesMissingTask,
     RunReferencesMissingSession,
+    TaskReferencesMissingSession,
+    RunSessionDiffersFromTask,
     DuplicateId,
     ExistingRecord,
     ToolSpecsAreInformational,
@@ -146,6 +150,10 @@ pub async fn import_bridge_snapshot_with_mode(
         return Ok(report);
     }
 
+    if mode == ImportMode::ReplaceExisting {
+        reset_core_records(core);
+    }
+
     core.set_model(snapshot.current_model.into());
     for spec in snapshot.models {
         core.insert_model(spec.into());
@@ -182,6 +190,15 @@ pub fn inspect_bridge_snapshot(snapshot: &BridgeSnapshot) -> MigrationReport {
         .iter()
         .map(|task| task.id.as_str())
         .collect::<BTreeSet<_>>();
+    let task_sessions = snapshot
+        .tasks
+        .iter()
+        .filter_map(|task| {
+            task.session_id
+                .as_deref()
+                .map(|session_id| (task.id.as_str(), session_id))
+        })
+        .collect::<BTreeMap<_, _>>();
     let session_ids = snapshot
         .sessions
         .iter()
@@ -236,6 +253,20 @@ pub fn inspect_bridge_snapshot(snapshot: &BridgeSnapshot) -> MigrationReport {
         ));
     }
 
+    for task in &snapshot.tasks {
+        if let Some(session_id) = &task.session_id
+            && !session_ids.contains(session_id.as_str())
+        {
+            issues.push(MigrationIssue::new(
+                MigrationIssueKind::TaskReferencesMissingSession,
+                format!(
+                    "task references a session that is not present in the snapshot: {} -> {}",
+                    task.id, session_id
+                ),
+            ));
+        }
+    }
+
     for run in &snapshot.runs {
         if !task_ids.contains(run.task_id.as_str()) {
             issues.push(MigrationIssue::new(
@@ -254,6 +285,18 @@ pub fn inspect_bridge_snapshot(snapshot: &BridgeSnapshot) -> MigrationReport {
                 format!(
                     "run references a session that is not present in the snapshot: {} -> {}",
                     run.id, session_id
+                ),
+            ));
+        }
+        if let (Some(run_session_id), Some(task_session_id)) =
+            (&run.session_id, task_sessions.get(run.task_id.as_str()))
+            && run_session_id != task_session_id
+        {
+            issues.push(MigrationIssue::new(
+                MigrationIssueKind::RunSessionDiffersFromTask,
+                format!(
+                    "run session does not match the bound task session: {} -> run {}, task {}",
+                    run.id, run_session_id, task_session_id
                 ),
             ));
         }
@@ -325,6 +368,15 @@ async fn existing_record_issues(
     }
 
     Ok(issues)
+}
+
+fn reset_core_records(core: &mut Core) {
+    core.models = model::ModelCatalog::new();
+    core.skills = MemoryStore::new();
+    core.sessions = MemoryStore::new();
+    core.tasks = MemoryStore::new();
+    core.runs = MemoryStore::new();
+    core.profiles = MemoryStore::new();
 }
 
 fn existing_record(domain: &str, id: String) -> MigrationIssue {
@@ -495,6 +547,72 @@ mod tests {
             let session = core.sessions.get("session-1").await.unwrap().unwrap();
             assert_eq!(session.messages[0].text, "replacement");
         });
+    }
+
+    #[test]
+    fn replace_import_removes_records_absent_from_snapshot() {
+        block_on_once(async {
+            let mut core = Core::new(model::Model::new("openai", "gpt-5.4"));
+            core.insert_model(model::ModelSpec::new("openai", "gpt-5.4", "GPT-5.4"));
+            import_bridge_snapshot(&mut core, sample_snapshot())
+                .await
+                .unwrap();
+
+            let mut replacement = sample_snapshot();
+            replacement.skills.clear();
+            replacement.sessions.clear();
+            replacement.tasks.clear();
+            replacement.runs.clear();
+            replacement.profiles.clear();
+
+            let report = replace_bridge_snapshot(&mut core, replacement)
+                .await
+                .unwrap();
+
+            assert!(report.applied);
+            assert!(report.is_clean());
+            assert!(core.models.get("openai", "gpt-5.5").is_some());
+            assert!(core.models.get("openai", "gpt-5.4").is_none());
+            assert!(!core.skills.exists("team").await.unwrap());
+            assert!(!core.sessions.exists("session-1").await.unwrap());
+            assert!(!core.tasks.exists("task-1").await.unwrap());
+            assert!(!core.runs.exists("run-1").await.unwrap());
+            assert!(!core.profiles.exists("openai").await.unwrap());
+        });
+    }
+
+    #[test]
+    fn import_reports_run_session_mismatch() {
+        block_on_once(async {
+            let mut snapshot = sample_snapshot();
+            let mut other_session = snapshot.sessions[0].clone();
+            other_session.id = "other-session".to_string();
+            snapshot.sessions.push(other_session);
+            snapshot.runs[0].session_id = Some("other-session".to_string());
+
+            let report = inspect_bridge_snapshot(&snapshot);
+
+            assert!(report.has_blocking_issues());
+            assert!(report.issues.iter().any(|issue| {
+                issue.kind == MigrationIssueKind::RunSessionDiffersFromTask
+                    && issue.message.contains("run-1")
+            }));
+        });
+    }
+
+    #[test]
+    fn import_reports_task_session_missing() {
+        let mut snapshot = sample_snapshot();
+        snapshot.tasks[0].session_id = Some("missing-session".to_string());
+        snapshot.runs.clear();
+
+        let report = inspect_bridge_snapshot(&snapshot);
+
+        assert!(report.has_blocking_issues());
+        assert!(report.issues.iter().any(|issue| {
+            issue.kind == MigrationIssueKind::TaskReferencesMissingSession
+                && issue.message.contains("task-1")
+        }));
     }
 
     #[test]

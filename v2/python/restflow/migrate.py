@@ -37,6 +37,8 @@ class MigrationReport:
                 "current_model_missing_from_catalog",
                 "run_references_missing_task",
                 "run_references_missing_session",
+                "task_references_missing_session",
+                "run_session_differs_from_task",
                 "duplicate_id",
                 "existing_record",
             }
@@ -66,6 +68,7 @@ def replace_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationRe
     if report.has_blocking_issues():
         return report
 
+    _reset_core_records(core)
     _apply_bridge_snapshot(core, snapshot)
     report.applied = True
     return report
@@ -97,6 +100,9 @@ def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
         for model in snapshot.models
     )
     task_ids = {task.id for task in snapshot.tasks}
+    task_sessions = {
+        task.id: task.session_id for task in snapshot.tasks if task.session_id is not None
+    }
     session_ids = {session.id for session in snapshot.sessions}
     issues: list[MigrationIssue] = []
     _record_duplicate_ids(
@@ -121,6 +127,18 @@ def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
             )
         )
 
+    for task in snapshot.tasks:
+        if task.session_id is not None and task.session_id not in session_ids:
+            issues.append(
+                MigrationIssue(
+                    kind="task_references_missing_session",
+                    message=(
+                        "task references a session that is not present in the snapshot: "
+                        f"{task.id} -> {task.session_id}"
+                    ),
+                )
+            )
+
     for run in snapshot.runs:
         if run.task_id not in task_ids:
             issues.append(
@@ -129,6 +147,21 @@ def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
                     message=(
                         "run references a task that is not present in the snapshot: "
                         f"{run.id} -> {run.task_id}"
+                    ),
+                )
+            )
+        task_session_id = task_sessions.get(run.task_id)
+        if (
+            run.session_id is not None
+            and task_session_id is not None
+            and run.session_id != task_session_id
+        ):
+            issues.append(
+                MigrationIssue(
+                    kind="run_session_differs_from_task",
+                    message=(
+                        "run session does not match the bound task session: "
+                        f"{run.id} -> run {run.session_id}, task {task_session_id}"
                     ),
                 )
             )
@@ -165,6 +198,15 @@ def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
         tool_specs=len(snapshot.observed_tool_specs),
         issues=issues,
     )
+
+
+def _reset_core_records(core: Core) -> None:
+    core.models.clear()
+    core.skills.clear()
+    core.sessions.clear()
+    core.tasks.clear()
+    core.runs.clear()
+    core.profiles.clear()
 
 
 def _existing_record_issues(core: Core, snapshot: BridgeSnapshot) -> list[MigrationIssue]:

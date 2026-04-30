@@ -37,8 +37,9 @@ use restflow::bridge::{
 };
 use restflow_core::auth::{AuthProfile, AuthProvider};
 use restflow_core::models::{
-    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ModelRef, Skill, SkillSource, Task,
-    TaskRun, TaskRunStatus,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ContinuationConfig, DurabilityMode,
+    ExecutionMode, MemoryConfig, ModelRef, NotificationConfig, ResourceLimits, Skill, SkillSource,
+    SkillStatus, StorageMode, Task, TaskRun, TaskRunMetrics, TaskRunStatus,
 };
 use restflow_models::{ClientKind, ModelSpec};
 use std::collections::BTreeMap;
@@ -54,7 +55,75 @@ pub struct SnapshotParts {
     pub profiles: Vec<AuthProfile>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportResult {
+    pub snapshot: BridgeSnapshot,
+    pub report: ExportReport,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExportReport {
+    pub issues: Vec<ExportIssue>,
+}
+
+impl ExportReport {
+    pub fn is_clean(&self) -> bool {
+        self.issues.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportIssue {
+    pub kind: ExportIssueKind,
+    pub record_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportIssueKind {
+    CurrentModelMissingFromCatalog,
+    SkillMetadataDropped,
+    SessionMetadataDropped,
+    MessageMetadataDropped,
+    TaskMetadataDropped,
+    RunMetricsDropped,
+    ProfileMetadataDropped,
+}
+
 pub fn export_snapshot(parts: SnapshotParts) -> BridgeSnapshot {
+    export_snapshot_with_report(parts).snapshot
+}
+
+pub fn export_snapshot_with_report(parts: SnapshotParts) -> ExportResult {
+    let report = inspect_export_parts(&parts);
+    let snapshot = build_snapshot(parts);
+    ExportResult { snapshot, report }
+}
+
+pub fn inspect_export_parts(parts: &SnapshotParts) -> ExportReport {
+    let mut report = ExportReport::default();
+
+    record_current_model_loss(parts, &mut report);
+    for skill in &parts.skills {
+        record_skill_loss(skill, &mut report);
+    }
+    for session in &parts.sessions {
+        record_session_loss(session, &mut report);
+    }
+    for task in &parts.tasks {
+        record_task_loss(task, &mut report);
+    }
+    for run in &parts.runs {
+        record_run_loss(run, &mut report);
+    }
+    for profile in &parts.profiles {
+        record_profile_loss(profile, &mut report);
+    }
+
+    report
+}
+
+fn build_snapshot(parts: SnapshotParts) -> BridgeSnapshot {
     let task_sessions = parts
         .tasks
         .iter()
@@ -255,6 +324,162 @@ fn empty_to_none(value: &str) -> Option<String> {
     }
 }
 
+fn record_current_model_loss(parts: &SnapshotParts, report: &mut ExportReport) {
+    let current_model = parts
+        .current_model
+        .as_ref()
+        .copied()
+        .map(bridge_model_ref)
+        .or_else(|| parts.sessions.first().map(session_model_ref))
+        .or_else(|| parts.models.first().map(model_spec_ref))
+        .unwrap_or_else(|| BridgeModelRef::new("unknown", "unknown"));
+    let current_model_exists = parts.models.iter().any(|spec| {
+        model_provider_label(spec) == current_model.provider && spec.name == current_model.model
+    });
+
+    if !current_model_exists {
+        report_loss(
+            report,
+            ExportIssueKind::CurrentModelMissingFromCatalog,
+            "current_model",
+            format!(
+                "current model is not present in the exported model catalog: {}:{}",
+                current_model.provider, current_model.model
+            ),
+        );
+    }
+}
+
+fn record_skill_loss(value: &Skill, report: &mut ExportReport) {
+    if value.tags.as_ref().is_some_and(|tags| !tags.is_empty())
+        || !value.triggers.is_empty()
+        || value.folder_path.is_some()
+        || !value.scripts.is_empty()
+        || !value.references.is_empty()
+        || value.gating.is_some()
+        || value.version.is_some()
+        || value.author.is_some()
+        || value.license.is_some()
+        || value.content_hash.is_some()
+        || value.status != SkillStatus::Active
+        || value.auto_complete
+        || value.storage_mode != StorageMode::DatabaseOnly
+        || value.is_synced
+    {
+        report_loss(
+            report,
+            ExportIssueKind::SkillMetadataDropped,
+            &value.id,
+            "skill metadata outside the v2 skill core shape is not exported",
+        );
+    }
+}
+
+fn record_session_loss(value: &ChatSession, report: &mut ExportReport) {
+    if value.skill_id.is_some()
+        || value.retention.is_some()
+        || value.summary_message_id.is_some()
+        || value.prompt_tokens != 0
+        || value.completion_tokens != 0
+        || value.cost != 0.0
+        || value.metadata.total_tokens != 0
+        || value.metadata.message_count != 0
+        || value.source_conversation_id.is_some()
+    {
+        report_loss(
+            report,
+            ExportIssueKind::SessionMetadataDropped,
+            &value.id,
+            "session counters, retention, summaries, and channel conversation metadata are not exported",
+        );
+    }
+
+    if !value.messages.is_empty() {
+        report_loss(
+            report,
+            ExportIssueKind::MessageMetadataDropped,
+            &value.id,
+            "message ids and timestamps are not represented in the v2 message shape",
+        );
+    }
+
+    if value.messages.iter().any(|message| {
+        message.execution.is_some() || message.media.is_some() || message.transcript.is_some()
+    }) {
+        report_loss(
+            report,
+            ExportIssueKind::MessageMetadataDropped,
+            &value.id,
+            "rich message execution, media, or transcript metadata is not exported",
+        );
+    }
+}
+
+fn record_task_loss(value: &Task, report: &mut ExportReport) {
+    if value.description.is_some()
+        || value.owns_chat_session
+        || value.input_template.is_some()
+        || value.execution_mode != ExecutionMode::default()
+        || value.timeout_secs.is_some()
+        || value.notification != NotificationConfig::default()
+        || value.memory != MemoryConfig::default()
+        || value.durability_mode != DurabilityMode::default()
+        || value.resource_limits != ResourceLimits::default()
+        || !value.prerequisites.is_empty()
+        || value.continuation != ContinuationConfig::default()
+        || value.continuation_total_iterations != 0
+        || value.continuation_segments_completed != 0
+        || value.last_run_at.is_some()
+        || value.next_run_at.is_some()
+        || value.success_count != 0
+        || value.failure_count != 0
+        || value.total_tokens_used != 0
+        || value.total_cost_usd != 0.0
+        || value.webhook.is_some()
+        || value.summary_message_id.is_some()
+    {
+        report_loss(
+            report,
+            ExportIssueKind::TaskMetadataDropped,
+            &value.id,
+            "task execution policy, counters, dependencies, and runtime metadata are not exported",
+        );
+    }
+}
+
+fn record_run_loss(value: &TaskRun, report: &mut ExportReport) {
+    if value.metrics != TaskRunMetrics::default() {
+        report_loss(
+            report,
+            ExportIssueKind::RunMetricsDropped,
+            &value.run_id,
+            "run metrics are not represented in the v2 run shape",
+        );
+    }
+}
+
+fn record_profile_loss(value: &AuthProfile, report: &mut ExportReport) {
+    report_loss(
+        report,
+        ExportIssueKind::ProfileMetadataDropped,
+        &value.id,
+        "auth profile identity, display metadata, health, source, and priority are not exported",
+    );
+}
+
+fn report_loss(
+    report: &mut ExportReport,
+    kind: ExportIssueKind,
+    record_id: &str,
+    message: impl Into<String>,
+) {
+    report.issues.push(ExportIssue {
+        kind,
+        record_id: record_id.to_string(),
+        message: message.into(),
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +561,107 @@ mod tests {
     }
 
     #[test]
+    fn export_report_surfaces_lossy_metadata() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5.5".to_string());
+        session.id = "session-1".to_string();
+        session.skill_id = Some("team".to_string());
+        session.prompt_tokens = 10;
+        session.add_message(ChatMessage::user("hello"));
+
+        let mut skill = Skill::new(
+            "team".to_string(),
+            "Team".to_string(),
+            Some("Coordinate workers.".to_string()),
+            Some(vec!["coordination".to_string()]),
+            "Use workers.".to_string(),
+        );
+        skill.status = SkillStatus::Draft;
+
+        let mut task = Task::new(
+            "task-1".to_string(),
+            "Review branch".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Once { run_at: 123 },
+        );
+        task.description = Some("Review the current branch.".to_string());
+
+        let mut run = TaskRun::new("run-1", "task-1", "exec-1", 100, Some("cp-1".to_string()));
+        run.metrics.iterations = Some(3);
+
+        let profile = AuthProfile::new_with_id(
+            "profile-1".to_string(),
+            "OpenAI",
+            SecureCredential::ApiKey {
+                secret_ref: "OPENAI_API_KEY".to_string(),
+                email: None,
+            },
+            CredentialSource::Manual,
+            AuthProvider::OpenAI,
+        );
+
+        let result = export_snapshot_with_report(SnapshotParts {
+            current_model: Some(ModelRef::from_model(ModelId::Gpt5_5)),
+            models: vec![ModelSpec::new("gpt-5.5", LlmProvider::OpenAI, "gpt-5.5")],
+            skills: vec![skill],
+            sessions: vec![session],
+            tasks: vec![task],
+            runs: vec![run],
+            profiles: vec![profile],
+        });
+
+        assert_eq!(result.snapshot.current_model.model, "gpt-5.5");
+        assert!(!result.report.is_clean());
+        assert!(has_issue(
+            &result.report,
+            ExportIssueKind::SkillMetadataDropped
+        ));
+        assert!(has_issue(
+            &result.report,
+            ExportIssueKind::SessionMetadataDropped
+        ));
+        assert!(has_issue(
+            &result.report,
+            ExportIssueKind::MessageMetadataDropped
+        ));
+        assert!(has_issue(
+            &result.report,
+            ExportIssueKind::TaskMetadataDropped
+        ));
+        assert!(has_issue(
+            &result.report,
+            ExportIssueKind::RunMetricsDropped
+        ));
+        assert!(has_issue(
+            &result.report,
+            ExportIssueKind::ProfileMetadataDropped
+        ));
+    }
+
+    #[test]
+    fn export_report_is_clean_for_core_model_only_snapshot() {
+        let report = inspect_export_parts(&SnapshotParts {
+            current_model: Some(ModelRef::from_model(ModelId::Gpt5_5)),
+            models: vec![ModelSpec::new("gpt-5.5", LlmProvider::OpenAI, "gpt-5.5")],
+            ..SnapshotParts::default()
+        });
+
+        assert!(report.is_clean(), "{:?}", report.issues);
+    }
+
+    #[test]
+    fn export_report_warns_when_current_model_is_missing_from_catalog() {
+        let report = inspect_export_parts(&SnapshotParts {
+            current_model: Some(ModelRef::from_model(ModelId::Gpt5_5)),
+            ..SnapshotParts::default()
+        });
+
+        assert!(has_issue(
+            &report,
+            ExportIssueKind::CurrentModelMissingFromCatalog
+        ));
+    }
+
+    #[test]
     fn exported_snapshot_imports_into_v2_core() {
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5.5".to_string());
         session.id = "session-1".to_string();
@@ -401,5 +727,9 @@ mod tests {
 
     impl std::task::Wake for NoopWake {
         fn wake(self: std::sync::Arc<Self>) {}
+    }
+
+    fn has_issue(report: &ExportReport, kind: ExportIssueKind) -> bool {
+        report.issues.iter().any(|issue| issue.kind == kind)
     }
 }
