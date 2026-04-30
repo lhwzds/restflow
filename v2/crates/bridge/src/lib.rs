@@ -36,9 +36,17 @@
 //! - tool
 //!
 //! ## Verify
-//! - cargo check -p restflow-v2
+//! - cargo check -p bridge
 
-use crate::{CoreCommand, CoreSnapshot, auth, chat, model, run, skill, tool};
+pub mod migrate;
+
+pub use migrate::{
+    ImportMode, MigrationIssue, MigrationIssueKind, MigrationReport, core_from_bridge_snapshot,
+    import_bridge_snapshot, import_bridge_snapshot_with_mode, inspect_bridge_snapshot,
+    replace_bridge_snapshot,
+};
+
+use proto::{CoreCommand, CoreSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -403,7 +411,7 @@ impl From<BridgeSnapshot> for CoreSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Core;
+    use restflow::Core;
     use std::future::Future;
     use std::sync::Arc;
     use std::task::{Context, Poll, Wake, Waker};

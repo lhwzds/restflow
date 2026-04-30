@@ -5,12 +5,10 @@
 //! ## Owns
 //! - public module re-exports
 //! - proto re-exports
-//! - bridge DTO conversions
 //! - migration adapter entrypoints
 //! - core API entrypoint
 //! - in-memory core composition
 //! - adapter-friendly command handling
-//! - migration snapshot boundary
 //! - stable import shape for examples
 //!
 //! ## Must Not
@@ -49,9 +47,6 @@
 
 use anyhow::Result;
 use store::{Repository, SharedStore};
-
-pub mod bridge;
-pub mod migrate;
 
 pub use agent;
 pub use auth;

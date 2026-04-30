@@ -19,6 +19,7 @@ a Python API shape before migrating production code.
 
 ```text
 agent   agent loop and execution planning
+bridge  legacy migration DTOs and import checks
 skill   skill catalog, mentions, and per-turn capability planning
 tool    tool trait and registry
 run     Task/Run durable execution model

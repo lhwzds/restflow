@@ -1,27 +1,19 @@
 [package]
-name = "restflow-v2"
+name = "bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[lib]
-name = "restflow"
-
 [dependencies]
-agent.workspace = true
 anyhow.workspace = true
 auth.workspace = true
 chat.workspace = true
-event.workspace = true
 model.workspace = true
 proto.workspace = true
+restflow-v2.workspace = true
 run.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 skill.workspace = true
 store.workspace = true
 tool.workspace = true
-
-[dev-dependencies]
-serde.workspace = true
-
-async-trait.workspace = true

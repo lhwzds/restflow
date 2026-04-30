@@ -31,10 +31,11 @@
 //! - store
 //!
 //! ## Verify
-//! - cargo check -p restflow-v2
+//! - cargo check -p bridge
 
-use crate::{Core, bridge::BridgeSnapshot, chat, model, run};
+use crate::BridgeSnapshot;
 use anyhow::Result;
+use restflow::{Core, chat, model, run};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use store::Repository;
@@ -467,12 +468,12 @@ fn record_duplicate_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::{
+    use crate::{
         BridgeMessage, BridgeModelRef, BridgeModelSpec, BridgeProfile, BridgeRole, BridgeRun,
         BridgeSession, BridgeSkill, BridgeSkillSource, BridgeSnapshot, BridgeStatus, BridgeTask,
         BridgeToolSpec,
     };
-    use crate::skill;
+    use restflow::skill;
     use store::Repository;
 
     #[test]

@@ -7,6 +7,7 @@ license = "MIT"
 [workspace]
 
 [dependencies]
+bridge = { path = "../../crates/bridge" }
 restflow = { package = "restflow-v2", path = "../../crates/restflow" }
 restflow-core = { path = "../../../crates/restflow-core" }
 restflow-models = { path = "../../../crates/restflow-models" }

@@ -31,7 +31,7 @@
 //! - cargo test --manifest-path v2/migration/export/Cargo.toml
 //! - cargo clippy --manifest-path v2/migration/export/Cargo.toml --all-targets -- -D warnings
 
-use restflow::bridge::{
+use bridge::{
     BridgeMessage, BridgeModelRef, BridgeModelSpec, BridgeProfile, BridgeRole, BridgeRun,
     BridgeSession, BridgeSkill, BridgeSkillSource, BridgeSnapshot, BridgeStatus, BridgeTask,
 };
@@ -675,8 +675,7 @@ mod tests {
             ..SnapshotParts::default()
         });
 
-        let (_core, report) =
-            block_on_once(restflow::migrate::core_from_bridge_snapshot(snapshot)).unwrap();
+        let (_core, report) = block_on_once(bridge::core_from_bridge_snapshot(snapshot)).unwrap();
 
         assert!(report.is_clean(), "{:?}", report.issues);
         assert!(report.applied);

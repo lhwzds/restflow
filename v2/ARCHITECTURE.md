@@ -7,7 +7,7 @@ Product shell
   CLI / TUI / Web / daemon / MCP / packages
 
 Core modules
-  proto / server / agent / skill / tool / run / chat / store / model / auth / event
+  proto / server / bridge / agent / skill / tool / run / chat / store / model / auth / event
 
 Python package
   restflow.agent / restflow.skill / restflow.tool / ...
@@ -38,6 +38,8 @@ flowchart TD
     Run --> Store
 
     Python["python/restflow"] --> Server
+    Bridge["bridge\nmigration DTOs"] --> Core
+    Bridge --> Proto
 ```
 
 ## Ownership
@@ -76,6 +78,12 @@ Owns backend-neutral repository traits and backend capability contracts.
 Owns stable command, response, and snapshot protocol types shared across Rust
 modules, server transports, and Python bindings. It depends only on domain value
 crates and must not execute commands or own transport details.
+
+### bridge
+
+Owns migration DTOs and one-way import helpers for moving legacy boundary data
+into V2. It is not a product runtime path and should stay separate from the
+`server` command ingress.
 
 ### server
 
