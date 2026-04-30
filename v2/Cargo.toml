@@ -5,6 +5,7 @@ members = [
     "crates/auth",
     "crates/bridge",
     "crates/chat",
+    "crates/engine",
     "crates/event",
     "crates/model",
     "crates/proto",
@@ -21,6 +22,7 @@ default-members = [
     "crates/auth",
     "crates/bridge",
     "crates/chat",
+    "crates/engine",
     "crates/event",
     "crates/model",
     "crates/proto",
@@ -42,6 +44,7 @@ agent = { path = "crates/agent" }
 auth = { path = "crates/auth" }
 bridge = { path = "crates/bridge" }
 chat = { path = "crates/chat" }
+engine = { path = "crates/engine" }
 event = { path = "crates/event" }
 model = { path = "crates/model" }
 proto = { path = "crates/proto" }

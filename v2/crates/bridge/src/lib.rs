@@ -411,7 +411,7 @@ impl From<BridgeSnapshot> for CoreSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow::Core;
+    use engine::Core;
     use std::future::Future;
     use std::sync::Arc;
     use std::task::{Context, Poll, Wake, Waker};

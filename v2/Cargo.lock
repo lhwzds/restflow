@@ -53,9 +53,9 @@ dependencies = [
  "anyhow",
  "auth",
  "chat",
+ "engine",
  "model",
  "proto",
- "restflow-v2",
  "run",
  "serde",
  "serde_json",
@@ -73,6 +73,25 @@ dependencies = [
  "serde",
  "skill",
  "store",
+]
+
+[[package]]
+name = "engine"
+version = "0.1.0"
+dependencies = [
+ "agent",
+ "anyhow",
+ "async-trait",
+ "auth",
+ "chat",
+ "event",
+ "model",
+ "proto",
+ "run",
+ "serde_json",
+ "skill",
+ "store",
+ "tool",
 ]
 
 [[package]]
@@ -252,10 +271,10 @@ name = "restflow-native"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "engine",
  "model",
  "pyo3",
  "pyo3-build-config",
- "restflow-v2",
  "serde_json",
  "server",
 ]
@@ -265,16 +284,15 @@ name = "restflow-v2"
 version = "0.1.0"
 dependencies = [
  "agent",
- "anyhow",
- "async-trait",
  "auth",
+ "bridge",
  "chat",
+ "engine",
  "event",
  "model",
  "proto",
  "run",
- "serde",
- "serde_json",
+ "server",
  "skill",
  "store",
  "tool",
@@ -347,8 +365,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "engine",
+ "model",
  "proto",
- "restflow-v2",
  "serde_json",
 ]
 

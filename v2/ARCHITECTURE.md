@@ -7,7 +7,7 @@ Product shell
   CLI / TUI / Web / daemon / MCP / packages
 
 Core modules
-  proto / server / bridge / agent / skill / tool / run / chat / store / model / auth / event
+  proto / server / engine / bridge / agent / skill / tool / run / chat / store / model / auth / event
 
 Python package
   restflow.agent / restflow.skill / restflow.tool / ...
@@ -19,10 +19,10 @@ Python package
 flowchart TD
     UI["ui\nTUI and Web interactions"] --> Server["server\ndaemon and transports"]
     Server --> Proto["proto\nCoreCommand/CoreResponse/CoreSnapshot"]
-    Server --> Core["core\nCoreCommand -> CoreResponse"]
-    Core --> Proto
-    Core --> Chat["chat\nsessions and turns"]
-    Core --> Run["run\ntasks and runs"]
+    Server --> Engine["engine\nCore composition"]
+    Engine --> Proto
+    Engine --> Chat["chat\nsessions and turns"]
+    Engine --> Run["run\ntasks and runs"]
 
     Chat --> Skill["skill\nSkillContext"]
     Run --> Skill
@@ -32,13 +32,13 @@ flowchart TD
     Agent["agent\nexecution loop"]
     Agent --> Event["event\nstream and trace"]
     Agent --> Model["model\nprovider/model specs"]
-    Core --> Auth["auth\nsecrets and access"]
-    Core --> Store["store\nrepositories"]
+    Engine --> Auth["auth\nsecrets and access"]
+    Engine --> Store["store\nrepositories"]
     Chat --> Store
     Run --> Store
 
     Python["python/restflow"] --> Server
-    Bridge["bridge\nmigration DTOs"] --> Core
+    Bridge["bridge\nmigration DTOs"] --> Engine
     Bridge --> Proto
 ```
 
@@ -78,6 +78,13 @@ Owns backend-neutral repository traits and backend capability contracts.
 Owns stable command, response, and snapshot protocol types shared across Rust
 modules, server transports, and Python bindings. It depends only on domain value
 crates and must not execute commands or own transport details.
+
+### engine
+
+Owns core composition, in-memory/default store wiring, command execution,
+snapshot import/export, and the `CoreCommand` to `CoreResponse` runtime
+boundary. It may coordinate `chat`, `run`, `skill`, `tool`, `auth`, and
+`store`, but it must not own product transport details.
 
 ### bridge
 

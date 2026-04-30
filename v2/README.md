@@ -24,6 +24,7 @@ skill   skill catalog, mentions, and per-turn capability planning
 tool    tool trait and registry
 run     Task/Run durable execution model
 chat    sessions, turns, and messages
+engine  core composition and command execution
 proto   CoreCommand, CoreResponse, and CoreSnapshot protocol types
 server  command and JSON ingress for product shells
 store   repository traits and backend contracts

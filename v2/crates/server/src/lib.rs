@@ -23,8 +23,8 @@
 //! - CoreResponse JSON
 //!
 //! ## Depends On
+//! - engine
 //! - proto
-//! - restflow-v2
 //!
 //! ## Used By
 //! - CLI/TUI/Web/MCP adapters
@@ -35,8 +35,8 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use engine::Core;
 use proto::{CoreCommand, CoreResponse};
-use restflow::Core;
 
 #[async_trait]
 pub trait CommandTransport {
@@ -110,7 +110,6 @@ pub async fn dispatch_json(core: &mut Core, command_json: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow::model;
     use std::future::Future;
     use std::sync::Arc;
     use std::task::{Context, Poll, Wake, Waker};

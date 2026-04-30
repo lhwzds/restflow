@@ -35,7 +35,10 @@
 
 use crate::BridgeSnapshot;
 use anyhow::Result;
-use restflow::{Core, chat, model, run};
+use chat;
+use engine::Core;
+use model;
+use run;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use store::Repository;
@@ -473,7 +476,7 @@ mod tests {
         BridgeSession, BridgeSkill, BridgeSkillSource, BridgeSnapshot, BridgeStatus, BridgeTask,
         BridgeToolSpec,
     };
-    use restflow::skill;
+    use skill;
     use store::Repository;
 
     #[test]

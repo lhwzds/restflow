@@ -20,7 +20,7 @@
 //! - CoreResponse JSON
 //!
 //! ## Depends On
-//! - restflow-v2
+//! - engine
 //! - server
 //! - model
 //!
@@ -31,11 +31,11 @@
 //! - cargo check -p restflow-native
 
 use anyhow::Result;
+use engine::Core;
 #[cfg(feature = "python-module")]
 use pyo3::exceptions::PyRuntimeError;
 #[cfg(feature = "python-module")]
 use pyo3::prelude::*;
-use restflow::Core;
 use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll, Wake, Waker};

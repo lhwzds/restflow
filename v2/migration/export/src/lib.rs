@@ -23,7 +23,7 @@
 //! - bridge DTO collections
 //!
 //! ## Depends On
-//! - restflow-v2
+//! - bridge
 //! - restflow-core
 //! - restflow-models
 //!
