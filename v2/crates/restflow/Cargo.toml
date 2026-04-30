@@ -8,16 +8,5 @@ license.workspace = true
 name = "restflow"
 
 [dependencies]
-agent.workspace = true
-auth.workspace = true
-bridge.workspace = true
-chat.workspace = true
 engine.workspace = true
-event.workspace = true
-model.workspace = true
 proto.workspace = true
-run.workspace = true
-server.workspace = true
-skill.workspace = true
-store.workspace = true
-tool.workspace = true

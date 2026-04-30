@@ -283,19 +283,8 @@ dependencies = [
 name = "restflow-v2"
 version = "0.1.0"
 dependencies = [
- "agent",
- "auth",
- "bridge",
- "chat",
  "engine",
- "event",
- "model",
  "proto",
- "run",
- "server",
- "skill",
- "store",
- "tool",
 ]
 
 [[package]]
