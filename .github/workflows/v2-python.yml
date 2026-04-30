@@ -57,34 +57,22 @@ jobs:
             ${{ runner.os }}-v2-python-cargo-
 
       - name: Create Python build environment
-        run: |
-          python -m venv "$PYTHON_VENV"
-          "$PYTHON_VENV/bin/python" -m pip install --upgrade pip
-          "$PYTHON_VENV/bin/python" -m pip install maturin
+        run: v2/scripts/check.sh bootstrap
 
       - name: Run Python contract tests
-        run: |
-          PYTHONDONTWRITEBYTECODE=1 "$PYTHON_VENV/bin/python" -m unittest discover -s v2/python/tests
+        run: v2/scripts/check.sh python
 
       - name: Run Rust checks for native bridge
-        run: |
-          cargo test --manifest-path v2/Cargo.toml -p restflow-native --features python-module
-          cargo clippy --manifest-path v2/Cargo.toml -p restflow-native --features python-module --all-targets -- -D warnings
+        run: v2/scripts/check.sh rust
 
       - name: Install package in editable mode
-        run: |
-          "$PYTHON_VENV/bin/python" v2/python/scripts/package.py develop \
-            --target-dir "$CARGO_TARGET_DIR"
+        run: v2/scripts/check.sh develop
 
       - name: Smoke-test installed native package
-        run: |
-          "$PYTHON_VENV/bin/python" v2/python/scripts/package.py smoke
+        run: v2/scripts/check.sh smoke
 
       - name: Build wheel
-        run: |
-          "$PYTHON_VENV/bin/python" v2/python/scripts/package.py build \
-            --target-dir "$CARGO_TARGET_DIR" \
-            --dist-dir "$WHEEL_DIR"
+        run: v2/scripts/check.sh build
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
