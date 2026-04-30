@@ -17,6 +17,9 @@ anyhow.workspace = true
 model.workspace = true
 pyo3 = { version = "0.27", optional = true, features = ["extension-module"] }
 restflow-v2.workspace = true
+server.workspace = true
+
+[dev-dependencies]
 serde_json.workspace = true
 
 [build-dependencies]

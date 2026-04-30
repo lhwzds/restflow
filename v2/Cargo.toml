@@ -8,6 +8,7 @@ members = [
     "crates/model",
     "crates/py",
     "crates/run",
+    "crates/server",
     "crates/skill",
     "crates/store",
     "crates/tool",
@@ -20,6 +21,7 @@ default-members = [
     "crates/event",
     "crates/model",
     "crates/run",
+    "crates/server",
     "crates/skill",
     "crates/store",
     "crates/tool",
@@ -38,6 +40,7 @@ chat = { path = "crates/chat" }
 event = { path = "crates/event" }
 model = { path = "crates/model" }
 run = { path = "crates/run" }
+server = { path = "crates/server" }
 skill = { path = "crates/skill" }
 store = { path = "crates/store" }
 tool = { path = "crates/tool" }

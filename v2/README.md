@@ -23,6 +23,7 @@ skill   skill catalog, mentions, and per-turn capability planning
 tool    tool trait and registry
 run     Task/Run durable execution model
 chat    sessions, turns, and messages
+server  command and JSON ingress for product shells
 store   repository traits and backend contracts
 model   providers, models, selectors, and runtime model specs
 auth    secrets, auth profiles, and provider access policy

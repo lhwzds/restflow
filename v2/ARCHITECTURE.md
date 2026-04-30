@@ -7,7 +7,7 @@ Product shell
   CLI / TUI / Web / daemon / MCP / packages
 
 Core modules
-  agent / skill / tool / run / chat / store / model / auth / event
+  server / agent / skill / tool / run / chat / store / model / auth / event
 
 Python package
   restflow.agent / restflow.skill / restflow.tool / ...
@@ -18,8 +18,9 @@ Python package
 ```mermaid
 flowchart TD
     UI["ui\nTUI and Web interactions"] --> Server["server\ndaemon and transports"]
-    Server --> Chat["chat\nsessions and turns"]
-    Server --> Run["run\ntasks and runs"]
+    Server --> Core["core\nCoreCommand -> CoreResponse"]
+    Core --> Chat["chat\nsessions and turns"]
+    Core --> Run["run\ntasks and runs"]
 
     Chat --> Skill["skill\nSkillContext"]
     Run --> Skill
@@ -29,15 +30,12 @@ flowchart TD
     Agent["agent\nexecution loop"]
     Agent --> Event["event\nstream and trace"]
     Agent --> Model["model\nprovider/model specs"]
-    Server --> Auth["auth\nsecrets and access"]
-    Server --> Store["store\nrepositories"]
+    Core --> Auth["auth\nsecrets and access"]
+    Core --> Store["store\nrepositories"]
     Chat --> Store
     Run --> Store
 
-    Python["python/restflow"] --> Agent
-    Python --> Skill
-    Python --> Tool
-    Python --> Event
+    Python["python/restflow"] --> Server
 ```
 
 ## Ownership
@@ -70,6 +68,13 @@ Owns sessions, messages, turns, and stream-to-history finalization.
 ### store
 
 Owns backend-neutral repository traits and backend capability contracts.
+
+### server
+
+Owns the product ingress boundary. CLI, TUI, Web, MCP, and Python adapters should
+submit `CoreCommand` values or tagged command JSON and receive `CoreResponse`
+values or tagged response JSON. Product shells should not reach into `agent`,
+`chat`, `run`, or `skill` internals directly.
 
 ### model
 

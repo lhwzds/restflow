@@ -21,6 +21,7 @@
 //!
 //! ## Depends On
 //! - restflow-v2
+//! - server
 //! - model
 //!
 //! ## Used By
@@ -29,12 +30,12 @@
 //! ## Verify
 //! - cargo check -p restflow-native
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 #[cfg(feature = "python-module")]
 use pyo3::exceptions::PyRuntimeError;
 #[cfg(feature = "python-module")]
 use pyo3::prelude::*;
-use restflow::{Core, CoreCommand};
+use restflow::Core;
 use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll, Wake, Waker};
@@ -81,10 +82,7 @@ pub fn default_core() -> Core {
 }
 
 pub fn handle_json_with_core(core: &mut Core, command_json: &str) -> Result<String> {
-    let command: CoreCommand =
-        serde_json::from_str(command_json).context("decode CoreCommand JSON")?;
-    let response = block_on_ready(core.handle(command))??;
-    serde_json::to_string(&response).context("encode CoreResponse JSON")
+    block_on_ready(server::dispatch_json(core, command_json))?
 }
 
 #[cfg(feature = "python-module")]

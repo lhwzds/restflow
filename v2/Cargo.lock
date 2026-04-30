@@ -224,6 +224,7 @@ dependencies = [
  "pyo3-build-config",
  "restflow-v2",
  "serde_json",
+ "server",
 ]
 
 [[package]]
@@ -304,6 +305,16 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "restflow-v2",
+ "serde_json",
 ]
 
 [[package]]
