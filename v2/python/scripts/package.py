@@ -20,7 +20,17 @@ def build_env(python: str, target_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
     env["PYO3_PYTHON"] = python
     env["CARGO_TARGET_DIR"] = str(target_dir)
+    virtual_env = venv_root(Path(python))
+    if virtual_env is not None:
+        env["VIRTUAL_ENV"] = str(virtual_env)
     return env
+
+
+def venv_root(python: Path) -> Path | None:
+    candidate = python.absolute().parent.parent
+    if (candidate / "pyvenv.cfg").exists():
+        return candidate.resolve()
+    return None
 
 
 def maturin_command(action: str, release: bool, dist_dir: Path | None) -> list[str]:
@@ -32,8 +42,8 @@ def maturin_command(action: str, release: bool, dist_dir: Path | None) -> list[s
     return command
 
 
-def run(command: list[str], env: dict[str, str]) -> None:
-    subprocess.run(command, cwd=PYTHON_ROOT, env=env, check=True)
+def run(command: list[str], env: dict[str, str], cwd: Path = PYTHON_ROOT) -> None:
+    subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
 def ensure_maturin(env: dict[str, str]) -> None:
@@ -62,9 +72,10 @@ def smoke(env: dict[str, str]) -> None:
         "));"
         "assert response.type == 'model_switched';"
         "assert response.payload['model']['id'] == 'gpt-5.5';"
+        "import restflow.restflow_native;"
         "print('restflow native smoke ok')"
     )
-    run([sys.executable, "-c", code], env)
+    run([sys.executable, "-c", code], env, cwd=Path("/tmp"))
 
 
 def parse_args() -> argparse.Namespace:

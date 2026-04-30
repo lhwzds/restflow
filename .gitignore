@@ -43,6 +43,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# V2 Python build output
+/v2/python/dist/
+/v2/python/restflow/*.so
+
 .playwright-mcp
 .restflow/
 .restflow-browser/

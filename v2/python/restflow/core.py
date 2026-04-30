@@ -166,7 +166,7 @@ class CallableTransport:
         return self.handler(command_json)
 
 
-def load_native_transport(module_name: str = "restflow_native") -> NativeTransport:
+def load_native_transport(module_name: str = "restflow.restflow_native") -> NativeTransport:
     module = importlib.import_module(module_name)
     core_factory = getattr(module, "Core", None)
     if core_factory is not None:
@@ -186,7 +186,7 @@ class CoreClient:
     transport: CoreTransport
 
     @classmethod
-    def native(cls, module_name: str = "restflow_native") -> "CoreClient":
+    def native(cls, module_name: str = "restflow.restflow_native") -> "CoreClient":
         return cls(load_native_transport(module_name))
 
     def handle(self, command: CoreCommand) -> CoreResponse:

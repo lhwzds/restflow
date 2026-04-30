@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -37,11 +38,39 @@ class PackageScriptTests(unittest.TestCase):
 
         self.assertEqual(command, [sys.executable, "-m", "maturin", "develop"])
 
+    def test_smoke_runs_outside_python_source_tree(self) -> None:
+        calls: list[tuple[list[str], Path]] = []
+
+        def fake_run(command: list[str], env: dict[str, str], cwd: Path) -> None:
+            calls.append((command, cwd))
+
+        original_run = package_script.run
+        package_script.run = fake_run
+        try:
+            package_script.smoke({})
+        finally:
+            package_script.run = original_run
+
+        self.assertEqual(calls[0][1], Path("/tmp"))
+
     def test_build_env_sets_python_and_target_dir_without_overriding_env(self) -> None:
         env = package_script.build_env("/usr/bin/python3", Path("/tmp/restflow-target"))
 
         self.assertEqual(env["PYO3_PYTHON"], "/usr/bin/python3")
         self.assertEqual(env["CARGO_TARGET_DIR"], "/tmp/restflow-target")
+
+    def test_build_env_sets_virtual_env_for_venv_python(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "pyvenv.cfg").write_text("", encoding="utf-8")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            python = bin_dir / "python"
+            python.touch()
+
+            env = package_script.build_env(str(python), Path("/tmp/restflow-target"))
+
+        self.assertEqual(env["VIRTUAL_ENV"], str(root.resolve()))
 
 
 if __name__ == "__main__":

@@ -12,5 +12,5 @@ requires-python = ">=3.11"
 bindings = "pyo3"
 features = ["python-module"]
 manifest-path = "../crates/py/Cargo.toml"
-module-name = "restflow_native"
+module-name = "restflow.restflow_native"
 python-source = "."
