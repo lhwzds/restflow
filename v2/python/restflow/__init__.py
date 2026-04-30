@@ -1,7 +1,7 @@
-"""Prototype Python API for the RestFlow V2 kernel."""
+"""Prototype Python API for the RestFlow V2 core."""
 
 __version__ = "0.1.0"
 
-from .kernel import Kernel, KernelCommand, KernelResponse, KernelSnapshot
+from .core import Core, CoreCommand, CoreResponse, CoreSnapshot
 
-__all__ = ["Kernel", "KernelCommand", "KernelResponse", "KernelSnapshot"]
+__all__ = ["Core", "CoreCommand", "CoreResponse", "CoreSnapshot"]

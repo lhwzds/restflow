@@ -1,4 +1,4 @@
-"""Agent kernel API placeholders."""
+"""Agent core API placeholders."""
 
 from dataclasses import dataclass, field
 
@@ -7,4 +7,3 @@ from dataclasses import dataclass, field
 class Agent:
     model: str
     skills: list[str] = field(default_factory=list)
-

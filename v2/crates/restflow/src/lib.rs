@@ -1,11 +1,11 @@
 //! # codocia
 //!
-//! Facade module that exposes the V2 kernel as one public Rust API.
+//! Facade module that exposes the V2 core as one public Rust API.
 //!
 //! ## Owns
 //! - public module re-exports
-//! - kernel API entrypoint
-//! - in-memory kernel composition
+//! - core API entrypoint
+//! - in-memory core composition
 //! - adapter-friendly command boundary
 //! - migration snapshot boundary
 //! - stable import shape for examples
@@ -16,7 +16,7 @@
 //! - duplicate module logic
 //!
 //! ## Inputs
-//! - kernel modules
+//! - core modules
 //! - user chat turns
 //! - task run requests
 //! - tool calls
@@ -25,9 +25,9 @@
 //!
 //! ## Outputs
 //! - unified Rust API surface
-//! - composed kernel outputs
+//! - composed core outputs
 //! - command responses
-//! - kernel snapshots
+//! - core snapshots
 //!
 //! ## Depends On
 //! - agent
@@ -59,7 +59,7 @@ pub use tool;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum KernelCommand {
+pub enum CoreCommand {
     SaveSkill {
         skill: skill::Skill,
     },
@@ -92,7 +92,7 @@ pub enum KernelCommand {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum KernelResponse {
+pub enum CoreResponse {
     Saved,
     ModelSwitched { model: model::Model },
     ChatTurn { events: Vec<event::Event> },
@@ -102,7 +102,7 @@ pub enum KernelResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct KernelSnapshot {
+pub struct CoreSnapshot {
     pub current_model: model::Model,
     pub models: Vec<model::ModelSpec>,
     pub skills: Vec<skill::Skill>,
@@ -114,7 +114,7 @@ pub struct KernelSnapshot {
 }
 
 #[derive(Clone)]
-pub struct Kernel {
+pub struct Core {
     pub agent: agent::Agent,
     pub tools: tool::Registry,
     pub models: model::ModelCatalog,
@@ -125,7 +125,7 @@ pub struct Kernel {
     pub profiles: MemoryStore<auth::Profile>,
 }
 
-impl Kernel {
+impl Core {
     pub fn new(model: model::Model) -> Self {
         Self {
             agent: agent::Agent::new(model),
@@ -147,31 +147,31 @@ impl Kernel {
         self.models.insert(spec);
     }
 
-    pub async fn from_snapshot(snapshot: KernelSnapshot) -> Result<Self> {
-        let mut kernel = Self::new(snapshot.current_model);
+    pub async fn from_snapshot(snapshot: CoreSnapshot) -> Result<Self> {
+        let mut core = Self::new(snapshot.current_model);
         for spec in snapshot.models {
-            kernel.insert_model(spec);
+            core.insert_model(spec);
         }
         for skill in snapshot.skills {
-            kernel.save_skill(skill).await?;
+            core.save_skill(skill).await?;
         }
         for session in snapshot.sessions {
-            chat::save_session(&kernel.sessions, session).await?;
+            chat::save_session(&core.sessions, session).await?;
         }
         for task in snapshot.tasks {
-            run::save_task(&kernel.tasks, task).await?;
+            run::save_task(&core.tasks, task).await?;
         }
         for run in snapshot.runs {
-            run::save_run(&kernel.runs, run).await?;
+            run::save_run(&core.runs, run).await?;
         }
         for profile in snapshot.profiles {
-            kernel.save_profile(profile).await?;
+            core.save_profile(profile).await?;
         }
-        Ok(kernel)
+        Ok(core)
     }
 
-    pub async fn snapshot(&self) -> Result<KernelSnapshot> {
-        Ok(KernelSnapshot {
+    pub async fn snapshot(&self) -> Result<CoreSnapshot> {
+        Ok(CoreSnapshot {
             current_model: self.agent.model.clone(),
             models: self.models.list().into_iter().cloned().collect(),
             skills: self.skills.list().await?,
@@ -265,40 +265,40 @@ impl Kernel {
         events
     }
 
-    pub async fn handle(&mut self, command: KernelCommand) -> Result<KernelResponse> {
+    pub async fn handle(&mut self, command: CoreCommand) -> Result<CoreResponse> {
         match command {
-            KernelCommand::SaveSkill { skill } => {
+            CoreCommand::SaveSkill { skill } => {
                 self.save_skill(skill).await?;
-                Ok(KernelResponse::Saved)
+                Ok(CoreResponse::Saved)
             }
-            KernelCommand::SaveProfile { profile } => {
+            CoreCommand::SaveProfile { profile } => {
                 self.save_profile(profile).await?;
-                Ok(KernelResponse::Saved)
+                Ok(CoreResponse::Saved)
             }
-            KernelCommand::SwitchModel { model } => {
+            CoreCommand::SwitchModel { model } => {
                 self.set_model(model.clone());
-                Ok(KernelResponse::ModelSwitched { model })
+                Ok(CoreResponse::ModelSwitched { model })
             }
-            KernelCommand::ChatTurn {
+            CoreCommand::ChatTurn {
                 session_id,
                 message,
                 assigned_skills,
             } => {
                 let request = chat::TurnRequest::new(message).with_assigned_skills(assigned_skills);
                 let output = self.chat_turn(&session_id, request).await?;
-                Ok(KernelResponse::ChatTurn {
+                Ok(CoreResponse::ChatTurn {
                     events: output.events,
                 })
             }
-            KernelCommand::StartRun {
+            CoreCommand::StartRun {
                 task,
                 run_id,
                 session_id,
             } => {
                 let run = self.start_run(task, run_id, session_id).await?;
-                Ok(KernelResponse::RunStarted { run })
+                Ok(CoreResponse::RunStarted { run })
             }
-            KernelCommand::RunTask {
+            CoreCommand::RunTask {
                 run_id,
                 task,
                 message,
@@ -307,11 +307,11 @@ impl Kernel {
                 let request =
                     run::TaskRequest::new(task, message).with_assigned_skills(assigned_skills);
                 let output = self.run_task(&run_id, request).await?;
-                Ok(KernelResponse::RunTask {
+                Ok(CoreResponse::RunTask {
                     events: output.events,
                 })
             }
-            KernelCommand::CallTool { call } => Ok(KernelResponse::ToolEvents {
+            CoreCommand::CallTool { call } => Ok(CoreResponse::ToolEvents {
                 events: self.call_tool_events(call).await,
             }),
         }
@@ -355,24 +355,23 @@ mod tests {
     use std::task::{Context, Poll, Wake, Waker};
 
     #[test]
-    fn kernel_chat_turn_resolves_skill_and_persists_messages() {
+    fn core_chat_turn_resolves_skill_and_persists_messages() {
         block_on_once(async {
-            let kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
-            kernel
-                .save_skill(
-                    skill::Skill::new("team", "Team", skill::Source::System)
-                        .with_content("Use parallel workers for independent work."),
-                )
-                .await
-                .unwrap();
+            let core = Core::new(model::Model::new("openai", "gpt-5.5"));
+            core.save_skill(
+                skill::Skill::new("team", "Team", skill::Source::System)
+                    .with_content("Use parallel workers for independent work."),
+            )
+            .await
+            .unwrap();
 
-            let output = kernel
+            let output = core
                 .chat_turn("session-1", chat::TurnRequest::new("use @team"))
                 .await
                 .unwrap();
 
             assert_eq!(output.events.len(), 1);
-            let session = kernel.sessions.get("session-1").await.unwrap().unwrap();
+            let session = core.sessions.get("session-1").await.unwrap().unwrap();
             assert_eq!(session.messages.len(), 2);
             assert_eq!(session.messages[0].role, chat::Role::User);
             assert!(session.messages[1].text.contains("Mentioned skill: @team"));
@@ -380,32 +379,30 @@ mod tests {
     }
 
     #[test]
-    fn kernel_run_task_marks_run_done() {
+    fn core_run_task_marks_run_done() {
         block_on_once(async {
-            let kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
+            let core = Core::new(model::Model::new("openai", "gpt-5.5"));
             let task = run::Task::new("task-1", "Review branch");
-            kernel
-                .start_run(task.clone(), "run-1", "session-1")
+            core.start_run(task.clone(), "run-1", "session-1")
                 .await
                 .unwrap();
 
-            kernel
-                .run_task("run-1", run::TaskRequest::new(task, "summarize"))
+            core.run_task("run-1", run::TaskRequest::new(task, "summarize"))
                 .await
                 .unwrap();
 
-            let run = kernel.runs.get("run-1").await.unwrap().unwrap();
+            let run = core.runs.get("run-1").await.unwrap().unwrap();
             assert_eq!(run.status, run::Status::Done);
         });
     }
 
     #[test]
-    fn kernel_tool_calls_emit_call_and_result_events() {
+    fn core_tool_calls_emit_call_and_result_events() {
         block_on_once(async {
-            let mut kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
-            kernel.tools.insert(EchoTool);
+            let mut core = Core::new(model::Model::new("openai", "gpt-5.5"));
+            core.tools.insert(EchoTool);
 
-            let events = kernel
+            let events = core
                 .call_tool_events(tool::ToolCall::new(
                     "call-1",
                     "echo",
@@ -430,11 +427,11 @@ mod tests {
     }
 
     #[test]
-    fn kernel_missing_tool_emits_error_event() {
+    fn core_missing_tool_emits_error_event() {
         block_on_once(async {
-            let kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
+            let core = Core::new(model::Model::new("openai", "gpt-5.5"));
 
-            let events = kernel
+            let events = core
                 .call_tool_events(tool::ToolCall::new(
                     "call-1",
                     "missing",
@@ -451,19 +448,18 @@ mod tests {
     }
 
     #[test]
-    fn kernel_handle_routes_chat_commands() {
+    fn core_handle_routes_chat_commands() {
         block_on_once(async {
-            let mut kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
-            kernel
-                .handle(KernelCommand::SaveSkill {
-                    skill: skill::Skill::new("team", "Team", skill::Source::System)
-                        .with_content("Use workers."),
-                })
-                .await
-                .unwrap();
+            let mut core = Core::new(model::Model::new("openai", "gpt-5.5"));
+            core.handle(CoreCommand::SaveSkill {
+                skill: skill::Skill::new("team", "Team", skill::Source::System)
+                    .with_content("Use workers."),
+            })
+            .await
+            .unwrap();
 
-            let response = kernel
-                .handle(KernelCommand::ChatTurn {
+            let response = core
+                .handle(CoreCommand::ChatTurn {
                     session_id: "session-1".to_string(),
                     message: "use @team".to_string(),
                     assigned_skills: Vec::new(),
@@ -472,7 +468,7 @@ mod tests {
                 .unwrap();
 
             match response {
-                KernelResponse::ChatTurn { events } => {
+                CoreResponse::ChatTurn { events } => {
                     assert_eq!(events.len(), 1);
                     assert!(matches!(events[0], event::Event::Text { .. }));
                 }
@@ -482,23 +478,23 @@ mod tests {
     }
 
     #[test]
-    fn kernel_handle_routes_model_and_run_commands() {
+    fn core_handle_routes_model_and_run_commands() {
         block_on_once(async {
-            let mut kernel = Kernel::new(model::Model::new("openai", "gpt-5.4"));
+            let mut core = Core::new(model::Model::new("openai", "gpt-5.4"));
 
-            let response = kernel
-                .handle(KernelCommand::SwitchModel {
+            let response = core
+                .handle(CoreCommand::SwitchModel {
                     model: model::Model::new("openai", "gpt-5.5"),
                 })
                 .await
                 .unwrap();
 
-            assert!(matches!(response, KernelResponse::ModelSwitched { .. }));
-            assert_eq!(kernel.agent.model.id, "gpt-5.5");
+            assert!(matches!(response, CoreResponse::ModelSwitched { .. }));
+            assert_eq!(core.agent.model.id, "gpt-5.5");
 
             let task = run::Task::new("task-1", "Review branch");
-            let response = kernel
-                .handle(KernelCommand::StartRun {
+            let response = core
+                .handle(CoreCommand::StartRun {
                     task: task.clone(),
                     run_id: "run-1".to_string(),
                     session_id: "session-1".to_string(),
@@ -506,10 +502,10 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(matches!(response, KernelResponse::RunStarted { .. }));
+            assert!(matches!(response, CoreResponse::RunStarted { .. }));
 
-            let response = kernel
-                .handle(KernelCommand::RunTask {
+            let response = core
+                .handle(CoreCommand::RunTask {
                     run_id: "run-1".to_string(),
                     task,
                     message: "summarize".to_string(),
@@ -518,57 +514,53 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(matches!(response, KernelResponse::RunTask { .. }));
+            assert!(matches!(response, CoreResponse::RunTask { .. }));
             assert_eq!(
-                kernel.runs.get("run-1").await.unwrap().unwrap().status,
+                core.runs.get("run-1").await.unwrap().unwrap().status,
                 run::Status::Done
             );
         });
     }
 
     #[test]
-    fn kernel_command_round_trips_through_json() {
-        let command = KernelCommand::ChatTurn {
+    fn core_command_round_trips_through_json() {
+        let command = CoreCommand::ChatTurn {
             session_id: "session-1".to_string(),
             message: "hello".to_string(),
             assigned_skills: vec!["team".to_string()],
         };
 
         let encoded = serde_json::to_string(&command).unwrap();
-        let decoded: KernelCommand = serde_json::from_str(&encoded).unwrap();
+        let decoded: CoreCommand = serde_json::from_str(&encoded).unwrap();
 
         assert_eq!(decoded, command);
     }
 
     #[test]
-    fn kernel_snapshot_exports_and_imports_state() {
+    fn core_snapshot_exports_and_imports_state() {
         block_on_once(async {
-            let mut kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
-            kernel.insert_model(model::ModelSpec::new("openai", "gpt-5.5", "GPT-5.5"));
-            kernel.tools.insert(EchoTool);
-            kernel
-                .save_skill(skill::Skill::new("team", "Team", skill::Source::System))
+            let mut core = Core::new(model::Model::new("openai", "gpt-5.5"));
+            core.insert_model(model::ModelSpec::new("openai", "gpt-5.5", "GPT-5.5"));
+            core.tools.insert(EchoTool);
+            core.save_skill(skill::Skill::new("team", "Team", skill::Source::System))
                 .await
                 .unwrap();
-            kernel
-                .save_profile(auth::Profile::new("openai", "OPENAI_API_KEY"))
+            core.save_profile(auth::Profile::new("openai", "OPENAI_API_KEY"))
                 .await
                 .unwrap();
-            kernel
-                .chat_turn("session-1", chat::TurnRequest::new("hello"))
+            core.chat_turn("session-1", chat::TurnRequest::new("hello"))
                 .await
                 .unwrap();
-            kernel
-                .start_run(
-                    run::Task::new("task-1", "Review branch"),
-                    "run-1",
-                    "session-1",
-                )
-                .await
-                .unwrap();
+            core.start_run(
+                run::Task::new("task-1", "Review branch"),
+                "run-1",
+                "session-1",
+            )
+            .await
+            .unwrap();
 
-            let snapshot = kernel.snapshot().await.unwrap();
-            let restored = Kernel::from_snapshot(snapshot.clone()).await.unwrap();
+            let snapshot = core.snapshot().await.unwrap();
+            let restored = Core::from_snapshot(snapshot.clone()).await.unwrap();
             let restored_snapshot = restored.snapshot().await.unwrap();
 
             assert_eq!(snapshot.current_model, restored_snapshot.current_model);
@@ -584,13 +576,13 @@ mod tests {
     }
 
     #[test]
-    fn kernel_snapshot_round_trips_through_json() {
+    fn core_snapshot_round_trips_through_json() {
         block_on_once(async {
-            let kernel = Kernel::new(model::Model::new("openai", "gpt-5.5"));
-            let snapshot = kernel.snapshot().await.unwrap();
+            let core = Core::new(model::Model::new("openai", "gpt-5.5"));
+            let snapshot = core.snapshot().await.unwrap();
 
             let encoded = serde_json::to_string(&snapshot).unwrap();
-            let decoded: KernelSnapshot = serde_json::from_str(&encoded).unwrap();
+            let decoded: CoreSnapshot = serde_json::from_str(&encoded).unwrap();
 
             assert_eq!(decoded, snapshot);
         });
@@ -616,7 +608,7 @@ mod tests {
 
         match future.as_mut().poll(&mut context) {
             Poll::Ready(output) => output,
-            Poll::Pending => panic!("kernel future unexpectedly yielded"),
+            Poll::Pending => panic!("core future unexpectedly yielded"),
         }
     }
 

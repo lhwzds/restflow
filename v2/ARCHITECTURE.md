@@ -6,7 +6,7 @@
 Product shell
   CLI / TUI / Web / daemon / MCP / packages
 
-Kernel modules
+Core modules
   agent / skill / tool / run / chat / store / model / auth / event
 
 Python package
