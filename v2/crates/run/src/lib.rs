@@ -7,6 +7,7 @@
 //! - Run
 //! - run status
 //! - durable execution vocabulary
+//! - migration-safe task and run metadata
 //! - task and run repository helpers
 //!
 //! ## Must Not
@@ -49,6 +50,14 @@ use store::Repository;
 pub struct Task {
     pub id: String,
     pub title: String,
+    pub input: Option<String>,
+    pub agent_id: Option<String>,
+    pub session_id: Option<String>,
+    pub status: Option<String>,
+    pub schedule: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +66,12 @@ pub struct Run {
     pub task_id: String,
     pub status: Status,
     pub session_id: Option<String>,
+    pub execution_id: Option<String>,
+    pub checkpoint_id: Option<String>,
+    pub error: Option<String>,
+    pub started_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub ended_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +89,14 @@ impl Task {
         Self {
             id: id.into(),
             title: title.into(),
+            input: None,
+            agent_id: None,
+            session_id: None,
+            status: None,
+            schedule: None,
+            created_at: None,
+            updated_at: None,
+            error: None,
         }
     }
 }
@@ -85,6 +108,12 @@ impl Run {
             task_id: task_id.into(),
             status: Status::Pending,
             session_id: None,
+            execution_id: None,
+            checkpoint_id: None,
+            error: None,
+            started_at: None,
+            updated_at: None,
+            ended_at: None,
         }
     }
 
@@ -214,10 +243,7 @@ mod tests {
                 .with_description("Review code.")
                 .with_content("Report findings first."),
         );
-        let task = Task {
-            id: "task-1".to_string(),
-            title: "Review branch".to_string(),
-        };
+        let task = Task::new("task-1", "Review branch");
         let request =
             TaskRequest::new(task, "use @review").with_assigned_skills(["review".to_string()]);
 

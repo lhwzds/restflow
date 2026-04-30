@@ -1,6 +1,9 @@
 """Bridge DTOs for moving legacy boundary data into the V2 core."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from .auth import Profile, SecretRef
@@ -10,6 +13,27 @@ from .model import Model, ModelSpec, Provider
 from .run import Run, Task
 from .skill import Skill
 from .tool import ToolCall, ToolSpec
+
+
+class BridgeSkillSource(str, Enum):
+    SYSTEM = "system"
+    USER = "user"
+    EXTERNAL = "external"
+
+
+class BridgeRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+    SYSTEM = "system"
+
+
+class BridgeStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELED = "canceled"
 
 
 @dataclass
@@ -40,7 +64,7 @@ class BridgeModelSpec:
 class BridgeSkill:
     id: str
     name: str
-    source: str = "user"
+    source: str | BridgeSkillSource = BridgeSkillSource.USER
     read_only: bool = False
     description: str | None = None
     content: str = ""
@@ -51,7 +75,8 @@ class BridgeSkill:
         return Skill(
             id=self.id,
             name=self.name,
-            source=self.source,
+            source=_enum_value(self.source),
+            source_ref=self.source_ref,
             read_only=self.read_only,
             description=self.description,
             content=self.content,
@@ -61,40 +86,101 @@ class BridgeSkill:
 
 @dataclass
 class BridgeMessage:
-    role: str
+    role: str | BridgeRole
     text: str
 
     def to_message(self) -> Message:
-        return Message(role=self.role, text=self.text)
+        return Message(role=_enum_value(self.role), text=self.text)
 
 
 @dataclass
 class BridgeSession:
     id: str
+    name: str | None = None
+    agent_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    source: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    archived_at: str | None = None
     messages: list[BridgeMessage] = field(default_factory=list)
 
     def to_session(self) -> Session:
-        return Session(id=self.id, messages=[message.to_message() for message in self.messages])
+        return Session(
+            id=self.id,
+            name=self.name,
+            agent_id=self.agent_id,
+            provider=self.provider,
+            model=self.model,
+            source=self.source,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            archived_at=self.archived_at,
+            messages=[message.to_message() for message in self.messages],
+        )
 
 
 @dataclass
 class BridgeTask:
     id: str
     title: str
+    input: str | None = None
+    agent_id: str | None = None
+    session_id: str | None = None
+    status: str | None = None
+    schedule: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    error: str | None = None
 
     def to_task(self) -> Task:
-        return Task(id=self.id, title=self.title)
+        return Task(
+            id=self.id,
+            title=self.title,
+            input=self.input,
+            agent_id=self.agent_id,
+            session_id=self.session_id,
+            status=self.status,
+            schedule=self.schedule,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            error=self.error,
+        )
 
 
 @dataclass
 class BridgeRun:
     id: str
     task_id: str
-    status: str
+    status: str | BridgeStatus
     session_id: str | None = None
+    execution_id: str | None = None
+    checkpoint_id: str | None = None
+    error: str | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+    ended_at: str | None = None
 
     def to_run(self) -> Run:
-        return Run(id=self.id, task_id=self.task_id, status=self.status, session_id=self.session_id)
+        return Run(
+            id=self.id,
+            task_id=self.task_id,
+            status=_enum_value(self.status),
+            session_id=self.session_id,
+            execution_id=self.execution_id,
+            checkpoint_id=self.checkpoint_id,
+            error=self.error,
+            started_at=self.started_at,
+            updated_at=self.updated_at,
+            ended_at=self.ended_at,
+        )
+
+
+def _enum_value(value: str | Enum) -> str:
+    if isinstance(value, Enum):
+        return str(value.value)
+    return value
 
 
 @dataclass
@@ -148,6 +234,25 @@ class BridgeChatTurn:
 
 
 @dataclass
+class BridgeRunTask:
+    run_id: str
+    task: BridgeTask
+    message: str
+    assigned_skills: list[str] = field(default_factory=list)
+
+    def to_core_command(self) -> CoreCommand:
+        return CoreCommand(
+            type="run_task",
+            payload={
+                "run_id": self.run_id,
+                "task": self.task.to_task(),
+                "message": self.message,
+                "assigned_skills": list(self.assigned_skills),
+            },
+        )
+
+
+@dataclass
 class BridgeSnapshot:
     current_model: BridgeModelRef
     models: list[BridgeModelSpec] = field(default_factory=list)
@@ -156,7 +261,7 @@ class BridgeSnapshot:
     tasks: list[BridgeTask] = field(default_factory=list)
     runs: list[BridgeRun] = field(default_factory=list)
     profiles: list[BridgeProfile] = field(default_factory=list)
-    tool_specs: list[BridgeToolSpec] = field(default_factory=list)
+    observed_tool_specs: list[BridgeToolSpec] = field(default_factory=list)
 
     def to_core_snapshot(self) -> CoreSnapshot:
         return CoreSnapshot(
@@ -167,5 +272,5 @@ class BridgeSnapshot:
             tasks=[task.to_task() for task in self.tasks],
             runs=[run.to_run() for run in self.runs],
             profiles=[profile.to_profile() for profile in self.profiles],
-            tool_specs=[tool_spec.to_tool_spec() for tool_spec in self.tool_specs],
+            tool_specs=[],
         )

@@ -103,6 +103,14 @@ pub struct BridgeMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BridgeSession {
     pub id: String,
+    pub name: Option<String>,
+    pub agent_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub source: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub archived_at: Option<String>,
     pub messages: Vec<BridgeMessage>,
 }
 
@@ -110,6 +118,14 @@ pub struct BridgeSession {
 pub struct BridgeTask {
     pub id: String,
     pub title: String,
+    pub input: Option<String>,
+    pub agent_id: Option<String>,
+    pub session_id: Option<String>,
+    pub status: Option<String>,
+    pub schedule: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +144,12 @@ pub struct BridgeRun {
     pub task_id: String,
     pub status: BridgeStatus,
     pub session_id: Option<String>,
+    pub execution_id: Option<String>,
+    pub checkpoint_id: Option<String>,
+    pub error: Option<String>,
+    pub started_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub ended_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,7 +196,8 @@ pub struct BridgeSnapshot {
     pub tasks: Vec<BridgeTask>,
     pub runs: Vec<BridgeRun>,
     pub profiles: Vec<BridgeProfile>,
-    pub tool_specs: Vec<BridgeToolSpec>,
+    #[serde(default, alias = "tool_specs")]
+    pub observed_tool_specs: Vec<BridgeToolSpec>,
 }
 
 impl From<BridgeModelRef> for model::Model {
@@ -209,6 +232,7 @@ impl From<BridgeSkill> for skill::Skill {
             id: value.id,
             name: value.name,
             source: value.source.into(),
+            source_ref: value.source_ref,
             read_only: value.read_only,
             description: value.description,
             content: value.content,
@@ -241,6 +265,14 @@ impl From<BridgeSession> for chat::Session {
     fn from(value: BridgeSession) -> Self {
         Self {
             id: value.id,
+            name: value.name,
+            agent_id: value.agent_id,
+            provider: value.provider,
+            model: value.model,
+            source: value.source,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            archived_at: value.archived_at,
             messages: value.messages.into_iter().map(Into::into).collect(),
         }
     }
@@ -251,6 +283,14 @@ impl From<BridgeTask> for run::Task {
         Self {
             id: value.id,
             title: value.title,
+            input: value.input,
+            agent_id: value.agent_id,
+            session_id: value.session_id,
+            status: value.status,
+            schedule: value.schedule,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            error: value.error,
         }
     }
 }
@@ -274,6 +314,12 @@ impl From<BridgeRun> for run::Run {
             task_id: value.task_id,
             status: value.status.into(),
             session_id: value.session_id,
+            execution_id: value.execution_id,
+            checkpoint_id: value.checkpoint_id,
+            error: value.error,
+            started_at: value.started_at,
+            updated_at: value.updated_at,
+            ended_at: value.ended_at,
         }
     }
 }
@@ -331,7 +377,7 @@ impl From<BridgeSnapshot> for CoreSnapshot {
             tasks: value.tasks.into_iter().map(Into::into).collect(),
             runs: value.runs.into_iter().map(Into::into).collect(),
             profiles: value.profiles.into_iter().map(Into::into).collect(),
-            tool_specs: value.tool_specs.into_iter().map(Into::into).collect(),
+            tool_specs: Vec::new(),
         }
     }
 }
@@ -389,6 +435,14 @@ mod tests {
             task: BridgeTask {
                 id: "task-1".to_string(),
                 title: "Review branch".to_string(),
+                input: Some("review this branch".to_string()),
+                agent_id: Some("default".to_string()),
+                session_id: Some("session-1".to_string()),
+                status: Some("active".to_string()),
+                schedule: None,
+                created_at: Some("2026-04-29T00:00:00Z".to_string()),
+                updated_at: Some("2026-04-29T00:00:01Z".to_string()),
+                error: None,
             },
             message: "summarize".to_string(),
             assigned_skills: vec!["review".to_string()],
@@ -456,6 +510,14 @@ mod tests {
             }],
             sessions: vec![BridgeSession {
                 id: "session-1".to_string(),
+                name: Some("Demo session".to_string()),
+                agent_id: Some("default".to_string()),
+                provider: Some("openai".to_string()),
+                model: Some("gpt-5.5".to_string()),
+                source: Some("workspace".to_string()),
+                created_at: Some("2026-04-29T00:00:00Z".to_string()),
+                updated_at: Some("2026-04-29T00:00:01Z".to_string()),
+                archived_at: None,
                 messages: vec![BridgeMessage {
                     role: BridgeRole::User,
                     text: "hello".to_string(),
@@ -464,18 +526,32 @@ mod tests {
             tasks: vec![BridgeTask {
                 id: "task-1".to_string(),
                 title: "Review branch".to_string(),
+                input: Some("review this branch".to_string()),
+                agent_id: Some("default".to_string()),
+                session_id: Some("session-1".to_string()),
+                status: Some("active".to_string()),
+                schedule: None,
+                created_at: Some("2026-04-29T00:00:00Z".to_string()),
+                updated_at: Some("2026-04-29T00:00:01Z".to_string()),
+                error: None,
             }],
             runs: vec![BridgeRun {
                 id: "run-1".to_string(),
                 task_id: "task-1".to_string(),
                 status: BridgeStatus::Done,
                 session_id: Some("session-1".to_string()),
+                execution_id: Some("exec-1".to_string()),
+                checkpoint_id: Some("checkpoint-1".to_string()),
+                error: None,
+                started_at: Some("2026-04-29T00:00:00Z".to_string()),
+                updated_at: Some("2026-04-29T00:00:01Z".to_string()),
+                ended_at: Some("2026-04-29T00:00:02Z".to_string()),
             }],
             profiles: vec![BridgeProfile {
                 provider: "openai".to_string(),
                 secret_key: "OPENAI_API_KEY".to_string(),
             }],
-            tool_specs: vec![BridgeToolSpec {
+            observed_tool_specs: vec![BridgeToolSpec {
                 name: "echo".to_string(),
                 description: Some("Return input.".to_string()),
                 input_schema: serde_json::json!({ "type": "object" }),

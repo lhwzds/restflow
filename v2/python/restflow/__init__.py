@@ -1,5 +1,7 @@
 """Prototype Python API for the RestFlow V2 core."""
 
+from __future__ import annotations
+
 __version__ = "0.1.0"
 
 from .bridge import (
@@ -8,15 +10,27 @@ from .bridge import (
     BridgeModelRef,
     BridgeModelSpec,
     BridgeProfile,
+    BridgeRole,
     BridgeRun,
+    BridgeRunTask,
     BridgeSession,
     BridgeSkill,
+    BridgeSkillSource,
     BridgeSnapshot,
+    BridgeStatus,
     BridgeTask,
     BridgeToolCall,
     BridgeToolSpec,
 )
 from .core import Core, CoreCommand, CoreResponse, CoreSnapshot
+from .migrate import (
+    MigrationIssue,
+    MigrationReport,
+    core_from_bridge_snapshot,
+    import_bridge_snapshot,
+    inspect_bridge_snapshot,
+    replace_bridge_snapshot,
+)
 
 __all__ = [
     "BridgeChatTurn",
@@ -24,10 +38,14 @@ __all__ = [
     "BridgeModelRef",
     "BridgeModelSpec",
     "BridgeProfile",
+    "BridgeRole",
     "BridgeRun",
+    "BridgeRunTask",
     "BridgeSession",
     "BridgeSkill",
+    "BridgeSkillSource",
     "BridgeSnapshot",
+    "BridgeStatus",
     "BridgeTask",
     "BridgeToolCall",
     "BridgeToolSpec",
@@ -35,4 +53,10 @@ __all__ = [
     "CoreCommand",
     "CoreResponse",
     "CoreSnapshot",
+    "MigrationIssue",
+    "MigrationReport",
+    "core_from_bridge_snapshot",
+    "import_bridge_snapshot",
+    "inspect_bridge_snapshot",
+    "replace_bridge_snapshot",
 ]

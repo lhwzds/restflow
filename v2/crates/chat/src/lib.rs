@@ -7,6 +7,7 @@
 //! - Message
 //! - Role
 //! - chat history composition
+//! - session metadata required for resume and migration
 //! - session repository helpers
 //!
 //! ## Must Not
@@ -60,6 +61,14 @@ pub struct Message {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
+    pub name: Option<String>,
+    pub agent_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub source: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub archived_at: Option<String>,
     pub messages: Vec<Message>,
 }
 
@@ -67,6 +76,14 @@ impl Session {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            name: None,
+            agent_id: None,
+            provider: None,
+            model: None,
+            source: None,
+            created_at: None,
+            updated_at: None,
+            archived_at: None,
             messages: Vec::new(),
         }
     }

@@ -5,6 +5,7 @@
 //! ## Owns
 //! - public module re-exports
 //! - bridge DTO conversions
+//! - migration adapter entrypoints
 //! - core API entrypoint
 //! - in-memory core composition
 //! - adapter-friendly command boundary
@@ -50,6 +51,7 @@ use serde::{Deserialize, Serialize};
 use store::{MemoryStore, Repository};
 
 pub mod bridge;
+pub mod migrate;
 
 pub use agent;
 pub use auth;

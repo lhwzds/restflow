@@ -1,5 +1,7 @@
 """Chat session API placeholders."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
@@ -12,6 +14,14 @@ class Message:
 @dataclass
 class Session:
     id: str
+    name: str | None = None
+    agent_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    source: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    archived_at: str | None = None
     messages: list[Message] = field(default_factory=list)
 
     def push(self, message: Message) -> None:

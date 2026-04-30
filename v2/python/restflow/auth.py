@@ -1,5 +1,7 @@
 """Auth API placeholders."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from .model import Provider

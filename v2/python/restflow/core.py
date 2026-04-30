@@ -1,10 +1,12 @@
 """Composable in-memory core placeholder."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 
 from .auth import Profile
-from .chat import Session
+from .chat import Message, Session
 from .event import Event
 from .model import Model, ModelSpec
 from .run import Run, Task
@@ -111,6 +113,11 @@ class Core:
             model = command.payload["model"]
             self.switch_model(model)
             return CoreResponse(type="model_switched", payload={"model": model})
+        if command.type == "chat_turn":
+            session_id = command.payload["session_id"]
+            session = self.sessions.setdefault(session_id, Session(id=session_id))
+            session.push(Message(role="user", text=command.payload["message"]))
+            return CoreResponse(type="chat_turn", payload={"events": []})
         if command.type == "start_run":
             run = self.start_run(
                 command.payload["task"],

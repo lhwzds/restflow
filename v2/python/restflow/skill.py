@@ -1,5 +1,7 @@
 """Skill catalog and AI context API placeholders."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
@@ -8,6 +10,7 @@ class Skill:
     id: str
     name: str
     source: str = "user"
+    source_ref: str | None = None
     read_only: bool = False
     description: str | None = None
     content: str = ""

@@ -6,6 +6,7 @@
 //! - skill catalog
 //! - skill repository loading
 //! - skill source metadata
+//! - skill source references
 //! - @skill mention parsing
 //! - SkillContext resolution
 //! - suggested tool metadata
@@ -57,6 +58,7 @@ pub struct Skill {
     pub id: String,
     pub name: String,
     pub source: Source,
+    pub source_ref: Option<String>,
     pub read_only: bool,
     pub description: Option<String>,
     pub content: String,
@@ -69,6 +71,7 @@ impl Skill {
             id: id.into(),
             name: name.into(),
             source,
+            source_ref: None,
             read_only: false,
             description: None,
             content: String::new(),
@@ -86,6 +89,11 @@ impl Skill {
         self
     }
 
+    pub fn with_source_ref(mut self, source_ref: impl Into<String>) -> Self {
+        self.source_ref = Some(source_ref.into());
+        self
+    }
+
     pub fn with_tools(mut self, tools: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.suggested_tools = tools.into_iter().map(Into::into).collect();
         self
@@ -97,6 +105,7 @@ pub struct SkillSummary {
     pub id: String,
     pub name: String,
     pub source: Source,
+    pub source_ref: Option<String>,
     pub description: Option<String>,
     pub suggested_tools: Vec<String>,
 }
@@ -107,6 +116,7 @@ impl From<&Skill> for SkillSummary {
             id: skill.id.clone(),
             name: skill.name.clone(),
             source: skill.source.clone(),
+            source_ref: skill.source_ref.clone(),
             description: skill.description.clone(),
             suggested_tools: skill.suggested_tools.clone(),
         }

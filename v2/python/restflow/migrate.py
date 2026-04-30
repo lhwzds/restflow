@@ -1,0 +1,213 @@
+"""Migration helpers for importing bridge DTOs into the Python Core."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .bridge import BridgeSnapshot
+from .core import Core
+
+
+@dataclass
+class MigrationIssue:
+    kind: str
+    message: str
+
+
+@dataclass
+class MigrationReport:
+    applied: bool = False
+    models: int = 0
+    skills: int = 0
+    sessions: int = 0
+    messages: int = 0
+    tasks: int = 0
+    runs: int = 0
+    profiles: int = 0
+    tool_specs: int = 0
+    issues: list[MigrationIssue] = field(default_factory=list)
+
+    def is_clean(self) -> bool:
+        return not self.issues
+
+    def has_blocking_issues(self) -> bool:
+        return any(
+            issue.kind
+            in {
+                "current_model_missing_from_catalog",
+                "run_references_missing_task",
+                "run_references_missing_session",
+                "duplicate_id",
+                "existing_record",
+            }
+            for issue in self.issues
+        )
+
+
+def core_from_bridge_snapshot(snapshot: BridgeSnapshot) -> tuple[Core, MigrationReport]:
+    core = Core(model=snapshot.current_model.to_model())
+    report = import_bridge_snapshot(core, snapshot)
+    return core, report
+
+
+def import_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationReport:
+    report = inspect_bridge_snapshot(snapshot)
+    report.issues.extend(_existing_record_issues(core, snapshot))
+    if report.has_blocking_issues():
+        return report
+
+    _apply_bridge_snapshot(core, snapshot)
+    report.applied = True
+    return report
+
+
+def replace_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> MigrationReport:
+    report = inspect_bridge_snapshot(snapshot)
+    if report.has_blocking_issues():
+        return report
+
+    _apply_bridge_snapshot(core, snapshot)
+    report.applied = True
+    return report
+
+
+def _apply_bridge_snapshot(core: Core, snapshot: BridgeSnapshot) -> None:
+    core.switch_model(snapshot.current_model.to_model())
+    existing_models = {
+        (spec.model.provider.id, spec.model.id): spec for spec in core.models
+    }
+    existing_models.update(
+        {
+            (spec.provider, spec.model): spec.to_model_spec()
+            for spec in snapshot.models
+        }
+    )
+    core.models = list(existing_models.values())
+    core.skills.update({skill.id: skill.to_skill() for skill in snapshot.skills})
+    core.sessions.update({session.id: session.to_session() for session in snapshot.sessions})
+    core.tasks.update({task.id: task.to_task() for task in snapshot.tasks})
+    core.runs.update({run.id: run.to_run() for run in snapshot.runs})
+    core.profiles.update({profile.provider: profile.to_profile() for profile in snapshot.profiles})
+
+
+def inspect_bridge_snapshot(snapshot: BridgeSnapshot) -> MigrationReport:
+    model_exists = any(
+        model.provider == snapshot.current_model.provider
+        and model.model == snapshot.current_model.model
+        for model in snapshot.models
+    )
+    task_ids = {task.id for task in snapshot.tasks}
+    session_ids = {session.id for session in snapshot.sessions}
+    issues: list[MigrationIssue] = []
+    _record_duplicate_ids(
+        [f"{model.provider}:{model.model}" for model in snapshot.models],
+        "model",
+        issues,
+    )
+    _record_duplicate_ids([skill.id for skill in snapshot.skills], "skill", issues)
+    _record_duplicate_ids([session.id for session in snapshot.sessions], "session", issues)
+    _record_duplicate_ids([task.id for task in snapshot.tasks], "task", issues)
+    _record_duplicate_ids([run.id for run in snapshot.runs], "run", issues)
+    _record_duplicate_ids([profile.provider for profile in snapshot.profiles], "profile", issues)
+
+    if not model_exists:
+        issues.append(
+            MigrationIssue(
+                kind="current_model_missing_from_catalog",
+                message=(
+                    "current model is not listed in the model catalog: "
+                    f"{snapshot.current_model.provider}:{snapshot.current_model.model}"
+                ),
+            )
+        )
+
+    for run in snapshot.runs:
+        if run.task_id not in task_ids:
+            issues.append(
+                MigrationIssue(
+                    kind="run_references_missing_task",
+                    message=(
+                        "run references a task that is not present in the snapshot: "
+                        f"{run.id} -> {run.task_id}"
+                    ),
+                )
+            )
+        if run.session_id is not None and run.session_id not in session_ids:
+            issues.append(
+                MigrationIssue(
+                    kind="run_references_missing_session",
+                    message=(
+                        "run references a session that is not present in the snapshot: "
+                        f"{run.id} -> {run.session_id}"
+                    ),
+                )
+            )
+
+    if snapshot.observed_tool_specs:
+        issues.append(
+            MigrationIssue(
+                kind="tool_specs_are_informational",
+                message=(
+                    "tool specs were recorded for reporting but concrete tool "
+                    "implementations are not imported"
+                ),
+            )
+        )
+
+    return MigrationReport(
+        models=len(snapshot.models),
+        skills=len(snapshot.skills),
+        sessions=len(snapshot.sessions),
+        messages=sum(len(session.messages) for session in snapshot.sessions),
+        tasks=len(snapshot.tasks),
+        runs=len(snapshot.runs),
+        profiles=len(snapshot.profiles),
+        tool_specs=len(snapshot.observed_tool_specs),
+        issues=issues,
+    )
+
+
+def _existing_record_issues(core: Core, snapshot: BridgeSnapshot) -> list[MigrationIssue]:
+    issues: list[MigrationIssue] = []
+    model_keys = {(model.model.provider.id, model.model.id) for model in core.models}
+    for model in snapshot.models:
+        if (model.provider, model.model) in model_keys:
+            issues.append(_existing_record("model", f"{model.provider}:{model.model}"))
+    for skill in snapshot.skills:
+        if skill.id in core.skills:
+            issues.append(_existing_record("skill", skill.id))
+    for session in snapshot.sessions:
+        if session.id in core.sessions:
+            issues.append(_existing_record("session", session.id))
+    for task in snapshot.tasks:
+        if task.id in core.tasks:
+            issues.append(_existing_record("task", task.id))
+    for run in snapshot.runs:
+        if run.id in core.runs:
+            issues.append(_existing_record("run", run.id))
+    for profile in snapshot.profiles:
+        if profile.provider in core.profiles:
+            issues.append(_existing_record("profile", profile.provider))
+    return issues
+
+
+def _existing_record(domain: str, id: str) -> MigrationIssue:
+    return MigrationIssue(
+        kind="existing_record",
+        message=f"{domain} already exists and create-only import will not overwrite it: {id}",
+    )
+
+
+def _record_duplicate_ids(ids: list[str], domain: str, issues: list[MigrationIssue]) -> None:
+    seen: set[str] = set()
+    reported: set[str] = set()
+    for id in ids:
+        if id in seen and id not in reported:
+            reported.add(id)
+            issues.append(
+                MigrationIssue(
+                    kind="duplicate_id",
+                    message=f"snapshot contains duplicate {domain} id: {id}",
+                )
+            )
+        seen.add(id)

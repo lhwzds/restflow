@@ -254,6 +254,7 @@ mod tests {
                 id: "team".to_string(),
                 name: "Team".to_string(),
                 source: Source::System,
+                source_ref: Some("system://team".to_string()),
                 description: Some("Coordinate subagents.".to_string()),
                 suggested_tools: vec!["spawn_subagent_batch".to_string()],
             }],
