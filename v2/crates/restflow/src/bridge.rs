@@ -63,6 +63,12 @@ pub struct BridgeModelSpec {
     pub model: String,
     pub name: String,
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +149,8 @@ pub struct BridgeRun {
     pub id: String,
     pub task_id: String,
     pub status: BridgeStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_status: Option<String>,
     pub session_id: Option<String>,
     pub execution_id: Option<String>,
     pub checkpoint_id: Option<String>,
@@ -211,6 +219,15 @@ impl From<BridgeModelSpec> for model::ModelSpec {
         let mut spec = model::ModelSpec::new(value.provider, value.model, value.name);
         if let Some(description) = value.description {
             spec = spec.with_description(description);
+        }
+        if let Some(client_model) = value.client_model {
+            spec = spec.with_client_model(client_model);
+        }
+        if let Some(client_kind) = value.client_kind {
+            spec = spec.with_client_kind(client_kind);
+        }
+        if let Some(base_url) = value.base_url {
+            spec = spec.with_base_url(base_url);
         }
         spec
     }
@@ -313,6 +330,7 @@ impl From<BridgeRun> for run::Run {
             id: value.id,
             task_id: value.task_id,
             status: value.status.into(),
+            raw_status: value.raw_status,
             session_id: value.session_id,
             execution_id: value.execution_id,
             checkpoint_id: value.checkpoint_id,
@@ -497,6 +515,9 @@ mod tests {
                 model: "gpt-5.5".to_string(),
                 name: "GPT-5.5".to_string(),
                 description: Some("Frontier model".to_string()),
+                client_model: Some("gpt-5.5".to_string()),
+                client_kind: Some("http".to_string()),
+                base_url: None,
             }],
             skills: vec![BridgeSkill {
                 id: "team".to_string(),
@@ -539,6 +560,7 @@ mod tests {
                 id: "run-1".to_string(),
                 task_id: "task-1".to_string(),
                 status: BridgeStatus::Done,
+                raw_status: Some("completed".to_string()),
                 session_id: Some("session-1".to_string()),
                 execution_id: Some("exec-1".to_string()),
                 checkpoint_id: Some("checkpoint-1".to_string()),

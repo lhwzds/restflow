@@ -51,12 +51,18 @@ class BridgeModelSpec:
     model: str
     name: str
     description: str | None = None
+    client_model: str | None = None
+    client_kind: str | None = None
+    base_url: str | None = None
 
     def to_model_spec(self) -> ModelSpec:
         return ModelSpec(
             model=Model(provider=Provider(id=self.provider), id=self.model),
             name=self.name,
             description=self.description,
+            client_model=self.client_model,
+            client_kind=self.client_kind,
+            base_url=self.base_url,
         )
 
 
@@ -154,6 +160,7 @@ class BridgeRun:
     id: str
     task_id: str
     status: str | BridgeStatus
+    raw_status: str | None = None
     session_id: str | None = None
     execution_id: str | None = None
     checkpoint_id: str | None = None
@@ -167,6 +174,7 @@ class BridgeRun:
             id=self.id,
             task_id=self.task_id,
             status=_enum_value(self.status),
+            raw_status=self.raw_status,
             session_id=self.session_id,
             execution_id=self.execution_id,
             checkpoint_id=self.checkpoint_id,

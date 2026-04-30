@@ -21,6 +21,9 @@ class ModelSpec:
     model: Model
     name: str
     description: str | None = None
+    client_model: str | None = None
+    client_kind: str | None = None
+    base_url: str | None = None
 
 
 @dataclass

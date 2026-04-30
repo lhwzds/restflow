@@ -67,6 +67,9 @@ pub struct ModelSpec {
     pub model: Model,
     pub name: String,
     pub description: Option<String>,
+    pub client_model: Option<String>,
+    pub client_kind: Option<String>,
+    pub base_url: Option<String>,
 }
 
 impl ModelSpec {
@@ -79,11 +82,29 @@ impl ModelSpec {
             model: Model::new(provider, model),
             name: name.into(),
             description: None,
+            client_model: None,
+            client_kind: None,
+            base_url: None,
         }
     }
 
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_client_model(mut self, client_model: impl Into<String>) -> Self {
+        self.client_model = Some(client_model.into());
+        self
+    }
+
+    pub fn with_client_kind(mut self, client_kind: impl Into<String>) -> Self {
+        self.client_kind = Some(client_kind.into());
+        self
+    }
+
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = Some(base_url.into());
         self
     }
 }

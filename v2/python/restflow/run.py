@@ -24,6 +24,7 @@ class Run:
     id: str
     task_id: str
     status: str
+    raw_status: str | None = None
     session_id: str | None = None
     execution_id: str | None = None
     checkpoint_id: str | None = None

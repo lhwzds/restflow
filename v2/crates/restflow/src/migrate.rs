@@ -522,6 +522,9 @@ mod tests {
                 model: "gpt-5.5".to_string(),
                 name: "GPT-5.5".to_string(),
                 description: None,
+                client_model: Some("gpt-5.5".to_string()),
+                client_kind: Some("http".to_string()),
+                base_url: None,
             }],
             skills: vec![BridgeSkill {
                 id: "team".to_string(),
@@ -564,6 +567,7 @@ mod tests {
                 id: "run-1".to_string(),
                 task_id: "task-1".to_string(),
                 status: BridgeStatus::Done,
+                raw_status: Some("completed".to_string()),
                 session_id: Some("session-1".to_string()),
                 execution_id: Some("exec-1".to_string()),
                 checkpoint_id: Some("checkpoint-1".to_string()),
