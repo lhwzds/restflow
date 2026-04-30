@@ -5,7 +5,8 @@
 //! ## Owns
 //! - core API entrypoint
 //! - in-memory core composition
-//! - adapter-friendly command handling
+//! - shared store bundle wiring
+//! - model, profile, and skill catalog helpers
 //!
 //! ## Must Not
 //! - own product transport details
@@ -40,8 +41,13 @@
 //! - cargo check -p engine
 
 use anyhow::Result;
-use proto::{CoreCommand, CoreResponse, CoreSnapshot};
 use store::{Repository, SharedStore};
+
+mod command;
+mod session;
+mod snapshot;
+mod task;
+mod tooling;
 
 #[derive(Clone)]
 pub struct CoreStores {
@@ -102,42 +108,6 @@ impl Core {
         self.models.insert(spec);
     }
 
-    pub async fn from_snapshot(snapshot: CoreSnapshot) -> Result<Self> {
-        let mut core = Self::new(snapshot.current_model);
-        for spec in snapshot.models {
-            core.insert_model(spec);
-        }
-        for skill in snapshot.skills {
-            core.save_skill(skill).await?;
-        }
-        for session in snapshot.sessions {
-            chat::save_session(&core.sessions, session).await?;
-        }
-        for task in snapshot.tasks {
-            run::save_task(&core.tasks, task).await?;
-        }
-        for run in snapshot.runs {
-            run::save_run(&core.runs, run).await?;
-        }
-        for profile in snapshot.profiles {
-            core.save_profile(profile).await?;
-        }
-        Ok(core)
-    }
-
-    pub async fn snapshot(&self) -> Result<CoreSnapshot> {
-        Ok(CoreSnapshot {
-            current_model: self.agent.model.clone(),
-            models: self.models.list().into_iter().cloned().collect(),
-            skills: self.skills.list().await?,
-            sessions: self.sessions.list().await?,
-            tasks: self.tasks.list().await?,
-            runs: self.runs.list().await?,
-            profiles: self.profiles.list().await?,
-            tool_specs: self.tools.specs(),
-        })
-    }
-
     pub async fn save_profile(&self, profile: auth::Profile) -> Result<()> {
         auth::save_profile(&self.profiles, profile).await
     }
@@ -150,161 +120,12 @@ impl Core {
     pub async fn skill_catalog(&self) -> Result<skill::Catalog> {
         skill::Catalog::from_repository(&self.skills).await
     }
-
-    pub async fn chat_turn(
-        &self,
-        session_id: &str,
-        request: chat::TurnRequest,
-    ) -> Result<agent::RunOutput> {
-        let catalog = self.skill_catalog().await?;
-        let input = chat::build_agent_input(&catalog, &request);
-        chat::append_message(
-            &self.sessions,
-            session_id,
-            chat::Message {
-                role: chat::Role::User,
-                text: request.message,
-            },
-        )
-        .await?;
-
-        let output = agent::Exec::new(self.agent.clone(), self.tools.clone()).dry_run(input);
-        persist_assistant_text(&self.sessions, session_id, &output.events).await?;
-        Ok(output)
-    }
-
-    pub async fn start_run(
-        &self,
-        task: run::Task,
-        run_id: impl Into<String>,
-        session_id: impl Into<String>,
-    ) -> Result<run::Run> {
-        let run = run::Run::new(run_id, task.id.clone())
-            .with_session(session_id)
-            .with_status(run::Status::Running);
-        run::save_task(&self.tasks, task).await?;
-        run::save_run(&self.runs, run.clone()).await?;
-        Ok(run)
-    }
-
-    pub async fn run_task(
-        &self,
-        run_id: &str,
-        request: run::TaskRequest,
-    ) -> Result<agent::RunOutput> {
-        run::save_task(&self.tasks, request.task.clone()).await?;
-        let run = self
-            .runs
-            .get(run_id)
-            .await?
-            .unwrap_or_else(|| run::Run::new(run_id, request.task.id.clone()));
-        let catalog = self.skill_catalog().await?;
-        let input = run::build_agent_input(&catalog, &request);
-        let output = agent::Exec::new(self.agent.clone(), self.tools.clone()).dry_run(input);
-        run::save_run(&self.runs, run.with_status(run::Status::Done)).await?;
-        Ok(output)
-    }
-
-    pub async fn call_tool_events(&self, call: tool::ToolCall) -> Vec<event::Event> {
-        let mut events = vec![event::Event::tool_call(
-            call.id.clone(),
-            call.name.clone(),
-            call.input.clone(),
-        )];
-
-        match self.tools.call(call).await {
-            Ok(output) => events.push(event::Event::tool_result(output.call_id, output.value)),
-            Err(error) => events.push(event::Event::error(error.to_string())),
-        }
-
-        events
-    }
-
-    pub async fn handle(&mut self, command: CoreCommand) -> Result<CoreResponse> {
-        match command {
-            CoreCommand::SaveSkill { skill } => {
-                self.save_skill(skill).await?;
-                Ok(CoreResponse::Saved)
-            }
-            CoreCommand::SaveProfile { profile } => {
-                self.save_profile(profile).await?;
-                Ok(CoreResponse::Saved)
-            }
-            CoreCommand::SwitchModel { model } => {
-                self.set_model(model.clone());
-                Ok(CoreResponse::ModelSwitched { model })
-            }
-            CoreCommand::ChatTurn {
-                session_id,
-                message,
-                assigned_skills,
-            } => {
-                let request = chat::TurnRequest::new(message).with_assigned_skills(assigned_skills);
-                let output = self.chat_turn(&session_id, request).await?;
-                Ok(CoreResponse::ChatTurn {
-                    events: output.events,
-                })
-            }
-            CoreCommand::StartRun {
-                task,
-                run_id,
-                session_id,
-            } => {
-                let run = self.start_run(task, run_id, session_id).await?;
-                Ok(CoreResponse::RunStarted { run })
-            }
-            CoreCommand::RunTask {
-                run_id,
-                task,
-                message,
-                assigned_skills,
-            } => {
-                let request =
-                    run::TaskRequest::new(task, message).with_assigned_skills(assigned_skills);
-                let output = self.run_task(&run_id, request).await?;
-                Ok(CoreResponse::RunTask {
-                    events: output.events,
-                })
-            }
-            CoreCommand::CallTool { call } => Ok(CoreResponse::ToolEvents {
-                events: self.call_tool_events(call).await,
-            }),
-        }
-    }
-}
-
-async fn persist_assistant_text(
-    sessions: &SharedStore<chat::Session>,
-    session_id: &str,
-    events: &[event::Event],
-) -> Result<()> {
-    let text = events
-        .iter()
-        .filter_map(|event| match event {
-            event::Event::Text { value } => Some(value.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    if !text.is_empty() {
-        chat::append_message(
-            sessions,
-            session_id,
-            chat::Message {
-                role: chat::Role::Assistant,
-                text,
-            },
-        )
-        .await?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proto::{CoreCommand, CoreResponse, CoreSnapshot};
     use std::future::Future;
     use std::sync::Arc;
     use std::task::{Context, Poll, Wake, Waker};
