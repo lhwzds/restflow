@@ -1,0 +1,103 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { BackendError } from '@/api/http-client'
+import { resolveRunAliasRoute, resolveSessionAliasRoute, resolveTaskAliasRoute } from '../index'
+import { getExecutionRunThread, listExecutionContainers, listRuns } from '@/api/execution-console'
+
+vi.mock('@/api/execution-console', () => ({
+  getExecutionRunThread: vi.fn(),
+  listExecutionContainers: vi.fn(),
+  listRuns: vi.fn(),
+}))
+
+describe('router alias route normalization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('maps session alias routes to the canonical container run route when a latest run exists', async () => {
+    vi.mocked(listExecutionContainers).mockResolvedValue([
+      {
+        id: 'session-1',
+        kind: 'workspace',
+        title: 'Workspace Session',
+        subtitle: null,
+        updated_at: 1,
+        status: 'completed',
+        session_count: 1,
+        latest_session_id: 'session-1',
+        latest_run_id: 'run-1',
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+      },
+    ] as any)
+
+    await expect(resolveSessionAliasRoute('session-1')).resolves.toEqual({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-1' },
+    })
+  })
+
+  it('maps task alias routes to the canonical container route when no runs exist', async () => {
+    vi.mocked(listRuns).mockResolvedValue([])
+
+    await expect(resolveTaskAliasRoute('task-1')).resolves.toEqual({
+      name: 'workspace-container',
+      params: { containerId: 'task-1' },
+    })
+  })
+
+  it('prefers the explicit run id on task alias routes', async () => {
+    await expect(resolveTaskAliasRoute('task-1', 'run-9')).resolves.toEqual({
+      name: 'workspace-container-run',
+      params: { containerId: 'task-1', runId: 'run-9' },
+    })
+  })
+
+  it('maps run-id alias routes to the canonical container run route', async () => {
+    vi.mocked(getExecutionRunThread).mockResolvedValue({
+      focus: {
+        container_id: 'session-1',
+        run_id: 'run-1',
+      },
+      timeline: { events: [], stats: {} },
+    } as any)
+
+    await expect(resolveRunAliasRoute('run-1')).resolves.toEqual({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-1' },
+    })
+  })
+
+  it('maps child run-id alias routes to the canonical root container run route', async () => {
+    vi.mocked(getExecutionRunThread).mockResolvedValue({
+      focus: {
+        container_id: 'session-1',
+        root_run_id: 'run-1',
+        parent_run_id: 'run-1',
+        run_id: 'run-2',
+      },
+      timeline: { events: [], stats: {} },
+    } as any)
+
+    await expect(resolveRunAliasRoute('run-2')).resolves.toEqual({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-2' },
+    })
+  })
+
+  it('falls back to workspace root when a run-id alias route cannot be resolved', async () => {
+    vi.mocked(getExecutionRunThread).mockRejectedValue(
+      new BackendError({
+        code: 404,
+        kind: 'not_found',
+        message: 'ExecutionThread not found',
+      } as any),
+    )
+
+    await expect(resolveRunAliasRoute('run-missing')).resolves.toEqual({
+      name: 'workspace',
+    })
+  })
+})

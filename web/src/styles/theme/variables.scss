@@ -1,0 +1,20 @@
+/*
+ * SCSS Variables for Component Styles
+ * RestFlow theme variables and breakpoints
+ */
+
+/* SCSS variables for use in component styles */
+$rf-color-primary: var(--rf-color-primary);
+$rf-color-primary-hover: var(--rf-color-primary-hover);
+$rf-color-primary-active: var(--rf-color-primary-active);
+$rf-gradient-primary: var(--rf-gradient-primary);
+$rf-color-pink: var(--rf-color-pink);
+$rf-gradient-pink: linear-gradient(135deg, #ec4899, #f472b6);
+
+/* Breakpoints */
+$rf-breakpoint-xs: 480px;
+$rf-breakpoint-sm: 640px;
+$rf-breakpoint-md: 768px;
+$rf-breakpoint-lg: 1024px;
+$rf-breakpoint-xl: 1280px;
+$rf-breakpoint-2xl: 1536px;

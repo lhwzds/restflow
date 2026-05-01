@@ -1,0 +1,928 @@
+use anyhow::Result;
+use dashmap::DashMap;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use restflow_storage::time_utils;
+use restflow_traits::DEFAULT_PROCESS_SESSION_TTL_SECS;
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use uuid::Uuid;
+
+use restflow_traits::store::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo};
+
+mod session;
+
+pub use session::{
+    FinishedSession, ProcessOutputListener, ProcessSession, ProcessSessionMetadata,
+    ProcessSessionSource, SessionOutput,
+};
+
+const DEFAULT_MAX_OUTPUT_BYTES: usize = 1_000_000;
+const CLEANUP_INTERVAL_SECONDS: u64 = 60;
+const SESSION_REAP_TIMEOUT: Duration = Duration::from_secs(2);
+const DEFAULT_PTY_SIZE: PtySize = PtySize {
+    rows: 24,
+    cols: 80,
+    pixel_width: 0,
+    pixel_height: 0,
+};
+
+#[derive(Clone)]
+pub struct ProcessSpawnOptions {
+    pub session_id: Option<String>,
+    pub cwd: Option<String>,
+    pub source: ProcessSessionSource,
+    pub metadata: ProcessSessionMetadata,
+    pub pty_size: PtySize,
+    pub output_listener: Option<Arc<dyn ProcessOutputListener>>,
+}
+
+impl Default for ProcessSpawnOptions {
+    fn default() -> Self {
+        Self {
+            session_id: None,
+            cwd: None,
+            source: ProcessSessionSource::default(),
+            metadata: ProcessSessionMetadata::default(),
+            pty_size: DEFAULT_PTY_SIZE,
+            output_listener: None,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ProcessShellOptions {
+    pub spawn: ProcessSpawnOptions,
+    pub startup_command: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessRegistry {
+    sessions: Arc<DashMap<String, Arc<ProcessSession>>>,
+    finished: Arc<DashMap<String, FinishedSession>>,
+    max_output_bytes: usize,
+    ttl_seconds: Arc<AtomicU64>,
+}
+
+impl Default for ProcessRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProcessRegistry {
+    pub fn new() -> Self {
+        let registry = Self {
+            sessions: Arc::new(DashMap::new()),
+            finished: Arc::new(DashMap::new()),
+            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            ttl_seconds: Arc::new(AtomicU64::new(DEFAULT_PROCESS_SESSION_TTL_SECS)),
+        };
+
+        registry.spawn_cleanup_task();
+        registry
+    }
+
+    pub fn with_max_output(mut self, max_output_bytes: usize) -> Self {
+        self.max_output_bytes = max_output_bytes;
+        self
+    }
+
+    pub fn with_ttl_seconds(self, ttl_seconds: u64) -> Self {
+        self.set_ttl_seconds(ttl_seconds);
+        self
+    }
+
+    pub fn set_ttl_seconds(&self, ttl_seconds: u64) -> u64 {
+        self.ttl_seconds.swap(ttl_seconds, Ordering::Relaxed)
+    }
+
+    pub fn ttl_seconds(&self) -> u64 {
+        self.ttl_seconds.load(Ordering::Relaxed)
+    }
+
+    fn spawn_cleanup_task(&self) {
+        let sessions = self.sessions.clone();
+        let finished = self.finished.clone();
+        let ttl_seconds = self.ttl_seconds.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(CLEANUP_INTERVAL_SECONDS)).await;
+                    Self::run_maintenance_once(&sessions, &finished, &ttl_seconds);
+                }
+            });
+        } else {
+            tracing::warn!("No Tokio runtime found for process cleanup task");
+        }
+    }
+
+    fn run_maintenance_once(
+        sessions: &DashMap<String, Arc<ProcessSession>>,
+        finished: &DashMap<String, FinishedSession>,
+        ttl_seconds: &AtomicU64,
+    ) {
+        let completed: Vec<(Arc<ProcessSession>, Option<i32>)> = sessions
+            .iter()
+            .filter_map(|entry| {
+                let session = entry.value().clone();
+                match session.try_update_exit_status() {
+                    Ok(Some(status)) => Some((session, Some(status.exit_code() as i32))),
+                    Ok(None) => None,
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %entry.key(),
+                            error = %error,
+                            "Failed to poll process exit status during cleanup"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        for (session, exit_code) in completed {
+            // Always finalize completed sessions during maintenance, even without active pollers.
+            Self::finalize_session_maps(sessions, finished, session, exit_code);
+        }
+
+        let now = current_timestamp_ms();
+        let ttl = ttl_seconds.load(Ordering::Relaxed);
+        Self::cleanup_expired_finished_sessions(finished, now, ttl);
+    }
+
+    fn run_maintenance(&self) {
+        Self::run_maintenance_once(&self.sessions, &self.finished, &self.ttl_seconds);
+    }
+
+    fn build_shell_command(command: &str) -> CommandBuilder {
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = CommandBuilder::new("cmd.exe");
+            cmd.args(["/C", command]);
+            cmd
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+            let mut cmd = CommandBuilder::new(shell);
+            cmd.args(["-c", command]);
+            cmd
+        }
+    }
+
+    fn append_output(output: &mut SessionOutput, data: &str, max_bytes: usize) {
+        output.pending.push_str(data);
+        output.aggregated.push_str(data);
+
+        if output.pending.len() > max_bytes {
+            let target = max_bytes * 9 / 10;
+            let keep_from = output.pending.len().saturating_sub(target);
+            let start = Self::nearest_char_boundary_forward(&output.pending, keep_from);
+            output.pending = output.pending[start..].to_string();
+        }
+
+        if output.aggregated.len() > max_bytes {
+            let target = max_bytes * 9 / 10;
+            let keep_from = output.aggregated.len().saturating_sub(target);
+            let start = Self::nearest_char_boundary_forward(&output.aggregated, keep_from);
+            output.aggregated = output.aggregated[start..].to_string();
+        }
+    }
+
+    fn nearest_char_boundary_forward(text: &str, index: usize) -> usize {
+        let mut pos = index.min(text.len());
+        while pos < text.len() && !text.is_char_boundary(pos) {
+            pos += 1;
+        }
+        pos
+    }
+
+    fn slice_utf8(text: &str, offset: usize, limit: usize) -> String {
+        if text.is_empty() {
+            return String::new();
+        }
+        let mut start = offset.min(text.len());
+        while start > 0 && !text.is_char_boundary(start) {
+            start -= 1;
+        }
+        let mut end = start.saturating_add(limit).min(text.len());
+        while end < text.len() && !text.is_char_boundary(end) {
+            end += 1;
+        }
+        text[start..end].to_string()
+    }
+
+    fn is_truncated(total: usize, offset: usize, limit: usize) -> bool {
+        offset.saturating_add(limit) < total
+    }
+
+    fn take_pending(output: &Arc<Mutex<SessionOutput>>) -> String {
+        if let Ok(mut guard) = output.lock() {
+            let pending = guard.pending.clone();
+            guard.pending.clear();
+            return pending;
+        }
+        String::new()
+    }
+
+    fn session_status(exit_code: Option<i32>) -> String {
+        match exit_code {
+            None => "running".to_string(),
+            Some(0) => "completed".to_string(),
+            Some(_) => "failed".to_string(),
+        }
+    }
+
+    fn finalize_session(&self, session: Arc<ProcessSession>, exit_code: Option<i32>) {
+        Self::finalize_session_maps(&self.sessions, &self.finished, session, exit_code);
+    }
+
+    fn finalize_session_maps(
+        sessions: &DashMap<String, Arc<ProcessSession>>,
+        finished: &DashMap<String, FinishedSession>,
+        session: Arc<ProcessSession>,
+        exit_code: Option<i32>,
+    ) {
+        let output = session
+            .output
+            .lock()
+            .map(|o| o.aggregated.clone())
+            .unwrap_or_default();
+        let finished_record = FinishedSession {
+            id: session.id.clone(),
+            command: session.command.clone(),
+            cwd: session.cwd.clone(),
+            started_at: session.started_at,
+            finished_at: current_timestamp_ms(),
+            exit_code,
+            output,
+        };
+        sessions.remove(&session.id);
+        finished.insert(session.id.clone(), finished_record);
+    }
+
+    fn cleanup_expired_finished_sessions(
+        finished: &DashMap<String, FinishedSession>,
+        now_ms: i64,
+        ttl_seconds: u64,
+    ) {
+        let expired: Vec<String> = finished
+            .iter()
+            .filter_map(|entry| {
+                if is_ttl_expired(now_ms, entry.finished_at, ttl_seconds) {
+                    Some(entry.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for session_id in expired {
+            finished.remove(&session_id);
+        }
+    }
+
+    fn create_reader_thread(
+        session: Arc<ProcessSession>,
+        mut reader: Box<dyn Read + Send>,
+        max_output: usize,
+    ) {
+        thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            let mut incomplete_utf8: Vec<u8> = Vec::new();
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => {
+                        if !incomplete_utf8.is_empty() {
+                            let data = String::from_utf8_lossy(&incomplete_utf8).to_string();
+                            if let Ok(mut output) = session.output.lock() {
+                                Self::append_output(&mut output, &data, max_output);
+                            }
+                            session.emit_output(&data);
+                        }
+                        session.emit_closed();
+                        session.mark_read_closed();
+                        break;
+                    }
+                    Ok(n) => {
+                        let mut bytes = std::mem::take(&mut incomplete_utf8);
+                        bytes.extend_from_slice(&buf[..n]);
+                        let valid_up_to = find_utf8_boundary(&bytes);
+                        if valid_up_to > 0 {
+                            let data = String::from_utf8_lossy(&bytes[..valid_up_to]).to_string();
+                            if let Ok(mut output) = session.output.lock() {
+                                Self::append_output(&mut output, &data, max_output);
+                            }
+                            session.emit_output(&data);
+                        }
+                        if valid_up_to < bytes.len() {
+                            incomplete_utf8 = bytes[valid_up_to..].to_vec();
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Process output read error");
+                        session.emit_closed();
+                        session.mark_read_closed();
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn spawn(&self, command: &str, cwd: Option<String>) -> Result<String> {
+        let options = ProcessSpawnOptions {
+            cwd,
+            source: ProcessSessionSource::Agent,
+            ..Default::default()
+        };
+        self.spawn_with_options(command, options)
+    }
+
+    pub fn spawn_with_options(
+        &self,
+        command: &str,
+        options: ProcessSpawnOptions,
+    ) -> Result<String> {
+        self.run_maintenance();
+
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(options.pty_size)?;
+
+        let mut cmd = Self::build_shell_command(command);
+        if let Some(cwd) = options.cwd.as_ref() {
+            cmd.cwd(cwd);
+        }
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd)?;
+        let writer = pair.master.take_writer()?;
+        let reader = pair.master.try_clone_reader()?;
+
+        let session_id = options
+            .session_id
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let output = Arc::new(Mutex::new(SessionOutput::default()));
+        let session = Arc::new(ProcessSession::new(
+            session_id.clone(),
+            command.to_string(),
+            options.cwd.clone(),
+            current_timestamp_ms(),
+            options.source,
+            options.metadata,
+            writer,
+            pair.master,
+            output.clone(),
+            options.output_listener,
+            child,
+        ));
+
+        Self::create_reader_thread(session.clone(), reader, self.max_output_bytes);
+
+        self.sessions.insert(session_id.clone(), session);
+        Ok(session_id)
+    }
+
+    pub fn spawn_shell(&self, shell: &str, options: ProcessShellOptions) -> Result<String> {
+        self.run_maintenance();
+
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(options.spawn.pty_size)?;
+
+        let mut cmd = CommandBuilder::new(shell);
+        if let Some(cwd) = options.spawn.cwd.as_ref() {
+            cmd.cwd(cwd);
+        }
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd)?;
+        let mut writer = pair.master.take_writer()?;
+        let reader = pair.master.try_clone_reader()?;
+
+        if let Some(startup) = options.startup_command.as_ref()
+            && !startup.is_empty()
+        {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = writer.write_all(format!("{}\n", startup).as_bytes());
+            let _ = writer.flush();
+        }
+
+        let session_id = options
+            .spawn
+            .session_id
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let output = Arc::new(Mutex::new(SessionOutput::default()));
+        let session = Arc::new(ProcessSession::new(
+            session_id.clone(),
+            shell.to_string(),
+            options.spawn.cwd.clone(),
+            current_timestamp_ms(),
+            options.spawn.source,
+            options.spawn.metadata,
+            writer,
+            pair.master,
+            output.clone(),
+            options.spawn.output_listener,
+            child,
+        ));
+
+        Self::create_reader_thread(session.clone(), reader, self.max_output_bytes);
+
+        self.sessions.insert(session_id.clone(), session);
+        Ok(session_id)
+    }
+
+    pub fn poll(&self, session_id: &str) -> Result<ProcessPollResult> {
+        self.run_maintenance();
+
+        if let Some(session) = self.sessions.get(session_id) {
+            let session = session.value().clone();
+            let _ = session.try_update_exit_status();
+            let pending = Self::take_pending(&session.output);
+            let exit_code = session
+                .exit_status()
+                .map(|status| status.exit_code() as i32);
+            let status = Self::session_status(exit_code);
+
+            if exit_code.is_some() && session.read_closed() {
+                self.finalize_session(session, exit_code);
+            }
+
+            return Ok(ProcessPollResult {
+                session_id: session_id.to_string(),
+                output: pending,
+                status,
+                exit_code,
+            });
+        }
+
+        if let Some(finished) = self.finished.get(session_id) {
+            let exit_code = finished.exit_code;
+            return Ok(ProcessPollResult {
+                session_id: session_id.to_string(),
+                output: String::new(),
+                status: Self::session_status(exit_code),
+                exit_code,
+            });
+        }
+
+        anyhow::bail!("Session not found: {}", session_id)
+    }
+
+    pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
+        self.run_maintenance();
+
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
+        let mut writer = session
+            .writer
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
+        writer.write_all(data.as_bytes())?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    pub fn resize(&self, session_id: &str, size: PtySize) -> Result<()> {
+        self.run_maintenance();
+
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
+        session.resize(size)?;
+        Ok(())
+    }
+
+    pub fn kill(&self, session_id: &str) -> Result<()> {
+        self.run_maintenance();
+
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?
+            .value()
+            .clone();
+
+        if let Err(error) = session.terminate_and_reap(SESSION_REAP_TIMEOUT) {
+            let reaped =
+                session.try_update_exit_status()?.is_some() || session.exit_status().is_some();
+            if !reaped {
+                return Err(error);
+            }
+        }
+
+        let exit_code = session
+            .exit_status()
+            .map(|status| status.exit_code() as i32);
+        if exit_code.is_some() && session.read_closed() {
+            self.finalize_session(session, exit_code);
+        }
+
+        Ok(())
+    }
+
+    pub fn get_output_buffer(&self, session_id: &str) -> Option<String> {
+        self.run_maintenance();
+
+        self.sessions
+            .get(session_id)
+            .and_then(|session| session.output.lock().ok().map(|o| o.aggregated.clone()))
+    }
+
+    pub fn remove_session(&self, session_id: &str) -> Option<String> {
+        self.run_maintenance();
+
+        if let Some((_, session)) = self.sessions.remove(session_id) {
+            let _ = session.terminate_and_reap(SESSION_REAP_TIMEOUT);
+            let _ = session.try_update_exit_status();
+            let output = session
+                .output
+                .lock()
+                .ok()
+                .map(|o| o.aggregated.clone())
+                .unwrap_or_default();
+            let exit_code = session
+                .exit_status()
+                .map(|status| status.exit_code() as i32);
+            Self::finalize_session_maps(&self.sessions, &self.finished, session, exit_code);
+            return Some(output);
+        }
+
+        if let Some(finished) = self.finished.get(session_id) {
+            return Some(finished.output.clone());
+        }
+
+        None
+    }
+
+    pub fn list_session_ids_by_source(&self, source: ProcessSessionSource) -> Vec<String> {
+        self.run_maintenance();
+
+        self.sessions
+            .iter()
+            .filter_map(|entry| {
+                let session = entry.value();
+                if session.source == source {
+                    Some(session.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn has_session(&self, session_id: &str) -> bool {
+        self.run_maintenance();
+        self.sessions.contains_key(session_id)
+    }
+
+    pub fn list(&self) -> Vec<ProcessSessionInfo> {
+        self.run_maintenance();
+
+        let mut items: Vec<ProcessSessionInfo> = self
+            .sessions
+            .iter()
+            .map(|entry| {
+                let session = entry.value();
+                let exit_code = session
+                    .exit_status()
+                    .map(|status| status.exit_code() as i32);
+                ProcessSessionInfo {
+                    session_id: session.id.clone(),
+                    command: session.command.clone(),
+                    cwd: session.cwd.clone(),
+                    started_at: session.started_at,
+                    status: Self::session_status(exit_code),
+                    exit_code,
+                }
+            })
+            .collect();
+
+        for entry in self.finished.iter() {
+            items.push(ProcessSessionInfo {
+                session_id: entry.id.clone(),
+                command: entry.command.clone(),
+                cwd: entry.cwd.clone(),
+                started_at: entry.started_at,
+                status: Self::session_status(entry.exit_code),
+                exit_code: entry.exit_code,
+            });
+        }
+
+        items
+    }
+
+    pub fn get_log(&self, session_id: &str, offset: usize, limit: usize) -> Result<ProcessLog> {
+        self.run_maintenance();
+
+        if let Some(session) = self.sessions.get(session_id) {
+            let output = session
+                .output
+                .lock()
+                .map(|o| o.aggregated.clone())
+                .unwrap_or_default();
+            let total = output.len();
+            let slice = Self::slice_utf8(&output, offset, limit);
+            return Ok(ProcessLog {
+                session_id: session_id.to_string(),
+                output: slice,
+                offset,
+                limit,
+                total,
+                truncated: Self::is_truncated(total, offset, limit),
+            });
+        }
+
+        if let Some(finished) = self.finished.get(session_id) {
+            let total = finished.output.len();
+            let slice = Self::slice_utf8(&finished.output, offset, limit);
+            return Ok(ProcessLog {
+                session_id: session_id.to_string(),
+                output: slice,
+                offset,
+                limit,
+                total,
+                truncated: Self::is_truncated(total, offset, limit),
+            });
+        }
+
+        anyhow::bail!("Session not found: {}", session_id)
+    }
+}
+
+impl ProcessManager for ProcessRegistry {
+    fn spawn(&self, command: String, cwd: Option<String>) -> Result<String> {
+        Self::spawn(self, &command, cwd)
+    }
+
+    fn poll(&self, session_id: &str) -> Result<ProcessPollResult> {
+        Self::poll(self, session_id)
+    }
+
+    fn write(&self, session_id: &str, data: &str) -> Result<()> {
+        Self::write(self, session_id, data)
+    }
+
+    fn kill(&self, session_id: &str) -> Result<()> {
+        Self::kill(self, session_id)
+    }
+
+    fn list(&self) -> Result<Vec<ProcessSessionInfo>> {
+        Ok(Self::list(self))
+    }
+
+    fn log(&self, session_id: &str, offset: usize, limit: usize) -> Result<ProcessLog> {
+        Self::get_log(self, session_id, offset, limit)
+    }
+}
+
+fn current_timestamp_ms() -> i64 {
+    time_utils::now_ms()
+}
+
+fn ttl_seconds_to_millis(ttl_seconds: u64) -> i64 {
+    Duration::from_secs(ttl_seconds)
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
+fn is_ttl_expired(now_ms: i64, finished_at_ms: i64, ttl_seconds: u64) -> bool {
+    now_ms.saturating_sub(finished_at_ms) > ttl_seconds_to_millis(ttl_seconds)
+}
+
+fn find_utf8_boundary(bytes: &[u8]) -> usize {
+    match std::str::from_utf8(bytes) {
+        Ok(_) => bytes.len(),
+        Err(e) => e.valid_up_to(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[allow(unused_imports)]
+    use super::*;
+
+    /// Test spawning a process and polling its output.
+    /// Ignored in CI due to PTY reader thread cleanup issues that can cause hangs.
+    /// Run manually with: cargo test --package restflow-core process::tests::test_spawn_and_poll -- --ignored
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore]
+    async fn test_spawn_and_poll() {
+        let registry = ProcessRegistry::new();
+        let session_id = registry.spawn("echo hello", None).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let result = registry.poll(&session_id).unwrap();
+        assert!(result.output.contains("hello"));
+        assert!(result.status == "completed" || result.status == "running");
+    }
+
+    /// Test interactive process with stdin/stdout.
+    /// Ignored in CI due to PTY reader thread cleanup issues that can cause hangs.
+    /// Run manually with: cargo test --package restflow-core process::tests::test_interactive_process -- --ignored
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore]
+    async fn test_interactive_process() {
+        let registry = ProcessRegistry::new();
+        let session_id = registry.spawn("cat", None).unwrap();
+        registry.write(&session_id, "ping\n").unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let result = registry.poll(&session_id).unwrap();
+        assert!(result.output.contains("ping"));
+        registry.kill(&session_id).unwrap();
+    }
+
+    /// Test killing a running process session.
+    /// Ignored in CI due to PTY reader thread cleanup issues that can cause hangs.
+    /// Run manually with: cargo test --package restflow-core process::tests::test_kill_session -- --ignored
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore]
+    async fn test_kill_session() {
+        let test_future = async {
+            let registry = ProcessRegistry::new();
+            let session_id = registry.spawn("sleep 5", None).unwrap();
+            registry.kill(&session_id).unwrap();
+
+            // Wait for process to terminate with polling
+            for _ in 0..50 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let result = registry.poll(&session_id).unwrap();
+                if result.status != "running" {
+                    assert!(
+                        result.status == "failed" || result.status == "completed",
+                        "Unexpected status: {}",
+                        result.status
+                    );
+                    return;
+                }
+            }
+            panic!("Process did not terminate after kill within 5 seconds");
+        };
+
+        tokio::time::timeout(Duration::from_secs(10), test_future)
+            .await
+            .expect("test_kill_session timed out after 10 seconds");
+    }
+
+    #[test]
+    fn test_append_output_keeps_utf8_boundaries() {
+        let mut output = SessionOutput::default();
+        let data = "前缀😀后缀".repeat(64);
+
+        ProcessRegistry::append_output(&mut output, &data, 128);
+
+        assert!(std::str::from_utf8(output.pending.as_bytes()).is_ok());
+        assert!(std::str::from_utf8(output.aggregated.as_bytes()).is_ok());
+        assert!(!output.pending.is_empty());
+        assert!(!output.aggregated.is_empty());
+    }
+
+    #[test]
+    fn test_is_truncated_handles_large_offset_without_overflow() {
+        let truncated = ProcessRegistry::is_truncated(10, usize::MAX - 2, 10);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn test_with_ttl_seconds_updates_shared_ttl_for_cleanup_worker() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(120);
+        assert_eq!(registry.ttl_seconds(), 120);
+
+        let _ = registry.clone().with_ttl_seconds(5);
+        assert_eq!(registry.ttl_seconds(), 5);
+    }
+
+    #[test]
+    fn test_set_ttl_seconds_updates_long_lived_registry_in_place() {
+        let registry = Arc::new(ProcessRegistry::new().with_ttl_seconds(90));
+        assert_eq!(registry.ttl_seconds(), 90);
+
+        let old = registry.set_ttl_seconds(15);
+        assert_eq!(old, 90);
+        assert_eq!(registry.ttl_seconds(), 15);
+
+        let old_from_clone = registry.clone().set_ttl_seconds(7);
+        assert_eq!(old_from_clone, 15);
+        assert_eq!(registry.ttl_seconds(), 7);
+    }
+
+    #[test]
+    fn test_cleanup_uses_updated_ttl_seconds_value_behaviorally() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(2);
+        let session_id = "finished-session".to_string();
+        registry.finished.insert(
+            session_id.clone(),
+            FinishedSession {
+                id: session_id.clone(),
+                command: "echo done".to_string(),
+                cwd: None,
+                started_at: 0,
+                finished_at: 1_000,
+                exit_code: Some(0),
+                output: "done".to_string(),
+            },
+        );
+
+        let now = 2_500;
+        ProcessRegistry::cleanup_expired_finished_sessions(
+            &registry.finished,
+            now,
+            registry.ttl_seconds(),
+        );
+        assert!(
+            registry.finished.contains_key(&session_id),
+            "Session should stay when elapsed <= updated TTL"
+        );
+
+        let _ = registry.clone().with_ttl_seconds(1);
+        ProcessRegistry::cleanup_expired_finished_sessions(
+            &registry.finished,
+            now,
+            registry.ttl_seconds(),
+        );
+        assert!(
+            !registry.finished.contains_key(&session_id),
+            "Session should be removed once elapsed > updated TTL"
+        );
+    }
+
+    #[test]
+    fn test_opportunistic_maintenance_cleans_expired_finished_without_worker() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(1);
+        let session_id = "expired-finished".to_string();
+        let now = current_timestamp_ms();
+        registry.finished.insert(
+            session_id.clone(),
+            FinishedSession {
+                id: session_id.clone(),
+                command: "echo done".to_string(),
+                cwd: None,
+                started_at: now - 6_000,
+                finished_at: now - 5_000,
+                exit_code: Some(0),
+                output: "done".to_string(),
+            },
+        );
+
+        assert!(registry.finished.contains_key(&session_id));
+        let _ = registry.list();
+        assert!(
+            !registry.finished.contains_key(&session_id),
+            "Expired finished session should be cleaned during foreground maintenance"
+        );
+    }
+
+    #[test]
+    fn test_runtime_ttl_update_applies_to_existing_finished_sessions_without_restart() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(2);
+        let session_id = "dynamic-ttl-finished".to_string();
+        let now = current_timestamp_ms();
+        registry.finished.insert(
+            session_id.clone(),
+            FinishedSession {
+                id: session_id.clone(),
+                command: "echo done".to_string(),
+                cwd: None,
+                started_at: now - 2_000,
+                finished_at: now - 1_200,
+                exit_code: Some(0),
+                output: "done".to_string(),
+            },
+        );
+
+        let _ = registry.list();
+        assert!(
+            registry.finished.contains_key(&session_id),
+            "Session should stay when TTL is larger than elapsed lifetime"
+        );
+
+        registry.set_ttl_seconds(1);
+        let _ = registry.list();
+        assert!(
+            !registry.finished.contains_key(&session_id),
+            "Session should expire after runtime TTL update without recreating registry"
+        );
+    }
+
+    #[test]
+    fn test_ttl_expiry_boundary_is_strict_greater_than() {
+        assert!(
+            !is_ttl_expired(2_000, 1_000, 1),
+            "Elapsed == TTL should not expire"
+        );
+        assert!(
+            is_ttl_expired(2_001, 1_000, 1),
+            "Elapsed > TTL should expire"
+        );
+    }
+}

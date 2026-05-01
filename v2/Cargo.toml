@@ -1,0 +1,67 @@
+[workspace]
+members = [
+    "crates/restflow",
+    "crates/agent",
+    "crates/auth",
+    "crates/bridge",
+    "crates/chat",
+    "crates/cli",
+    "crates/engine",
+    "crates/event",
+    "crates/model",
+    "crates/proto",
+    "crates/py",
+    "crates/run",
+    "crates/runtime",
+    "crates/server",
+    "crates/skill",
+    "crates/store",
+    "crates/tool",
+]
+default-members = [
+    "crates/restflow",
+    "crates/agent",
+    "crates/auth",
+    "crates/bridge",
+    "crates/chat",
+    "crates/cli",
+    "crates/engine",
+    "crates/event",
+    "crates/model",
+    "crates/proto",
+    "crates/run",
+    "crates/runtime",
+    "crates/server",
+    "crates/skill",
+    "crates/store",
+    "crates/tool",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+agent = { path = "crates/agent" }
+auth = { path = "crates/auth" }
+bridge = { path = "crates/bridge" }
+chat = { path = "crates/chat" }
+cli = { path = "crates/cli" }
+engine = { path = "crates/engine" }
+event = { path = "crates/event" }
+model = { path = "crates/model" }
+proto = { path = "crates/proto" }
+run = { path = "crates/run" }
+runtime = { path = "crates/runtime" }
+server = { path = "crates/server" }
+skill = { path = "crates/skill" }
+store = { path = "crates/store" }
+tool = { path = "crates/tool" }
+restflow-v2 = { path = "crates/restflow" }
+anyhow = "1"
+async-trait = "0.1"
+redb = "3.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

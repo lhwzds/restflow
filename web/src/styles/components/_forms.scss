@@ -1,0 +1,71 @@
+@mixin form-field {
+  width: 100%;
+  padding: var(--rf-spacing-sm) var(--rf-spacing-lg);
+  border: 1px solid var(--rf-color-border-light);
+  border-radius: var(--rf-radius-base);
+  font-size: var(--rf-font-size-base);
+  transition: border-color var(--rf-transition-fast);
+
+  &:focus {
+    outline: none;
+    border-color: var(--rf-color-primary);
+    box-shadow: var(--rf-shadow-focus);
+  }
+
+  &:disabled {
+    background-color: var(--rf-color-bg-secondary);
+    color: var(--rf-color-text-disabled);
+    cursor: not-allowed;
+  }
+
+  &::placeholder {
+    color: var(--rf-color-text-placeholder);
+  }
+}
+
+@mixin form-label {
+  display: block;
+  margin-bottom: var(--rf-spacing-xs);
+  font-size: var(--rf-font-size-base);
+  font-weight: var(--rf-font-weight-medium);
+  color: var(--rf-color-text-regular);
+}
+
+@mixin form-group {
+  margin-bottom: var(--rf-spacing-xl);
+}
+
+@mixin form-textarea {
+  @include form-field;
+  resize: vertical;
+  font-family: inherit;
+  min-height: calc(var(--rf-line-height-base) * var(--rf-font-size-base) * 3);
+}
+
+@mixin form-select {
+  @include form-field;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right var(--rf-spacing-sm) center;
+  background-repeat: no-repeat;
+  background-size: var(--rf-font-size-md);
+  padding-right: calc(var(--rf-spacing-lg) * 2);
+}
+
+@mixin form-checkbox {
+  width: var(--rf-font-size-lg);
+  height: var(--rf-font-size-lg);
+  margin-right: var(--rf-spacing-sm);
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    box-shadow: var(--rf-shadow-focus);
+  }
+}
+
+@mixin form-message($color: var(--rf-color-text-secondary)) {
+  color: $color;
+  font-size: var(--rf-font-size-sm);
+  margin-top: var(--rf-spacing-xs);
+}

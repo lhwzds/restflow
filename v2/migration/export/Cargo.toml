@@ -1,0 +1,13 @@
+[package]
+name = "migration-export"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+bridge = { path = "../../crates/bridge" }
+restflow-core = { path = "../../../crates/restflow-core" }
+restflow-models = { path = "../../../crates/restflow-models" }
+serde_json = "1"

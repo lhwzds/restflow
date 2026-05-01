@@ -1,0 +1,434 @@
+<script setup lang="ts">
+/**
+ * Auth Profiles Management Component
+ *
+ * Manages authentication profiles for LLM providers with:
+ * - Manual profile creation
+ * - Health tracking and status display
+ */
+
+import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Loader2, Pause, Play, Trash2 } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import {
+  authListProfiles,
+  authAddProfile,
+  authRemoveProfile,
+  authEnableProfile,
+  authDisableProfile,
+  authGetSummary,
+  type ManagerSummary,
+} from '@/api/auth'
+import { useConfirm } from '@/composables/useConfirm'
+import type { AuthProfile, AuthProvider, SecureCredential } from '@/types/generated'
+
+const { t } = useI18n()
+const { confirm } = useConfirm()
+
+// State
+const profiles = ref<AuthProfile[]>([])
+const summary = ref<ManagerSummary | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
+const showAddDialog = ref(false)
+
+interface AddProfileForm {
+  name: string
+  api_key: string
+  provider: AuthProvider
+  email: string
+  priority: number
+}
+
+// New profile form
+const newProfile = ref<AddProfileForm>({
+  name: '',
+  api_key: '',
+  provider: 'anthropic' as AuthProvider,
+  email: '',
+  priority: 0,
+})
+
+// Computed
+const groupedProfiles = computed(() => {
+  const grouped: Record<string, AuthProfile[]> = {}
+  for (const profile of profiles.value) {
+    const provider = profile.provider
+    if (!grouped[provider]) {
+      grouped[provider] = []
+    }
+    grouped[provider].push(profile)
+  }
+  return grouped
+})
+
+// Methods
+async function loadProfiles() {
+  loading.value = true
+  error.value = null
+  try {
+    profiles.value = await authListProfiles()
+    summary.value = await authGetSummary()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function addProfile() {
+  if (!newProfile.value.name || !newProfile.value.api_key) {
+    error.value = t('settings.auth.nameAndKeyRequired')
+    return
+  }
+
+  loading.value = true
+  error.value = null
+  try {
+    const response = await authAddProfile({
+      ...newProfile.value,
+      email: newProfile.value.email.trim() || null,
+    })
+    if (!response.success) {
+      error.value = response.error || t('settings.auth.failedToAdd')
+      return
+    }
+    showAddDialog.value = false
+    newProfile.value = {
+      name: '',
+      api_key: '',
+      provider: 'anthropic' as AuthProvider,
+      email: '',
+      priority: 0,
+    }
+    await loadProfiles()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function removeProfile(profileId: string) {
+  const confirmed = await confirm({
+    title: t('settings.auth.removeTitle'),
+    description: t('settings.auth.removeConfirm'),
+    confirmText: t('common.remove'),
+    cancelText: t('common.cancel'),
+    variant: 'destructive',
+  })
+  if (!confirmed) return
+
+  loading.value = true
+  error.value = null
+  try {
+    const response = await authRemoveProfile(profileId)
+    if (!response.success) {
+      error.value = response.error || t('settings.auth.failedToRemove')
+      return
+    }
+    await loadProfiles()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function toggleProfile(profile: AuthProfile) {
+  loading.value = true
+  error.value = null
+  try {
+    if (profile.enabled) {
+      const response = await authDisableProfile(profile.id, 'User disabled')
+      if (!response.success) {
+        error.value = response.error || t('settings.auth.failedToDisable')
+        return
+      }
+    } else {
+      const response = await authEnableProfile(profile.id)
+      if (!response.success) {
+        error.value = response.error || t('settings.auth.failedToEnable')
+        return
+      }
+    }
+    await loadProfiles()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function getHealthBadgeVariant(
+  health: string,
+): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (health) {
+    case 'healthy':
+      return 'default'
+    case 'cooldown':
+      return 'secondary'
+    case 'disabled':
+      return 'destructive'
+    default:
+      return 'outline'
+  }
+}
+
+function getSourceIcon(source: string): string {
+  switch (source) {
+    case 'claude_code':
+      return '🤖'
+    case 'keychain':
+      return '🔐'
+    case 'environment':
+      return '🌍'
+    case 'manual':
+      return '✏️'
+    default:
+      return '❓'
+  }
+}
+
+function maskApiKey(key: string): string {
+  if (key.length <= 8) return '*'.repeat(key.length)
+  return `${key.slice(0, 4)}...${key.slice(-4)}`
+}
+
+/**
+ * Safely extract the displayable credential value from a SecureCredential union type
+ */
+function getCredentialDisplayValue(credential: SecureCredential): string {
+  switch (credential.type) {
+    case 'api_key':
+      return credential.secret_ref
+    case 'token':
+      return credential.secret_ref
+    case 'o_auth':
+      return credential.access_token_ref
+    default:
+      return ''
+  }
+}
+
+// Lifecycle
+onMounted(loadProfiles)
+</script>
+
+<template>
+  <div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="text-2xl font-bold tracking-tight">{{ t('settings.auth.title') }}</h2>
+        <p class="text-muted-foreground">{{ t('settings.auth.description') }}</p>
+      </div>
+      <div class="flex gap-2">
+        <Dialog v-model:open="showAddDialog">
+          <DialogTrigger as-child>
+            <Button>➕ {{ t('settings.auth.addProfile') }}</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{{ t('settings.auth.addProfileTitle') }}</DialogTitle>
+              <DialogDescription>{{ t('settings.auth.addProfileDescription') }}</DialogDescription>
+            </DialogHeader>
+            <div class="grid gap-4 py-4">
+              <div class="grid gap-2">
+                <Label for="name">{{ t('settings.auth.nameLabel') }}</Label>
+                <Input
+                  id="name"
+                  v-model="newProfile.name"
+                  :placeholder="t('settings.auth.namePlaceholder')"
+                />
+              </div>
+              <div class="grid gap-2">
+                <Label for="provider">{{ t('settings.auth.providerLabel') }}</Label>
+                <Select v-model="newProfile.provider">
+                  <SelectTrigger>
+                    <SelectValue :placeholder="t('settings.auth.providerPlaceholder')" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="anthropic">Anthropic</SelectItem>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="google">Google</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div class="grid gap-2">
+                <Label for="api_key">{{ t('settings.auth.apiKeyLabel') }}</Label>
+                <Input
+                  id="api_key"
+                  v-model="newProfile.api_key"
+                  type="password"
+                  :placeholder="t('settings.auth.apiKeyPlaceholder')"
+                />
+              </div>
+              <div class="grid gap-2">
+                <Label for="email">{{ t('settings.auth.emailLabel') }}</Label>
+                <Input
+                  id="email"
+                  v-model="newProfile.email"
+                  type="email"
+                  placeholder="user@example.com"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" @click="showAddDialog = false">
+                {{ t('common.cancel') }}
+              </Button>
+              <Button @click="addProfile" :disabled="loading">
+                {{ t('settings.auth.addProfile') }}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+
+    <!-- Error Alert -->
+    <div
+      v-if="error"
+      class="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded-lg"
+    >
+      {{ error }}
+    </div>
+
+    <!-- Summary Cards -->
+    <div v-if="summary" class="grid gap-4 md:grid-cols-4">
+      <Card>
+        <CardHeader class="pb-2">
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.totalProfiles') }}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="text-2xl font-bold">{{ summary.total }}</div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader class="pb-2">
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.available') }}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="text-2xl font-bold text-green-600">{{ summary.available }}</div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader class="pb-2">
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.inCooldown') }}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="text-2xl font-bold text-yellow-600">{{ summary.in_cooldown }}</div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader class="pb-2">
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.disabled') }}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="text-2xl font-bold text-red-600">{{ summary.disabled }}</div>
+        </CardContent>
+      </Card>
+    </div>
+
+    <!-- Loading State -->
+    <div v-if="loading" class="flex items-center justify-center py-8">
+      <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+
+    <!-- Profiles by Provider -->
+    <div v-else class="space-y-6">
+      <div v-for="(providerProfiles, provider) in groupedProfiles" :key="provider">
+        <h3 class="text-lg font-semibold mb-3 capitalize">{{ provider }}</h3>
+        <div class="grid gap-4">
+          <Card
+            v-for="profile in providerProfiles"
+            :key="profile.id"
+            :class="{ 'opacity-50': !profile.enabled }"
+          >
+            <CardHeader class="pb-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">{{ getSourceIcon(profile.source) }}</span>
+                  <CardTitle class="text-base">{{ profile.name }}</CardTitle>
+                </div>
+                <div class="flex items-center gap-2">
+                  <Badge :variant="getHealthBadgeVariant(profile.health)">
+                    {{ profile.health }}
+                  </Badge>
+                  <Badge variant="outline">
+                    {{ profile.source.replace('_', ' ') }}
+                  </Badge>
+                </div>
+              </div>
+              <CardDescription v-if="profile.credential">
+                {{ maskApiKey(getCredentialDisplayValue(profile.credential)) }}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div class="flex items-center justify-between">
+                <div class="text-sm text-muted-foreground">
+                  <span v-if="profile.last_used_at">
+                    {{
+                      t('settings.auth.lastUsed', {
+                        date: new Date(profile.last_used_at).toLocaleDateString(),
+                      })
+                    }}
+                  </span>
+                  <span v-else>{{ t('settings.auth.neverUsed') }}</span>
+                  <span v-if="profile.failure_count > 0" class="ml-2 text-yellow-600">
+                    {{ t('settings.auth.failures', { count: profile.failure_count }) }}
+                  </span>
+                </div>
+                <div class="flex gap-2">
+                  <Button variant="outline" size="sm" @click="toggleProfile(profile)">
+                    <Pause v-if="profile.enabled" :size="14" class="mr-1" />
+                    <Play v-else :size="14" class="mr-1" />
+                    {{ profile.enabled ? t('settings.auth.disable') : t('settings.auth.enable') }}
+                  </Button>
+                  <Button
+                    v-if="profile.source === 'manual'"
+                    variant="destructive"
+                    size="sm"
+                    @click="removeProfile(profile.id)"
+                  >
+                    <Trash2 :size="14" class="mr-1" />
+                    {{ t('common.remove') }}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div v-if="profiles.length === 0" class="text-center py-12 text-muted-foreground">
+        <p class="text-lg mb-2">{{ t('settings.auth.noProfilesFound') }}</p>
+        <p class="text-sm">{{ t('settings.auth.noProfilesHint') }}</p>
+      </div>
+    </div>
+  </div>
+</template>

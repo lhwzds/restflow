@@ -1,0 +1,361 @@
+//! AgentStore adapter backed by AgentStorage.
+
+use crate::storage::skill::SkillStorage;
+use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
+use restflow_contracts::request::AgentNode as ContractAgentNode;
+use restflow_tools::ToolError;
+use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
+use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
+
+#[derive(Clone)]
+pub struct AgentStoreAdapter {
+    storage: AgentStorage,
+    skills: SkillStorage,
+    secrets: SecretStorage,
+    task_storage: TaskStorage,
+    known_tools: Arc<RwLock<HashSet<String>>>,
+}
+
+impl AgentStoreAdapter {
+    pub fn new(
+        storage: AgentStorage,
+        skills: SkillStorage,
+        secrets: SecretStorage,
+        task_storage: TaskStorage,
+        known_tools: Arc<RwLock<HashSet<String>>>,
+    ) -> Self {
+        Self {
+            storage,
+            skills,
+            secrets,
+            task_storage,
+            known_tools,
+        }
+    }
+
+    fn parse_agent_node(value: ContractAgentNode) -> Result<crate::models::AgentNode, ToolError> {
+        crate::models::AgentNode::try_from_contract_node(value)
+            .map_err(|errors| ToolError::Tool(crate::models::encode_validation_error(errors)))
+    }
+
+    fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), ToolError> {
+        if let Err(errors) = agent.validate() {
+            return Err(ToolError::Tool(crate::models::encode_validation_error(
+                errors,
+            )));
+        }
+
+        let mut errors = Vec::new();
+        if let Some(tools) = &agent.tools {
+            for tool_name in tools {
+                let normalized = tool_name.trim();
+                if normalized.is_empty() {
+                    errors.push(crate::models::ValidationError::new(
+                        "tools",
+                        "tool name must not be empty",
+                    ));
+                    continue;
+                }
+                let is_known = self
+                    .known_tools
+                    .read()
+                    .map(|set| set.contains(normalized))
+                    .unwrap_or(false);
+                if !is_known {
+                    errors.push(crate::models::ValidationError::new(
+                        "tools",
+                        format!("unknown tool: {}", normalized),
+                    ));
+                }
+            }
+        }
+
+        if let Some(skills) = &agent.skills {
+            let skill_ids: Vec<&str> = skills
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| {
+                    if s.is_empty() {
+                        errors.push(crate::models::ValidationError::new(
+                            "skills",
+                            "skill ID must not be empty",
+                        ));
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect();
+            match self.skills.exists_many(&skill_ids) {
+                Ok(existing) => {
+                    for &id in &skill_ids {
+                        if !existing.contains(id) {
+                            errors.push(crate::models::ValidationError::new(
+                                "skills",
+                                format!("unknown skill: {}", id),
+                            ));
+                        }
+                    }
+                }
+                Err(err) => errors.push(crate::models::ValidationError::new(
+                    "skills",
+                    format!("failed to verify skills: {}", err),
+                )),
+            }
+        }
+
+        if let Some(crate::models::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
+            let normalized = secret_name.trim();
+            if !normalized.is_empty() {
+                match self.secrets.has_available_secret(normalized) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(crate::models::ValidationError::new(
+                        "api_key_config",
+                        format!("secret not found in storage: {}", normalized),
+                    )),
+                    Err(err) => errors.push(crate::models::ValidationError::new(
+                        "api_key_config",
+                        format!("failed to verify secret '{}': {}", normalized, err),
+                    )),
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(ToolError::Tool(crate::models::encode_validation_error(
+                errors,
+            )))
+        }
+    }
+}
+
+impl AgentStore for AgentStoreAdapter {
+    fn list_agents(&self) -> restflow_tools::Result<Value> {
+        let agents = self.storage.list_agents()?;
+        serde_json::to_value(agents).map_err(ToolError::from)
+    }
+
+    fn get_agent(&self, id: &str) -> restflow_tools::Result<Value> {
+        let agent = self
+            .storage
+            .get_agent(id.to_string())?
+            .ok_or_else(|| ToolError::Tool(format!("Agent {} not found", id)))?;
+        serde_json::to_value(agent).map_err(ToolError::from)
+    }
+
+    fn create_agent(&self, request: AgentCreateRequest) -> restflow_tools::Result<Value> {
+        let agent = Self::parse_agent_node(request.agent)?;
+        self.validate_agent_node(&agent)?;
+        let created = self.storage.create_agent(request.name, agent)?;
+        serde_json::to_value(created).map_err(ToolError::from)
+    }
+
+    fn update_agent(&self, request: AgentUpdateRequest) -> restflow_tools::Result<Value> {
+        let agent = match request.agent {
+            Some(value) => {
+                let node = Self::parse_agent_node(value)?;
+                self.validate_agent_node(&node)?;
+                Some(node)
+            }
+            None => None,
+        };
+        let updated = self.storage.update_agent(request.id, request.name, agent)?;
+        serde_json::to_value(updated).map_err(ToolError::from)
+    }
+
+    fn delete_agent(&self, id: &str) -> restflow_tools::Result<Value> {
+        if let Some(task_names) =
+            crate::services::agent::check_agent_has_active_tasks(&self.task_storage, id)
+                .map_err(|e| ToolError::Tool(e.to_string()))?
+        {
+            return Err(ToolError::Tool(format!(
+                "Cannot delete agent {}: active tasks exist ({})",
+                id, task_names
+            )));
+        }
+
+        self.storage.delete_agent(id.to_string())?;
+        Ok(json!({ "id": id, "deleted": true }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
+    use restflow_test_support::RestflowTestEnv;
+    use restflow_traits::store::AgentStore;
+    use std::sync::Arc;
+
+    fn setup() -> (AgentStoreAdapter, RestflowTestEnv) {
+        let env = RestflowTestEnv::new();
+        let db_path = env.db_path("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+
+        let agent_storage = AgentStorage::new(db.clone()).unwrap();
+        let skill_storage = SkillStorage::new(db.clone()).unwrap();
+        let secret_storage = SecretStorage::with_config(
+            db.clone(),
+            restflow_storage::SecretStorageConfig {
+                allow_insecure_file_permissions: true,
+            },
+        )
+        .unwrap();
+        let bg_storage = TaskStorage::new(db).unwrap();
+        let known_tools = Arc::new(RwLock::new(HashSet::from([
+            "bash".to_string(),
+            "http_request".to_string(),
+        ])));
+
+        (
+            AgentStoreAdapter::new(
+                agent_storage,
+                skill_storage,
+                secret_storage,
+                bg_storage,
+                known_tools,
+            ),
+            env,
+        )
+    }
+
+    #[test]
+    fn test_create_and_list_agents() {
+        let (adapter, _env) = setup();
+        let request = AgentCreateRequest {
+            name: "Test Agent".to_string(),
+            agent: ContractAgentNode::default(),
+        };
+        adapter.create_agent(request).unwrap();
+
+        let list = adapter.list_agents().unwrap();
+        let agents = list.as_array().unwrap();
+        assert!(!agents.is_empty());
+    }
+
+    #[test]
+    fn test_get_agent() {
+        let (adapter, _env) = setup();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "Getter".to_string(),
+                agent: ContractAgentNode::default(),
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        let fetched = adapter.get_agent(id).unwrap();
+        assert_eq!(fetched["name"], "Getter");
+    }
+
+    #[test]
+    fn test_get_nonexistent_agent_fails() {
+        let (adapter, _env) = setup();
+        let result = adapter.get_agent("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_delete_agent() {
+        let (adapter, _env) = setup();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "To Delete".to_string(),
+                agent: ContractAgentNode::default(),
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        let result = adapter.delete_agent(id).unwrap();
+        assert_eq!(result["deleted"], true);
+    }
+
+    #[test]
+    fn test_update_agent_name() {
+        let (adapter, _env) = setup();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "Original".to_string(),
+                agent: ContractAgentNode::default(),
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_string();
+
+        let updated = adapter
+            .update_agent(AgentUpdateRequest {
+                id,
+                name: Some("Renamed".to_string()),
+                agent: None,
+            })
+            .unwrap();
+        assert_eq!(updated["name"], "Renamed");
+    }
+
+    #[test]
+    fn test_validate_unknown_tool_rejected() {
+        let (adapter, _env) = setup();
+        let result = adapter.create_agent(AgentCreateRequest {
+            name: "Bad Tools".to_string(),
+            agent: ContractAgentNode {
+                tools: Some(vec!["nonexistent_tool".to_string()]),
+                ..ContractAgentNode::default()
+            },
+        });
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("unknown tool"));
+    }
+
+    #[test]
+    fn test_create_agent_rejects_invalid_model_ref() {
+        let (adapter, _env) = setup();
+        let result = adapter.create_agent(AgentCreateRequest {
+            name: "Bad Model Ref".to_string(),
+            agent: ContractAgentNode {
+                model_ref: Some(WireModelRef {
+                    provider: "openai".to_string(),
+                    model: "claude-sonnet-4".to_string(),
+                }),
+                ..ContractAgentNode::default()
+            },
+        });
+
+        let error = result.expect_err("expected invalid model_ref");
+        let message = error.to_string();
+        assert!(message.contains("validation_error"));
+        assert!(message.contains("model_ref"));
+    }
+
+    #[test]
+    fn test_update_agent_rejects_conflicting_model_fields() {
+        let (adapter, _env) = setup();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "Conflict".to_string(),
+                agent: ContractAgentNode::default(),
+            })
+            .expect("create agent");
+        let id = created["id"].as_str().expect("agent id").to_string();
+
+        let result = adapter.update_agent(AgentUpdateRequest {
+            id,
+            name: None,
+            agent: Some(ContractAgentNode {
+                model_ref: Some(WireModelRef {
+                    provider: "anthropic".to_string(),
+                    model: "gpt-5-mini".to_string(),
+                }),
+                ..ContractAgentNode::default()
+            }),
+        });
+
+        let error = result.expect_err("expected invalid model_ref");
+        let message = error.to_string();
+        assert!(message.contains("validation_error"));
+        assert!(message.contains("model_ref"));
+    }
+}

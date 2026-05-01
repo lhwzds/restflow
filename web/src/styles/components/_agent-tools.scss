@@ -1,0 +1,57 @@
+// Agent tools selector shared styles
+.tools-selector {
+  width: 100%;
+
+  .tool-option {
+    .tool-label {
+      font-weight: var(--rf-font-weight-medium);
+      color: var(--rf-color-text-primary);
+    }
+
+    .tool-description {
+      font-size: var(--rf-font-size-xs);
+      color: var(--rf-color-text-secondary);
+      margin-top: var(--rf-spacing-3xs);
+    }
+  }
+
+  .tools-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--rf-spacing-sm);
+
+    :deep(.el-tag) {
+      font-size: var(--rf-font-size-sm);
+      padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+      background: var(--rf-color-primary-light-9);
+      border-color: var(--rf-color-primary-light-7);
+      color: var(--rf-color-primary);
+
+      .el-tag__close {
+        color: var(--rf-color-primary);
+
+        &:hover {
+          background-color: var(--rf-color-primary-light-7);
+        }
+      }
+    }
+  }
+
+  .no-tools-hint {
+    color: var(--rf-color-text-secondary);
+    font-size: var(--rf-font-size-sm);
+    font-style: italic;
+    padding: var(--rf-spacing-sm) 0;
+  }
+}
+
+html.dark {
+  .tools-selector {
+    .tools-tags {
+      :deep(.el-tag) {
+        background: rgba(64, 158, 255, 0.1);
+        border-color: rgba(64, 158, 255, 0.2);
+      }
+    }
+  }
+}

@@ -4,13 +4,16 @@
 /target/
 /target-*/
 /target-release-check/
+/crates/*/target/stress-artifacts/
 /node_modules/
 
 # Internal development documentation
 /doc/
-/docs/
-/migration/**/Cargo.lock
-/migration/**/target/
+/docs/*
+!/docs/TASK_RUN_DOMAIN_MODEL.md
+/v2/docs/
+/v2/migration/**/Cargo.lock
+/v2/migration/**/target/
 
 # Local agent guidance files
 CLAUDE.md
@@ -24,10 +27,10 @@ GEMINI.md
 .cursor/
 .windsurf/
 
-# Python environment and build output
+# Python environment
 /python/.venv/
-/python/dist/
-/python/restflow/*.so
+/python/scripts/*.py  # User scripts (runtime generated)
+!/python/scripts/templates/  # Keep templates
 
 # Local one-off maintenance scripts
 /scripts/local/
@@ -39,6 +42,10 @@ GEMINI.md
 __pycache__/
 *.py[cod]
 *$py.class
+
+# V2 Python build output
+/v2/python/dist/
+/v2/python/restflow/*.so
 
 .playwright-mcp
 .restflow/

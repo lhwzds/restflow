@@ -1,0 +1,708 @@
+//! Typed agent storage wrapper.
+
+use crate::models::AgentNode;
+use crate::prompt_files;
+use anyhow::Result;
+use redb::Database;
+use restflow_storage::SimpleStorage;
+use restflow_storage::time_utils;
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use std::sync::Arc;
+use ts_rs::TS;
+use uuid::Uuid;
+
+/// Canonical default assistant name created during app initialization.
+pub const DEFAULT_ASSISTANT_NAME: &str = "Default Assistant";
+
+/// Stored agent with metadata
+#[derive(Serialize, Deserialize, Debug, Clone, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct StoredAgent {
+    pub id: String,
+    pub name: String,
+    pub agent: AgentNode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt_file: Option<String>,
+    #[ts(optional, type = "number")]
+    pub created_at: Option<i64>,
+    #[ts(optional, type = "number")]
+    pub updated_at: Option<i64>,
+}
+
+/// Typed agent storage wrapper around restflow-storage::AgentStorage.
+#[derive(Clone)]
+pub struct AgentStorage {
+    inner: restflow_storage::AgentStorage,
+}
+
+impl AgentStorage {
+    pub fn new(db: Arc<Database>) -> Result<Self> {
+        Ok(Self {
+            inner: restflow_storage::AgentStorage::new(db)?,
+        })
+    }
+
+    pub fn create_agent(&self, name: String, mut agent: AgentNode) -> Result<StoredAgent> {
+        normalize_model_fields(&mut agent)?;
+        let now = time_utils::now_ms();
+        let id = Uuid::new_v4().to_string();
+
+        // Prompt content is file-backed under ~/.restflow/agents/{agent-name}.md, not stored in DB.
+        let prompt_override = agent.prompt.take();
+        let prompt_path =
+            prompt_files::ensure_agent_prompt_file(&id, &name, None, prompt_override.as_deref())?;
+
+        let stored_agent = StoredAgent {
+            id,
+            name,
+            agent,
+            prompt_file: Some(path_file_name(&prompt_path)?),
+            created_at: Some(now),
+            updated_at: Some(now),
+        };
+
+        self.persist_without_prompt(&stored_agent)?;
+
+        self.hydrate_prompt_from_file(stored_agent)
+    }
+
+    pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
+        if let Some(bytes) = self.inner.get_raw(&id)? {
+            let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            normalize_model_fields(&mut agent.agent)?;
+            Ok(Some(self.hydrate_prompt_from_file(agent)?))
+        } else {
+            let Some(resolved_id) = self.resolve_agent_id_candidate(&id)? else {
+                return Ok(None);
+            };
+            if let Some(bytes) = self.inner.get_raw(&resolved_id)? {
+                let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+                normalize_model_fields(&mut agent.agent)?;
+                Ok(Some(self.hydrate_prompt_from_file(agent)?))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
+        let agents = self.inner.list_raw()?;
+        let mut result = Vec::new();
+        for (_, bytes) in agents {
+            let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            normalize_model_fields(&mut agent.agent)?;
+            result.push(self.hydrate_prompt_from_file(agent)?);
+        }
+        Ok(result)
+    }
+
+    /// Resolve the default chat agent deterministically.
+    ///
+    /// Resolution order:
+    /// 1. Agent named "Default Assistant" (case-insensitive)
+    /// 2. The only existing agent (when exactly one exists)
+    ///
+    /// This intentionally avoids selecting an arbitrary first agent when
+    /// multiple agents exist.
+    pub fn resolve_default_agent(&self) -> Result<StoredAgent> {
+        let agents = self.list_agents()?;
+
+        if agents.is_empty() {
+            anyhow::bail!("No agents configured");
+        }
+
+        if let Some(agent) = agents
+            .iter()
+            .find(|agent| agent.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME))
+            .cloned()
+        {
+            return Ok(agent);
+        }
+
+        if agents.len() == 1 {
+            return Ok(agents[0].clone());
+        }
+
+        anyhow::bail!(
+            "Default agent is ambiguous: define an agent named '{}'",
+            DEFAULT_ASSISTANT_NAME
+        )
+    }
+
+    /// Resolve only the ID of the default chat agent.
+    pub fn resolve_default_agent_id(&self) -> Result<String> {
+        Ok(self.resolve_default_agent()?.id)
+    }
+
+    pub fn update_agent(
+        &self,
+        id: String,
+        name: Option<String>,
+        agent: Option<AgentNode>,
+    ) -> Result<StoredAgent> {
+        let mut existing_agent = self
+            .get_agent(id.clone())?
+            .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
+
+        if let Some(new_name) = name {
+            existing_agent.name = new_name;
+        }
+
+        let mut prompt_override: Option<String> = None;
+        if let Some(mut new_agent) = agent {
+            normalize_model_fields(&mut new_agent)?;
+            prompt_override = new_agent.prompt.take();
+            existing_agent.agent = new_agent;
+        }
+
+        prompt_files::ensure_agent_prompt_file(
+            &existing_agent.id,
+            &existing_agent.name,
+            existing_agent.prompt_file.as_deref(),
+            prompt_override.as_deref(),
+        )
+        .and_then(|path| path_file_name(&path))
+        .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
+
+        let now = time_utils::now_ms();
+        existing_agent.updated_at = Some(now);
+
+        self.persist_without_prompt(&existing_agent)?;
+
+        self.hydrate_prompt_from_file(existing_agent)
+    }
+
+    /// Delete an agent atomically to prevent TOCTOU race conditions.
+    ///
+    /// This operation resolves the agent ID and deletes it within a single
+    /// write transaction, ensuring that concurrent delete operations on the
+    /// same agent are handled correctly.
+    ///
+    /// # Errors
+    /// Returns an error if the agent is not found or if the ID prefix is ambiguous.
+    pub fn delete_agent(&self, id: String) -> Result<()> {
+        let resolved_id = self.resolve_existing_agent_id(&id)?;
+        let bytes = self
+            .inner
+            .get_raw(&resolved_id)?
+            .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
+        let existing: StoredAgent = serde_json::from_slice(&bytes)?;
+
+        // Use atomic delete from inner storage after loading prompt metadata.
+        let (existed, _) = self.inner.delete_atomically(&resolved_id)?;
+        if !existed {
+            return Err(anyhow::anyhow!("Agent {} not found", id));
+        }
+        let _ = prompt_files::delete_agent_prompt_file_for_agent(
+            &existing.id,
+            &existing.name,
+            existing.prompt_file.as_deref(),
+        );
+        Ok(())
+    }
+
+    pub fn resolve_existing_agent_id(&self, id_or_prefix: &str) -> Result<String> {
+        let id = id_or_prefix.trim();
+        if id.is_empty() {
+            anyhow::bail!("Agent ID is empty");
+        }
+
+        if self.inner.get_raw(id)?.is_some() {
+            return Ok(id.to_string());
+        }
+
+        match self.resolve_agent_id_candidate(id)? {
+            Some(resolved) => Ok(resolved),
+            None => anyhow::bail!("Agent {} not found", id),
+        }
+    }
+
+    pub fn reconcile_prompt_file_names(&self) -> Result<()> {
+        let agents = self.list_agents()?;
+        for mut agent in agents {
+            let prompt_path = prompt_files::ensure_agent_prompt_file(
+                &agent.id,
+                &agent.name,
+                agent.prompt_file.as_deref(),
+                None,
+            )?;
+            let prompt_file = path_file_name(&prompt_path)?;
+            if agent.prompt_file.as_deref() != Some(prompt_file.as_str()) {
+                agent.prompt_file = Some(prompt_file);
+                self.persist_without_prompt(&agent)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
+        let loaded = prompt_files::load_agent_prompt_for_agent(
+            &stored.id,
+            &stored.name,
+            stored.prompt_file.as_deref(),
+        )?;
+        stored.agent.prompt = loaded.content;
+        if stored.prompt_file != loaded.prompt_file {
+            stored.prompt_file = loaded.prompt_file;
+            self.persist_without_prompt(&stored)?;
+        }
+        Ok(stored)
+    }
+
+    fn persist_without_prompt(&self, stored: &StoredAgent) -> Result<()> {
+        let mut scrubbed = stored.clone();
+        scrubbed.agent.prompt = None;
+        let json_bytes = serde_json::to_vec(&scrubbed)?;
+        self.inner.put_raw(&scrubbed.id, &json_bytes)?;
+        Ok(())
+    }
+
+    fn resolve_agent_id_candidate(&self, id_or_prefix: &str) -> Result<Option<String>> {
+        let prefix = id_or_prefix.trim();
+        if prefix.is_empty() {
+            return Ok(None);
+        }
+
+        let matches: Vec<String> = self
+            .inner
+            .list_raw()?
+            .into_iter()
+            .map(|(key, _)| key)
+            .filter(|key| key.starts_with(prefix))
+            .collect();
+
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(matches.into_iter().next()),
+            _ => {
+                let preview = matches
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "Agent ID prefix '{}' is ambiguous ({} matches: {})",
+                    prefix,
+                    matches.len(),
+                    preview
+                )
+            }
+        }
+    }
+}
+
+fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {
+    if let Err(error) = agent.normalize_model_fields() {
+        anyhow::bail!(crate::models::encode_validation_error(vec![error]));
+    }
+    Ok(())
+}
+
+fn path_file_name(path: &std::path::Path) -> Result<String> {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| anyhow::anyhow!("Invalid prompt path: {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ModelId;
+    use crate::prompt_files;
+    use tempfile::tempdir;
+
+    const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        prompt_files::agents_dir_env_lock()
+    }
+
+    fn create_test_agent_node() -> AgentNode {
+        use crate::models::ApiKeyConfig;
+
+        AgentNode {
+            model_ref: Some(crate::models::ModelRef::from_model(
+                ModelId::ClaudeSonnet4_5,
+            )),
+            prompt: Some("You are a helpful assistant".to_string()),
+            temperature: Some(0.7),
+            codex_cli_reasoning_effort: None,
+            codex_cli_execution_mode: None,
+            api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
+            tools: Some(vec!["add".to_string()]),
+            skills: None,
+            skill_variables: None,
+            skill_preflight_policy_mode: None,
+            model_routing: None,
+        }
+    }
+
+    #[test]
+    fn test_insert_and_get_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let agent_node = create_test_agent_node();
+        let stored = storage
+            .create_agent("Test Agent".to_string(), agent_node)
+            .unwrap();
+
+        assert!(!stored.id.is_empty());
+        assert_eq!(stored.name, "Test Agent");
+
+        let retrieved = storage.get_agent(stored.id.clone()).unwrap();
+        assert!(retrieved.is_some());
+
+        let agent = retrieved.unwrap();
+        assert_eq!(agent.name, "Test Agent");
+        assert_eq!(
+            agent
+                .agent
+                .resolved_model_ref()
+                .map(|model_ref| model_ref.model),
+            Some(ModelId::ClaudeSonnet4_5)
+        );
+        assert!(prompts_dir.join("test-agent.md").exists());
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_list_agents() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        storage
+            .create_agent("Agent 1".to_string(), create_test_agent_node())
+            .unwrap();
+        storage
+            .create_agent("Agent 2".to_string(), create_test_agent_node())
+            .unwrap();
+        storage
+            .create_agent("Agent 3".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let agents = storage.list_agents().unwrap();
+        assert_eq!(agents.len(), 3);
+
+        let names: Vec<String> = agents.iter().map(|a| a.name.clone()).collect();
+        assert!(names.contains(&"Agent 1".to_string()));
+        assert!(names.contains(&"Agent 2".to_string()));
+        assert!(names.contains(&"Agent 3".to_string()));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_update_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Original Name".to_string(), create_test_agent_node())
+            .unwrap();
+        let updated = storage
+            .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
+            .unwrap();
+
+        assert_eq!(updated.name, "Updated Name");
+        assert_eq!(
+            updated
+                .agent
+                .resolved_model_ref()
+                .map(|model_ref| model_ref.model),
+            Some(ModelId::ClaudeSonnet4_5)
+        );
+
+        let mut new_agent_node = create_test_agent_node();
+        new_agent_node.temperature = Some(0.9);
+
+        let updated2 = storage
+            .update_agent(stored.id.clone(), None, Some(new_agent_node))
+            .unwrap();
+
+        assert_eq!(updated2.name, "Updated Name");
+        assert_eq!(updated2.agent.temperature, Some(0.9));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_update_name_does_not_rehydrate_prompt_into_db() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Original Name".to_string(), create_test_agent_node())
+            .unwrap();
+        let updated = storage
+            .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
+            .unwrap();
+
+        assert_eq!(updated.name, "Updated Name");
+        assert!(updated.agent.prompt.is_some());
+
+        let raw = storage.inner.get_raw(&stored.id).unwrap().unwrap();
+        let persisted: StoredAgent = serde_json::from_slice(&raw).unwrap();
+        assert!(persisted.agent.prompt.is_none());
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_update_agent_renames_prompt_file_on_name_change() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Original Name".to_string(), create_test_agent_node())
+            .unwrap();
+        assert!(prompts_dir.join("original-name.md").exists());
+
+        storage
+            .update_agent(stored.id.clone(), Some("Renamed Agent".to_string()), None)
+            .unwrap();
+
+        assert!(!prompts_dir.join("original-name.md").exists());
+        assert!(prompts_dir.join("renamed-agent.md").exists());
+        let loaded = prompt_files::load_agent_prompt_for_agent(
+            &stored.id,
+            "Renamed Agent",
+            Some("renamed-agent.md"),
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.content.as_deref(),
+            Some("You are a helpful assistant")
+        );
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_get_agent_supports_unique_prefix() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Prefix Test".to_string(), create_test_agent_node())
+            .unwrap();
+        let short = stored.id.chars().take(8).collect::<String>();
+        let resolved = storage
+            .get_agent(short)
+            .unwrap()
+            .expect("agent should resolve");
+        assert_eq!(resolved.id, stored.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_delete_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("To Delete".to_string(), create_test_agent_node())
+            .unwrap();
+        storage.delete_agent(stored.id.clone()).unwrap();
+
+        let retrieved = storage.get_agent(stored.id.clone()).unwrap();
+        assert!(retrieved.is_none());
+
+        let deleted_again = storage.delete_agent(stored.id);
+        assert!(deleted_again.is_err());
+        assert!(deleted_again.unwrap_err().to_string().contains("not found"));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_get_nonexistent_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let result = storage.get_agent("nonexistent".to_string()).unwrap();
+        assert!(result.is_none());
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_update_nonexistent_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let result = storage.update_agent(
+            "nonexistent".to_string(),
+            Some("New Name".to_string()),
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_prefers_default_assistant() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let first = storage
+            .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
+            .unwrap();
+        let default_agent = storage
+            .create_agent(DEFAULT_ASSISTANT_NAME.to_string(), create_test_agent_node())
+            .unwrap();
+
+        let resolved = storage.resolve_default_agent().unwrap();
+        assert_eq!(resolved.id, default_agent.id);
+        assert_ne!(resolved.id, first.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_uses_only_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let only = storage
+            .create_agent("Only Agent".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let resolved = storage.resolve_default_agent().unwrap();
+        assert_eq!(resolved.id, only.id);
+        assert_eq!(storage.resolve_default_agent_id().unwrap(), only.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_errors_when_ambiguous() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        storage
+            .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
+            .unwrap();
+        storage
+            .create_agent("Feature B".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let err = storage.resolve_default_agent().expect_err("should fail");
+        assert!(err.to_string().contains("Default agent is ambiguous"));
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    /// Test concurrent delete_agent operations don't cause race conditions.
+    /// Only one thread should succeed in deleting the agent.
+    #[test]
+    fn test_concurrent_delete_agent_atomic() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::thread;
+
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(AgentStorage::new(db).unwrap());
+
+        let stored = storage
+            .create_agent("Race Test".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let success_count = Arc::new(AtomicUsize::new(0));
+        let num_threads = 10;
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let s = Arc::clone(&storage);
+                let id = stored.id.clone();
+                let count = Arc::clone(&success_count);
+                thread::spawn(move || {
+                    if s.delete_agent(id).is_ok() {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Exactly one delete should have succeeded
+        assert_eq!(success_count.load(Ordering::SeqCst), 1);
+
+        // Agent should no longer exist
+        let retrieved = storage.get_agent(stored.id.clone()).unwrap();
+        assert!(retrieved.is_none());
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+}

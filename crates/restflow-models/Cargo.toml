@@ -1,0 +1,14 @@
+[package]
+name = "restflow-models"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Shared model and provider primitives for RestFlow"
+
+[dependencies]
+restflow-traits = { workspace = true, features = ["ts", "specta"] }
+serde = { workspace = true }
+specta = { version = "=2.0.0-rc.23", features = ["derive", "serde_json"] }
+ts-rs = { version = "12.0", features = ["chrono-impl"] }
+
+[lints.rust]

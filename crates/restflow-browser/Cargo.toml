@@ -1,0 +1,28 @@
+[package]
+name = "restflow-browser"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "AI-first browser automation runtime for RestFlow"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+tempfile = "3"
+base64 = "0.22"
+futures-util = "0.3"
+reqwest = { version = "0.13.2", features = ["json"] }
+tokio-tungstenite = { version = "0.28", features = ["connect", "rustls-tls-webpki-roots"] }
+
+[lints.rust]
+
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tempfile = "3"
