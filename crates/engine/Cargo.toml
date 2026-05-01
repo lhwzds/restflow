@@ -1,0 +1,24 @@
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+agent.workspace = true
+anyhow.workspace = true
+auth.workspace = true
+chat.workspace = true
+event.workspace = true
+model.workspace = true
+proto.workspace = true
+run.workspace = true
+skill.workspace = true
+store.workspace = true
+tool.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+serde_json.workspace = true

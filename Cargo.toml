@@ -1,58 +1,69 @@
 [workspace]
 members = [
-    "crates/restflow-build",
-    "crates/restflow-contracts",
-    "crates/restflow-models",
-    "crates/restflow-traits",
-    "crates/restflow-telemetry",
-    "crates/restflow-storage",
-    "crates/restflow-test-support",
-    "crates/restflow-core",
-    "crates/restflow-cli",
-    "crates/restflow-tui",
-    "crates/restflow-ai",
-    "crates/restflow-tools",
-    "crates/restflow-browser",
-    "crates/restflow-sandbox",
+    "crates/restflow",
+    "crates/agent",
+    "crates/auth",
+    "crates/bridge",
+    "crates/chat",
+    "crates/cli",
+    "crates/engine",
+    "crates/event",
+    "crates/model",
+    "crates/proto",
+    "crates/py",
+    "crates/run",
+    "crates/runtime",
+    "crates/server",
+    "crates/skill",
+    "crates/store",
+    "crates/tool",
+]
+default-members = [
+    "crates/restflow",
+    "crates/agent",
+    "crates/auth",
+    "crates/bridge",
+    "crates/chat",
+    "crates/cli",
+    "crates/engine",
+    "crates/event",
+    "crates/model",
+    "crates/proto",
+    "crates/run",
+    "crates/runtime",
+    "crates/server",
+    "crates/skill",
+    "crates/store",
+    "crates/tool",
 ]
 resolver = "2"
 
-# Default to running core
-default-members = ["crates/restflow-core"]
-
 [workspace.package]
-version = "0.4.1"
-authors = ["RestFlow Team"]
 edition = "2024"
+version = "0.1.0"
+license = "MIT"
+repository = "https://github.com/lhwzds/restflow"
+description = "RestFlow executable skill runtime internals."
 
 [workspace.dependencies]
-restflow-contracts = { path = "crates/restflow-contracts" }
-restflow-build = { path = "crates/restflow-build" }
-restflow-models = { path = "crates/restflow-models" }
-restflow-traits = { path = "crates/restflow-traits" }
-restflow-telemetry = { path = "crates/restflow-telemetry" }
-restflow-storage = { path = "crates/restflow-storage" }
-restflow-test-support = { path = "crates/restflow-test-support" }
-restflow-core = { path = "crates/restflow-core" }
-restflow-tui = { path = "crates/restflow-tui" }
-restflow-ai = { path = "crates/restflow-ai" }
-restflow-tools = { path = "crates/restflow-tools" }
-restflow-browser = { path = "crates/restflow-browser" }
-restflow-sandbox = { path = "crates/restflow-sandbox" }
-monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.7" }
-anyhow = "1.0.101"
-async-trait = "0.1.89"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.142"
-toml = "0.9"
-tokio = { version = "1.51.1", features = ["full"] }
-uuid = { version = "1.21.0", features = ["v4", "serde"] }
-chrono = "0.4.44"
-tracing = "0.1"
-
-[profile.release]
-# Optimize release builds
-lto = true
-opt-level = "z"
-codegen-units = 1
-strip = "debuginfo"
+agent = { path = "crates/agent" }
+auth = { path = "crates/auth" }
+bridge = { path = "crates/bridge" }
+chat = { path = "crates/chat" }
+cli = { path = "crates/cli" }
+engine = { path = "crates/engine" }
+event = { path = "crates/event" }
+model = { path = "crates/model" }
+proto = { path = "crates/proto" }
+run = { path = "crates/run" }
+runtime = { path = "crates/runtime" }
+server = { path = "crates/server" }
+skill = { path = "crates/skill" }
+store = { path = "crates/store" }
+tool = { path = "crates/tool" }
+restflow = { path = "crates/restflow" }
+anyhow = "1"
+async-trait = "0.1"
+redb = "3.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

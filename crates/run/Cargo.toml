@@ -1,0 +1,15 @@
+[package]
+name = "run"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+agent.workspace = true
+anyhow.workspace = true
+chat.workspace = true
+serde.workspace = true
+skill.workspace = true
+store.workspace = true

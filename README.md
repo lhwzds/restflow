@@ -1,174 +1,155 @@
-<div align="center">
-  <img src="web/src/assets/restflow.svg" alt="RestFlow Logo" width="120" height="120" />
+# RestFlow Skill Runtime
 
-# RestFlow
+RestFlow is a Python-first executable skill runtime that lets agent frameworks
+discover, build, install, and call local skills.
 
-**Make your agent binary. Make your workflow binary. Make your skill binary.**
+## Principles
 
-[![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
-[![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
-[![Release](https://img.shields.io/github/v/release/lhwzds/restflow?label=latest)](https://github.com/lhwzds/restflow/releases/latest)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-dea584)](https://www.rust-lang.org/)
+- Use short module names.
+- Give each module a narrow responsibility.
+- Keep UI interaction out of runtime semantics.
+- Keep durable storage out of the executable skill runtime.
+- Keep Python bindings at the same module boundary as Rust APIs.
+- Support external agent frameworks instead of replacing their main agent loop.
+- Make Rust binary skills and uv-backed Python skills first-class.
 
-</div>
-
----
-
-## What RestFlow Is
-
-RestFlow is a daemon-centric AI runtime that is evolving toward a simple product idea:
-
-This product model is under active development and is being implemented incrementally on top of the existing daemon runtime.
-
-- **Skill Binary**: package one reusable AI capability as a portable executable unit
-- **Agent Binary**: compile one agent with its model, tools, policy, and behavior into a runnable unit
-- **Workflow Binary**: compose multiple skills and agents into a fixed executable flow
-
-The daemon remains the runtime center.
-It is already the execution and persistence binary for RestFlow today, and the higher-level
-skill / agent / workflow binary model is built on top of that runtime rather than replacing it.
-
-In practice, this means RestFlow is not just "an AI chat app" or "a workflow editor".
-It is building toward a portable execution system for AI work:
-
-- agents
-- skills
-- workflows
-- parallel execution
-
-## Quick Start
-
-### Install
-
-**Homebrew**
-
-```bash
-brew install lhwzds/tap/restflow
-```
-
-**npm**
-
-```bash
-npm install -g restflow-cli
-```
-
-**From source**
-
-```bash
-cargo install --git https://github.com/lhwzds/restflow --package restflow-cli
-```
-
-### Start the daemon
-
-```bash
-restflow daemon start --foreground
-```
-
-### Add a model credential
-
-```bash
-restflow secret set OPENAI_API_KEY sk-xxx
-# or
-restflow secret set ANTHROPIC_API_KEY sk-ant-xxx
-```
-
-### Optional: connect external coding agents
-
-```bash
-# Sync RestFlow MCP to Codex
-restflow mcp codex sync
-```
-
-## Product Model
-
-RestFlow organizes AI work into three product layers:
-
-### Skill Binary
-
-The smallest reusable unit.
-
-- encapsulates one AI capability
-- can carry instructions, dependencies, and executable behavior
-- is designed to be shareable, installable, and runnable
-
-### Agent Binary
-
-A packaged AI worker.
-
-- binds model, tools, runtime policy, and attached skills
-- is intended to run as a stable executable unit
-- is the main building block for real task execution
-
-### Workflow Binary
-
-A compiled execution flow.
-
-- composes multiple skills and agents
-- encodes a fixed execution order
-- is intended for reproducible AI workflows and multi-step automation
-
-## Runtime Architecture
-
-Today, RestFlow's implementation center is still the daemon runtime.
-
-RestFlow is not a split frontend/backend app with duplicated execution logic.
-It is a daemon-centric runtime:
-
-- `restflow-core` owns daemon execution, persistence, background task runtime, and chat routing
-- `restflow-ai` owns the agent loop, model execution, and subagent runtime capability
-- `restflow-tools` owns tool implementations and registry assembly helpers
-- Browser and CLI are client facades over daemon HTTP/MCP/IPC surfaces
-
-Execution naming follows one canonical model:
-
-- `Agent`: capability and identity
-- `Task`: schedulable unit of work assigned to an agent
-- `Run`: one execution of a task
-- `Sub-agent`: delegated execution spawned within a run
-
-See the local architecture references for the current design:
-
-- [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
-- [docs/TASK_RUN_DOMAIN_MODEL.md](./docs/TASK_RUN_DOMAIN_MODEL.md)
-
-## Current State
-
-RestFlow already has the daemon-first runtime foundation:
-
-- daemon-owned execution
-- browser and CLI as clients
-- persistent chat sessions
-- background task runtime
-- tool execution and tracing
-- MCP/HTTP/IPC surfaces
-
-The product direction from here is to raise these runtime capabilities into first-class,
-portable artifacts:
-
-- skill binaries
-- agent binaries
-- workflow binaries
-
-## Links
-
-- Site: [restflow.ai](https://restflow.ai)
-- Docs: [restflow.ai/docs](https://restflow.ai/docs/)
-- Releases: [GitHub Releases](https://github.com/lhwzds/restflow/releases/latest)
-
-## Development
-
-```bash
-# Rust workspace
-cargo check
-
-# Web app
-cd web
-npm install
-npm run dev
-```
-
-Default MCP HTTP endpoint:
+## Modules
 
 ```text
-http://localhost:8787/mcp
+agent   agent loop and execution planning
+bridge  legacy migration DTOs and import checks
+skill   skill catalog, mentions, and per-turn capability planning
+tool    tool trait and registry
+runtime executable skill artifacts, scaffold, build, and run
+cli     minimal executable skill commands
+run     Task/Run durable execution model
+chat    sessions, turns, and messages
+engine  core composition and command execution
+proto   CoreCommand, CoreResponse, and CoreSnapshot protocol types
+server  command and JSON ingress for product shells
+store   repository traits and backend contracts
+model   providers, models, selectors, and runtime model specs
+auth    secrets, auth profiles, and provider access policy
+event   stream, trace, and telemetry event types
 ```
+
+## Executable Skills
+
+RestFlow supports two local artifact kinds:
+
+```text
+rust_binary  Cargo-built executable skill, called with stdin/stdout JSON
+python_uv    uv-managed Python project, called with stdin/stdout JSON
+```
+
+Each skill directory contains an `artifact.json` manifest:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "rust_binary",
+  "id": "regex-finder",
+  "name": "Regex Finder",
+  "version": "0.1.0",
+  "entry": "bin/release/regex-finder",
+  "protocol": {
+    "transport": "stdio-json",
+    "input": "single-json-value",
+    "output": "single-json-value"
+  },
+  "schema": {
+    "input": "schema/input.json",
+    "output": "schema/output.json"
+  }
+}
+```
+
+The initial protocol is intentionally strict:
+
+- input is one JSON value written to stdin
+- output is one JSON object written to stdout
+- stderr is diagnostics
+- non-zero exit is failure
+- streaming is not part of the first executable skill contract
+
+## Python Package Loop
+
+The PyPI distribution is `restflow-ai`; the Python import remains
+`import restflow`. The Python package is backed by the Rust `restflow-native`
+PyO3 module. Use the packaging helper so local installs and release wheels use
+the same settings:
+
+```bash
+python3 -m pip install maturin
+python3 python/scripts/package.py develop
+python3 python/scripts/package.py smoke
+python3 python/scripts/package.py build
+python3 python/scripts/package.py sdist
+```
+
+The helper sets `PYO3_PYTHON` and keeps Cargo artifacts under
+`/tmp/restflow-python-target` by default, which avoids executing Rust build
+artifacts from an external macOS volume.
+
+## Python Skill API
+
+The high-level Python API calls local executable skill artifacts through the
+same Rust `runtime` crate used by the CLI:
+
+```python
+import restflow
+
+result = restflow.skill("/path/to/skill").call({"pattern": "TODO", "path": "."})
+```
+
+By default, skill IDs resolve under `~/.restflow/skills`, or under the directory
+set by `RESTFLOW_SKILLS_DIR`. The Python package requires the
+`restflow_native` PyO3 extension for executable skill operations; it does not
+maintain a separate subprocess runtime fallback.
+
+## CLI Skill Loop
+
+The minimal CLI exists only for executable skills:
+
+```bash
+cargo run -p cli -- \
+  skill new --kind rust_binary --id rust-echo /tmp/rust-echo
+
+cargo run -p cli -- \
+  skill build /tmp/rust-echo
+
+cargo run -p cli -- \
+  skill run --input '{"ok":true}' /tmp/rust-echo
+
+cargo run -p cli -- \
+  skill install-local --root /tmp/restflow-skills --overwrite /tmp/rust-echo
+
+cargo run -p cli -- \
+  skill list --root /tmp/restflow-skills
+```
+
+Example skills live under `examples/skills`.
+
+## Agent Framework Examples
+
+RestFlow does not replace the main agent framework. Wrap executable skills from
+the framework you already use:
+
+```python
+import restflow
+
+
+def regex_finder_tool(arguments: dict) -> dict:
+    return restflow.skill("regex-finder").call(arguments)
+```
+
+Dependency-light examples live under `examples/frameworks` for LangChain,
+LangGraph, PydanticAI, and OpenAI Agents-style tool bodies.
+
+## Non-Goals For This Slice
+
+- Do not open or migrate production databases.
+- Do not duplicate the current TUI/Web implementation.
+- Do not implement a main agent framework.
+- Do not implement a remote marketplace UI.
+- Do not implement streaming executable skills.

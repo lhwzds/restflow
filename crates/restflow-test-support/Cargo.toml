@@ -1,7 +1,0 @@
-[package]
-name = "restflow-test-support"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-tempfile = "3.25.0"
