@@ -45,13 +45,13 @@ impl Core {
             core.save_skill(skill).await?;
         }
         for session in snapshot.sessions {
-            chat::save_session(&core.sessions, session).await?;
+            core.save_session(session).await?;
         }
         for task in snapshot.tasks {
-            run::save_task(&core.tasks, task).await?;
+            core.save_task(task).await?;
         }
         for run in snapshot.runs {
-            run::save_run(&core.runs, run).await?;
+            core.save_run(run).await?;
         }
         for profile in snapshot.profiles {
             core.save_profile(profile).await?;

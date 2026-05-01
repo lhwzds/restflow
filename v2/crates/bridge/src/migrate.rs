@@ -27,8 +27,6 @@
 //! - bridge
 //! - chat
 //! - model
-//! - run
-//! - store
 //!
 //! ## Verify
 //! - cargo check -p bridge
@@ -38,10 +36,8 @@ use anyhow::Result;
 use chat;
 use engine::Core;
 use model;
-use run;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use store::Repository;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -318,7 +314,7 @@ async fn existing_record_issues(
     let mut issues = Vec::new();
 
     for spec in &snapshot.models {
-        if core.models.get(&spec.provider, &spec.model).is_some() {
+        if core.model_exists(&spec.provider, &spec.model) {
             issues.push(existing_record(
                 "model",
                 format!("{}:{}", spec.provider, spec.model),
@@ -326,27 +322,27 @@ async fn existing_record_issues(
         }
     }
     for skill in &snapshot.skills {
-        if core.skills.exists(&skill.id).await? {
+        if core.skill_exists(&skill.id).await? {
             issues.push(existing_record("skill", skill.id.clone()));
         }
     }
     for session in &snapshot.sessions {
-        if core.sessions.exists(&session.id).await? {
+        if core.session_exists(&session.id).await? {
             issues.push(existing_record("session", session.id.clone()));
         }
     }
     for task in &snapshot.tasks {
-        if core.tasks.exists(&task.id).await? {
+        if core.task_exists(&task.id).await? {
             issues.push(existing_record("task", task.id.clone()));
         }
     }
     for run in &snapshot.runs {
-        if core.runs.exists(&run.id).await? {
+        if core.run_exists(&run.id).await? {
             issues.push(existing_record("run", run.id.clone()));
         }
     }
     for profile in &snapshot.profiles {
-        if core.profiles.exists(&profile.provider).await? {
+        if core.profile_exists(&profile.provider).await? {
             issues.push(existing_record("profile", profile.provider.clone()));
         }
     }
@@ -364,13 +360,13 @@ async fn merge_core_records(core: &mut Core, snapshot: BridgeSnapshot) -> Result
     }
     for session in snapshot.sessions {
         let session: chat::Session = session.into();
-        chat::save_session(&core.sessions, session).await?;
+        core.save_session(session).await?;
     }
     for task in snapshot.tasks {
-        run::save_task(&core.tasks, task.into()).await?;
+        core.save_task(task.into()).await?;
     }
     for run in snapshot.runs {
-        run::save_run(&core.runs, run.into()).await?;
+        core.save_run(run.into()).await?;
     }
     for profile in snapshot.profiles {
         core.save_profile(profile.into()).await?;
@@ -380,66 +376,19 @@ async fn merge_core_records(core: &mut Core, snapshot: BridgeSnapshot) -> Result
 
 async fn replace_core_records(core: &mut Core, snapshot: BridgeSnapshot) -> Result<()> {
     core.set_model(snapshot.current_model.into());
-    core.models.clear();
+    core.clear_models();
     for spec in snapshot.models {
         core.insert_model(spec.into());
     }
-    core.skills
-        .replace_all(
-            snapshot
-                .skills
-                .into_iter()
-                .map(|skill| (skill.id.clone(), skill.into()))
-                .collect(),
-        )
+    core.replace_skills(snapshot.skills.into_iter().map(Into::into).collect())
         .await?;
-    core.sessions
-        .replace_all(
-            snapshot
-                .sessions
-                .into_iter()
-                .map(|session| {
-                    let session: chat::Session = session.into();
-                    (session.id.clone(), session)
-                })
-                .collect(),
-        )
+    core.replace_sessions(snapshot.sessions.into_iter().map(Into::into).collect())
         .await?;
-    core.tasks
-        .replace_all(
-            snapshot
-                .tasks
-                .into_iter()
-                .map(|task| {
-                    let task: run::Task = task.into();
-                    (task.id.clone(), task)
-                })
-                .collect(),
-        )
+    core.replace_tasks(snapshot.tasks.into_iter().map(Into::into).collect())
         .await?;
-    core.runs
-        .replace_all(
-            snapshot
-                .runs
-                .into_iter()
-                .map(|run| {
-                    let run: run::Run = run.into();
-                    (run.id.clone(), run)
-                })
-                .collect(),
-        )
+    core.replace_runs(snapshot.runs.into_iter().map(Into::into).collect())
         .await?;
-    core.profiles
-        .replace_all(
-            snapshot
-                .profiles
-                .into_iter()
-                .map(|profile| {
-                    let profile: auth::Profile = profile.into();
-                    (profile.provider.id.clone(), profile)
-                })
-                .collect(),
-        )
+    core.replace_profiles(snapshot.profiles.into_iter().map(Into::into).collect())
         .await?;
     Ok(())
 }
@@ -477,7 +426,6 @@ mod tests {
         BridgeToolSpec,
     };
     use skill;
-    use store::Repository;
 
     #[test]
     fn bridge_snapshot_import_populates_core_and_reports_counts() {
@@ -517,13 +465,13 @@ mod tests {
 
             assert!(report.applied);
             assert!(report.is_clean());
-            assert_eq!(core.agent.model.id, "gpt-5.5");
-            assert!(core.models.get("openai", "gpt-5.5").is_some());
-            assert!(core.skills.exists("team").await.unwrap());
-            assert!(core.sessions.exists("session-1").await.unwrap());
-            assert!(core.tasks.exists("task-1").await.unwrap());
-            assert!(core.runs.exists("run-1").await.unwrap());
-            assert!(core.profiles.exists("openai").await.unwrap());
+            assert_eq!(core.current_model().id, "gpt-5.5");
+            assert!(core.model_exists("openai", "gpt-5.5"));
+            assert!(core.skill_exists("team").await.unwrap());
+            assert!(core.session_exists("session-1").await.unwrap());
+            assert!(core.task_exists("task-1").await.unwrap());
+            assert!(core.run_exists("run-1").await.unwrap());
+            assert!(core.profile_exists("openai").await.unwrap());
         });
     }
 
@@ -545,7 +493,7 @@ mod tests {
             assert_eq!(report.issues.len(), 4);
             assert!(!report.applied);
             assert!(report.has_blocking_issues());
-            assert!(core.sessions.get("session-1").await.unwrap().is_none());
+            assert!(core.session("session-1").await.unwrap().is_none());
             assert!(
                 report.issues.iter().any(|issue| {
                     issue.kind == MigrationIssueKind::CurrentModelMissingFromCatalog
@@ -590,7 +538,7 @@ mod tests {
                 issue.kind == MigrationIssueKind::ExistingRecord
                     && issue.message.contains("session-1")
             }));
-            let session = core.sessions.get("session-1").await.unwrap().unwrap();
+            let session = core.session("session-1").await.unwrap().unwrap();
             assert_eq!(session.messages[0].text, "hello");
         });
     }
@@ -609,7 +557,7 @@ mod tests {
 
             assert!(report.applied);
             assert!(report.is_clean());
-            let session = core.sessions.get("session-1").await.unwrap().unwrap();
+            let session = core.session("session-1").await.unwrap().unwrap();
             assert_eq!(session.messages[0].text, "replacement");
         });
     }
@@ -636,13 +584,13 @@ mod tests {
 
             assert!(report.applied);
             assert!(report.is_clean());
-            assert!(core.models.get("openai", "gpt-5.5").is_some());
-            assert!(core.models.get("openai", "gpt-5.4").is_none());
-            assert!(!core.skills.exists("team").await.unwrap());
-            assert!(!core.sessions.exists("session-1").await.unwrap());
-            assert!(!core.tasks.exists("task-1").await.unwrap());
-            assert!(!core.runs.exists("run-1").await.unwrap());
-            assert!(!core.profiles.exists("openai").await.unwrap());
+            assert!(core.model_exists("openai", "gpt-5.5"));
+            assert!(!core.model_exists("openai", "gpt-5.4"));
+            assert!(!core.skill_exists("team").await.unwrap());
+            assert!(!core.session_exists("session-1").await.unwrap());
+            assert!(!core.task_exists("task-1").await.unwrap());
+            assert!(!core.run_exists("run-1").await.unwrap());
+            assert!(!core.profile_exists("openai").await.unwrap());
         });
     }
 
@@ -693,7 +641,7 @@ mod tests {
             assert!(report.issues.iter().any(|issue| {
                 issue.kind == MigrationIssueKind::DuplicateId && issue.message.contains("session-1")
             }));
-            assert!(core.sessions.get("session-1").await.unwrap().is_none());
+            assert!(core.session("session-1").await.unwrap().is_none());
         });
     }
 

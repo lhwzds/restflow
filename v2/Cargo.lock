@@ -76,6 +76,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "runtime",
+ "serde_json",
+]
+
+[[package]]
 name = "engine"
 version = "0.1.0"
 dependencies = [
@@ -275,6 +284,7 @@ dependencies = [
  "model",
  "pyo3",
  "pyo3-build-config",
+ "runtime",
  "serde_json",
  "server",
 ]
@@ -285,6 +295,7 @@ version = "0.1.0"
 dependencies = [
  "engine",
  "proto",
+ "runtime",
 ]
 
 [[package]]
@@ -297,6 +308,15 @@ dependencies = [
  "serde",
  "skill",
  "store",
+]
+
+[[package]]
+name = "runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,13 +1,14 @@
 [package]
-name = "restflow-v2"
+name = "cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[lib]
-name = "restflow"
+[[bin]]
+name = "restflow-v2"
+path = "src/main.rs"
 
 [dependencies]
-engine.workspace = true
-proto.workspace = true
+anyhow.workspace = true
 runtime.workspace = true
+serde_json.workspace = true

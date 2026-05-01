@@ -72,14 +72,14 @@ impl CoreStores {
 
 #[derive(Clone)]
 pub struct Core {
-    pub agent: agent::Agent,
-    pub tools: tool::Registry,
-    pub models: model::ModelCatalog,
-    pub skills: SharedStore<skill::Skill>,
-    pub sessions: SharedStore<chat::Session>,
-    pub tasks: SharedStore<run::Task>,
-    pub runs: SharedStore<run::Run>,
-    pub profiles: SharedStore<auth::Profile>,
+    agent: agent::Agent,
+    tools: tool::Registry,
+    models: model::ModelCatalog,
+    skills: SharedStore<skill::Skill>,
+    sessions: SharedStore<chat::Session>,
+    tasks: SharedStore<run::Task>,
+    runs: SharedStore<run::Run>,
+    profiles: SharedStore<auth::Profile>,
 }
 
 impl Core {
@@ -104,12 +104,46 @@ impl Core {
         self.agent.model = model;
     }
 
+    pub fn current_model(&self) -> &model::Model {
+        &self.agent.model
+    }
+
     pub fn insert_model(&mut self, spec: model::ModelSpec) {
         self.models.insert(spec);
     }
 
+    pub fn clear_models(&mut self) {
+        self.models.clear();
+    }
+
+    pub fn model_exists(&self, provider: &str, model: &str) -> bool {
+        self.models.get(provider, model).is_some()
+    }
+
+    pub fn register_tool<T>(&mut self, tool: T)
+    where
+        T: tool::Tool + 'static,
+    {
+        self.tools.insert(tool);
+    }
+
     pub async fn save_profile(&self, profile: auth::Profile) -> Result<()> {
         auth::save_profile(&self.profiles, profile).await
+    }
+
+    pub async fn profile_exists(&self, provider: &str) -> Result<bool> {
+        self.profiles.exists(provider).await
+    }
+
+    pub async fn replace_profiles(&self, profiles: Vec<auth::Profile>) -> Result<()> {
+        self.profiles
+            .replace_all(
+                profiles
+                    .into_iter()
+                    .map(|profile| (profile.provider.id.clone(), profile))
+                    .collect(),
+            )
+            .await
     }
 
     pub async fn save_skill(&self, skill: skill::Skill) -> Result<()> {
@@ -117,8 +151,83 @@ impl Core {
         self.skills.put(&skill_id, skill).await
     }
 
+    pub async fn skill_exists(&self, id: &str) -> Result<bool> {
+        self.skills.exists(id).await
+    }
+
+    pub async fn replace_skills(&self, skills: Vec<skill::Skill>) -> Result<()> {
+        self.skills
+            .replace_all(
+                skills
+                    .into_iter()
+                    .map(|skill| (skill.id.clone(), skill))
+                    .collect(),
+            )
+            .await
+    }
+
     pub async fn skill_catalog(&self) -> Result<skill::Catalog> {
         skill::Catalog::from_repository(&self.skills).await
+    }
+
+    pub async fn save_session(&self, session: chat::Session) -> Result<()> {
+        chat::save_session(&self.sessions, session).await
+    }
+
+    pub async fn session(&self, id: &str) -> Result<Option<chat::Session>> {
+        self.sessions.get(id).await
+    }
+
+    pub async fn session_exists(&self, id: &str) -> Result<bool> {
+        self.sessions.exists(id).await
+    }
+
+    pub async fn replace_sessions(&self, sessions: Vec<chat::Session>) -> Result<()> {
+        self.sessions
+            .replace_all(
+                sessions
+                    .into_iter()
+                    .map(|session| (session.id.clone(), session))
+                    .collect(),
+            )
+            .await
+    }
+
+    pub async fn save_task(&self, task: run::Task) -> Result<()> {
+        run::save_task(&self.tasks, task).await
+    }
+
+    pub async fn task_exists(&self, id: &str) -> Result<bool> {
+        self.tasks.exists(id).await
+    }
+
+    pub async fn replace_tasks(&self, tasks: Vec<run::Task>) -> Result<()> {
+        self.tasks
+            .replace_all(
+                tasks
+                    .into_iter()
+                    .map(|task| (task.id.clone(), task))
+                    .collect(),
+            )
+            .await
+    }
+
+    pub async fn save_run(&self, run: run::Run) -> Result<()> {
+        run::save_run(&self.runs, run).await
+    }
+
+    pub async fn run(&self, id: &str) -> Result<Option<run::Run>> {
+        self.runs.get(id).await
+    }
+
+    pub async fn run_exists(&self, id: &str) -> Result<bool> {
+        self.runs.exists(id).await
+    }
+
+    pub async fn replace_runs(&self, runs: Vec<run::Run>) -> Result<()> {
+        self.runs
+            .replace_all(runs.into_iter().map(|run| (run.id.clone(), run)).collect())
+            .await
     }
 }
 
@@ -147,7 +256,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(output.events.len(), 1);
-            let session = core.sessions.get("session-1").await.unwrap().unwrap();
+            let session = core.session("session-1").await.unwrap().unwrap();
             assert_eq!(session.messages.len(), 2);
             assert_eq!(session.messages[0].role, chat::Role::User);
             assert!(session.messages[1].text.contains("Mentioned skill: @team"));
@@ -167,7 +276,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let run = core.runs.get("run-1").await.unwrap().unwrap();
+            let run = core.run("run-1").await.unwrap().unwrap();
             assert_eq!(run.status, run::Status::Done);
         });
     }
@@ -239,7 +348,7 @@ mod tests {
     fn core_tool_calls_emit_call_and_result_events() {
         block_on_once(async {
             let mut core = Core::new(model::Model::new("openai", "gpt-5.5"));
-            core.tools.insert(EchoTool);
+            core.register_tool(EchoTool);
 
             let events = core
                 .call_tool_events(tool::ToolCall::new(
@@ -329,7 +438,7 @@ mod tests {
                 .unwrap();
 
             assert!(matches!(response, CoreResponse::ModelSwitched { .. }));
-            assert_eq!(core.agent.model.id, "gpt-5.5");
+            assert_eq!(core.current_model().id, "gpt-5.5");
 
             let task = run::Task::new("task-1", "Review branch");
             let response = core
@@ -355,7 +464,7 @@ mod tests {
 
             assert!(matches!(response, CoreResponse::RunTask { .. }));
             assert_eq!(
-                core.runs.get("run-1").await.unwrap().unwrap().status,
+                core.run("run-1").await.unwrap().unwrap().status,
                 run::Status::Done
             );
         });
@@ -380,7 +489,7 @@ mod tests {
         block_on_once(async {
             let mut core = Core::new(model::Model::new("openai", "gpt-5.5"));
             core.insert_model(model::ModelSpec::new("openai", "gpt-5.5", "GPT-5.5"));
-            core.tools.insert(EchoTool);
+            core.register_tool(EchoTool);
             core.save_skill(skill::Skill::new("team", "Team", skill::Source::System))
                 .await
                 .unwrap();

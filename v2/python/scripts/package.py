@@ -64,6 +64,8 @@ def ensure_maturin(env: dict[str, str]) -> None:
 
 def smoke(env: dict[str, str]) -> None:
     code = (
+        "import json, stat, tempfile;"
+        "from pathlib import Path;"
         "import restflow;"
         "client=restflow.CoreClient.native();"
         "response=client.handle(restflow.CoreCommand("
@@ -73,6 +75,22 @@ def smoke(env: dict[str, str]) -> None:
         "assert response.type == 'model_switched';"
         "assert response.payload['model']['id'] == 'gpt-5.5';"
         "import restflow.restflow_native;"
+        "tmp=tempfile.TemporaryDirectory(prefix='restflow-v2-package-smoke-');"
+        "root=Path(tmp.name)/'echo';"
+        "(root/'bin').mkdir(parents=True);"
+        "entry=root/'bin'/'echo';"
+        "entry.write_text('#!/bin/sh\\ncat\\n');"
+        "entry.chmod(entry.stat().st_mode | stat.S_IXUSR);"
+        "(root/'artifact.json').write_text(json.dumps({"
+        "'schema_version':1,"
+        "'kind':'rust_binary',"
+        "'id':'echo',"
+        "'name':'Echo',"
+        "'version':'0.1.0',"
+        "'entry':'bin/echo'"
+        "}));"
+        "assert restflow.skill(root).call({'native': True}) == {'native': True};"
+        "tmp.cleanup();"
         "print('restflow native smoke ok')"
     )
     run([sys.executable, "-c", code], env, cwd=Path("/tmp"))

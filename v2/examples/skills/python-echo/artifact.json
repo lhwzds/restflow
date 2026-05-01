@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "kind": "python_uv",
+  "id": "python-echo",
+  "name": "Python Echo",
+  "version": "0.1.0",
+  "entry": "skill.py",
+  "protocol": {
+    "transport": "stdio-json",
+    "input": "single-json-value",
+    "output": "single-json-value"
+  },
+  "schema": {
+    "input": "schema/input.json",
+    "output": "schema/output.json"
+  }
+}

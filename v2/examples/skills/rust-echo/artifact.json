@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "kind": "rust_binary",
+  "id": "rust-echo",
+  "name": "Rust Echo",
+  "version": "0.1.0",
+  "entry": "bin/release/rust-echo",
+  "protocol": {
+    "transport": "stdio-json",
+    "input": "single-json-value",
+    "output": "single-json-value"
+  },
+  "schema": {
+    "input": "schema/input.json",
+    "output": "schema/output.json"
+  }
+}

@@ -133,7 +133,7 @@ mod tests {
                     model: model::Model::new("openai", "gpt-5.5")
                 }
             );
-            assert_eq!(endpoint.core().agent.model.id, "gpt-5.5");
+            assert_eq!(endpoint.core().current_model().id, "gpt-5.5");
         });
     }
 

@@ -5,6 +5,7 @@
 //! ## Owns
 //! - stable engine import shape for examples
 //! - protocol entrypoint re-exports
+//! - executable skill runtime re-exports
 //!
 //! ## Must Not
 //! - own runtime behavior
@@ -27,3 +28,8 @@
 
 pub use engine::{Core, CoreStores};
 pub use proto::{CoreCommand, CoreResponse, CoreSnapshot};
+pub use runtime::{
+    ArtifactKind, ArtifactProtocol, ArtifactSchema, ArtifactSource, BuildOptions, ScaffoldOptions,
+    SkillArtifact, SkillRunOutput, build_skill, load_artifact, run_skill, save_artifact,
+    scaffold_skill,
+};

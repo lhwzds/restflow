@@ -36,8 +36,13 @@ flowchart TD
     Engine --> Store["store\nrepositories"]
     Chat --> Store
     Run --> Store
+    Runtime["runtime\nexecutable skills"] --> Tool
+    Runtime --> PythonSkill["python_uv\nuv project"]
+    Runtime --> RustSkill["rust_binary\nCargo executable"]
 
     Python["python/restflow"] --> Server
+    Python --> Runtime
+    CLI["cli\nskill commands"] --> Runtime
     Bridge["bridge\nmigration DTOs"] --> Engine
     Bridge --> Proto
 ```
@@ -59,6 +64,25 @@ AI-facing context resolution.
 
 Owns the `Tool` trait, registry, schema metadata, and pure tool execution
 contracts.
+
+### runtime
+
+Owns executable skill artifact manifests, local scaffolding, Cargo/uv build
+loops, process execution, and stdio JSON protocol enforcement. It does not own
+agent planning, UI interaction, durable chat/task state, or provider
+credentials.
+
+### cli
+
+Owns a minimal executable skill command loop for scaffold, build, run, local
+install, and list. It does not start the legacy daemon, render the TUI, or own
+runtime behavior.
+
+### python/restflow
+
+Owns the Python SDK shape for external agent frameworks. Executable skill
+operations call the PyO3 `restflow_native` runtime functions; Python does not
+duplicate artifact validation, install, build, or process execution.
 
 ### run
 
@@ -121,3 +145,17 @@ Owns event types shared by agent, chat, run, server, and Python bindings.
 
 The UI never grants tools. The skill module does not decide tool permissions.
 The runtime never knows how the mention was typed.
+
+## Executable Skill Boundary
+
+Executable skills are different from `@skill` text mentions:
+
+- `skill` describes catalog metadata and AI-facing guidance.
+- `runtime` executes local artifact directories.
+- `tool` provides the callable contract that future agent integrations can wrap.
+- `python/restflow` exposes a small SDK backed by the Rust runtime.
+
+The first supported executable skill kinds are `rust_binary` and `python_uv`.
+Both use stdin/stdout JSON so LangChain, LangGraph, Pydantic AI, OpenAI Agents,
+or a custom agent can wrap them without adopting RestFlow as the main agent
+framework.

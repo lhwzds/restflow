@@ -52,6 +52,9 @@ class PackageScriptTests(unittest.TestCase):
             package_script.run = original_run
 
         self.assertEqual(calls[0][1], Path("/tmp"))
+        smoke_code = calls[0][0][-1]
+        self.assertIn("restflow.skill(root).call", smoke_code)
+        self.assertIn("artifact.json", smoke_code)
 
     def test_build_env_sets_python_and_target_dir_without_overriding_env(self) -> None:
         env = package_script.build_env("/usr/bin/python3", Path("/tmp/restflow-target"))
