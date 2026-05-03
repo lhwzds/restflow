@@ -66,7 +66,7 @@ mod tests {
         let file_path = "/tmp/voice-a.webm";
 
         let trace =
-            restflow_telemetry::RestflowTrace::new("turn-1", session_id, session_id, "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("turn-1", session_id, session_id, "agent-1");
         let start = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
                 session_id,
@@ -170,7 +170,7 @@ mod tests {
         let file_path = "/tmp/voice-failed.webm";
         let input = voice_input(file_path);
 
-        let trace = restflow_telemetry::RestflowTrace::new(
+        let trace = restflow_ai::telemetry::RestflowTrace::new(
             "turn-failed",
             session_id,
             session_id,

@@ -1,5 +1,5 @@
 use chrono::Utc;
-use restflow_telemetry::RestflowTrace;
+use restflow_ai::telemetry::RestflowTrace;
 
 use super::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace,

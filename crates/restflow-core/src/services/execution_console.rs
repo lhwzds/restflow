@@ -938,7 +938,7 @@ mod tests {
         run_id: &str,
         parent_run_id: Option<&str>,
     ) {
-        let trace = restflow_telemetry::RestflowTrace::new(
+        let trace = restflow_ai::telemetry::RestflowTrace::new(
             run_id.to_string(),
             session_id.to_string(),
             task_id.to_string(),

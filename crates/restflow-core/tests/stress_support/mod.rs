@@ -924,21 +924,16 @@ pub async fn run_task_workload_with_real_runtime(
     let model = restflow_core::ModelId::from_api_name(profile.model_id)
         .or_else(|| restflow_core::ModelId::from_serialized_str(profile.model_id))
         .expect("known model");
+    let mut agent_node = AgentNode::with_model(model);
+    agent_node.tools = Some(vec![
+        "http_request".to_string(),
+        "bash".to_string(),
+        "file".to_string(),
+        "run_skill".to_string(),
+    ]);
     let agent = storage
         .agents
-        .create_agent(
-            format!("stress-agent-{}", profile.model_id),
-            AgentNode {
-                model: Some(model),
-                tools: Some(vec![
-                    "http_request".to_string(),
-                    "bash".to_string(),
-                    "file".to_string(),
-                    "run_skill".to_string(),
-                ]),
-                ..AgentNode::new()
-            },
-        )
+        .create_agent(format!("stress-agent-{}", profile.model_id), agent_node)
         .expect("create stress task agent");
 
     let (_tool_guard, tool_calls, tool_failures) = install_real_io_tool_overrides();

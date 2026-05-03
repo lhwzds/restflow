@@ -1,6 +1,6 @@
 use super::*;
 use crate::models::{TaskRunMetrics, TaskRunStatus};
-use restflow_telemetry::RunHandle;
+use restflow_ai::telemetry::RunHandle;
 
 pub(super) struct TaskRunFinalizer<'a> {
     runner: &'a TaskRunner,

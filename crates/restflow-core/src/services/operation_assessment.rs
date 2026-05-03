@@ -1074,7 +1074,7 @@ mod tests {
             codex_cli_reasoning_effort: None,
             codex_cli_execution_mode: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-            tools: Some(vec!["http_request".to_string()]),
+            tools: Some(vec!["bash".to_string()]),
             skills: None,
             skill_variables: None,
             skill_preflight_policy_mode: None,

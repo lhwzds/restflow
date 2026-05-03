@@ -347,9 +347,9 @@ mod tests {
     fn test_query_filters_and_stats_include_telemetry_categories() {
         let storage = ExecutionTraceStorage::in_memory().unwrap();
         let base_trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
         let other_trace =
-            restflow_telemetry::RestflowTrace::new("run-2", "session-1", "task-1", "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-2", "session-1", "task-1", "agent-1");
 
         let llm = execution_trace_builders::with_trace_context(
             execution_trace_builders::llm_call(

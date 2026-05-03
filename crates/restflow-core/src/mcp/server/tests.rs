@@ -93,7 +93,7 @@ fn create_test_agent_node(prompt: &str) -> AgentNode {
         codex_cli_reasoning_effort: None,
         codex_cli_execution_mode: None,
         api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-        tools: Some(vec!["http_request".to_string()]),
+        tools: Some(vec!["bash".to_string()]),
         skills: None,
         skill_variables: None,
         skill_preflight_policy_mode: None,
@@ -2200,11 +2200,11 @@ async fn test_call_tool_preserves_structured_content_for_non_runtime_backend_err
 }
 
 #[tokio::test]
-async fn test_runtime_tools_include_manage_agents() {
+async fn test_runtime_tools_exclude_management_tools_by_default() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
     let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
     assert!(
-        runtime_tools
+        !runtime_tools
             .iter()
             .any(|tool| tool.name == "manage_agents")
     );
@@ -2215,14 +2215,13 @@ async fn test_runtime_tools_include_manage_agents() {
 }
 
 #[tokio::test]
-async fn test_manage_agents_runtime_tool_list_operation() {
+async fn test_manage_agents_runtime_tool_is_not_registered_by_default() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-    let json = server
+    let error = server
         .handle_runtime_tool("manage_agents", serde_json::json!({ "operation": "list" }))
         .await
-        .unwrap();
-    let agents: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
-    assert!(!agents.is_empty());
+        .unwrap_err();
+    assert!(error.contains("tool not found: manage_agents"));
 }
 
 #[test]
@@ -2285,34 +2284,34 @@ async fn test_switch_model_failure_returns_structured_payload() {
 }
 
 #[tokio::test]
-async fn test_standalone_runtime_tools_include_subagent_tools() {
+async fn test_standalone_runtime_tools_exclude_subagent_tools_by_default() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
     let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
 
     assert!(
-        runtime_tools
+        !runtime_tools
             .iter()
             .any(|tool| tool.name == "spawn_subagent")
     );
     assert!(
-        runtime_tools
+        !runtime_tools
             .iter()
             .any(|tool| tool.name == "spawn_subagent_batch")
     );
     assert!(
-        runtime_tools
+        !runtime_tools
             .iter()
             .any(|tool| tool.name == "wait_subagents")
     );
     assert!(
-        runtime_tools
+        !runtime_tools
             .iter()
             .any(|tool| tool.name == "list_subagents")
     );
 }
 
 #[tokio::test]
-async fn test_standalone_runtime_spawn_subagent_returns_actionable_error() {
+async fn test_standalone_runtime_spawn_subagent_is_not_registered_by_default() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
     let error = server
         .handle_runtime_tool(
@@ -2323,7 +2322,7 @@ async fn test_standalone_runtime_spawn_subagent_returns_actionable_error() {
         .unwrap_err();
 
     assert!(
-        error.contains("No callable sub-agents available") || error.contains("Unknown agent"),
+        error.contains("tool not found: spawn_subagent"),
         "unexpected error: {error}"
     );
 }

@@ -2,7 +2,7 @@ use super::*;
 use crate::services::adapters::CompositeSkillProvider;
 use crate::services::skill_mentions::parse_skill_mentions;
 use restflow_ai::StreamDisplayMode;
-use restflow_telemetry::RunAttemptTracker;
+use restflow_ai::telemetry::RunAttemptTracker;
 use restflow_traits::skill::{SkillInfo, SkillProvider};
 
 fn should_force_non_stream(model: ModelId) -> bool {
@@ -12,15 +12,15 @@ fn should_force_non_stream(model: ModelId) -> bool {
 #[derive(Default)]
 pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-    pub telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+    pub telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     pub stream_display_mode: StreamDisplayMode,
 }
 
 impl AgentRuntimeExecutor {
     fn normalize_session_telemetry_context(
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         session: &ChatSession,
-    ) -> Option<restflow_telemetry::TelemetryContext> {
+    ) -> Option<restflow_ai::telemetry::TelemetryContext> {
         telemetry_context.map(|mut context| {
             context.trace.actor_id = session.agent_id.clone();
             context
@@ -246,7 +246,7 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
@@ -298,12 +298,14 @@ impl AgentRuntimeExecutor {
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
         let final_telemetry_context = telemetry_context
             .unwrap_or_else(|| {
-                restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
-                    session.id.clone(),
-                    session.id.clone(),
-                    session.id.clone(),
-                    agent_id.unwrap_or(&session.agent_id),
-                ))
+                restflow_ai::telemetry::TelemetryContext::new(
+                    restflow_ai::telemetry::RestflowTrace::new(
+                        session.id.clone(),
+                        session.id.clone(),
+                        session.id.clone(),
+                        agent_id.unwrap_or(&session.agent_id),
+                    ),
+                )
             })
             .with_requested_model(model.as_serialized_str())
             .with_effective_model(model.as_serialized_str())
@@ -432,7 +434,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         let model_specs = ModelId::build_model_specs();
@@ -495,7 +497,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
@@ -710,7 +712,7 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         self.execute_session_turn_with_emitter_and_steer(
             session,
@@ -778,8 +780,8 @@ impl AgentRuntimeExecutor {
         let base_telemetry_context =
             Self::normalize_session_telemetry_context(telemetry_context, session)
                 .unwrap_or_else(|| {
-                    restflow_telemetry::TelemetryContext::new(
-                        restflow_telemetry::RestflowTrace::new(
+                    restflow_ai::telemetry::TelemetryContext::new(
+                        restflow_ai::telemetry::RestflowTrace::new(
                             session.id.clone(),
                             session.id.clone(),
                             session.id.clone(),
@@ -816,9 +818,9 @@ impl AgentRuntimeExecutor {
                     {
                         telemetry_sink
                             .emit(
-                                restflow_telemetry::ExecutionEventEnvelope::from_telemetry_context(
+                                restflow_ai::telemetry::ExecutionEventEnvelope::from_telemetry_context(
                                     &telemetry_context,
-                                    restflow_telemetry::ExecutionEvent::ModelSwitch {
+                                    restflow_ai::telemetry::ExecutionEvent::ModelSwitch {
                                         from_model: previous_model.as_serialized_str().to_string(),
                                         to_model: model.as_serialized_str().to_string(),
                                         reason: Some("failover".to_string()),
@@ -880,7 +882,7 @@ impl AgentRuntimeExecutor {
 mod tests {
     use super::*;
     use restflow_ai::StreamDisplayMode;
-    use restflow_telemetry::{RestflowTrace, TelemetryContext};
+    use restflow_ai::telemetry::{RestflowTrace, TelemetryContext};
     use restflow_traits::skill::{SkillInfo, SkillSource};
 
     #[test]

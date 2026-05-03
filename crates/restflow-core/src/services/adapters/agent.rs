@@ -186,8 +186,8 @@ impl AgentStore for AgentStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::RestflowTestEnv;
     use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
-    use restflow_test_support::RestflowTestEnv;
     use restflow_traits::store::AgentStore;
     use std::sync::Arc;
 
@@ -206,10 +206,7 @@ mod tests {
         )
         .unwrap();
         let bg_storage = TaskStorage::new(db).unwrap();
-        let known_tools = Arc::new(RwLock::new(HashSet::from([
-            "bash".to_string(),
-            "http_request".to_string(),
-        ])));
+        let known_tools = Arc::new(RwLock::new(HashSet::from(["bash".to_string()])));
 
         (
             AgentStoreAdapter::new(

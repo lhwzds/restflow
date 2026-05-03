@@ -11,7 +11,6 @@ path = "src/main.rs"
 [dependencies]
 # Core
 restflow-contracts = { workspace = true }
-restflow-build = { workspace = true }
 restflow-core = { workspace = true }
 restflow-tui = { workspace = true }
 restflow-ai = { workspace = true }
@@ -24,7 +23,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-futures = "0.3"
 
 rpassword = "7.0"
 
@@ -43,7 +41,6 @@ tar = "0.4"
 zip = "6.0.0"
 walkdir = "2"
 tempfile = "3.25"
-sha2 = "0.10.9"
 
 # Database
 redb = "3.1"
@@ -65,4 +62,3 @@ clap_mangen = "0.2"
 assert_cmd = "2.0"
 predicates = "3.1"
 redb = "3.1"
-restflow-test-support = { workspace = true }

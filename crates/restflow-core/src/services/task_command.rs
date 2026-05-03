@@ -482,8 +482,8 @@ impl TaskCommandService {
         &self,
         request: TaskCreateRequest,
     ) -> CommandResult<(RequestGuard, OperationAssessment, TaskSpec)> {
-        let request = self.normalize_create_request(request)?;
         self.validate_create_request(&request)?;
+        let request = self.normalize_create_request(request)?;
         let guard = RequestGuard::capture(request.preview, request.approval_id.clone());
         let assessment = self
             .assessor()?

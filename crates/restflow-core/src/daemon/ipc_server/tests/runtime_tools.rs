@@ -1,10 +1,22 @@
 use super::*;
 #[tokio::test]
-async fn execute_tool_browser_session_persists_between_process_calls() {
+async fn execute_tool_browser_is_not_registered_in_core_runtime() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
-    let create_response = IpcServer::process(
+    let tools_response =
+        IpcServer::process(&core, &runtime_tool_registry, IpcRequest::GetAvailableTools).await;
+    match tools_response {
+        IpcResponse::Success(value) => {
+            let tools = value
+                .as_array()
+                .expect("available tools should be an array");
+            assert!(!tools.iter().any(|tool| tool.as_str() == Some("browser")));
+        }
+        other => panic!("expected available tools response, got {other:?}"),
+    }
+
+    let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
         IpcRequest::ExecuteTool {
@@ -17,66 +29,11 @@ async fn execute_tool_browser_session_persists_between_process_calls() {
     )
     .await;
 
-    let session_id = match create_response {
-        IpcResponse::Success(value) => {
-            assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
-            value
-                .get("result")
-                .and_then(|v| v.get("id"))
-                .and_then(|v| v.as_str())
-                .map(|v| v.to_string())
-                .expect("browser new_session should return an id")
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 500);
         }
-        other => panic!("expected success response, got {other:?}"),
-    };
-
-    let list_response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ExecuteTool {
-            name: "browser".to_string(),
-            input: serde_json::json!({
-                "action": "list_sessions"
-            }),
-        },
-    )
-    .await;
-
-    match list_response {
-        IpcResponse::Success(value) => {
-            assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
-            let sessions = value
-                .get("result")
-                .and_then(|v| v.as_array())
-                .expect("browser list_sessions should return an array");
-            assert!(
-                sessions.iter().any(|session| {
-                    session.get("id").and_then(|v| v.as_str()) == Some(session_id.as_str())
-                }),
-                "created browser session should be visible in list_sessions"
-            );
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-
-    let close_response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ExecuteTool {
-            name: "browser".to_string(),
-            input: serde_json::json!({
-                "action": "close_session",
-                "session_id": session_id
-            }),
-        },
-    )
-    .await;
-
-    match close_response {
-        IpcResponse::Success(value) => {
-            assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
-        }
-        other => panic!("expected success response, got {other:?}"),
+        other => panic!("expected browser tool to be absent, got {other:?}"),
     }
 }
 

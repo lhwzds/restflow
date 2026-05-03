@@ -1347,7 +1347,7 @@ mod tests {
         std::fs::write(&output_path, "line-1\nline-2\nline-3\nline-4\n").unwrap();
 
         let trace =
-            restflow_telemetry::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
         let event = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
                 task_id,

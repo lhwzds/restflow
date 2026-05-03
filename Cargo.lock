@@ -1263,26 +1263,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enumflags2"
-version = "0.7.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
-dependencies = [
- "enumflags2_derive",
-]
-
-[[package]]
-name = "enumflags2_derive"
-version = "0.7.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "env_filter"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2216,17 +2196,6 @@ checksum = "ed9625ffda8729b85e45cf04090035ac368927b8cebc34898e7c120f52e4838b"
 dependencies = [
  "bitflags 1.3.2",
  "libc",
-]
-
-[[package]]
-name = "landlock"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49fefd6652c57d68aaa32544a4c0e642929725bdc1fd929367cdeb673ab81088"
-dependencies = [
- "enumflags2",
- "libc",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3353,10 +3322,9 @@ dependencies = [
  "parking_lot",
  "postcard",
  "redb",
+ "regex",
  "reqwest",
  "restflow-models",
- "restflow-sandbox",
- "restflow-telemetry",
  "restflow-traits",
  "serde",
  "serde_json",
@@ -3366,18 +3334,6 @@ dependencies = [
  "tracing",
  "uuid",
  "wiremock",
-]
-
-[[package]]
-name = "restflow-build"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "restflow-storage",
- "serde",
- "serde_json",
- "tempfile",
- "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -3395,27 +3351,23 @@ dependencies = [
  "comfy-table",
  "dirs",
  "flate2",
- "futures",
  "nix 0.31.2",
  "predicates",
  "redb",
  "reqwest",
  "restflow-ai",
- "restflow-build",
  "restflow-contracts",
  "restflow-core",
  "restflow-storage",
- "restflow-test-support",
  "restflow-traits",
  "restflow-tui",
  "rpassword",
  "serde",
  "serde_json",
- "sha2",
  "tar",
  "tempfile",
  "tokio",
- "toml 1.1.2+spec-1.1.0",
+ "toml",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -3475,8 +3427,6 @@ dependencies = [
  "restflow-contracts",
  "restflow-models",
  "restflow-storage",
- "restflow-telemetry",
- "restflow-test-support",
  "restflow-tools",
  "restflow-traits",
  "rmcp",
@@ -3495,7 +3445,7 @@ dependencies = [
  "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
- "toml 1.1.2+spec-1.1.0",
+ "toml",
  "tower",
  "tower-http",
  "tracing",
@@ -3519,19 +3469,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "restflow-sandbox"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "landlock",
- "libc",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "restflow-storage"
 version = "0.4.1"
 dependencies = [
@@ -3552,30 +3489,10 @@ dependencies = [
  "tantivy",
  "tempfile",
  "tokio",
- "toml 1.1.2+spec-1.1.0",
+ "toml",
  "tracing",
  "ts-rs",
  "uuid",
-]
-
-[[package]]
-name = "restflow-telemetry"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "chrono",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "restflow-test-support"
-version = "0.4.1"
-dependencies = [
- "tempfile",
 ]
 
 [[package]]
@@ -3599,10 +3516,8 @@ dependencies = [
  "redb",
  "regex",
  "restflow-ai",
- "restflow-build",
  "restflow-contracts",
  "restflow-models",
- "restflow-sandbox",
  "restflow-storage",
  "restflow-traits",
  "serde",
@@ -4807,21 +4722,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.9.12+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
-dependencies = [
- "indexmap",
- "serde_core",
- "serde_spanned",
- "toml_datetime 0.7.5+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow 0.7.15",
-]
-
-[[package]]
-name = "toml"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
@@ -4829,19 +4729,10 @@ dependencies = [
  "indexmap",
  "serde_core",
  "serde_spanned",
- "toml_datetime 1.1.1+spec-1.1.0",
+ "toml_datetime",
  "toml_parser",
  "toml_writer",
  "winnow 1.0.2",
-]
-
-[[package]]
-name = "toml_datetime"
-version = "0.7.5+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
-dependencies = [
- "serde_core",
 ]
 
 [[package]]
@@ -5831,12 +5722,6 @@ checksum = "1e90edd2ac1aa278a5c4599b1d89cf03074b610800f866d4026dc199d7929a28"
 dependencies = [
  "memchr",
 ]
-
-[[package]]
-name = "winnow"
-version = "0.7.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 
 [[package]]
 name = "winnow"

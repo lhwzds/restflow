@@ -9,11 +9,11 @@ use crate::llm::{
     CompletionRequest, CompletionResponse, FinishReason, Role, StreamChunk, StreamResult,
     TokenUsage, ToolCall,
 };
+use crate::telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
 use crate::tools::ToolResult;
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
-use restflow_telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
 use restflow_traits::{ClientKind, LlmProvider};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -486,7 +486,7 @@ impl TelemetrySink for CapturingTelemetrySink {
 }
 
 fn telemetry_context(model: &str) -> TelemetryContext {
-    TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
+    TelemetryContext::new(crate::telemetry::RestflowTrace::new(
         "run-test",
         "session-test",
         "scope-test",

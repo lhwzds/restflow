@@ -7,7 +7,7 @@ pub(super) struct ServiceSubagentRuntimeBundle {
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
     pub llm_client_factory: Arc<dyn LlmClientFactory>,
-    pub telemetry_sink: Option<Arc<dyn restflow_telemetry::TelemetrySink>>,
+    pub telemetry_sink: Option<Arc<dyn restflow_ai::telemetry::TelemetrySink>>,
 }
 
 pub(super) fn build_service_subagent_tool_registry(source: &ToolRegistry) -> ToolRegistry {
@@ -26,7 +26,7 @@ struct ToolRegistrySubagentBackend {
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     llm_client_factory: Arc<dyn LlmClientFactory>,
-    telemetry_sink: Option<Arc<dyn restflow_telemetry::TelemetrySink>>,
+    telemetry_sink: Option<Arc<dyn restflow_ai::telemetry::TelemetrySink>>,
 }
 
 #[async_trait::async_trait]
@@ -120,7 +120,7 @@ pub(super) fn build_service_subagent_runtime_bundle(
             telemetry_metric_samples,
             provider_health_snapshots,
             structured_execution_logs,
-        )) as Arc<dyn restflow_telemetry::TelemetrySink>),
+        )) as Arc<dyn restflow_ai::telemetry::TelemetrySink>),
         _ => {
             warn!("Failed to initialize core telemetry sink for service subagents");
             None

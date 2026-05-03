@@ -34,8 +34,6 @@ pub struct BashTool {
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: Option<String>,
     task_id: Option<String>,
-    #[cfg(feature = "sandbox")]
-    sandbox_policy: Option<restflow_sandbox::SandboxPolicy>,
 }
 
 impl Default for BashTool {
@@ -53,8 +51,6 @@ impl BashTool {
             security_gate: None,
             agent_id: None,
             task_id: None,
-            #[cfg(feature = "sandbox")]
-            sandbox_policy: None,
         }
     }
 
@@ -70,12 +66,6 @@ impl BashTool {
 
     pub fn with_max_output(mut self, bytes: usize) -> Self {
         self.max_output_bytes = bytes;
-        self
-    }
-
-    #[cfg(feature = "sandbox")]
-    pub fn with_sandbox_policy(mut self, policy: restflow_sandbox::SandboxPolicy) -> Self {
-        self.sandbox_policy = Some(policy);
         self
     }
 
@@ -97,17 +87,6 @@ impl BashTool {
         workdir: &str,
         timeout_secs: u64,
     ) -> std::result::Result<(i32, String, String, bool), std::io::Error> {
-        #[cfg(feature = "sandbox")]
-        let (program, args) = if let Some(ref policy) = self.sandbox_policy {
-            restflow_sandbox::wrap_command(policy, "sh", &["-c", command])
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
-        } else {
-            (
-                "sh".to_string(),
-                vec!["-c".to_string(), command.to_string()],
-            )
-        };
-        #[cfg(not(feature = "sandbox"))]
         let (program, args) = (
             "sh".to_string(),
             vec!["-c".to_string(), command.to_string()],
@@ -123,17 +102,6 @@ impl BashTool {
         #[cfg(unix)]
         {
             cmd.process_group(0);
-        }
-
-        #[cfg(all(unix, feature = "sandbox"))]
-        if let Some(ref policy) = self.sandbox_policy {
-            let policy = policy.clone();
-            unsafe {
-                cmd.pre_exec(move || {
-                    restflow_sandbox::pre_exec_hook(&policy)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
-                });
-            }
         }
 
         let child = cmd.spawn()?;

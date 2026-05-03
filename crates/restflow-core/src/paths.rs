@@ -76,10 +76,11 @@ pub fn daemon_log_path() -> Result<PathBuf> {
 
 #[cfg(test)]
 pub(crate) fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    restflow_test_support::env_lock()
+    crate::test_support::env_lock()
 }
 
 #[cfg(all(not(test), feature = "test-utils"))]
+#[allow(dead_code)]
 pub(crate) fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
     use std::sync::{Mutex, OnceLock};
 

@@ -314,7 +314,7 @@ mod tests {
     fn enriches_voice_message_with_matching_transcript() {
         let input = voice_message("/tmp/voice-a.webm");
         let trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
                 "task-1",
@@ -364,7 +364,7 @@ mod tests {
     fn does_not_enrich_when_file_path_does_not_match() {
         let input = voice_message("/tmp/voice-a.webm");
         let trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
                 "task-1",
@@ -417,7 +417,7 @@ mod tests {
 
         let input = voice_message("/tmp/voice-a.webm");
         let trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
                 "task-1",

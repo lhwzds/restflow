@@ -1610,7 +1610,6 @@ mod tests {
 
     fn sample_agent_node() -> AgentNode {
         AgentNode {
-            model: Some("gpt-5".to_string()),
             model_ref: Some(WireModelRef {
                 provider: "openai".to_string(),
                 model: "gpt-5".to_string(),

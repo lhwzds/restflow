@@ -7,7 +7,6 @@ pub(crate) mod shared;
 pub(crate) mod subagent_read_capability;
 
 mod bash;
-mod binary_skill;
 mod file;
 mod skrun;
 
@@ -59,11 +58,6 @@ pub use multiedit::MultiEditTool;
 
 // Re-export original 7
 pub use bash::{BashInput, BashOutput, BashTool};
-pub use binary_skill::{
-    BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
-    BinarySkillUpdateTool, InstalledBinarySkillTool, binary_skill_tool_name,
-    discover_installed_binary_skill_tools, discover_installed_binary_skill_tools_from,
-};
 pub use file::{FileAction, FileTool};
 pub use skrun::RunSkillTool;
 

@@ -83,15 +83,8 @@ impl ConfigTool {
     fn reject_cli_local_config(config: &ConfigDocument) -> Result<()> {
         let default_cli = CliConfig::default();
         let cli = &config.cli;
-        let has_cli_overrides = cli.version != default_cli.version
-            || cli.agent.is_some()
-            || cli.model.is_some()
-            || cli.sandbox.enabled
-            || cli.sandbox.env.isolate
-            || !cli.sandbox.env.allow.is_empty()
-            || !cli.sandbox.env.block.is_empty()
-            || cli.sandbox.limits.timeout_secs != default_cli.sandbox.limits.timeout_secs
-            || cli.sandbox.limits.max_output_bytes != default_cli.sandbox.limits.max_output_bytes;
+        let has_cli_overrides =
+            cli.version != default_cli.version || cli.agent.is_some() || cli.model.is_some();
         if has_cli_overrides {
             return Err(ToolError::Tool(
                 "CLI-local config fields are not available through manage_config. Use the CLI-local config command path for cli.* settings.".to_string(),

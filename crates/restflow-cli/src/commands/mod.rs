@@ -1,6 +1,5 @@
 pub mod agent;
 pub mod auth;
-pub mod binary;
 pub mod codex_mcp;
 pub mod config;
 pub mod daemon;

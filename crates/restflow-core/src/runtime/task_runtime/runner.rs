@@ -21,7 +21,7 @@ use crate::steer::SteerRegistry;
 use crate::storage::{MemoryStorage, TaskStorage};
 use anyhow::{Result, anyhow};
 use restflow_ai::agent::StreamEmitter;
-use restflow_telemetry::{RunDescriptor, RunKind, RunLifecycleService};
+use restflow_ai::telemetry::{RunDescriptor, RunKind, RunLifecycleService};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 #[cfg(test)]
@@ -224,7 +224,7 @@ pub trait AgentExecutor: Send + Sync {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let _ = telemetry_context;
         self.execute_with_emitter(agent_id, task_id, input, memory_config, steer_rx, emitter)
@@ -259,7 +259,7 @@ pub trait AgentExecutor: Send + Sync {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let _ = telemetry_context;
         self.execute_from_state(agent_id, task_id, state, memory_config, steer_rx, emitter)
@@ -642,7 +642,7 @@ impl TaskRunner {
         &self,
         task: &Task,
         run: &TaskRun,
-    ) -> restflow_telemetry::RunHandle {
+    ) -> restflow_ai::telemetry::RunHandle {
         let trace_session_id = {
             let session_id = task.chat_session_id.trim();
             if session_id.is_empty() {

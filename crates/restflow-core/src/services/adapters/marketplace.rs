@@ -363,7 +363,7 @@ mod tests {
             "mcp_github:demo@1.0.0"
         ));
         assert!(!MarketplaceStoreAdapter::is_marketplace_source_ref(
-            "github_release:repo:tag:asset"
+            "package:/tmp/demo.skill"
         ));
     }
 }

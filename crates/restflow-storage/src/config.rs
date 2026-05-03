@@ -53,14 +53,6 @@ const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
 
-fn default_cli_timeout() -> u64 {
-    120
-}
-
-fn default_cli_max_output() -> usize {
-    1_048_576
-}
-
 /// CLI-specific settings stored in the unified config file.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
@@ -68,7 +60,6 @@ pub struct CliConfig {
     pub version: u32,
     pub agent: Option<String>,
     pub model: Option<String>,
-    pub sandbox: CliSandboxConfig,
 }
 
 impl Default for CliConfig {
@@ -77,7 +68,6 @@ impl Default for CliConfig {
             version: 1,
             agent: None,
             model: None,
-            sandbox: CliSandboxConfig::default(),
         }
     }
 }
@@ -89,38 +79,6 @@ impl CliConfig {
 
     pub fn save(&self) -> Result<()> {
         write_cli_config(self)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
-#[serde(default)]
-pub struct CliSandboxConfig {
-    pub enabled: bool,
-    pub env: CliEnvSandboxConfig,
-    pub limits: CliLimitsConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
-#[serde(default)]
-pub struct CliEnvSandboxConfig {
-    pub isolate: bool,
-    pub allow: Vec<String>,
-    pub block: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(default)]
-pub struct CliLimitsConfig {
-    pub timeout_secs: u64,
-    pub max_output_bytes: usize,
-}
-
-impl Default for CliLimitsConfig {
-    fn default() -> Self {
-        Self {
-            timeout_secs: default_cli_timeout(),
-            max_output_bytes: default_cli_max_output(),
-        }
     }
 }
 
@@ -868,73 +826,11 @@ impl SystemConfig {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct CliEnvSandboxConfigOverride {
-    pub isolate: Option<bool>,
-    pub allow: Option<Vec<String>>,
-    pub block: Option<Vec<String>>,
-}
-
-impl CliEnvSandboxConfigOverride {
-    fn apply_to(&self, config: &mut CliEnvSandboxConfig) {
-        if let Some(value) = self.isolate {
-            config.isolate = value;
-        }
-        if let Some(value) = self.allow.clone() {
-            config.allow = value;
-        }
-        if let Some(value) = self.block.clone() {
-            config.block = value;
-        }
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct CliLimitsConfigOverride {
-    pub timeout_secs: Option<u64>,
-    pub max_output_bytes: Option<usize>,
-}
-
-impl CliLimitsConfigOverride {
-    fn apply_to(&self, config: &mut CliLimitsConfig) {
-        if let Some(value) = self.timeout_secs {
-            config.timeout_secs = value;
-        }
-        if let Some(value) = self.max_output_bytes {
-            config.max_output_bytes = value;
-        }
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct CliSandboxConfigOverride {
-    pub enabled: Option<bool>,
-    pub env: Option<CliEnvSandboxConfigOverride>,
-    pub limits: Option<CliLimitsConfigOverride>,
-}
-
-impl CliSandboxConfigOverride {
-    fn apply_to(&self, config: &mut CliSandboxConfig) {
-        if let Some(value) = self.enabled {
-            config.enabled = value;
-        }
-        if let Some(value) = &self.env {
-            value.apply_to(&mut config.env);
-        }
-        if let Some(value) = &self.limits {
-            value.apply_to(&mut config.limits);
-        }
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
 struct CliConfigOverride {
     pub version: Option<u32>,
     pub agent: Option<String>,
     pub model: Option<String>,
-    pub sandbox: Option<CliSandboxConfigOverride>,
+    pub sandbox: Option<DeprecatedCliSandboxOverride>,
 }
 
 impl CliConfigOverride {
@@ -948,10 +844,33 @@ impl CliConfigOverride {
         if let Some(value) = self.model.clone() {
             config.model = Some(value);
         }
-        if let Some(value) = &self.sandbox {
-            value.apply_to(&mut config.sandbox);
-        }
     }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct DeprecatedCliSandboxOverride {
+    pub enabled: Option<bool>,
+    pub env: Option<DeprecatedCliSandboxEnvOverride>,
+    pub limits: Option<DeprecatedCliSandboxLimitsOverride>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct DeprecatedCliSandboxEnvOverride {
+    pub isolate: Option<bool>,
+    pub allow: Option<Vec<String>>,
+    pub block: Option<Vec<String>>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct DeprecatedCliSandboxLimitsOverride {
+    pub timeout_secs: Option<u64>,
+    pub max_output_bytes: Option<u64>,
 }
 
 fn deserialize_optional_u64_override<'de, D>(
@@ -1121,6 +1040,10 @@ struct ApiDefaultsOverride {
     pub task_message_list_limit: Option<usize>,
     pub task_trace_list_limit: Option<usize>,
     pub task_trace_line_limit: Option<usize>,
+    pub background_progress_event_limit: Option<usize>,
+    pub background_message_list_limit: Option<usize>,
+    pub background_trace_list_limit: Option<usize>,
+    pub background_trace_line_limit: Option<usize>,
     pub web_search_num_results: Option<usize>,
     pub diagnostics_timeout_ms: Option<u64>,
 }
@@ -1132,6 +1055,18 @@ impl ApiDefaultsOverride {
         }
         if let Some(value) = self.session_list_limit {
             api_defaults.session_list_limit = value;
+        }
+        if let Some(value) = self.background_progress_event_limit {
+            api_defaults.task_progress_event_limit = value;
+        }
+        if let Some(value) = self.background_message_list_limit {
+            api_defaults.task_message_list_limit = value;
+        }
+        if let Some(value) = self.background_trace_list_limit {
+            api_defaults.task_trace_list_limit = value;
+        }
+        if let Some(value) = self.background_trace_line_limit {
+            api_defaults.task_trace_line_limit = value;
         }
         if let Some(value) = self.task_progress_event_limit {
             api_defaults.task_progress_event_limit = value;
@@ -1159,11 +1094,19 @@ impl ApiDefaultsOverride {
 struct RuntimeDefaultsOverride {
     pub task_runner_poll_interval_ms: Option<u64>,
     pub task_runner_max_concurrent_tasks: Option<usize>,
+    pub background_runner_poll_interval_ms: Option<u64>,
+    pub background_runner_max_concurrent_tasks: Option<usize>,
     pub chat_max_session_history: Option<usize>,
 }
 
 impl RuntimeDefaultsOverride {
     fn apply_to(&self, runtime_defaults: &mut RuntimeDefaults) {
+        if let Some(value) = self.background_runner_poll_interval_ms {
+            runtime_defaults.task_runner_poll_interval_ms = value;
+        }
+        if let Some(value) = self.background_runner_max_concurrent_tasks {
+            runtime_defaults.task_runner_max_concurrent_tasks = value;
+        }
         if let Some(value) = self.task_runner_poll_interval_ms {
             runtime_defaults.task_runner_poll_interval_ms = value;
         }
@@ -1220,11 +1163,13 @@ struct SystemSectionOverride {
     pub stall_timeout_seconds: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub task_api_timeout_seconds: Option<Option<u64>>,
+    pub background_api_timeout_seconds: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub chat_response_timeout_seconds: Option<Option<u64>>,
     pub max_retries: Option<u32>,
     pub chat_session_retention_days: Option<u32>,
     pub task_retention_days: Option<u32>,
+    pub background_task_retention_days: Option<u32>,
     pub checkpoint_retention_days: Option<u32>,
     pub memory_chunk_retention_days: Option<u32>,
     pub audit_event_retention_days: Option<u32>,
@@ -1244,6 +1189,9 @@ impl SystemSectionOverride {
         if let Some(value) = self.stall_timeout_seconds {
             config.stall_timeout_seconds = value;
         }
+        if let Some(value) = self.background_api_timeout_seconds {
+            config.task_api_timeout_seconds = Some(value);
+        }
         if let Some(value) = self.task_api_timeout_seconds {
             config.task_api_timeout_seconds = value;
         }
@@ -1255,6 +1203,9 @@ impl SystemSectionOverride {
         }
         if let Some(value) = self.chat_session_retention_days {
             config.chat_session_retention_days = value;
+        }
+        if let Some(value) = self.background_task_retention_days {
+            config.task_retention_days = value;
         }
         if let Some(value) = self.task_retention_days {
             config.task_retention_days = value;
@@ -2237,6 +2188,56 @@ task_retention_days = 10
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.worker_count, 42);
         assert_eq!(effective.task_retention_days, 10);
+    }
+
+    #[test]
+    fn test_effective_config_accepts_deprecated_background_and_sandbox_keys() {
+        let ctx = setup_test_storage();
+        let file = write_override_file(
+            r#"[system]
+background_api_timeout_seconds = 3600
+background_task_retention_days = 14
+
+[api]
+background_progress_event_limit = 10
+background_message_list_limit = 50
+background_trace_list_limit = 60
+background_trace_line_limit = 300
+
+[runtime]
+background_runner_poll_interval_ms = 15000
+background_runner_max_concurrent_tasks = 8
+
+[cli.sandbox]
+enabled = false
+
+[cli.sandbox.env]
+isolate = false
+allow = []
+block = []
+
+[cli.sandbox.limits]
+timeout_secs = 120
+max_output_bytes = 1048576
+"#,
+        );
+        let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
+
+        let effective = ctx.storage.get_effective_config().unwrap();
+        assert_eq!(effective.task_api_timeout_seconds, Some(3600));
+        assert_eq!(effective.task_retention_days, 14);
+        assert_eq!(effective.api_defaults.task_progress_event_limit, 10);
+        assert_eq!(effective.api_defaults.task_message_list_limit, 50);
+        assert_eq!(effective.api_defaults.task_trace_list_limit, 60);
+        assert_eq!(effective.api_defaults.task_trace_line_limit, 300);
+        assert_eq!(
+            effective.runtime_defaults.task_runner_poll_interval_ms,
+            15000
+        );
+        assert_eq!(
+            effective.runtime_defaults.task_runner_max_concurrent_tasks,
+            8
+        );
     }
 
     #[test]

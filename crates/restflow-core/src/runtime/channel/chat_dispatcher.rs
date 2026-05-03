@@ -1459,10 +1459,10 @@ mod tests {
     }
 
     #[test]
-    fn test_main_agent_default_tools_include_switch_model() {
+    fn test_main_agent_default_tools_exclude_session_scoped_management_tools() {
         let tools = crate::runtime::agent::main_agent_default_tool_names();
 
-        assert!(tools.iter().any(|name| name == "switch_model"));
+        assert!(!tools.iter().any(|name| name == "switch_model"));
         assert!(!tools.iter().any(|name| name == "manage_tasks"));
         assert!(tools.iter().any(|name| name == "bash"));
     }
@@ -1476,7 +1476,6 @@ mod tests {
         ];
         let merged = effective_main_agent_tool_names(Some(&extra));
 
-        assert!(merged.iter().any(|name| name == "switch_model"));
         assert!(merged.iter().any(|name| name == "manage_tasks"));
         assert!(merged.iter().any(|name| name == "custom_tool"));
         assert_eq!(

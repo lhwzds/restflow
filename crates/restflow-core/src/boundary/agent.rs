@@ -136,6 +136,6 @@ mod tests {
         })
         .expect_err("invalid provider/model pair should fail");
 
-        assert_eq!(errors[0].field, "model_ref");
+        assert_eq!(errors[0].field, "model_ref.model");
     }
 }

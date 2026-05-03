@@ -2,18 +2,18 @@ use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
 use crate::models::{AgentNode, MemoryConfig, Skill, SkillPreflightPolicyMode, SkillSource};
 use crate::runtime::subagent::AgentDefinitionRegistry;
+use crate::test_support::RestflowTestEnv;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_traits::store::ReplySender;
 use std::future::Future;
 use std::pin::Pin;
-use tempfile::tempdir;
 use tokio::sync::mpsc;
 
-fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
-    let temp_dir = tempdir().unwrap();
-    let db_path = temp_dir.path().join("test.db");
+fn create_test_storage() -> (Arc<Storage>, RestflowTestEnv) {
+    let env = RestflowTestEnv::new();
+    let db_path = env.db_path("test.db");
     let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-    (Arc::new(storage), temp_dir)
+    (Arc::new(storage), env)
 }
 
 fn create_test_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
@@ -421,17 +421,17 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
 }
 
 #[test]
-fn test_resolve_effective_tool_names_does_not_escalate_unassigned_skill_mention() {
+fn test_resolve_effective_tool_names_activates_known_unassigned_skill_mention() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage);
     let node = AgentNode::new();
 
     let tools = executor
         .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
-        .expect("unassigned mention should remain readable but not activate tools");
+        .expect("known mention should activate suggested tools");
 
     assert!(tools.iter().any(|tool| tool == "load_skill"));
-    assert!(!tools.iter().any(|tool| tool == "manage_tasks"));
+    assert!(tools.iter().any(|tool| tool == "manage_tasks"));
 }
 
 #[tokio::test]

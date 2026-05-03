@@ -21,14 +21,6 @@ const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
 
-fn default_cli_timeout() -> u64 {
-    120
-}
-
-fn default_cli_max_output() -> usize {
-    1_048_576
-}
-
 // ── CLI types ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +30,6 @@ pub struct CliConfig {
     pub version: u32,
     pub agent: Option<String>,
     pub model: Option<String>,
-    pub sandbox: CliSandboxConfig,
 }
 
 impl Default for CliConfig {
@@ -47,42 +38,6 @@ impl Default for CliConfig {
             version: 1,
             agent: None,
             model: None,
-            sandbox: CliSandboxConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(default)]
-pub struct CliSandboxConfig {
-    pub enabled: bool,
-    pub env: CliEnvSandboxConfig,
-    pub limits: CliLimitsConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(default)]
-pub struct CliEnvSandboxConfig {
-    pub isolate: bool,
-    pub allow: Vec<String>,
-    pub block: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(default)]
-pub struct CliLimitsConfig {
-    pub timeout_secs: u64,
-    pub max_output_bytes: usize,
-}
-
-impl Default for CliLimitsConfig {
-    fn default() -> Self {
-        Self {
-            timeout_secs: default_cli_timeout(),
-            max_output_bytes: default_cli_max_output(),
         }
     }
 }

@@ -182,7 +182,7 @@ mod tests {
                             ai_duration_ms: None,
                         },
                     ),
-                    &restflow_telemetry::RestflowTrace::new(
+                    &restflow_ai::telemetry::RestflowTrace::new(
                         "turn-1",
                         &session.id,
                         &session.id,

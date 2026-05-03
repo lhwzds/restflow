@@ -243,30 +243,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(format_optional_string(config.cli.model.as_deref())),
     ]);
     table.add_row(vec![
-        Cell::new("cli.sandbox.enabled"),
-        Cell::new(config.cli.sandbox.enabled),
-    ]);
-    table.add_row(vec![
-        Cell::new("cli.sandbox.env.isolate"),
-        Cell::new(config.cli.sandbox.env.isolate),
-    ]);
-    table.add_row(vec![
-        Cell::new("cli.sandbox.env.allow"),
-        Cell::new(format_string_list(&config.cli.sandbox.env.allow)),
-    ]);
-    table.add_row(vec![
-        Cell::new("cli.sandbox.env.block"),
-        Cell::new(format_string_list(&config.cli.sandbox.env.block)),
-    ]);
-    table.add_row(vec![
-        Cell::new("cli.sandbox.limits.timeout_secs"),
-        Cell::new(config.cli.sandbox.limits.timeout_secs),
-    ]);
-    table.add_row(vec![
-        Cell::new("cli.sandbox.limits.max_output_bytes"),
-        Cell::new(config.cli.sandbox.limits.max_output_bytes),
-    ]);
-    table.add_row(vec![
         Cell::new("sources.global"),
         Cell::new(format_source_info(&sources.global)),
     ]);
@@ -373,14 +349,6 @@ async fn get_config_value(
         "cli.version" => json!(config.cli.version),
         "cli.agent" => json!(config.cli.agent),
         "cli.model" => json!(config.cli.model),
-        "cli.sandbox.enabled" => json!(config.cli.sandbox.enabled),
-        "cli.sandbox.env.isolate" => json!(config.cli.sandbox.env.isolate),
-        "cli.sandbox.env.allow" => json!(config.cli.sandbox.env.allow),
-        "cli.sandbox.env.block" => json!(config.cli.sandbox.env.block),
-        "cli.sandbox.limits.timeout_secs" => json!(config.cli.sandbox.limits.timeout_secs),
-        "cli.sandbox.limits.max_output_bytes" => {
-            json!(config.cli.sandbox.limits.max_output_bytes)
-        }
         "_effective_sources" | "effective_sources" => json!(effective_config_sources()?),
         _ => bail!("Unsupported config key: {key}"),
     };
@@ -411,24 +379,6 @@ async fn set_config_value(
             }
             "cli.model" => {
                 config.model = parse_optional_string(value);
-            }
-            "cli.sandbox.enabled" => {
-                config.sandbox.enabled = parse_value(value)?;
-            }
-            "cli.sandbox.env.isolate" => {
-                config.sandbox.env.isolate = parse_value(value)?;
-            }
-            "cli.sandbox.env.allow" => {
-                config.sandbox.env.allow = parse_string_list(value)?;
-            }
-            "cli.sandbox.env.block" => {
-                config.sandbox.env.block = parse_string_list(value)?;
-            }
-            "cli.sandbox.limits.timeout_secs" => {
-                config.sandbox.limits.timeout_secs = parse_value(value)?;
-            }
-            "cli.sandbox.limits.max_output_bytes" => {
-                config.sandbox.limits.max_output_bytes = parse_value(value)?;
             }
             _ => bail!("Unsupported config key: {key}"),
         }

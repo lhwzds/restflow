@@ -640,7 +640,7 @@ mod tests {
             temp.path().join(INSTALL_SOURCE_METADATA_FILE),
             serde_json::json!({
                 "source": "external",
-                "source_ref": "github_release:lhwzds/restflow-skills:cdp-browser@0.1.2:cdp-browser-aarch64-macos.tar.gz"
+                "source_ref": "package:/tmp/external-skill.skill"
             })
             .to_string(),
         )
@@ -652,9 +652,7 @@ mod tests {
         assert_eq!(skill.source, SkillSource::External);
         assert_eq!(
             skill.source_ref.as_deref(),
-            Some(
-                "github_release:lhwzds/restflow-skills:cdp-browser@0.1.2:cdp-browser-aarch64-macos.tar.gz"
-            )
+            Some("package:/tmp/external-skill.skill")
         );
     }
 

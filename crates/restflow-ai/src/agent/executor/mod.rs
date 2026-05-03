@@ -61,7 +61,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use restflow_telemetry::{
+use crate::telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, LlmCallPayload, TelemetryContext, TelemetrySink,
 };
 use serde_json::Value;

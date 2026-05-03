@@ -2,13 +2,14 @@ use anyhow::{Context, Result, bail};
 use assert_cmd::Command;
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::paths;
-use restflow_test_support::RestflowTestEnv;
+mod support;
 use serde_json::Value;
 use std::fs::File;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
 use std::time::Duration;
+use support::RestflowTestEnv;
 use tokio::time::{Instant, sleep};
 
 struct DaemonChild {

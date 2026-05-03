@@ -1,6 +1,6 @@
 use super::*;
 use async_trait::async_trait;
-use restflow_telemetry::RunAttemptTracker;
+use restflow_ai::telemetry::RunAttemptTracker;
 
 fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
@@ -16,11 +16,11 @@ fn generated_run_id() -> String {
 
 impl AgentRuntimeExecutor {
     fn task_telemetry_context(
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         task_id: Option<&str>,
         task_snapshot: Option<&crate::models::Task>,
         agent_id: Option<&str>,
-    ) -> restflow_telemetry::TelemetryContext {
+    ) -> restflow_ai::telemetry::TelemetryContext {
         let resolved_agent_id = agent_id.unwrap_or("unknown-agent").to_string();
         if let Some(mut context) = telemetry_context {
             context.trace.actor_id = resolved_agent_id;
@@ -34,7 +34,7 @@ impl AgentRuntimeExecutor {
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| run_id.clone());
         let scope_id = task_id.unwrap_or(run_id.as_str()).to_string();
-        restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
+        restflow_ai::telemetry::TelemetryContext::new(restflow_ai::telemetry::RestflowTrace::new(
             run_id,
             session_id,
             scope_id,
@@ -57,7 +57,7 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
-        telemetry_context: restflow_telemetry::TelemetryContext,
+        telemetry_context: restflow_ai::telemetry::TelemetryContext,
     ) -> Result<ExecutionResult> {
         let task_snapshot = if let Some(task_id) = task_id {
             match self.storage.tasks.get_task(task_id) {
@@ -332,7 +332,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
-        telemetry_context: restflow_telemetry::TelemetryContext,
+        telemetry_context: restflow_ai::telemetry::TelemetryContext,
     ) -> Result<ExecutionResult> {
         let model_specs = ModelId::build_model_specs();
         let api_keys = self
@@ -395,7 +395,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
-        telemetry_context: restflow_telemetry::TelemetryContext,
+        telemetry_context: restflow_ai::telemetry::TelemetryContext,
     ) -> Result<ExecutionResult> {
         if model.is_codex_cli() {
             return self
@@ -619,7 +619,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.execute_internal(
             agent_id,
@@ -662,7 +662,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.execute_internal_from_state(
             agent_id,
@@ -688,7 +688,7 @@ impl AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let stored_agent = self
             .storage
@@ -763,9 +763,9 @@ impl AgentRuntimeExecutor {
                     {
                         telemetry_sink
                             .emit(
-                                restflow_telemetry::ExecutionEventEnvelope::from_telemetry_context(
+                                restflow_ai::telemetry::ExecutionEventEnvelope::from_telemetry_context(
                                     &telemetry_context,
-                                    restflow_telemetry::ExecutionEvent::ModelSwitch {
+                                    restflow_ai::telemetry::ExecutionEvent::ModelSwitch {
                                         from_model: previous_model.as_serialized_str().to_string(),
                                         to_model: model.as_serialized_str().to_string(),
                                         reason: Some("failover".to_string()),
@@ -828,7 +828,7 @@ impl AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.execute_internal_with_optional_state(
             agent_id,
@@ -852,7 +852,7 @@ impl AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.execute_internal_with_optional_state(
             agent_id,
@@ -908,7 +908,7 @@ mod tests {
                 continuation: None,
             })
             .expect("task");
-        let stale_trace = restflow_telemetry::RestflowTrace::new(
+        let stale_trace = restflow_ai::telemetry::RestflowTrace::new(
             "run-stale",
             task.chat_session_id.clone(),
             task.id.clone(),
@@ -918,13 +918,14 @@ mod tests {
             &crate::telemetry::build_execution_trace_sink(&storage.execution_traces),
             stale_trace,
         ));
-        let explicit_context =
-            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
+        let explicit_context = restflow_ai::telemetry::TelemetryContext::new(
+            restflow_ai::telemetry::RestflowTrace::new(
                 "run-current",
                 task.chat_session_id.clone(),
                 task.id.clone(),
                 "agent-stale",
-            ));
+            ),
+        );
         let context = AgentRuntimeExecutor::task_telemetry_context(
             Some(explicit_context),
             Some(&task.id),

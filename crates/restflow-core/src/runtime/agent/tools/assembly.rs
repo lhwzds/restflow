@@ -7,10 +7,8 @@ use crate::services::session::SessionService;
 use crate::storage::Storage;
 use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, SkillStorage, TaskStorage};
 use restflow_tools::{
-    BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
-    BinarySkillUpdateTool, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool,
-    SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
-    discover_installed_binary_skill_tools,
+    BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool, SpawnSubagentTool,
+    ToolRegistryBuilder, WaitSubagentsTool,
 };
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
@@ -62,48 +60,6 @@ pub(crate) fn register_file_execution_tool(
         builder = builder.with_file(config);
     }
 
-    builder
-}
-
-pub(crate) fn register_binary_skill_tools(
-    mut builder: ToolRegistryBuilder,
-    security_gate: Option<Arc<dyn SecurityGate>>,
-    agent_id: &str,
-    task_id: &str,
-) -> ToolRegistryBuilder {
-    if let Some(gate) = security_gate.clone() {
-        builder
-            .registry
-            .register(BinarySkillNewTool::new().with_security(gate.clone(), agent_id, task_id));
-        builder
-            .registry
-            .register(BinarySkillBuildTool::new().with_security(gate.clone(), agent_id, task_id));
-        builder
-            .registry
-            .register(BinarySkillReadTool::new().with_security(gate.clone(), agent_id, task_id));
-        builder
-            .registry
-            .register(BinarySkillRunTool::new().with_security(gate.clone(), agent_id, task_id));
-        builder
-            .registry
-            .register(BinarySkillUpdateTool::new().with_security(gate, agent_id, task_id));
-    } else {
-        builder.registry.register(BinarySkillNewTool::new());
-        builder.registry.register(BinarySkillBuildTool::new());
-        builder.registry.register(BinarySkillReadTool::new());
-        builder.registry.register(BinarySkillRunTool::new());
-        builder.registry.register(BinarySkillUpdateTool::new());
-    }
-    if let Ok(tools) = discover_installed_binary_skill_tools() {
-        for tool in tools {
-            let tool = if let Some(gate) = security_gate.clone() {
-                tool.with_security(gate, agent_id, task_id)
-            } else {
-                tool
-            };
-            builder.registry.register(tool);
-        }
-    }
     builder
 }
 

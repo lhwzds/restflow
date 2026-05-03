@@ -349,7 +349,7 @@ pub fn agents_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
 
 #[cfg(test)]
 fn agents_dir_env_lock_impl() -> std::sync::MutexGuard<'static, ()> {
-    restflow_test_support::agents_env_lock()
+    crate::test_support::agents_env_lock()
 }
 
 #[cfg(all(not(test), feature = "test-utils"))]

@@ -64,7 +64,6 @@ flowchart LR
     Contracts --> Core["restflow-core"]
     Models --> Core
     Storage --> Core
-    Telemetry["restflow-telemetry"] --> Core
     Ai --> Core
     Tools --> Core
 
@@ -399,7 +398,7 @@ tooling.
 | Runtime | `[runtime]` | Default daemon runtime behavior | `task_runner_poll_interval_ms`, `task_runner_max_concurrent_tasks`, `chat_max_session_history` | task runner, chat dispatcher |
 | Channel | `[channel]` | External channel integration defaults | `telegram_api_timeout_secs`, `telegram_polling_timeout_secs` | Telegram channel runtime |
 | Registry | `[registry]` | Skill and marketplace integration defaults | `github_cache_ttl_secs`, `marketplace_cache_ttl_secs` | marketplace adapters, skill discovery/install flows |
-| CLI | `[cli]` | CLI-only local behavior | `version`, `agent`, `model`, `sandbox.*` | CLI config loader, local sandbox execution |
+| CLI | `[cli]` | CLI-only local preferences | `version`, `agent`, `model` | CLI config loader |
 
 ### 7.3 Naming Principles
 

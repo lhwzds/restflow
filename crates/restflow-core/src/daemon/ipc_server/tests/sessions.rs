@@ -28,7 +28,7 @@ fn store_run_events(
     run_id: &str,
     parent_run_id: Option<&str>,
 ) {
-    let trace = restflow_telemetry::RestflowTrace::new(
+    let trace = restflow_ai::telemetry::RestflowTrace::new(
         run_id.to_string(),
         session_id.to_string(),
         task_id.to_string(),
@@ -82,7 +82,7 @@ fn store_run_events(
 }
 
 fn store_run_telemetry(storage: &Arc<Storage>, task_id: &str, session_id: &str, run_id: &str) {
-    let trace = restflow_telemetry::RestflowTrace::new(run_id, session_id, task_id, "agent-1");
+    let trace = restflow_ai::telemetry::RestflowTrace::new(run_id, session_id, task_id, "agent-1");
     let metric = crate::models::execution_trace_builders::with_trace_context(
         crate::models::execution_trace_builders::metric_sample(
             task_id,

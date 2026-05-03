@@ -22,6 +22,8 @@ pub mod steer;
 pub mod storage;
 pub mod telemetry;
 mod template;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use models::{
     AgentCheckpoint, AgentExecuteResponse, AgentMeta, AgentNode, AgentSecurityConfig, AgentType,

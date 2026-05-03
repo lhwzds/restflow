@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_telemetry::{
+use restflow_ai::telemetry::{
     DEFAULT_TELEMETRY_TEXT_LIMIT, ExecutionEventEnvelope, RestflowTrace, TelemetrySink,
     normalize_telemetry_preview, sanitize_telemetry_secrets, truncate_telemetry_text,
 };

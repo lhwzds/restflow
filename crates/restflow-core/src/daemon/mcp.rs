@@ -933,7 +933,7 @@ mod tests {
         assert!(is_marketplace_source_ref("github:demo@1.0.0"));
         assert!(is_marketplace_source_ref("mcp_marketplace:demo@1.0.0"));
         assert!(is_marketplace_source_ref("mcp_github:demo@1.0.0"));
-        assert!(!is_marketplace_source_ref("github_release:repo:tag:asset"));
+        assert!(!is_marketplace_source_ref("package:/tmp/demo.skill"));
 
         let mut skill = Skill::new(
             "demo".to_string(),
@@ -948,7 +948,7 @@ mod tests {
         skill.source_ref = Some("mcp_marketplace:demo@1.0.0".to_string());
         assert!(is_marketplace_installed_skill(&skill));
 
-        skill.source_ref = Some("github_release:repo:tag:asset".to_string());
+        skill.source_ref = Some("package:/tmp/demo.skill".to_string());
         assert!(!is_marketplace_installed_skill(&skill));
     }
 

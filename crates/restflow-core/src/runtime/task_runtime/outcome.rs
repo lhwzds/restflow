@@ -1,5 +1,5 @@
 use restflow_ai::llm::Message;
-use restflow_telemetry::TelemetryContext;
+use restflow_ai::telemetry::TelemetryContext;
 
 use crate::models::ModelId;
 

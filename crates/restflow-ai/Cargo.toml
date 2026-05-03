@@ -19,8 +19,6 @@ uuid.workspace = true
 tracing.workspace = true
 restflow-traits = { path = "../restflow-traits", features = ["http-client"] }
 restflow-models = { workspace = true }
-restflow-telemetry = { workspace = true }
-restflow-sandbox = { workspace = true, optional = true }
 
 # AI-specific dependencies
 async-stream = "0.3"
@@ -34,11 +32,11 @@ dirs = "6.0.0"
 postcard = { version = "1.1.3", features = ["use-std"] }
 nix = { version = "0.31", features = ["signal", "process"] }
 parking_lot = "0.12"
+regex = "1.11.1"
 
 [features]
 default = []
 test-utils = []
-sandbox = ["dep:restflow-sandbox"]
 
 [lints.rust]
 

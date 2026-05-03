@@ -12,11 +12,11 @@ use crate::agent::{AgentState, ResourceUsage};
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::steer::SteerMessage;
-use crate::tools::{FilteredToolset, ToolRegistry};
-use restflow_telemetry::{
+use crate::telemetry::{
     RunDescriptor, RunHandle, RunKind, RunLifecycleService, RunTraceContext, TelemetryContext,
     TelemetrySink,
 };
+use crate::tools::{FilteredToolset, ToolRegistry};
 use restflow_traits::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan, Toolset};
 
 use super::model_resolution::resolve_llm_client;
@@ -976,7 +976,7 @@ mod tests {
 
     use super::super::tracker::SubagentTracker;
     use super::*;
-    use restflow_telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
+    use crate::telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
     use restflow_traits::ToolError;
     use restflow_traits::subagent::{SubagentDefLookup, SubagentDefSummary, SubagentStatus};
 

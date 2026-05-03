@@ -20,6 +20,10 @@ RestFlow is a local AI agent framework with a terminal-first interface. The
 runtime owns agent execution, a small built-in tool surface, skill discovery,
 and executable skill calls through skrun.
 
+The Rust workspace is narrowed to the runtime crates that still define product
+boundaries: shared contracts/types, storage, AI execution, tools, core daemon
+runtime, CLI, and TUI.
+
 ## What RestFlow Owns
 
 - Agent runtime orchestration.

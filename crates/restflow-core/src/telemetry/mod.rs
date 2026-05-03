@@ -1,7 +1,7 @@
 //! RestFlow execution telemetry implementation layer.
 //!
 //! This module owns product-specific projection, persistence, and query logic.
-//! The shared event domain lives in the `restflow-telemetry` crate.
+//! The shared event domain lives in `restflow_ai::telemetry`.
 
 mod derive;
 mod mapping;
@@ -39,7 +39,7 @@ mod tests {
         ExecutionTraceSource, Provider, ProviderHealthQuery,
     };
     use crate::storage::Storage;
-    use restflow_telemetry::TelemetrySink;
+    use restflow_ai::telemetry::TelemetrySink;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -64,12 +64,16 @@ mod tests {
             storage.provider_health_snapshots.clone(),
             storage.structured_execution_logs.clone(),
         );
-        let trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "session-1", "agent-1");
+        let trace = restflow_ai::telemetry::RestflowTrace::new(
+            "run-1",
+            "session-1",
+            "session-1",
+            "agent-1",
+        );
         sink.emit(
-            restflow_telemetry::ExecutionEventEnvelope::new(
+            restflow_ai::telemetry::ExecutionEventEnvelope::new(
                 trace,
-                restflow_telemetry::ExecutionEvent::ModelSwitch {
+                restflow_ai::telemetry::ExecutionEvent::ModelSwitch {
                     from_model: "minimax-coding-plan-m2-5-highspeed".to_string(),
                     to_model: "minimax-coding-plan-m2-5".to_string(),
                     reason: Some("failover".to_string()),
@@ -82,21 +86,27 @@ mod tests {
         )
         .await;
 
-        let llm_trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "session-1", "agent-1");
+        let llm_trace = restflow_ai::telemetry::RestflowTrace::new(
+            "run-1",
+            "session-1",
+            "session-1",
+            "agent-1",
+        );
         sink.emit(
-            restflow_telemetry::ExecutionEventEnvelope::new(
+            restflow_ai::telemetry::ExecutionEventEnvelope::new(
                 llm_trace,
-                restflow_telemetry::ExecutionEvent::LlmCall(restflow_telemetry::LlmCallPayload {
-                    model: "minimax-coding-plan-m2-5".to_string(),
-                    input_tokens: Some(120),
-                    output_tokens: Some(30),
-                    total_tokens: Some(150),
-                    cost_usd: Some(0.42),
-                    duration_ms: Some(900),
-                    is_reasoning: Some(false),
-                    message_count: Some(4),
-                }),
+                restflow_ai::telemetry::ExecutionEvent::LlmCall(
+                    restflow_ai::telemetry::LlmCallPayload {
+                        model: "minimax-coding-plan-m2-5".to_string(),
+                        input_tokens: Some(120),
+                        output_tokens: Some(30),
+                        total_tokens: Some(150),
+                        cost_usd: Some(0.42),
+                        duration_ms: Some(900),
+                        is_reasoning: Some(false),
+                        message_count: Some(4),
+                    },
+                ),
             )
             .with_requested_model("minimax-coding-plan-m2-5-highspeed")
             .with_effective_model("minimax-coding-plan-m2-5")
@@ -214,7 +224,7 @@ mod tests {
     #[test]
     fn projector_assigns_telemetry_source_categories() {
         let trace =
-            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+            restflow_ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let event = build_metric_sample_event(trace, "latency_ms", 42.0, None, Vec::new());
         let projected = execution_event_to_trace_event(&event);
         assert_eq!(projected.category, ExecutionTraceCategory::MetricSample);

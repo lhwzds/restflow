@@ -16,7 +16,7 @@ use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
 use restflow_ai::StreamDisplayMode;
 use restflow_ai::agent::{NullEmitter, StreamEmitter};
-use restflow_telemetry::{RestflowTrace, RunDescriptor, RunKind, RunLifecycleService};
+use restflow_ai::telemetry::{RestflowTrace, RunDescriptor, RunKind, RunLifecycleService};
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
 
 #[derive(Debug)]

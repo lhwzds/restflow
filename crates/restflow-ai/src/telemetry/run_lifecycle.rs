@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
+use super::{
     DEFAULT_TELEMETRY_TEXT_LIMIT, ExecutionEvent, ExecutionEventEnvelope, RestflowTrace,
     TelemetryContext, TelemetrySink, sanitize_telemetry_secrets, truncate_telemetry_text,
 };
@@ -368,9 +368,10 @@ mod tests {
 
     use tokio::sync::Mutex;
 
-    use crate::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
-
-    use super::{RunAttemptTracker, RunDescriptor, RunKind, RunLifecycleService};
+    use super::{
+        ExecutionEvent, ExecutionEventEnvelope, RunAttemptTracker, RunDescriptor, RunKind,
+        RunLifecycleService, TelemetryContext, TelemetrySink,
+    };
 
     #[derive(Default)]
     struct RecordingSink {

@@ -31,6 +31,9 @@ The default agent surface is:
 `load_skill` is read-only. It lists skills and loads guidance. `run_skill`
 executes installed skrun skills with JSON input.
 
+RestFlow no longer owns the legacy binary skill build pipeline. Portable
+executable capabilities should be installed and run through skrun.
+
 ## Outside the Core
 
 These capabilities are not core tools:
@@ -51,6 +54,9 @@ They should live as external skrun skills or optional clients.
 `RunEvent` represents runtime events only. It should not embed trace payloads.
 Trace records can be derived from runtime events or exported through a separate
 adapter.
+
+The shared telemetry event domain lives in `restflow-ai`; `restflow-core`
+projects those events into daemon-owned persistence.
 
 ## Python Integration
 

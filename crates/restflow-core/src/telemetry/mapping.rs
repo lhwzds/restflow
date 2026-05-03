@@ -1,4 +1,4 @@
-use restflow_telemetry::{
+use restflow_ai::telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, ExecutionLogRecord, ExecutionMetricSample,
     ProviderHealthChanged,
 };
@@ -345,7 +345,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
 }
 
 pub fn build_metric_sample_event(
-    trace: restflow_telemetry::RestflowTrace,
+    trace: restflow_ai::telemetry::RestflowTrace,
     name: impl Into<String>,
     value: f64,
     unit: Option<String>,
@@ -359,17 +359,19 @@ pub fn build_metric_sample_event(
             unit,
             dimensions: dimensions
                 .into_iter()
-                .map(|dimension| restflow_telemetry::ExecutionMetricDimension {
-                    key: dimension.key,
-                    value: dimension.value,
-                })
+                .map(
+                    |dimension| restflow_ai::telemetry::ExecutionMetricDimension {
+                        key: dimension.key,
+                        value: dimension.value,
+                    },
+                )
                 .collect(),
         }),
     )
 }
 
 pub fn build_provider_health_event(
-    trace: restflow_telemetry::RestflowTrace,
+    trace: restflow_ai::telemetry::RestflowTrace,
     provider: impl Into<String>,
     model: Option<String>,
     status: impl Into<String>,
@@ -389,7 +391,7 @@ pub fn build_provider_health_event(
 }
 
 pub fn build_log_record_event(
-    trace: restflow_telemetry::RestflowTrace,
+    trace: restflow_ai::telemetry::RestflowTrace,
     level: impl Into<String>,
     message: impl Into<String>,
     fields: Vec<crate::models::ExecutionLogField>,
@@ -401,7 +403,7 @@ pub fn build_log_record_event(
             message: message.into(),
             fields: fields
                 .into_iter()
-                .map(|field| restflow_telemetry::ExecutionLogField {
+                .map(|field| restflow_ai::telemetry::ExecutionLogField {
                     key: field.key,
                     value: field.value,
                 })

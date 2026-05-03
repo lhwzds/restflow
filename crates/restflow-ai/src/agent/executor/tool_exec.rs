@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
-use futures::stream::FuturesOrdered;
-use restflow_telemetry::{
+use crate::telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink,
     ToolCallCompletedPayload, ToolCallStartedPayload,
 };
+use futures::StreamExt;
+use futures::stream::FuturesOrdered;
 use serde_json::Value;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;

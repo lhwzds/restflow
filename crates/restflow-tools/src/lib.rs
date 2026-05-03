@@ -41,12 +41,9 @@ pub use impls::{EditTool, MultiEditTool};
 
 // Re-export migrated tool implementations
 pub use impls::{
-    AgentCrudTool, AuthProfileTool, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool,
-    BinarySkillRunTool, BinarySkillUpdateTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool,
-    InstalledBinarySkillTool, ListMemoryTool, PatchTool, ProcessTool, ReadMemoryTool, ReplyTool,
-    SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool, SwitchModelTool,
-    TaskTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
-    discover_installed_binary_skill_tools_from,
+    AgentCrudTool, AuthProfileTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool, ListMemoryTool,
+    PatchTool, ProcessTool, ReadMemoryTool, ReplyTool, SaveMemoryTool, SecretGetPolicy,
+    SecretsTool, SessionTool, SkillTool, SwitchModelTool, TaskTool,
 };
 
 // Re-export tool_registry inline migrated tools

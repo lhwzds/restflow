@@ -24,7 +24,7 @@ pub use channel::{
 };
 pub use execution_context::{ExecutionContext, ExecutionRole};
 pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
-pub use restflow_telemetry::RestflowTrace;
+pub use restflow_ai::telemetry::RestflowTrace;
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
 };

@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
-use restflow_test_support::RestflowTestEnv;
+mod support;
 use serde_json::{Value, json};
 use std::fs::File;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
+use support::RestflowTestEnv;
 use tokio::time::{Instant, sleep};
 
 struct DaemonChild {

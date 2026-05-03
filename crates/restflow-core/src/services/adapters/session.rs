@@ -123,13 +123,13 @@ impl SessionStore for SessionStorageAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::RestflowTestEnv;
     use restflow_traits::store::SessionStore;
     use std::sync::Arc;
-    use tempfile::tempdir;
 
-    fn setup() -> (SessionStorageAdapter, tempfile::TempDir) {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+    fn setup() -> (SessionStorageAdapter, RestflowTestEnv) {
+        let env = RestflowTestEnv::new();
+        let db_path = env.db_path("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let session_storage = SessionStorage::new(
             crate::storage::ChatSessionStorage::new(db.clone()).unwrap(),
@@ -140,7 +140,7 @@ mod tests {
         let task_storage = TaskStorage::new(db.clone()).unwrap();
         (
             SessionStorageAdapter::new(session_storage, agent_storage, task_storage),
-            temp_dir,
+            env,
         )
     }
 

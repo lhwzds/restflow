@@ -569,8 +569,8 @@ impl AgentNode {
 mod tests {
     use super::*;
     use crate::models::Provider;
+    use crate::test_support::RestflowTestEnv;
     use restflow_contracts::request::AgentNode as ContractAgentNode;
-    use restflow_test_support::RestflowTestEnv;
 
     #[test]
     fn with_codex_cli_reasoning_effort_sets_trimmed_value() {

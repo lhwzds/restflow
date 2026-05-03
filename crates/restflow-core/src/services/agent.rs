@@ -276,7 +276,7 @@ mod tests {
             codex_cli_reasoning_effort: None,
             codex_cli_execution_mode: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-            tools: Some(vec!["http_request".to_string()]),
+            tools: Some(vec!["bash".to_string()]),
             skills: None,
             skill_variables: None,
             skill_preflight_policy_mode: None,
@@ -760,7 +760,7 @@ mod tests {
 
         let mut node = create_test_agent_node("test");
         node.api_key_config = Some(ApiKeyConfig::Secret("OPENAI_API_KEY".to_string()));
-        node.tools = Some(vec!["http_request".to_string()]);
+        node.tools = Some(vec!["bash".to_string()]);
 
         let created = create_agent(&core, "Valid Secret Agent".to_string(), node)
             .await

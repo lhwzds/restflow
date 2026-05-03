@@ -157,10 +157,6 @@ async fn run() -> Result<()> {
         return commands::mcp::run(command.clone(), cli.format).await;
     }
 
-    if let Some(Commands::Binary { command }) = &cli.command {
-        return commands::binary::run(command.clone(), cli.format).await;
-    }
-
     // Commands that need direct core access.
     let needs_direct_core = command_needs_direct_core(&cli.command);
 
@@ -189,7 +185,6 @@ async fn run() -> Result<()> {
             Some(Commands::Skill { command }) => {
                 commands::skill::run(exec, command, cli.format).await
             }
-            Some(Commands::Binary { .. }) => Ok(()),
             Some(Commands::Memory { command }) => {
                 commands::memory::run(exec, command, cli.format).await
             }
