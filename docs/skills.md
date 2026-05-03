@@ -1,7 +1,6 @@
 ---
 title: Skills
 covers:
-  - crates/restflow-core/assets/skills/**
   - crates/restflow-core/src/loader/**/*.rs
   - crates/restflow-core/src/registry/**/*.rs
   - crates/restflow-core/src/services/skill*.rs
@@ -13,12 +12,11 @@ covers:
 # Skills
 
 RestFlow uses skills to expose focused guidance and executable capabilities to
-agents. The runtime-visible skill catalog is system skills plus skrun skills.
+agents. The runtime-visible skill catalog is discovered through skrun.
 
 ## Skill Sources
 
-- `system`: built-in guidance.
-- `external`: installed executable skills discovered through skrun.
+- `external`: installed skrun skills, including md-only guidance skills and executable skills.
 
 ## TUI Usage
 
@@ -32,5 +30,5 @@ agents. The runtime-visible skill catalog is system skills plus skrun skills.
 - `load_skill` lists skills or reads a skill by ID. It does not execute skills.
 - `run_skill` executes an installed skrun skill by ID with JSON input.
 
-Team and parallel-agent behavior should live as system skill guidance until the
-single-agent framework boundary is stable.
+Team and parallel-agent behavior should live as md-only skrun guidance until
+the single-agent framework boundary is stable.

@@ -99,7 +99,7 @@ RestFlow already has enough pieces to become an agent framework:
 
 The main issue is not missing primitives. The issue is that the current
 product layers mix framework runtime, daemon task runtime, persistence,
-marketplace/storage-backed skills, channels, and operational services too
+marketplace skill mutation, channels, and operational services too
 tightly.
 
 ## Minimal Product Shape
@@ -118,7 +118,7 @@ flowchart TD
     Tools --> LoadSkill["load_skill: load only"]
     Tools --> RunSkill["run_skill: execute only"]
     LoadSkill --> SkillCatalog["SkillCatalog"]
-    SkillCatalog --> SystemSkills["systemskills"]
+    SkillCatalog --> SkrunGuidance["skrun Markdown guidance"]
     SkillCatalog --> SkrunCatalog["skrun list/show"]
     RunSkill --> SkrunRun["skrun run"]
     SkrunRun --> SkrunExamples["external skrun examples\nincluding python execution"]
@@ -214,7 +214,7 @@ Recommended first target:
 ```text
 restflow-agent-framework  # no redb dependency
 restflow-tools            # no storage dependency for minimal tools
-restflow-skill            # systemskills + skrun catalog
+restflow-skill            # skrun guidance + executable catalog
 restflow-python-sdk       # Python creates agents and calls RestFlow runtime
 restflow-tui              # client
 restflow-daemon           # optional app/server wrapper
@@ -358,7 +358,7 @@ SDK bridge.
 
 ### Stage 2: Cut the skill path out of storage
 
-- Runtime catalog becomes `systemskills + skrun`.
+- Runtime catalog becomes `skrun guidance + executable skills`.
 - `load_skill` is load-only.
 - `run_skill` is execute-only.
 - Storage-backed skills become compatibility-only.
@@ -395,7 +395,7 @@ SDK bridge.
 
 Remove from the framework core:
 
-- storage-backed skill mutation
+- RestFlow-owned skill storage or mutation
 - marketplace install/update/delete in primary runtime
 - Telegram/Discord/Slack channel runtime
 - durable task scheduling

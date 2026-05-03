@@ -7,7 +7,6 @@
 pub(crate) mod assembly;
 pub mod skill_activation;
 
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 #[cfg(any(test, feature = "test-utils"))]
@@ -48,8 +47,13 @@ pub type ToolResult = ToolOutput;
 const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
 const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
+fn composite_skill_provider(storage: Option<&Storage>) -> Arc<dyn SkillProvider> {
+    let _ = storage;
+    Arc::new(SkrunSkillProvider::default())
+}
+
 #[cfg(any(test, feature = "test-utils"))]
-type TestToolOverrideMap = HashMap<String, Arc<dyn Tool>>;
+type TestToolOverrideMap = std::collections::HashMap<String, Arc<dyn Tool>>;
 
 #[cfg(any(test, feature = "test-utils"))]
 fn test_tool_override_slot() -> &'static Mutex<Option<TestToolOverrideMap>> {
@@ -194,7 +198,6 @@ pub fn registry_from_allowlist_with_security_gate(
         wants_manage_agents.then(|| {
             build_agent_crud_components(
                 value.agents.clone(),
-                value.skills.clone(),
                 value.secrets.clone(),
                 value.tasks.clone(),
             )
@@ -208,8 +211,6 @@ pub fn registry_from_allowlist_with_security_gate(
     let mut builder = ToolRegistryBuilder::new();
     let mut allow_file = false;
     let mut allow_file_write = false;
-    let mut allowlisted_skill_ids: Vec<String> = Vec::new();
-    let mut recorded_skill_ids: HashSet<String> = HashSet::new();
     let effective_config = storage.and_then(|value| {
         value
             .config
@@ -298,8 +299,7 @@ pub fn registry_from_allowlist_with_security_gate(
             // --- Subagent tools ---
             "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents" => {}
             "load_skill" => {
-                let provider: Arc<dyn SkillProvider> =
-                    Arc::new(CompositeSkillProvider::with_skrun());
+                let provider = composite_skill_provider(storage);
                 builder = if let Some(gate) = security_gate.clone() {
                     builder.with_load_skill_with_security(
                         provider,
@@ -327,16 +327,20 @@ pub fn registry_from_allowlist_with_security_gate(
             tool_name
                 if is_task_management_tool_name(tool_name) || tool_name == "manage_agents" => {}
             "manage_marketplace" => {
-                with_storage!(storage, "manage_marketplace", builder, |s| {
+                if storage.is_some() {
                     let registry_defaults = effective_config
                         .as_ref()
                         .map(|config| config.registry_defaults.clone())
                         .unwrap_or_default();
-                    builder.with_marketplace(Arc::new(MarketplaceStoreAdapter::new_with_defaults(
-                        s.skills.clone(),
-                        registry_defaults,
-                    )))
-                });
+                    builder = builder.with_marketplace(Arc::new(
+                        MarketplaceStoreAdapter::new_with_defaults(registry_defaults),
+                    ));
+                } else {
+                    warn!(
+                        tool_name = "manage_marketplace",
+                        "Storage unavailable, skipping"
+                    );
+                }
             }
             "manage_terminal" => {
                 with_storage!(storage, "manage_terminal", builder, |s| {
@@ -351,7 +355,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 });
             }
             "skill" => {
-                let provider = Arc::new(CompositeSkillProvider::with_skrun());
+                let provider = composite_skill_provider(storage);
                 builder = if let Some(gate) = security_gate.clone() {
                     builder.with_skill_tool_with_security(
                         provider,
@@ -433,22 +437,13 @@ pub fn registry_from_allowlist_with_security_gate(
                 // Registered by callers that provide a ProcessRegistry.
             }
             unknown => {
-                let provider = CompositeSkillProvider::with_skrun();
+                let provider = composite_skill_provider(storage);
                 if provider.get_skill(unknown).is_some() {
-                    if recorded_skill_ids.insert(unknown.to_string()) {
-                        allowlisted_skill_ids.push(unknown.to_string());
-                    }
+                    debug!(
+                        skill_id = %unknown,
+                        "Configured skill is loadable through load_skill; skipping standalone tool registration"
+                    );
                     continue;
-                }
-                if let Some(store) = storage {
-                    match store.skills.exists(unknown) {
-                        Ok(true) | Ok(false) => {}
-                        Err(err) => warn!(
-                            tool_name = %unknown,
-                            error = %err,
-                            "Failed to verify legacy skill while building registry"
-                        ),
-                    }
                 }
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
             }
@@ -464,19 +459,6 @@ pub fn registry_from_allowlist_with_security_gate(
             builder,
             file_config,
             security_gate.clone(),
-            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-            DEFAULT_SECURITY_TASK_ID,
-        );
-    }
-
-    // Register allowlisted skills as callable context-loading tools.
-    if !allowlisted_skill_ids.is_empty() {
-        let provider: Arc<dyn SkillProvider> = Arc::new(CompositeSkillProvider::with_skrun());
-        register_allowlisted_skill_tools(
-            &mut builder.registry,
-            provider,
-            &allowlisted_skill_ids,
-            security_gate,
             agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
             DEFAULT_SECURITY_TASK_ID,
         );
@@ -570,48 +552,12 @@ pub fn registry_from_allowlist_with_security_gate(
     Ok(registry)
 }
 
-fn register_allowlisted_skill_tools(
-    registry: &mut ToolRegistry,
-    provider: Arc<dyn SkillProvider>,
-    skill_ids: &[String],
-    security_gate: Option<Arc<dyn SecurityGate>>,
-    agent_id: &str,
-    task_id: &str,
-) {
-    if skill_ids.is_empty() {
-        return;
-    }
-
-    let info_by_id: HashMap<String, restflow_traits::skill::SkillInfo> = provider
-        .list_skills()
-        .into_iter()
-        .map(|info| (info.id.clone(), info))
-        .collect();
-
-    for skill_id in skill_ids {
-        let Some(info) = info_by_id.get(skill_id) else {
-            warn!(skill_id = %skill_id, "Allowlisted skill not found, skipping");
-            continue;
-        };
-        let tool = if let Some(gate) = security_gate.as_ref() {
-            restflow_tools::SkillAsTool::new(info.clone(), provider.clone()).with_security(
-                gate.clone(),
-                agent_id,
-                task_id,
-            )
-        } else {
-            restflow_tools::SkillAsTool::new(info.clone(), provider.clone())
-        };
-        registry.register(tool);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     };
-    use crate::models::{AgentNode, Skill};
+    use crate::models::AgentNode;
     use crate::prompt_files;
     use crate::storage::Storage;
     use crate::test_support::RestflowTestEnv;
@@ -685,28 +631,11 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_storage_skills_are_not_registered_as_runtime_tools() {
+    fn test_unknown_skill_names_are_not_registered_as_runtime_tools() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-skills.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
-
-        let alpha = Skill::new(
-            "alpha-skill".to_string(),
-            "Alpha".to_string(),
-            None,
-            None,
-            "# alpha".to_string(),
-        );
-        let beta = Skill::new(
-            "beta-skill".to_string(),
-            "Beta".to_string(),
-            None,
-            None,
-            "# beta".to_string(),
-        );
-        storage.skills.create(&alpha).expect("create alpha");
-        storage.skills.create(&beta).expect("create beta");
 
         let base_allowlist = vec!["load_skill".to_string()];
         let registry = registry_from_allowlist(
@@ -721,7 +650,7 @@ mod tests {
         .expect("registry should build");
         assert!(
             !registry.has("alpha-skill"),
-            "skills must not be auto-registered"
+            "unknown skill-like names must not be auto-registered"
         );
         assert!(!registry.has("beta-skill"));
 

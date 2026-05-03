@@ -6,8 +6,8 @@ Simplify the current `codex/tui-system-simplification` branch into one coherent
 product direction:
 
 - RestFlow owns daemon-backed chat, task/run execution, and skill activation.
-- RestFlow treats built-in systemskills and `skrun` executable skills as the
-  runtime-visible skill catalog.
+- RestFlow treats `skrun` Markdown guidance skills and executable skills as the
+  runtime-visible read-only catalog.
 - `load_skill` is load-only.
 - `run_skill` is the only new executable skill runner.
 - The TUI `/skill` surface becomes a view/read surface instead of a creation,
@@ -29,11 +29,10 @@ surface simplification, not just a terminal UI cleanup.
 ## Scope
 
 1. Skill catalog boundary
-   - Systemskills remain bundled, read-only, and highest priority.
+   - Markdown guidance skills live in `skrun`, not in RestFlow bundled assets.
    - `skrun` skills are discovered through the public `skrun skill` CLI
      contract and are read-only from RestFlow.
-   - Legacy storage-backed skills remain a compatibility read path only until a
-     separate cleanup removes or migrates persisted user data.
+   - RestFlow storage does not store, merge, or expose skills.
 
 2. Runtime tool boundary
    - `load_skill` lists and reads skill content only.
@@ -44,7 +43,8 @@ surface simplification, not just a terminal UI cleanup.
 3. TUI and CLI surface
    - `/skill` presents skills and details.
    - Create/install/update/delete/import/export/search commands are hidden from
-     the primary CLI help surface while compatibility handlers remain.
+     the primary CLI help surface and should direct users to `skrun` when
+     invoked directly.
    - The TUI should not encourage creating or installing skills from inside
      RestFlow.
 
@@ -55,9 +55,8 @@ surface simplification, not just a terminal UI cleanup.
 
 ## Non-Goals
 
-- Do not remove the storage schema or persisted skill records in this branch.
-- Do not delete hidden CLI handlers until a separate data-cleanup or migration
-  plan exists.
+- Do not add a RestFlow skill storage compatibility layer.
+- Do not reintroduce hidden CLI handlers that mutate RestFlow skill storage.
 - Do not introduce a second marketplace or package manager surface inside
   RestFlow.
 - Do not change Task / Run terminology or durable runtime ownership.
@@ -77,19 +76,18 @@ surface simplification, not just a terminal UI cleanup.
 ## Design Rules
 
 1. One read path for runtime-visible skills
-   - Build the runtime skill provider from systemskills plus `skrun`.
-   - Preserve deterministic shadowing: systemskill ids win over `skrun`, and
-     both win over legacy storage records.
+   - Build the runtime skill provider from `skrun` only.
+   - Treat `skrun skill list/show` as the single RestFlow-visible catalog
+     contract.
 
 2. Separate reading from execution
    - `load_skill` must never execute.
    - `run_skill` must never mutate the skill catalog.
    - `run_skill` input must be a JSON object and must pass the security gate.
 
-3. Keep legacy storage out of model-visible tools
-   - Legacy storage-backed skill records may remain visible in service-level
-     list/get flows only if they are clearly compatibility data.
-   - They should not be auto-registered as callable tool names.
+3. Keep storage out of model-visible skill tools
+   - Storage has no skill catalog module, service fallback, or direct runtime
+     tool registration path.
 
 4. Make TUI copy match capability
    - Use "View skills" rather than "Manage skills" if creation and install are
@@ -107,16 +105,13 @@ surface simplification, not just a terminal UI cleanup.
 1. Freeze the intended public surface
    - Document the visible commands: `skill list`, `skill show`, `/skill`, and
      `@skill`.
-   - Document the hidden compatibility commands and why they are not removed in
-     this branch.
+   - Document that mutation belongs to `skrun`, not RestFlow storage.
 
 2. Normalize the effective skill catalog
-   - Keep `SystemSkillProvider` as the first provider.
-   - Add `SkrunSkillProvider` as the second provider.
-   - Keep legacy storage records as a service-level compatibility fallback, not
-     a runtime provider used by model-visible tools.
-   - Add tests for systemskill-over-`skrun` shadowing and `skrun`-over-storage
-     shadowing.
+   - Keep `SkrunSkillProvider` as the first provider.
+   - Remove RestFlow storage records from service-level and runtime skill
+     lookups.
+   - Add tests for `skrun` parsing and missing-catalog behavior.
 
 3. Harden the `skrun` CLI contract
    - Prefer `skrun skill list --format json`.
@@ -125,29 +120,27 @@ surface simplification, not just a terminal UI cleanup.
      `skill show --format json`.
 
 4. Finalize runtime tool assembly
-   - Register `load_skill` with the systemskill plus `skrun` provider.
+   - Register `load_skill` with the `skrun` provider.
    - Register `run_skill` explicitly, with security gate, timeout, and JSON
      object validation.
-   - Delete or update tests that expected storage-backed skills to become
-     direct runtime tools.
+   - Delete or update tests that expected stored skill records to become direct
+     runtime tools.
 
 5. Simplify the TUI skill manager
    - Remove the create row.
    - Rename "Manage skills" to "View skills".
-   - Remove shortcut copy for delete unless delete remains intentionally
-     supported for legacy storage entries.
-   - Add reducer/state/render tests for empty, systemskill, `skrun`, and
-     legacy-storage catalog states.
+   - Remove shortcut copy for delete.
+   - Add reducer/state/render tests for empty and `skrun` catalog states.
 
 6. Hide mutable CLI commands without deleting handlers
    - Hide create/update/delete/import/export/search/install in clap help.
    - Regenerate and review CLI manpages.
-   - Keep direct command handlers working until the compatibility policy is
-     decided.
+   - Make direct command handlers return `skrun` guidance instead of writing
+     RestFlow storage.
 
 7. Update product documentation
-   - Update skill docs to explain systemskills, `skrun` skills, `load_skill`, and
-     `run_skill`.
+   - Update skill docs to explain `skrun` guidance/executable skills,
+     `load_skill`, and `run_skill`.
    - Cross-link the plan from the relevant skill/TUI docs only after the branch
      direction is accepted.
 
@@ -181,7 +174,7 @@ RESTFLOW_SKRUN_BIN=/path/to/fake/skrun restflow
 TUI smoke criteria:
 
 - `/skill` opens a view-only skill picker.
-- The picker can show systemskills and `skrun` skills.
+- The picker can show `skrun` skills.
 - The picker does not display a create row.
 - Copy and shortcuts do not advertise unavailable mutation paths.
 - `@skill` mentions either activate only safe/read behavior or are covered by
@@ -193,10 +186,8 @@ TUI smoke criteria:
   the runtime tool surface. This needs explicit security-gate coverage.
 - Calling `skrun` during catalog listing may slow prompt preparation if the CLI
   is slow. Consider caching or a short timeout if this appears in smoke tests.
-- Hiding CLI commands without removing handlers can confuse contributors unless
-  the compatibility policy is documented.
-- Keeping legacy storage skills visible in service flows but unavailable as
-  runtime tools may need UI copy to explain compatibility-only entries.
+- Hiding CLI commands without storage mutation can confuse contributors unless
+  the `skrun` ownership policy is documented.
 
 ## Open Decisions
 
@@ -204,19 +195,19 @@ TUI smoke criteria:
    skills assigned to the agent?
 2. Is TSV output from `skrun skill list` a supported public contract or only a
    temporary fallback?
-3. Should legacy storage-backed skills remain visible in `/skill`, or should
-   they move behind a hidden compatibility command?
+3. Should old persisted skill records receive a one-off export/migration tool
+   outside the runtime path?
 4. Should `skrun` discovery be cached per turn/session to avoid repeated CLI
    calls?
 
 ## Acceptance Criteria
 
-- The branch has one documented skill direction: systemskills plus `skrun` for
-  runtime-visible skills.
+- The branch has one documented skill direction: `skrun` owns runtime-visible
+  guidance and executable skills.
 - `load_skill` remains load-only.
 - `run_skill` is the only executable skill runner introduced by the branch.
 - TUI and CLI copy no longer claim primary skill creation/install management.
-- Storage-backed skills are not registered as model-visible runtime tools.
-- Focused tests cover catalog priority, runtime registration, `skrun` tool
+- RestFlow storage has no skill catalog or mutation path.
+- Focused tests cover catalog parsing, runtime registration, `skrun` tool
   behavior, and TUI skill manager rendering.
 - Full backend test and clippy preflight are identified before merge.

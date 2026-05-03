@@ -16,7 +16,6 @@ pub mod registry;
 pub mod runtime;
 pub mod security;
 pub mod services;
-pub mod skill_files;
 pub mod steer;
 pub mod storage;
 pub mod telemetry;
@@ -85,25 +84,6 @@ impl AppCore {
         let features = Arc::new(features::Features::from_config(&config));
 
         let core = Self { storage, features };
-
-        // Sync user filesystem-backed skills into database records.
-        if let Ok(user_skills_dir) = paths::user_skills_dir() {
-            let report = services::skill_sync::sync_all(&core, &user_skills_dir).await?;
-            info!(
-                scanned = report.scanned,
-                created = report.created,
-                updated = report.updated,
-                skipped = report.skipped,
-                failed = report.failed,
-                "User skills synchronized"
-            );
-            if report.failed > 0 {
-                warn!(
-                    failed = report.failed,
-                    "Some skill files could not be loaded; check skill folder contents"
-                );
-            }
-        }
 
         Ok(core)
     }

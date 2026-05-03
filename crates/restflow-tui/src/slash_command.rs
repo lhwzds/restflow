@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn rejects_team_as_slash_command() {
-        let error = parse_slash_command("/team").expect_err("team is a systemskill mention");
+        let error = parse_slash_command("/team").expect_err("team is a skill mention");
         assert!(error.to_string().contains("Unknown command: /team"));
     }
 

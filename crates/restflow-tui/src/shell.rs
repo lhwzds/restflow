@@ -2714,9 +2714,9 @@ mod tests {
             Some(vec!["system".to_string(), "team".to_string()]),
             "# Team".to_string(),
         );
-        skill.source = SkillSource::System;
+        skill.source = SkillSource::External;
         skill.read_only = true;
-        skill.source_ref = Some("restflow://system/team".to_string());
+        skill.source_ref = Some("skrun:team@0.1.0".to_string());
         skill.suggested_tools = vec!["spawn_subagent_batch".to_string()];
         state.open_skill_detail(skill);
 
@@ -2725,9 +2725,9 @@ mod tests {
 
         assert!(text.contains("Skill"));
         assert!(text.contains("Team · team · read-only"));
-        assert!(text.contains("source: system"));
+        assert!(text.contains("source: external"));
         assert!(text.contains("suggested_tools: spawn_subagent_batch"));
-        assert!(text.contains("source_ref: restflow://system/team"));
+        assert!(text.contains("source_ref: skrun:team@0.1.0"));
         assert!(text.contains("Use this skill by asking for parallel/team/subagent work."));
     }
 

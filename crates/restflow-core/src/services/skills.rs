@@ -1,122 +1,73 @@
-//! Skills service layer for business logic.
+//! Skills service layer for the skrun-managed catalog.
 
 use crate::{
     AppCore,
-    models::{Skill, SkillSource, ValidationError},
+    models::{Skill, ValidationError},
     services::adapters::SkrunSkillProvider,
-    skill_files,
-    storage::skill::SkillStorage,
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-/// List all skills
-pub async fn list_skills(core: &Arc<AppCore>) -> Result<Vec<Skill>> {
-    list_available_skills(&core.storage.skills)
+/// List all skills visible to RestFlow.
+pub async fn list_skills(_core: &Arc<AppCore>) -> Result<Vec<Skill>> {
+    list_available_skills()
 }
 
-/// List the effective skill catalog visible to runtime validation and preflight.
-pub fn list_available_skills(skill_storage: &SkillStorage) -> Result<Vec<Skill>> {
-    let reserved_ids = systemskill_id_set();
-    let mut skills = skill_files::list_systemskills().context("Failed to list systemskills")?;
-    skills.extend(
-        SkrunSkillProvider::default()
-            .list_skill_models()
-            .into_iter()
-            .filter(|skill| !reserved_ids.contains(skill.id.as_str())),
-    );
-    let effective_ids: HashSet<String> = skills.iter().map(|skill| skill.id.clone()).collect();
-    skills.extend(
-        skill_storage
-            .list()
-            .context("Failed to list skills")?
-            .into_iter()
-            .filter(|skill| !effective_ids.contains(skill.id.as_str())),
-    );
-    Ok(skills)
+/// List the skrun-managed skill catalog visible to runtime validation and preflight.
+pub fn list_available_skills() -> Result<Vec<Skill>> {
+    SkrunSkillProvider::default()
+        .try_list_skill_models()
+        .map_err(|error| anyhow!("skrun skill catalog unavailable: {error}"))
 }
 
-/// Check whether a skill exists in the effective system + storage catalog.
-pub fn skill_exists_in_catalog(skill_storage: &SkillStorage, id: &str) -> Result<bool> {
-    if is_systemskill_id(id) {
-        return Ok(true);
-    }
-    if SkrunSkillProvider::default().get_skill_model(id).is_some() {
-        return Ok(true);
-    }
-    skill_storage
-        .exists(id)
-        .with_context(|| format!("Failed to check skill {}", id))
+/// Check whether a skill exists in the skrun-managed catalog.
+pub fn skill_exists_in_catalog(id: &str) -> Result<bool> {
+    SkrunSkillProvider::default()
+        .try_get_skill_model(id)
+        .map(|skill| skill.is_some())
+        .map_err(|error| anyhow!("skrun skill catalog unavailable: {error}"))
 }
 
-/// Get a skill by ID
-pub async fn get_skill(core: &Arc<AppCore>, id: &str) -> Result<Option<Skill>> {
-    if let Some(skill) = skill_files::get_systemskill(id)? {
-        return Ok(Some(skill));
-    }
-    if let Some(skill) = SkrunSkillProvider::default().get_skill_model(id) {
-        return Ok(Some(skill));
-    }
-    core.storage
-        .skills
-        .get(id)
-        .with_context(|| format!("Failed to get skill {}", id))
+/// Get a skill by ID.
+pub async fn get_skill(_core: &Arc<AppCore>, id: &str) -> Result<Option<Skill>> {
+    SkrunSkillProvider::default()
+        .try_get_skill_model(id)
+        .map_err(|error| anyhow!("skrun skill catalog unavailable: {error}"))
 }
 
-/// Create a new skill
-pub async fn create_skill(core: &Arc<AppCore>, mut skill: Skill) -> Result<()> {
-    ensure_skill_is_writable(&skill)?;
-    ensure_not_systemskill_id(&skill.id)?;
-    if skill.source == SkillSource::System {
-        anyhow::bail!("systemskill entries are read-only and cannot be created");
-    }
-    skill.read_only = false;
-    core.storage
-        .skills
-        .create(&skill)
-        .with_context(|| format!("Failed to create skill {}", skill.id))
+/// RestFlow no longer persists skills. Use skrun for skill creation.
+pub async fn create_skill(_core: &Arc<AppCore>, skill: Skill) -> Result<()> {
+    anyhow::bail!(
+        "RestFlow no longer persists skills in storage; create skill '{}' through skrun",
+        skill.id
+    )
 }
 
-/// Update an existing skill
-pub async fn update_skill(core: &Arc<AppCore>, id: &str, skill: &Skill) -> Result<()> {
-    ensure_not_systemskill_id(id)?;
-    ensure_skill_is_writable(skill)?;
-    if let Some(existing) = core.storage.skills.get(id)? {
-        ensure_skill_is_writable(&existing)?;
-    }
-    core.storage
-        .skills
-        .update(id, skill)
-        .with_context(|| format!("Failed to update skill {}", id))
+/// RestFlow no longer persists skills. Use skrun for skill updates.
+pub async fn update_skill(_core: &Arc<AppCore>, id: &str, _skill: &Skill) -> Result<()> {
+    anyhow::bail!(
+        "RestFlow no longer persists skills in storage; update skill '{}' through skrun",
+        id
+    )
 }
 
-/// Delete a skill
-pub async fn delete_skill(core: &Arc<AppCore>, id: &str) -> Result<()> {
-    ensure_not_systemskill_id(id)?;
-    if let Some(existing) = core.storage.skills.get(id)? {
-        ensure_skill_is_writable(&existing)?;
-    }
-    core.storage
-        .skills
-        .delete(id)
-        .with_context(|| format!("Failed to delete skill {}", id))
+/// RestFlow no longer persists skills. Use skrun for skill removal.
+pub async fn delete_skill(_core: &Arc<AppCore>, id: &str) -> Result<()> {
+    anyhow::bail!(
+        "RestFlow no longer persists skills in storage; remove skill '{}' through skrun",
+        id
+    )
 }
 
-/// Check if a skill exists
-pub async fn skill_exists(core: &Arc<AppCore>, id: &str) -> Result<bool> {
-    if is_systemskill_id(id) {
-        return Ok(true);
-    }
-    core.storage
-        .skills
-        .exists(id)
-        .with_context(|| format!("Failed to check skill {}", id))
+/// Check if a skill exists.
+pub async fn skill_exists(_core: &Arc<AppCore>, id: &str) -> Result<bool> {
+    skill_exists_in_catalog(id)
 }
 
-/// Get full content for a skill reference by skill_id and ref_id
+/// Get full content for a skill reference by skill_id and ref_id.
 pub async fn get_skill_reference(
     core: &Arc<AppCore>,
     skill_id: &str,
@@ -124,15 +75,13 @@ pub async fn get_skill_reference(
 ) -> Result<Option<String>> {
     let skill = get_skill(core, skill_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", skill_id))?;
+        .ok_or_else(|| anyhow!("Skill not found: {}", skill_id))?;
 
     let reference = skill
         .references
         .iter()
         .find(|reference| reference.id == ref_id)
-        .ok_or_else(|| {
-            anyhow::anyhow!("Reference '{}' not found in skill '{}'", ref_id, skill_id)
-        })?;
+        .ok_or_else(|| anyhow!("Reference '{}' not found in skill '{}'", ref_id, skill_id))?;
 
     if let Some(reference_skill) = get_skill(core, &reference.id).await? {
         return Ok(Some(reference_skill.content));
@@ -161,36 +110,14 @@ fn resolve_reference_path(skill: &Skill, reference_path: &str) -> PathBuf {
     path.to_path_buf()
 }
 
-/// Export a skill to markdown format
+/// Export a skill to markdown format.
 pub fn export_skill_to_markdown(skill: &Skill) -> String {
     skill.to_markdown()
 }
 
-/// Import a skill from markdown format
+/// Import a skill from markdown format.
 pub fn import_skill_from_markdown(id: &str, markdown: &str) -> Result<Skill> {
     Skill::from_markdown(id, markdown).context("Failed to parse markdown")
-}
-
-fn is_systemskill_id(id: &str) -> bool {
-    skill_files::systemskill_ids().any(|systemskill_id| systemskill_id == id)
-}
-
-fn systemskill_id_set() -> HashSet<&'static str> {
-    skill_files::systemskill_ids().collect()
-}
-
-fn ensure_not_systemskill_id(id: &str) -> Result<()> {
-    if is_systemskill_id(id) {
-        anyhow::bail!("systemskill '{}' is read-only", id);
-    }
-    Ok(())
-}
-
-fn ensure_skill_is_writable(skill: &Skill) -> Result<()> {
-    if skill.read_only || skill.source == SkillSource::System {
-        anyhow::bail!("systemskill '{}' is read-only", skill.id);
-    }
-    Ok(())
 }
 
 /// Validate a skill with Basic and Standard conformance checks.
@@ -291,24 +218,24 @@ pub fn validate_skill_complete(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::SkillReference;
     use std::ffi::OsString;
     use std::sync::MutexGuard;
     use tempfile::{TempDir, tempdir};
 
     const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
+    const RESTFLOW_SKRUN_BIN_ENV: &str = "RESTFLOW_SKRUN_BIN";
 
     struct SkillsTestEnv {
         _lock: MutexGuard<'static, ()>,
-        _temp_dir: TempDir,
+        temp_dir: TempDir,
         previous_master_key: Option<OsString>,
         previous_restflow_dir: Option<OsString>,
+        previous_skrun_bin: Option<OsString>,
     }
 
     impl Drop for SkillsTestEnv {
         fn drop(&mut self) {
-            // SAFETY: env vars are restored while the lock is still held.
             unsafe {
                 if let Some(value) = self.previous_restflow_dir.as_ref() {
                     std::env::set_var(RESTFLOW_DIR_ENV, value);
@@ -320,6 +247,34 @@ mod tests {
                 } else {
                     std::env::remove_var(MASTER_KEY_ENV);
                 }
+                if let Some(value) = self.previous_skrun_bin.as_ref() {
+                    std::env::set_var(RESTFLOW_SKRUN_BIN_ENV, value);
+                } else {
+                    std::env::remove_var(RESTFLOW_SKRUN_BIN_ENV);
+                }
+            }
+        }
+    }
+
+    impl SkillsTestEnv {
+        #[cfg(unix)]
+        fn set_skrun_response(&self, response: &str) {
+            use std::os::unix::fs::PermissionsExt;
+
+            let bin = self.temp_dir.path().join("skrun");
+            std::fs::write(
+                &bin,
+                format!(
+                    "#!/bin/sh\nprintf '%s' '{}'\n",
+                    response.replace('\'', "'\\''")
+                ),
+            )
+            .unwrap();
+            let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&bin, permissions).unwrap();
+            unsafe {
+                std::env::set_var(RESTFLOW_SKRUN_BIN_ENV, bin);
             }
         }
     }
@@ -334,21 +289,21 @@ mod tests {
 
         let previous_master_key = std::env::var_os(MASTER_KEY_ENV);
         let previous_restflow_dir = std::env::var_os(RESTFLOW_DIR_ENV);
-        // SAFETY: env vars are modified under env_lock() and callers use
-        // #[tokio::test(flavor = "current_thread")] so no worker threads
-        // can race on reads.
+        let previous_skrun_bin = std::env::var_os(RESTFLOW_SKRUN_BIN_ENV);
         unsafe {
             std::env::set_var(RESTFLOW_DIR_ENV, &state_dir);
             std::env::set_var(MASTER_KEY_ENV, "11".repeat(32));
+            std::env::remove_var(RESTFLOW_SKRUN_BIN_ENV);
         }
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (
             core,
             SkillsTestEnv {
                 _lock: env_lock,
-                _temp_dir: temp_dir,
+                temp_dir,
                 previous_master_key,
                 previous_restflow_dir,
+                previous_skrun_bin,
             },
         )
     }
@@ -364,186 +319,59 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn test_list_skills_empty() {
+    async fn test_list_skills_empty_without_skrun() {
         let (core, _env) = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
-        // System skills are always visible; only verify no test artifacts exist.
-        assert!(!skills.is_empty());
-        assert!(!skills.iter().any(|skill| skill.id == "test-skill"));
+        assert!(skills.is_empty());
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
-    async fn test_list_and_get_team_system_skill() {
-        let (core, _env) = create_test_core().await;
+    async fn test_list_and_get_team_skrun_skill() {
+        let (core, env) = create_test_core().await;
+        env.set_skrun_response(
+            r##"[{
+              "id": "team",
+              "name": "Team",
+              "version": "0.1.0",
+              "kind": "markdown",
+              "content": "# Team\n\nUse spawn_subagent_batch.",
+              "suggested_tools": ["spawn_subagent_batch"],
+              "executable": false
+            }]"##,
+        );
 
         let skills = list_skills(&core).await.unwrap();
         let team = skills
             .iter()
             .find(|skill| skill.id == "team")
-            .expect("team system skill should be listed");
-        assert_eq!(team.source, SkillSource::System);
+            .expect("team skrun skill should be listed");
+        assert_eq!(team.source, crate::models::SkillSource::External);
         assert!(team.read_only);
 
         let team = get_skill(&core, "team")
             .await
             .unwrap()
-            .expect("team system skill should be readable");
-        assert_eq!(team.source, SkillSource::System);
-        assert!(team.read_only);
-        assert!(team.content.contains("spawn_subagent_batch"));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_storage_shadow_does_not_override_system_skill() {
-        let (core, _env) = create_test_core().await;
-        let shadow = create_test_skill("team", "Shadow Team");
-        core.storage.skills.create(&shadow).unwrap();
-
-        let skills = list_skills(&core).await.unwrap();
-        assert_eq!(skills.iter().filter(|skill| skill.id == "team").count(), 1);
-
-        let team = get_skill(&core, "team")
-            .await
-            .unwrap()
-            .expect("team system skill should be readable");
-        assert_eq!(team.source, SkillSource::System);
+            .expect("team skrun skill should be readable");
         assert_eq!(team.name, "Team");
-        assert!(team.read_only);
         assert!(team.content.contains("spawn_subagent_batch"));
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn test_create_and_get_skill() {
+    async fn test_create_update_delete_skill_reject_storage_writes() {
         let (core, _env) = create_test_core().await;
-
         let skill = create_test_skill("test-skill", "Test Skill");
-        create_skill(&core, skill.clone()).await.unwrap();
 
-        let retrieved = get_skill(&core, "test-skill").await.unwrap();
-        assert!(retrieved.is_some());
-
-        let retrieved = retrieved.unwrap();
-        assert_eq!(retrieved.id, "test-skill");
-        assert_eq!(retrieved.name, "Test Skill");
-        assert_eq!(
-            retrieved.description,
-            Some("Description for Test Skill".to_string())
-        );
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_create_rejects_system_skill_id() {
-        let (core, _env) = create_test_core().await;
-
-        let skill = create_test_skill("team", "Shadow Team");
-        let result = create_skill(&core, skill).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_list_skills_multiple() {
-        let (core, _env) = create_test_core().await;
-
-        let base_skills = list_skills(&core).await.unwrap();
-        let base_len = base_skills.len();
-
-        let skill1 = create_test_skill("skill-1", "Skill One");
-        let skill2 = create_test_skill("skill-2", "Skill Two");
-
-        create_skill(&core, skill1).await.unwrap();
-        create_skill(&core, skill2).await.unwrap();
-
-        let skills = list_skills(&core).await.unwrap();
-        assert_eq!(skills.len(), base_len + 2);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_update_skill() {
-        let (core, _env) = create_test_core().await;
-
-        let mut skill = create_test_skill("test-skill", "Original Name");
-        create_skill(&core, skill.clone()).await.unwrap();
-
-        skill.update(
-            Some("Updated Name".to_string()),
-            Some(Some("Updated description".to_string())),
-            None,
-            Some("# Updated content".to_string()),
-        );
-
-        update_skill(&core, "test-skill", &skill).await.unwrap();
-
-        let retrieved = get_skill(&core, "test-skill").await.unwrap().unwrap();
-        assert_eq!(retrieved.name, "Updated Name");
-        assert_eq!(
-            retrieved.description,
-            Some("Updated description".to_string())
-        );
-        assert_eq!(retrieved.content, "# Updated content");
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_delete_skill() {
-        let (core, _env) = create_test_core().await;
-
-        let skill = create_test_skill("test-skill", "Test Skill");
-        create_skill(&core, skill).await.unwrap();
-
-        assert!(skill_exists(&core, "test-skill").await.unwrap());
-
-        delete_skill(&core, "test-skill").await.unwrap();
-
-        assert!(!skill_exists(&core, "test-skill").await.unwrap());
-        assert!(get_skill(&core, "test-skill").await.unwrap().is_none());
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_skill_exists() {
-        let (core, _env) = create_test_core().await;
-
-        assert!(!skill_exists(&core, "nonexistent").await.unwrap());
-
-        let skill = create_test_skill("test-skill", "Test Skill");
-        create_skill(&core, skill).await.unwrap();
-
-        assert!(skill_exists(&core, "test-skill").await.unwrap());
+        assert!(create_skill(&core, skill.clone()).await.is_err());
+        assert!(update_skill(&core, "test-skill", &skill).await.is_err());
+        assert!(delete_skill(&core, "test-skill").await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_get_nonexistent_skill() {
         let (core, _env) = create_test_core().await;
-
         let result = get_skill(&core, "nonexistent").await.unwrap();
         assert!(result.is_none());
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_get_skill_reference_from_referenced_skill() {
-        let (core, _env) = create_test_core().await;
-
-        let mut skill = create_test_skill("root-skill", "Root Skill");
-        skill.references = vec![SkillReference {
-            id: "ref-skill".to_string(),
-            path: "references/ref-skill.md".to_string(),
-            title: Some("Reference Skill".to_string()),
-            summary: Some("Reference summary".to_string()),
-        }];
-
-        let reference_skill = Skill::new(
-            "ref-skill".to_string(),
-            "Reference Skill".to_string(),
-            Some("Referenced skill".to_string()),
-            None,
-            "# Reference Skill\n\nDetailed content.".to_string(),
-        );
-
-        create_skill(&core, skill).await.unwrap();
-        create_skill(&core, reference_skill.clone()).await.unwrap();
-
-        let content = get_skill_reference(&core, "root-skill", "ref-skill")
-            .await
-            .unwrap();
-        assert_eq!(content, Some(reference_skill.content));
     }
 
     #[test]
@@ -601,7 +429,6 @@ This is the skill content."#;
         assert_eq!(imported.name, original.name);
         assert_eq!(imported.description, original.description);
         assert_eq!(imported.tags, original.tags);
-        // Note: content might have minor whitespace differences after roundtrip
     }
 
     #[test]

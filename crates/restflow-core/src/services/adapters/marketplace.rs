@@ -1,39 +1,36 @@
-//! MarketplaceStore adapter backed by SkillStorage.
+//! MarketplaceStore adapter for registry search and read-only metadata.
 
-use crate::models::{Skill, SkillSource};
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
-use crate::storage::skill::SkillStorage;
-use chrono::Utc;
 use restflow_storage::{RegistryDefaults, RegistrySettings};
 use restflow_tools::ToolError;
 use restflow_traits::store::MarketplaceStore;
 use serde_json::{Value, json};
 
+use super::SkrunSkillProvider;
+
 pub struct MarketplaceStoreAdapter {
-    storage: SkillStorage,
     github_provider: GitHubProvider,
     marketplace_provider: MarketplaceProvider,
 }
 
 impl MarketplaceStoreAdapter {
-    pub fn new(storage: SkillStorage) -> Self {
-        Self::new_with_settings(storage, RegistrySettings::default())
+    pub fn new() -> Self {
+        Self::new_with_settings(RegistrySettings::default())
     }
 
-    pub fn new_with_settings(storage: SkillStorage, registry: RegistrySettings) -> Self {
+    pub fn new_with_settings(registry: RegistrySettings) -> Self {
         let github_provider =
             GitHubProvider::new().with_cache_ttl_secs(registry.github_cache_ttl_secs);
         let marketplace_provider =
             MarketplaceProvider::new().with_cache_ttl_secs(registry.marketplace_cache_ttl_secs);
         Self {
-            storage,
             github_provider,
             marketplace_provider,
         }
     }
 
-    pub fn new_with_defaults(storage: SkillStorage, registry_defaults: RegistryDefaults) -> Self {
-        Self::new_with_settings(storage, registry_defaults)
+    pub fn new_with_defaults(registry_defaults: RegistryDefaults) -> Self {
+        Self::new_with_settings(registry_defaults)
     }
 
     fn provider_name(source: Option<&str>) -> &str {
@@ -43,15 +40,17 @@ impl MarketplaceStoreAdapter {
         }
     }
 
-    fn is_reserved_systemskill_id(id: &str) -> bool {
-        crate::skill_files::systemskill_ids().any(|system_id| system_id == id)
+    fn is_reserved_skrun_skill_id(id: &str) -> Result<bool, String> {
+        Self::is_reserved_skrun_skill_id_with_provider(id, &SkrunSkillProvider::default())
     }
 
-    fn is_marketplace_source_ref(source_ref: &str) -> bool {
-        source_ref.starts_with("marketplace:")
-            || source_ref.starts_with("github:")
-            || source_ref.starts_with("mcp_marketplace:")
-            || source_ref.starts_with("mcp_github:")
+    fn is_reserved_skrun_skill_id_with_provider(
+        id: &str,
+        provider: &SkrunSkillProvider,
+    ) -> Result<bool, String> {
+        provider
+            .try_get_skill_model(id)
+            .map(|skill| skill.is_some())
     }
 
     async fn search_source(
@@ -92,59 +91,16 @@ impl MarketplaceStoreAdapter {
         }
     }
 
-    async fn get_content(
-        &self,
-        source: &str,
-        id: &str,
-        version: &crate::models::SkillVersion,
-    ) -> Result<String, ToolError> {
-        match source {
-            "github" => self
-                .github_provider
-                .get_content(id, version)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => self
-                .marketplace_provider
-                .get_content(id, version)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
+    fn storage_removed_error(id: &str) -> ToolError {
+        ToolError::Tool(format!(
+            "RestFlow no longer installs or stores skills; install '{id}' through skrun"
+        ))
     }
+}
 
-    fn manifest_to_skill(
-        source_name: &str,
-        manifest: crate::models::SkillManifest,
-        content: String,
-    ) -> Skill {
-        let now = Utc::now().timestamp_millis();
-        let source_ref = format!("{source_name}:{}@{}", manifest.id, manifest.version);
-        Skill {
-            id: manifest.id,
-            name: manifest.name,
-            description: manifest.description,
-            tags: Some(manifest.keywords),
-            triggers: Vec::new(),
-            content,
-            folder_path: None,
-            suggested_tools: Vec::new(),
-            scripts: Vec::new(),
-            references: Vec::new(),
-            gating: None,
-            version: Some(manifest.version.to_string()),
-            author: manifest.author.map(|a| a.name),
-            license: manifest.license,
-            content_hash: None,
-            status: crate::models::SkillStatus::Active,
-            auto_complete: false,
-            storage_mode: crate::models::StorageMode::DatabaseOnly,
-            is_synced: false,
-            source: crate::models::SkillSource::External,
-            read_only: false,
-            source_ref: Some(source_ref),
-            created_at: now,
-            updated_at: now,
-        }
+impl Default for MarketplaceStoreAdapter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -183,81 +139,25 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
     async fn install_skill(
         &self,
         id: &str,
-        source: Option<&str>,
-        overwrite: bool,
+        _source: Option<&str>,
+        _overwrite: bool,
     ) -> restflow_tools::Result<Value> {
-        if Self::is_reserved_systemskill_id(id) {
+        if Self::is_reserved_skrun_skill_id(id).map_err(ToolError::Tool)? {
             return Err(ToolError::Tool(format!(
-                "Cannot install marketplace skill over systemskill: {id}"
+                "Cannot install marketplace skill over read-only skrun skill: {id}"
             )));
         }
-
-        let source_name = Self::provider_name(source);
-        let manifest = self.get_manifest(source_name, id).await?;
-        let content = self.get_content(source_name, id, &manifest.version).await?;
-        let skill = Self::manifest_to_skill(source_name, manifest, content);
-
-        let exists = self.storage.exists(id)?;
-        if exists && !overwrite {
-            return Err(ToolError::Tool(
-                "Skill already installed. Set overwrite=true to replace.".to_string(),
-            ));
-        }
-
-        if exists {
-            self.storage.update(id, &skill)?;
-        } else {
-            self.storage.create(&skill)?;
-        }
-
-        Ok(json!({
-            "id": id,
-            "name": skill.name,
-            "version": skill.version,
-            "installed": true,
-            "updated": exists
-        }))
+        Err(Self::storage_removed_error(id))
     }
 
     fn uninstall_skill(&self, id: &str) -> restflow_tools::Result<Value> {
-        let skill = self.storage.get(id)?;
-        let Some(skill) = skill else {
-            return Ok(json!({
-                "id": id,
-                "deleted": false
-            }));
-        };
-        if skill.source != SkillSource::External
-            || !skill
-                .source_ref
-                .as_deref()
-                .is_some_and(Self::is_marketplace_source_ref)
-        {
-            return Err(ToolError::Tool(format!(
-                "Skill is not a marketplace installation: {id}"
-            )));
-        }
-        self.storage.delete(id)?;
-        Ok(json!({
-            "id": id,
-            "deleted": true
-        }))
+        Err(ToolError::Tool(format!(
+            "RestFlow no longer stores installed skills; remove '{id}' through skrun"
+        )))
     }
 
     fn list_installed(&self) -> restflow_tools::Result<Value> {
-        let skills = self
-            .storage
-            .list()?
-            .into_iter()
-            .filter(|skill| {
-                skill.source == SkillSource::External
-                    && skill
-                        .source_ref
-                        .as_deref()
-                        .is_some_and(Self::is_marketplace_source_ref)
-            })
-            .collect::<Vec<_>>();
-        Ok(serde_json::to_value(skills)?)
+        Ok(json!([]))
     }
 }
 
@@ -265,66 +165,24 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
 mod tests {
     use super::*;
     use restflow_traits::store::MarketplaceStore;
-    use std::sync::Arc;
-    use tempfile::tempdir;
 
-    fn setup() -> (MarketplaceStoreAdapter, tempfile::TempDir) {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let storage = SkillStorage::new(db).unwrap();
-        (MarketplaceStoreAdapter::new(storage), temp_dir)
+    fn setup() -> MarketplaceStoreAdapter {
+        MarketplaceStoreAdapter::new()
     }
 
     #[test]
     fn test_list_installed_empty() {
-        let (adapter, _dir) = setup();
+        let adapter = setup();
         let result = adapter.list_installed().unwrap();
         let skills = result.as_array().unwrap();
         assert!(skills.is_empty());
     }
 
     #[test]
-    fn test_uninstall_nonexistent_skill() {
-        let (adapter, _dir) = setup();
-        let result = adapter.uninstall_skill("nonexistent").unwrap();
-        assert_eq!(result["deleted"], false);
-    }
-
-    #[test]
-    fn test_uninstall_existing_skill() {
-        let (adapter, _dir) = setup();
-        // Manually create a skill to uninstall
-        let mut skill = crate::models::Skill::new(
-            "test-skill".to_string(),
-            "Test".to_string(),
-            Some("Description".to_string()),
-            Some(vec!["test".to_string()]),
-            "# Skill content".to_string(),
-        );
-        skill.source = SkillSource::External;
-        skill.source_ref = Some("marketplace:test-skill@1.0.0".to_string());
-        adapter.storage.create(&skill).unwrap();
-
-        let result = adapter.uninstall_skill("test-skill").unwrap();
-        assert_eq!(result["deleted"], true);
-    }
-
-    #[test]
-    fn test_uninstall_rejects_user_skill() {
-        let (adapter, _dir) = setup();
-        let skill = crate::models::Skill::new(
-            "test-skill".to_string(),
-            "Test".to_string(),
-            Some("Description".to_string()),
-            Some(vec!["test".to_string()]),
-            "# Skill content".to_string(),
-        );
-        adapter.storage.create(&skill).unwrap();
-
-        let err = adapter.uninstall_skill("test-skill").unwrap_err();
-
-        assert!(err.to_string().contains("not a marketplace installation"));
+    fn test_uninstall_returns_skrun_guidance() {
+        let adapter = setup();
+        let err = adapter.uninstall_skill("demo").unwrap_err();
+        assert!(err.to_string().contains("through skrun"));
     }
 
     #[test]
@@ -340,30 +198,33 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn test_reserved_systemskill_detection() {
-        assert!(MarketplaceStoreAdapter::is_reserved_systemskill_id("team"));
-        assert!(!MarketplaceStoreAdapter::is_reserved_systemskill_id(
-            "demo-skill"
-        ));
-    }
+    fn test_reserved_skrun_skill_detection_with_provider() {
+        use std::os::unix::fs::PermissionsExt;
 
-    #[test]
-    fn test_marketplace_source_ref_detection() {
-        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
-            "marketplace:demo@1.0.0"
-        ));
-        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
-            "github:demo@1.0.0"
-        ));
-        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
-            "mcp_marketplace:demo@1.0.0"
-        ));
-        assert!(MarketplaceStoreAdapter::is_marketplace_source_ref(
-            "mcp_github:demo@1.0.0"
-        ));
-        assert!(!MarketplaceStoreAdapter::is_marketplace_source_ref(
-            "package:/tmp/demo.skill"
-        ));
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("skrun");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\nprintf '%s' '[{\"id\":\"team\",\"name\":\"Team\",\"version\":\"0.1.0\",\"kind\":\"markdown\",\"content\":\"# Team\",\"executable\":false}]'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&bin, permissions).unwrap();
+        let provider = SkrunSkillProvider::new(bin);
+
+        assert!(
+            MarketplaceStoreAdapter::is_reserved_skrun_skill_id_with_provider("team", &provider)
+                .unwrap()
+        );
+        assert!(
+            !MarketplaceStoreAdapter::is_reserved_skrun_skill_id_with_provider(
+                "demo-skill",
+                &provider
+            )
+            .unwrap()
+        );
     }
 }

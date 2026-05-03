@@ -5,7 +5,7 @@ use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
-use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, SkillStorage, TaskStorage};
+use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, TaskStorage};
 use restflow_tools::{
     BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool, SpawnSubagentTool,
     ToolRegistryBuilder, WaitSubagentsTool,
@@ -82,14 +82,12 @@ pub(crate) fn build_runtime_assessor(storage: &Storage) -> Arc<dyn AgentOperatio
 
 pub(crate) fn build_agent_crud_components(
     agent_storage: AgentStorage,
-    skill_storage: SkillStorage,
     secret_storage: SecretStorage,
     task_storage: TaskStorage,
 ) -> AgentCrudComponents {
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let store: Arc<dyn AgentStore> = Arc::new(AgentStoreAdapter::new(
         agent_storage,
-        skill_storage,
         secret_storage,
         task_storage,
         known_tools.clone(),

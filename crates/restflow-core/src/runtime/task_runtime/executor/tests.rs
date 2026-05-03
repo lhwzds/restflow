@@ -1,11 +1,13 @@
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use crate::models::{AgentNode, MemoryConfig, Skill, SkillPreflightPolicyMode, SkillSource};
+use crate::models::{AgentNode, MemoryConfig, SkillPreflightPolicyMode, SkillSource};
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use crate::test_support::RestflowTestEnv;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_traits::store::ReplySender;
 use std::future::Future;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::pin::Pin;
 use tokio::sync::mpsc;
 
@@ -32,28 +34,55 @@ fn create_test_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
     )
 }
 
-fn create_trigger_skill(id: &str, trigger: &str, content: &str) -> Skill {
-    let mut skill = Skill::new(
-        id.to_string(),
-        "Trigger Skill".to_string(),
-        Some("triggered skill".to_string()),
-        None,
-        content.to_string(),
-    );
-    skill.triggers = vec![trigger.to_string()];
-    skill
+#[cfg(unix)]
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<std::ffi::OsString>,
 }
 
-fn create_preflight_blocking_skill(id: &str) -> Skill {
-    let mut skill = Skill::new(
-        id.to_string(),
-        "Preflight Blocking Skill".to_string(),
-        Some("Skill with preflight blockers".to_string()),
-        None,
-        "Use {{missing_input}} to proceed".to_string(),
-    );
-    skill.suggested_tools = vec!["missing_tool_for_test".to_string()];
-    skill
+#[cfg(unix)]
+impl EnvVarGuard {
+    fn set_path(key: &'static str, path: &std::path::Path) -> Self {
+        let original = std::env::var_os(key);
+        unsafe {
+            std::env::set_var(key, path);
+        }
+        Self { key, original }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(value) = &self.original {
+            unsafe {
+                std::env::set_var(self.key, value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn fake_skrun_bin(env: &RestflowTestEnv, response: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let bin = env.root().join("skrun");
+    std::fs::write(
+        &bin,
+        format!(
+            "#!/bin/sh\nprintf '%s' '{}'\n",
+            response.replace('\'', "'\\''")
+        ),
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&bin, permissions).unwrap();
+    bin
 }
 
 #[test]
@@ -265,9 +294,7 @@ fn test_build_ack_system_prompt_appends_phase_directive() {
 #[test]
 fn test_build_task_system_prompt_does_not_inject_triggered_skill() {
     let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    let skill = create_trigger_skill("triggered-skill", "code review", "Triggered Content");
-    storage.skills.create(&skill).unwrap();
+    let executor = create_test_executor(storage);
 
     let node = AgentNode {
         prompt: Some("Base Prompt".to_string()),
@@ -286,9 +313,7 @@ fn test_build_task_system_prompt_does_not_inject_triggered_skill() {
 #[test]
 fn test_build_task_system_prompt_skips_non_matching_skill() {
     let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    let skill = create_trigger_skill("triggered-skill", "deploy release", "Triggered Content");
-    storage.skills.create(&skill).unwrap();
+    let executor = create_test_executor(storage);
 
     let node = AgentNode {
         prompt: Some("Base Prompt".to_string()),
@@ -307,11 +332,7 @@ fn test_build_task_system_prompt_skips_non_matching_skill() {
 #[test]
 fn test_build_task_system_prompt_ignores_unauthorized_triggered_skill() {
     let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-
-    // Create a privileged skill with trigger
-    let privileged_skill = create_trigger_skill("privileged-skill", "admin", "Privileged Content");
-    storage.skills.create(&privileged_skill).unwrap();
+    let executor = create_test_executor(storage);
 
     // Agent does NOT have the privileged skill in its skill list
     let node = AgentNode {
@@ -334,10 +355,7 @@ fn test_build_task_system_prompt_ignores_unauthorized_triggered_skill() {
 #[test]
 fn test_build_task_system_prompt_does_not_inject_authorized_triggered_skill() {
     let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-
-    let skill = create_trigger_skill("authorized-skill", "code review", "Authorized Content");
-    storage.skills.create(&skill).unwrap();
+    let executor = create_test_executor(storage);
 
     let node = AgentNode {
         prompt: Some("Base Prompt".to_string()),
@@ -354,18 +372,25 @@ fn test_build_task_system_prompt_does_not_inject_authorized_triggered_skill() {
     assert!(!prompt.contains("Authorized Content"));
 }
 
+#[cfg(unix)]
 #[test]
-fn test_resolve_preflight_skills_includes_team_systemskill() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    let shadow = Skill::new(
-        "team".to_string(),
-        "Shadow Team".to_string(),
-        Some("Storage shadow".to_string()),
-        None,
-        "Shadow Content".to_string(),
+fn test_resolve_preflight_skills_includes_team_skrun_skill() {
+    let (storage, temp_dir) = create_test_storage();
+    let bin = fake_skrun_bin(
+        &temp_dir,
+        r##"[{
+          "id": "team",
+          "name": "Team",
+          "version": "0.1.0",
+          "kind": "markdown",
+          "content": "# Team\n\nUse spawn_subagent_batch.",
+          "suggested_tools": ["spawn_subagent_batch"],
+          "executable": false,
+          "source_ref": "skrun:team@0.1.0"
+        }]"##,
     );
-    storage.skills.create(&shadow).unwrap();
+    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let executor = create_test_executor(storage);
 
     let node = AgentNode {
         skills: Some(vec!["team".to_string()]),
@@ -375,19 +400,29 @@ fn test_resolve_preflight_skills_includes_team_systemskill() {
 
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].id, "team");
-    assert_eq!(skills[0].source, SkillSource::System);
+    assert_eq!(skills[0].source, SkillSource::External);
     assert!(skills[0].read_only);
-    assert_eq!(
-        skills[0].source_ref.as_deref(),
-        Some("restflow://system/team")
-    );
+    assert_eq!(skills[0].source_ref.as_deref(), Some("skrun:team@0.1.0"));
     assert!(skills[0].content.contains("spawn_subagent_batch"));
-    assert!(!skills[0].content.contains("Shadow Content"));
 }
 
+#[cfg(unix)]
 #[test]
-fn test_resolve_effective_tool_names_activates_assigned_systemskill_tools() {
-    let (storage, _temp_dir) = create_test_storage();
+fn test_resolve_effective_tool_names_activates_assigned_skrun_skill_tools() {
+    let (storage, temp_dir) = create_test_storage();
+    let bin = fake_skrun_bin(
+        &temp_dir,
+        r##"[{
+          "id": "manage-task",
+          "name": "Manage Tasks",
+          "version": "0.1.0",
+          "kind": "markdown",
+          "content": "# Manage Tasks",
+          "suggested_tools": ["manage_tasks", "reply"],
+          "executable": false
+        }]"##,
+    );
+    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
     let executor = create_test_executor(storage);
     let node = AgentNode {
         skills: Some(vec!["manage-task".to_string()]),
@@ -396,15 +431,29 @@ fn test_resolve_effective_tool_names_activates_assigned_systemskill_tools() {
 
     let tools = executor
         .resolve_effective_tool_names(&node, None, None)
-        .expect("assigned systemskill should activate suggested tools");
+        .expect("assigned skrun skill should activate suggested tools");
 
     assert!(tools.iter().any(|tool| tool == "manage_tasks"));
     assert!(tools.iter().any(|tool| tool == "reply"));
 }
 
+#[cfg(unix)]
 #[test]
 fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
-    let (storage, _temp_dir) = create_test_storage();
+    let (storage, temp_dir) = create_test_storage();
+    let bin = fake_skrun_bin(
+        &temp_dir,
+        r##"[{
+          "id": "manage-task",
+          "name": "Manage Tasks",
+          "version": "0.1.0",
+          "kind": "markdown",
+          "content": "# Manage Tasks",
+          "suggested_tools": ["manage_tasks", "reply"],
+          "executable": false
+        }]"##,
+    );
+    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
     let executor = create_test_executor(storage);
     let node = AgentNode {
         skills: Some(vec!["manage-task".to_string()]),
@@ -420,9 +469,23 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
     assert!(tools.iter().any(|tool| tool == "reply"));
 }
 
+#[cfg(unix)]
 #[test]
 fn test_resolve_effective_tool_names_activates_known_unassigned_skill_mention() {
-    let (storage, _temp_dir) = create_test_storage();
+    let (storage, temp_dir) = create_test_storage();
+    let bin = fake_skrun_bin(
+        &temp_dir,
+        r##"[{
+          "id": "manage-task",
+          "name": "Manage Tasks",
+          "version": "0.1.0",
+          "kind": "markdown",
+          "content": "# Manage Tasks",
+          "suggested_tools": ["manage_tasks"],
+          "executable": false
+        }]"##,
+    );
+    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
     let executor = create_test_executor(storage);
     let node = AgentNode::new();
 
@@ -536,15 +599,27 @@ async fn test_executor_no_api_key() {
     );
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_execute_session_turn_enforces_skill_preflight_policy() {
-    let (storage, _temp_dir) = create_test_storage();
+    let (storage, temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    let skill = create_preflight_blocking_skill("preflight-session-skill");
-    storage.skills.create(&skill).unwrap();
+    let bin = fake_skrun_bin(
+        &temp_dir,
+        r##"[{
+          "id": "preflight-session-skill",
+          "name": "Preflight Blocking Skill",
+          "version": "0.1.0",
+          "kind": "markdown",
+          "content": "Use {{missing_input}} to proceed",
+          "suggested_tools": ["missing_tool_for_test"],
+          "executable": false
+        }]"##,
+    );
+    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
 
     let agent = AgentNode::with_model(ModelId::CodexCli)
-        .with_skills(vec![skill.id.clone()])
+        .with_skills(vec!["preflight-session-skill".to_string()])
         .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
     let stored_agent = storage
         .agents
@@ -574,15 +649,27 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
     assert!(err.contains("missing_input"));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_execute_from_state_enforces_skill_preflight_policy() {
-    let (storage, _temp_dir) = create_test_storage();
+    let (storage, temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    let skill = create_preflight_blocking_skill("preflight-resume-skill");
-    storage.skills.create(&skill).unwrap();
+    let bin = fake_skrun_bin(
+        &temp_dir,
+        r##"[{
+          "id": "preflight-resume-skill",
+          "name": "Preflight Blocking Skill",
+          "version": "0.1.0",
+          "kind": "markdown",
+          "content": "Use {{missing_input}} to proceed",
+          "suggested_tools": ["missing_tool_for_test"],
+          "executable": false
+        }]"##,
+    );
+    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
 
     let agent = AgentNode::with_model(ModelId::CodexCli)
-        .with_skills(vec![skill.id.clone()])
+        .with_skills(vec!["preflight-resume-skill".to_string()])
         .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
     let stored_agent = storage
         .agents

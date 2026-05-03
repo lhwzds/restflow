@@ -80,7 +80,6 @@ flowchart TD
     Agent["Agent runtime"] --> LoadSkill["load_skill: read only"]
     Agent --> RunSkill["run_skill: execute only"]
     LoadSkill --> SkillCatalog
-    SkillCatalog --> SystemSkills["Bundled systemskills"]
     SkillCatalog --> SkrunList["skrun skill list/show"]
     RunSkill --> SkrunRun["skrun skill run"]
 ```
@@ -91,8 +90,8 @@ Rules:
 - `run_skill` executes only.
 - RestFlow does not create, install, update, delete, import, export, or store
   skills in the primary runtime path.
-- Legacy storage-backed skills become compatibility-only data until a migration
-  or removal decision is made.
+- RestFlow storage should not retain a compatibility skill catalog; migration
+  of old records should be a one-off tool outside the runtime path.
 
 ### Do not remove all storage unless product scope changes
 
@@ -127,8 +126,8 @@ This gives up:
 
 1. Keep the current branch focused on removing storage from the skill runtime
    path, not from all of RestFlow.
-2. Make the runtime-visible skill catalog exactly `systemskills + skrun`, with
-   deterministic shadowing and no storage-backed model-visible tools.
+2. Make the runtime-visible skill catalog exactly `skrun`, with no RestFlow
+   storage involvement.
 3. Keep `/skill` view-only in the TUI.
 4. Keep `skrun` as the install/catalog/run owner for executable skills.
 5. If resume/history is still desired, use a transcript/event-log adapter first.

@@ -475,7 +475,6 @@ impl AgentNode {
         let mut errors = Vec::new();
 
         let tool_registry = match crate::services::tool_registry::create_tool_registry(
-            core.storage.skills.clone(),
             core.storage.memory.clone(),
             core.storage.chat_sessions.clone(),
             core.storage.channel_session_bindings.clone(),
@@ -523,10 +522,7 @@ impl AgentNode {
                     errors.push(ValidationError::new("skills", "skill ID must not be empty"));
                     continue;
                 }
-                match crate::services::skills::skill_exists_in_catalog(
-                    &core.storage.skills,
-                    normalized,
-                ) {
+                match crate::services::skills::skill_exists_in_catalog(normalized) {
                     Ok(true) => {}
                     Ok(false) => errors.push(ValidationError::new(
                         "skills",
@@ -592,11 +588,26 @@ mod tests {
         assert_eq!(bypass, "\"bypass\"");
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
-    async fn validate_async_accepts_team_systemskill() {
+    async fn validate_async_accepts_team_skill() {
         let env = RestflowTestEnv::new();
+        let previous_skrun_bin = std::env::var_os("RESTFLOW_SKRUN_BIN");
+        let bin = env.root().join("skrun");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\nprintf '%s' '[{\"id\":\"team\",\"name\":\"Team\",\"version\":\"0.1.0\",\"kind\":\"markdown\",\"content\":\"# Team\",\"executable\":false}]'\n",
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&bin, permissions).unwrap();
+        }
+        unsafe { std::env::set_var("RESTFLOW_SKRUN_BIN", &bin) };
         let core = Arc::new(
-            AppCore::new(env.db_path("agent-systemskill.db").to_str().unwrap())
+            AppCore::new(env.db_path("agent-skill.db").to_str().unwrap())
                 .await
                 .unwrap(),
         );
@@ -606,6 +617,13 @@ mod tests {
         };
 
         let result = node.validate_async(&core).await;
+        unsafe {
+            if let Some(value) = previous_skrun_bin {
+                std::env::set_var("RESTFLOW_SKRUN_BIN", value);
+            } else {
+                std::env::remove_var("RESTFLOW_SKRUN_BIN");
+            }
+        }
 
         assert!(result.is_ok(), "unexpected validation errors: {result:?}");
     }

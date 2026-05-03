@@ -152,7 +152,7 @@ impl RestFlowMcpServer {
             .map_err(|e| format!("Failed to get skill: {}", e))?
             .ok_or_else(|| format!("Skill not found: {}", params.skill_id))?;
 
-        if skill.auto_complete && skill.status != SkillStatus::Completed {
+        if skill.auto_complete && skill.status != SkillStatus::Completed && !skill.read_only {
             skill.status = SkillStatus::Completed;
             skill.updated_at = chrono::Utc::now().timestamp_millis();
             self.backend
@@ -160,6 +160,11 @@ impl RestFlowMcpServer {
                 .await
                 .map_err(|e| format!("Failed to update skill status: {}", e))?;
         }
+        let response_status = if skill.auto_complete {
+            SkillStatus::Completed
+        } else {
+            skill.status.clone()
+        };
 
         let available_references: Vec<Value> = skill
             .references
@@ -179,7 +184,7 @@ impl RestFlowMcpServer {
             "name": skill.name,
             "content": skill.content,
             "input": params.input,
-            "status": skill.status,
+            "status": response_status,
             "available_references": available_references,
             "note_references": "Deep reference content is available on-demand via get_skill_reference.",
             "note": "Skill execution is not supported via MCP. Use the content with the input as context."

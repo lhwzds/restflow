@@ -7,7 +7,7 @@ impl AgentRuntimeExecutor {
         _agent_id: Option<&str>,
         user_input: Option<&str>,
     ) -> Result<Vec<String>> {
-        let skills = crate::services::skills::list_available_skills(&self.storage.skills)?;
+        let skills = crate::services::skills::list_available_skills()?;
         let result = effective_tool_allowlist_for_turn(
             agent_node,
             user_input,
@@ -138,7 +138,7 @@ impl AgentRuntimeExecutor {
             build_trigger_context_signature(normalized_input),
         );
 
-        let all_skills = crate::services::skills::list_available_skills(&self.storage.skills)?;
+        let all_skills = crate::services::skills::list_available_skills()?;
         let version_hash = build_skill_version_hash(&all_skills);
 
         let mut assigned_skill_ids = agent_node.skills.clone().unwrap_or_default();

@@ -12,7 +12,6 @@ pub mod memory;
 pub mod provider_health_snapshot;
 pub mod run_artifact;
 pub mod session;
-pub mod skill;
 pub mod structured_execution_log;
 pub mod task_runtime;
 pub mod telemetry_metric_sample;
@@ -41,7 +40,6 @@ pub use memory::MemoryStorage;
 pub use provider_health_snapshot::ProviderHealthSnapshotStorage;
 pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
-pub use skill::SkillStorage;
 pub use structured_execution_log::StructuredExecutionLogStorage;
 pub use task_runtime::TaskStorage;
 pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
@@ -58,7 +56,6 @@ pub struct Storage {
     pub tasks: TaskStorage,
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
-    pub skills: SkillStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
@@ -93,7 +90,6 @@ impl Storage {
         let tasks = TaskStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
-        let skills = SkillStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let index = if path == ":memory:" {
             Some(Arc::new(MemoryIndex::in_memory()?))
@@ -131,7 +127,6 @@ impl Storage {
             tasks,
             secrets,
             daemon_state,
-            skills,
             terminal_sessions,
             memory,
             chat_sessions,

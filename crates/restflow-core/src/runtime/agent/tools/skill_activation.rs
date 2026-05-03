@@ -326,9 +326,9 @@ mod tests {
     }
 
     #[test]
-    fn first_catalog_entry_wins_for_shadowed_systemskill() {
+    fn first_catalog_entry_wins_for_shadowed_read_only_skill() {
         let mut system_skill = skill("team", &["spawn_subagent_batch"]);
-        system_skill.source = SkillSource::System;
+        system_skill.source = SkillSource::External;
         let mut storage_skill = skill("team", &["manage_secrets"]);
         storage_skill.source = SkillSource::User;
         let base_tools = vec!["bash".to_string()];
@@ -341,7 +341,7 @@ mod tests {
             &[system_skill, storage_skill],
             SkillActivationPolicy::Strict,
         )
-        .expect("system skill should win");
+        .expect("read-only skill should win");
 
         assert!(
             result

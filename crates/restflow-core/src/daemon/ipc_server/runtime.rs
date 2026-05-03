@@ -33,7 +33,6 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
     crate::services::tool_registry::create_tool_registry_with_assessor(
-        core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
         core.storage.channel_session_bindings.clone(),

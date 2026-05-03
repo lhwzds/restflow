@@ -78,21 +78,12 @@ async fn execute_tool_failure_includes_structured_error_metadata() {
 async fn build_agent_system_prompt_does_not_inject_skills() {
     let (core, _temp) = create_test_core().await;
 
-    let skill = Skill::new(
-        "skill-1".to_string(),
-        "Test Skill".to_string(),
-        None,
-        None,
-        "Hello {{name}}".to_string(),
-    );
-    core.storage.skills.create(&skill).unwrap();
-
     let mut variables = std::collections::HashMap::new();
     variables.insert("name".to_string(), "World".to_string());
 
     let agent_node = AgentNode::new()
         .with_prompt("Base prompt")
-        .with_skills(vec![skill.id.clone()])
+        .with_skills(vec!["skill-1".to_string()])
         .with_skill_variables(variables);
 
     let prompt = build_agent_system_prompt(&core, agent_node).unwrap();

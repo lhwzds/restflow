@@ -324,8 +324,8 @@ async fn install_from_marketplace(
     name: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    if restflow_core::skill_files::systemskill_ids().any(|id| id == name) {
-        bail!("Cannot install marketplace skill over systemskill: {name}");
+    if is_read_only_skrun_skill_id(name)? {
+        bail!("Cannot install marketplace skill over read-only skrun skill: {name}");
     }
 
     let mut registry = SkillRegistry::with_defaults();
@@ -458,8 +458,11 @@ async fn install_from_dirs_with_source_ref(
     let mut installed_ids = Vec::new();
     for skill_dir in skill_dirs {
         let mut skill = loader.load_skill_folder(skill_dir)?;
-        if restflow_core::skill_files::systemskill_ids().any(|id| id == skill.id.as_str()) {
-            bail!("Cannot install skill over systemskill: {}", skill.id);
+        if is_read_only_skrun_skill_id(&skill.id)? {
+            bail!(
+                "Cannot install skill over read-only skrun skill: {}",
+                skill.id
+            );
         }
         let target_dir = target_base.join(&skill.id);
         copy_skill_dir(skill_dir, &target_dir)?;
@@ -501,6 +504,13 @@ async fn install_from_dirs_with_source_ref(
         scope
     );
     Ok(())
+}
+
+fn is_read_only_skrun_skill_id(id: &str) -> Result<bool> {
+    restflow_core::services::adapters::SkrunSkillProvider::default()
+        .try_get_skill_model(id)
+        .map(|skill| skill.is_some())
+        .map_err(|error| anyhow::anyhow!("skrun skill catalog unavailable: {error}"))
 }
 
 fn source_is_external_install(source: &str) -> bool {

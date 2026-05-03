@@ -1,12 +1,12 @@
 use crate::AppCore;
 use crate::daemon::{IpcRequest, IpcResponse, IpcServer, StreamFrame};
 use crate::mcp::RestFlowMcpServer;
-use crate::models::storage_mode::StorageMode;
 use crate::models::{GatingCheckResult, Skill, SkillManifest, SkillVersion, TaskConversionResult};
 use crate::registry::{
     GatingChecker, GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery,
     SkillSearchResult, SkillSortOrder,
 };
+use crate::services::adapters::SkrunSkillProvider;
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 use anyhow::Result;
@@ -222,23 +222,17 @@ fn provider_name(source: Option<&str>) -> &str {
     }
 }
 
-fn is_reserved_systemskill_id(id: &str) -> bool {
-    crate::skill_files::systemskill_ids().any(|system_id| system_id == id)
+fn is_reserved_skrun_skill_id(id: &str) -> Result<bool, String> {
+    is_reserved_skrun_skill_id_with_provider(id, &SkrunSkillProvider::default())
 }
 
-fn is_marketplace_source_ref(source_ref: &str) -> bool {
-    source_ref.starts_with("marketplace:")
-        || source_ref.starts_with("github:")
-        || source_ref.starts_with("mcp_marketplace:")
-        || source_ref.starts_with("mcp_github:")
-}
-
-fn is_marketplace_installed_skill(skill: &Skill) -> bool {
-    skill.source == crate::models::SkillSource::External
-        && skill
-            .source_ref
-            .as_deref()
-            .is_some_and(is_marketplace_source_ref)
+fn is_reserved_skrun_skill_id_with_provider(
+    id: &str,
+    provider: &SkrunSkillProvider,
+) -> Result<bool, String> {
+    provider
+        .try_get_skill_model(id)
+        .map(|skill| skill.is_some())
 }
 
 fn search_sort_order(sort: Option<String>) -> Option<SkillSortOrder> {
@@ -269,89 +263,6 @@ fn resolve_content_version(
         SkillVersion::parse(&version).ok_or_else(|| format!("Invalid version: {version}"))
     } else {
         fallback.ok_or_else(|| "Version is required".to_string())
-    }
-}
-
-fn manifest_to_skill(source_name: &str, manifest: SkillManifest, content: String) -> Skill {
-    let gating = if manifest.gating.binaries.is_empty()
-        && manifest.gating.env_vars.is_empty()
-        && manifest.gating.supported_os.is_empty()
-    {
-        None
-    } else {
-        Some(crate::models::SkillGating {
-            bins: if manifest.gating.binaries.is_empty() {
-                None
-            } else {
-                Some(
-                    manifest
-                        .gating
-                        .binaries
-                        .iter()
-                        .map(|binary| binary.name.clone())
-                        .collect(),
-                )
-            },
-            env: if manifest.gating.env_vars.is_empty() {
-                None
-            } else {
-                Some(
-                    manifest
-                        .gating
-                        .env_vars
-                        .iter()
-                        .map(|env_var| env_var.name.clone())
-                        .collect(),
-                )
-            },
-            os: if manifest.gating.supported_os.is_empty() {
-                None
-            } else {
-                Some(
-                    manifest
-                        .gating
-                        .supported_os
-                        .iter()
-                        .map(|os| match os {
-                            crate::models::OsType::Windows => "windows".to_string(),
-                            crate::models::OsType::MacOS => "macos".to_string(),
-                            crate::models::OsType::Linux => "linux".to_string(),
-                            crate::models::OsType::Any => "any".to_string(),
-                        })
-                        .collect(),
-                )
-            },
-        })
-    };
-
-    Skill {
-        id: manifest.id.clone(),
-        name: manifest.name.clone(),
-        description: manifest.description.clone(),
-        tags: Some(manifest.keywords.clone()),
-        triggers: Vec::new(),
-        content,
-        folder_path: None,
-        suggested_tools: Vec::new(),
-        scripts: Vec::new(),
-        references: Vec::new(),
-        gating,
-        version: Some(manifest.version.to_string()),
-        author: manifest.author.as_ref().map(|author| author.name.clone()),
-        license: manifest.license.clone(),
-        content_hash: None,
-        status: crate::models::SkillStatus::Active,
-        auto_complete: false,
-        storage_mode: StorageMode::DatabaseOnly,
-        is_synced: false,
-        source: crate::models::SkillSource::External,
-        read_only: false,
-        source_ref: Some(format!(
-            "mcp_{source_name}:{}@{}",
-            manifest.id, manifest.version
-        )),
-        created_at: chrono::Utc::now().timestamp_millis(),
-        updated_at: chrono::Utc::now().timestamp_millis(),
     }
 }
 
@@ -524,14 +435,14 @@ async fn api_marketplace_check_gating(
 }
 
 async fn api_marketplace_install_skill(
-    State(state): State<DaemonHttpState>,
+    State(_state): State<DaemonHttpState>,
     Json(request): Json<MarketplaceInstallRequest>,
 ) -> std::result::Result<StatusCode, (StatusCode, String)> {
-    if is_reserved_systemskill_id(&request.id) {
+    if is_reserved_skrun_skill_id(&request.id).map_err(|error| (StatusCode::BAD_GATEWAY, error))? {
         return Err((
             StatusCode::CONFLICT,
             format!(
-                "Cannot install marketplace skill over systemskill: {}",
+                "Cannot install marketplace skill over read-only skrun skill: {}",
                 request.id
             ),
         ));
@@ -548,11 +459,11 @@ async fn api_marketplace_install_skill(
             .await
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?,
     };
-    if is_reserved_systemskill_id(&manifest.id) {
+    if is_reserved_skrun_skill_id(&manifest.id).map_err(|error| (StatusCode::BAD_GATEWAY, error))? {
         return Err((
             StatusCode::CONFLICT,
             format!(
-                "Cannot install marketplace skill over systemskill: {}",
+                "Cannot install marketplace skill over read-only skrun skill: {}",
                 manifest.id
             ),
         ));
@@ -566,91 +477,30 @@ async fn api_marketplace_install_skill(
         ));
     }
 
-    let version = request
-        .version
-        .and_then(|value| SkillVersion::parse(&value));
-    let content_version = version.unwrap_or_else(|| manifest.version.clone());
-    let content = match source_name {
-        "github" => GitHubProvider::new()
-            .get_content(&request.id, &content_version)
-            .await
-            .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?,
-        _ => MarketplaceProvider::new()
-            .get_content(&request.id, &content_version)
-            .await
-            .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?,
-    };
-
-    let skill = manifest_to_skill(source_name, manifest, content);
-    if state
-        .core
-        .storage
-        .skills
-        .exists(&skill.id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    {
-        state
-            .core
-            .storage
-            .skills
-            .update(&skill.id, &skill)
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    } else {
-        state
-            .core
-            .storage
-            .skills
-            .create(&skill)
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    }
-
-    Ok(StatusCode::NO_CONTENT)
+    let _ = (source_name, request.version);
+    Err((
+        StatusCode::BAD_REQUEST,
+        "RestFlow no longer installs skills into storage; install skills through skrun".to_string(),
+    ))
 }
 
 async fn api_marketplace_uninstall_skill(
-    State(state): State<DaemonHttpState>,
+    State(_state): State<DaemonHttpState>,
     Json(request): Json<MarketplaceGetRequest>,
 ) -> std::result::Result<StatusCode, (StatusCode, String)> {
-    let skill = state
-        .core
-        .storage
-        .skills
-        .get(&request.id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let Some(skill) = skill else {
-        return Ok(StatusCode::NO_CONTENT);
-    };
-    if !is_marketplace_installed_skill(&skill) {
-        return Err((
-            StatusCode::CONFLICT,
-            format!("Skill is not a marketplace installation: {}", request.id),
-        ));
-    }
-    state
-        .core
-        .storage
-        .skills
-        .delete(&request.id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-
-    Ok(StatusCode::NO_CONTENT)
+    Err((
+        StatusCode::BAD_REQUEST,
+        format!(
+            "RestFlow no longer stores installed skills; remove '{}' through skrun",
+            request.id
+        ),
+    ))
 }
 
 async fn api_marketplace_list_installed(
-    State(state): State<DaemonHttpState>,
+    State(_state): State<DaemonHttpState>,
 ) -> std::result::Result<Json<Vec<Skill>>, (StatusCode, String)> {
-    let skills = state
-        .core
-        .storage
-        .skills
-        .list()
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    Ok(Json(
-        skills
-            .into_iter()
-            .filter(is_marketplace_installed_skill)
-            .collect(),
-    ))
+    Ok(Json(Vec::new()))
 }
 
 fn stream_frames_response(receiver: mpsc::UnboundedReceiver<StreamFrame>) -> Response {
@@ -795,18 +645,16 @@ mod tests {
     use super::{
         ERROR_CONTENT_TYPE, NDJSON_CONTENT_TYPE, RECOVERY_HEADER, RECOVERY_REINITIALIZE,
         build_http_router, build_mcp_server_factory, build_streamable_http_server_config,
-        is_expected_connection_close, is_marketplace_installed_skill, is_marketplace_source_ref,
-        is_reserved_systemskill_id, manifest_to_skill, normalize_mcp_error_response,
+        is_expected_connection_close, is_reserved_skrun_skill_id_with_provider,
+        normalize_mcp_error_response,
     };
     use crate::AppCore;
     use crate::daemon::session_events::ChatSessionEvent;
     use crate::daemon::{
         IpcRequest, IpcResponse, IpcStreamEvent, StreamFrame, publish_session_event,
     };
-    use crate::models::{
-        AgentNode, ChatMessage, ChatSession, ModelId, Skill, SkillManifest, SkillSource,
-        SkillVersion,
-    };
+    use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId, Skill};
+    use crate::services::adapters::SkrunSkillProvider;
     use axum::body::{self, Body};
     use axum::http::{HeaderValue, Request, StatusCode, header::CONTENT_TYPE};
     use bytes::Bytes;
@@ -904,83 +752,30 @@ mod tests {
         assert!(!config.stateful_mode);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn marketplace_manifest_to_skill_preserves_provider_source_ref() {
-        let manifest = SkillManifest {
-            id: "demo-skill".to_string(),
-            name: "Demo Skill".to_string(),
-            version: SkillVersion::new(1, 2, 3),
-            ..SkillManifest::default()
-        };
+    fn marketplace_install_checks_read_only_skrun_ids() {
+        use std::os::unix::fs::PermissionsExt;
 
-        let skill = manifest_to_skill("github", manifest, "# Demo".to_string());
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("skrun");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\nprintf '%s' '[{\"id\":\"team\",\"name\":\"Team\",\"version\":\"0.1.0\",\"kind\":\"markdown\",\"content\":\"# Team\",\"executable\":false}]'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&bin, permissions).unwrap();
+        let provider = SkrunSkillProvider::new(bin);
 
-        assert_eq!(
-            skill.source_ref.as_deref(),
-            Some("mcp_github:demo-skill@1.2.3")
-        );
-    }
-
-    #[test]
-    fn marketplace_install_rejects_systemskill_ids() {
-        assert!(is_reserved_systemskill_id("team"));
-        assert!(!is_reserved_systemskill_id("demo-skill"));
-    }
-
-    #[test]
-    fn marketplace_installed_filter_requires_marketplace_source_ref() {
-        assert!(is_marketplace_source_ref("marketplace:demo@1.0.0"));
-        assert!(is_marketplace_source_ref("github:demo@1.0.0"));
-        assert!(is_marketplace_source_ref("mcp_marketplace:demo@1.0.0"));
-        assert!(is_marketplace_source_ref("mcp_github:demo@1.0.0"));
-        assert!(!is_marketplace_source_ref("package:/tmp/demo.skill"));
-
-        let mut skill = Skill::new(
-            "demo".to_string(),
-            "Demo".to_string(),
-            None,
-            None,
-            "# Demo".to_string(),
-        );
-        assert!(!is_marketplace_installed_skill(&skill));
-
-        skill.source = SkillSource::External;
-        skill.source_ref = Some("mcp_marketplace:demo@1.0.0".to_string());
-        assert!(is_marketplace_installed_skill(&skill));
-
-        skill.source_ref = Some("package:/tmp/demo.skill".to_string());
-        assert!(!is_marketplace_installed_skill(&skill));
+        assert!(is_reserved_skrun_skill_id_with_provider("team", &provider).unwrap());
+        assert!(!is_reserved_skrun_skill_id_with_provider("demo-skill", &provider).unwrap());
     }
 
     #[tokio::test]
-    async fn api_marketplace_installed_returns_only_marketplace_sources() {
+    async fn api_marketplace_installed_returns_empty_without_storage() {
         let core = test_core().await;
-        let mut marketplace_skill = Skill::new(
-            "marketplace-skill".to_string(),
-            "Marketplace Skill".to_string(),
-            None,
-            None,
-            "# Marketplace".to_string(),
-        );
-        marketplace_skill.source = SkillSource::External;
-        marketplace_skill.source_ref = Some("mcp_marketplace:marketplace-skill@1.0.0".to_string());
-        core.storage
-            .skills
-            .create(&marketplace_skill)
-            .expect("create marketplace skill");
-
-        let user_skill = Skill::new(
-            "user-skill".to_string(),
-            "User Skill".to_string(),
-            None,
-            None,
-            "# User".to_string(),
-        );
-        core.storage
-            .skills
-            .create(&user_skill)
-            .expect("create user skill");
-
         let app = build_http_router(core, CancellationToken::new());
         let response = app
             .oneshot(
@@ -997,25 +792,12 @@ mod tests {
             .await
             .unwrap();
         let skills: Vec<Skill> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].id, "marketplace-skill");
+        assert!(skills.is_empty());
     }
 
     #[tokio::test]
-    async fn api_marketplace_uninstall_rejects_user_skill() {
+    async fn api_marketplace_uninstall_rejects_storage_free_runtime() {
         let core = test_core().await;
-        let user_skill = Skill::new(
-            "user-skill".to_string(),
-            "User Skill".to_string(),
-            None,
-            None,
-            "# User".to_string(),
-        );
-        core.storage
-            .skills
-            .create(&user_skill)
-            .expect("create user skill");
-
         let app = build_http_router(core.clone(), CancellationToken::new());
         let response = app
             .oneshot(
@@ -1031,13 +813,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::CONFLICT);
-        assert!(
-            core.storage
-                .skills
-                .exists("user-skill")
-                .expect("skill exists check")
-        );
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

@@ -127,7 +127,7 @@ Notes:
 - `restflow-core` owns the daemon, durable background/task runtime, and client-facing execution services.
 - `restflow-core::runtime::subagent` is adapter-only and must stay limited to definition lookup and storage-backed registry wiring.
 - `restflow-tools` owns tool implementations and template/payload adapters, not daemon runtime ownership.
-- Team-style coordination is guidance from the `team` systemskill executed through `spawn_subagent_batch`; Task/Run history remains the only durable execution state.
+- Team-style coordination is guidance from the `team` skrun skill executed through `spawn_subagent_batch`; Task/Run history remains the only durable execution state.
 
 ### Auxiliary Reviewer Agent Gate
 

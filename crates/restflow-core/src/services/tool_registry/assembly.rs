@@ -11,7 +11,6 @@ use restflow_traits::AgentOperationAssessor;
 /// - Optional security gate wiring for execution tools; `None` keeps default permissive behavior
 #[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry(
-    skill_storage: SkillStorage,
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
@@ -27,7 +26,6 @@ pub fn create_tool_registry(
     security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
     create_tool_registry_with_assessor(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -47,7 +45,6 @@ pub fn create_tool_registry(
 
 #[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry_with_assessor(
-    _skill_storage: SkillStorage,
     _memory_storage: MemoryStorage,
     _chat_storage: ChatSessionStorage,
     _channel_session_binding_storage: ChannelSessionBindingStorage,
@@ -65,7 +62,7 @@ pub fn create_tool_registry_with_assessor(
 ) -> anyhow::Result<ToolRegistry> {
     let config_storage = Arc::new(config_storage);
     let agent_defaults = load_agent_defaults(&config_storage);
-    let skill_provider = Arc::new(CompositeSkillProvider::with_skrun());
+    let skill_provider = Arc::new(SkrunSkillProvider::default());
 
     let mut builder = ToolRegistryBuilder::new();
     let security_agent_id = agent_id.as_deref().unwrap_or(DEFAULT_SECURITY_AGENT_ID);

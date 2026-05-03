@@ -19,8 +19,7 @@ use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use crate::storage::{
     AgentStorage, ChannelSessionBindingStorage, ConfigStorage, ExecutionTraceStorage,
-    MemoryStorage, RunArtifactStorage, SecretStorage, SkillStorage, Storage, TaskStorage,
-    TerminalSessionStorage,
+    MemoryStorage, RunArtifactStorage, SecretStorage, Storage, TaskStorage, TerminalSessionStorage,
 };
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -45,7 +44,6 @@ pub struct OperationAssessorAdapter {
 struct AssessmentContext {
     db: Arc<redb::Database>,
     secrets: SecretStorage,
-    skills: SkillStorage,
     memory: MemoryStorage,
     chat_sessions: crate::storage::ChatSessionStorage,
     channel_session_bindings: ChannelSessionBindingStorage,
@@ -66,7 +64,6 @@ impl AssessmentContext {
         Self {
             db: storage.get_db(),
             secrets: storage.secrets.clone(),
-            skills: storage.skills.clone(),
             memory: storage.memory.clone(),
             chat_sessions: storage.chat_sessions.clone(),
             channel_session_bindings: storage.channel_session_bindings.clone(),
@@ -399,7 +396,6 @@ async fn validate_agent_async(
     let mut errors = Vec::new();
 
     let tool_registry = match crate::services::tool_registry::create_tool_registry(
-        context.skills.clone(),
         context.memory.clone(),
         context.chat_sessions.clone(),
         context.channel_session_bindings.clone(),
@@ -447,7 +443,7 @@ async fn validate_agent_async(
                 errors.push(ValidationError::new("skills", "skill ID must not be empty"));
                 continue;
             }
-            match context.skills.exists(normalized) {
+            match crate::services::skills::skill_exists_in_catalog(normalized) {
                 Ok(true) => {}
                 Ok(false) => errors.push(ValidationError::new(
                     "skills",

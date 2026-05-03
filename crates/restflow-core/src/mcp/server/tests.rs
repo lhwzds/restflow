@@ -198,56 +198,31 @@ async fn test_list_skills_empty() {
     assert!(result.is_ok());
     let json = result.unwrap();
     let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-    // Default skills are bootstrapped; verify at least the known ones exist
-    assert!(skills.len() >= 2);
-    assert!(skills.iter().any(|s| s.id == "self-heal-ops"));
-    assert!(skills.iter().any(|s| s.id == "structured-planner"));
+    assert!(skills.iter().all(|s| !s.id.is_empty()));
 }
 
 #[tokio::test]
 async fn test_list_skills_multiple() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
-    let base_json = server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
-    let base_len = base_skills.len();
-
-    // Create skills using the service layer
     let skill1 = create_test_skill("skill-1", "Skill One");
     let skill2 = create_test_skill("skill-2", "Skill Two");
-
-    crate::services::skills::create_skill(&core, skill1)
-        .await
-        .unwrap();
-    crate::services::skills::create_skill(&core, skill2)
-        .await
-        .unwrap();
+    let server =
+        RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill1, skill2])));
 
     let result = server.handle_list_skills(ListSkillsParams::default()).await;
 
     assert!(result.is_ok());
     let json = result.unwrap();
     let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-    assert_eq!(skills.len(), base_len + 2);
+    assert_eq!(skills.len(), 2);
 }
 
 #[tokio::test]
 async fn test_list_skills_filter_by_status() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let mut completed = create_test_skill("skill-completed", "Completed Skill");
     completed.status = SkillStatus::Completed;
     let draft = create_test_skill("skill-draft", "Draft Skill");
-
-    crate::services::skills::create_skill(&core, completed)
-        .await
-        .unwrap();
-    crate::services::skills::create_skill(&core, draft)
-        .await
-        .unwrap();
+    let server =
+        RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![completed, draft])));
 
     let json = server
         .handle_list_skills(ListSkillsParams {
@@ -263,12 +238,9 @@ async fn test_list_skills_filter_by_status() {
 
 #[tokio::test]
 async fn test_get_skill_success() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let skill = create_test_skill("test-skill", "Test Skill");
-    crate::services::skills::create_skill(&core, skill.clone())
-        .await
-        .unwrap();
+    let server =
+        RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill.clone()])));
 
     let params = GetSkillParams {
         id: "test-skill".to_string(),
@@ -299,8 +271,6 @@ async fn test_get_skill_not_found() {
 
 #[tokio::test]
 async fn test_get_skill_reference_success() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let mut skill = create_test_skill("root-skill", "Root Skill");
     skill.references = vec![SkillReference {
         id: "reference-skill".to_string(),
@@ -308,10 +278,6 @@ async fn test_get_skill_reference_success() {
         title: Some("Reference Skill".to_string()),
         summary: Some("Detailed reference".to_string()),
     }];
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
-
     let reference_skill = Skill::new(
         "reference-skill".to_string(),
         "Reference Skill".to_string(),
@@ -319,9 +285,10 @@ async fn test_get_skill_reference_success() {
         None,
         "# Reference Skill\n\nDeep details.".to_string(),
     );
-    crate::services::skills::create_skill(&core, reference_skill.clone())
-        .await
-        .unwrap();
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![
+        skill,
+        reference_skill.clone(),
+    ])));
 
     let json = server
         .handle_get_skill_reference(GetSkillReferenceParams {
@@ -338,19 +305,16 @@ async fn test_get_skill_reference_success() {
 
 #[tokio::test]
 async fn test_get_skill_context_auto_complete_updates_status() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let mut skill = create_test_skill("auto-complete", "Auto Complete");
     skill.auto_complete = true;
+    skill.read_only = true;
     skill.references = vec![SkillReference {
         id: "ref-doc".to_string(),
         path: "references/ref-doc.md".to_string(),
         title: Some("Reference Doc".to_string()),
         summary: Some("Reference summary".to_string()),
     }];
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
 
     let json = server
         .handle_get_skill_context(GetSkillContextParams {
@@ -369,17 +333,11 @@ async fn test_get_skill_context_auto_complete_updates_status() {
         response["available_references"][0]["title"],
         "Reference Doc"
     );
-
-    let updated = crate::services::skills::get_skill(&core, "auto-complete")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(updated.status, SkillStatus::Completed);
 }
 
 #[tokio::test]
 async fn test_create_skill_success() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(Vec::new())));
 
     let base_json = server
         .handle_list_skills(ListSkillsParams::default())
@@ -412,7 +370,7 @@ async fn test_create_skill_success() {
 
 #[tokio::test]
 async fn test_create_skill_returns_validation_warnings_non_blocking() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(Vec::new())));
 
     let params = CreateSkillParams {
         name: "   ".to_string(),
@@ -432,12 +390,8 @@ async fn test_create_skill_returns_validation_warnings_non_blocking() {
 
 #[tokio::test]
 async fn test_update_skill_success() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let skill = create_test_skill("test-skill", "Original Name");
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
 
     let params = UpdateSkillParams {
         id: "test-skill".to_string(),
@@ -463,12 +417,8 @@ async fn test_update_skill_success() {
 
 #[tokio::test]
 async fn test_update_skill_returns_validation_warnings_non_blocking() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let skill = create_test_skill("warn-skill", "Warn Skill");
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
 
     let params = UpdateSkillParams {
         id: "warn-skill".to_string(),
@@ -485,10 +435,13 @@ async fn test_update_skill_returns_validation_warnings_non_blocking() {
     assert!(message.contains("Warnings:"));
     assert!(message.contains("Invalid variable 'bad-variable'"));
 
-    let updated = crate::services::skills::get_skill(&core, "warn-skill")
+    let updated_json = server
+        .handle_get_skill(GetSkillParams {
+            id: "warn-skill".to_string(),
+        })
         .await
-        .unwrap()
         .unwrap();
+    let updated: Skill = serde_json::from_str(&updated_json).unwrap();
     assert_eq!(updated.content, "Use {{bad-variable}} in template");
 }
 
@@ -511,12 +464,8 @@ async fn test_update_skill_not_found() {
 
 #[tokio::test]
 async fn test_update_skill_partial() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let skill = create_test_skill("test-skill", "Original Name");
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
 
     // Only update name, keep other fields
     let params = UpdateSkillParams {
@@ -544,12 +493,8 @@ async fn test_update_skill_partial() {
 
 #[tokio::test]
 async fn test_delete_skill_success() {
-    let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
     let skill = create_test_skill("test-skill", "Test Skill");
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
 
     let params = DeleteSkillParams {
         id: "test-skill".to_string(),
@@ -717,7 +662,7 @@ async fn test_handle_invalid_skill_params() {
 
 #[tokio::test]
 async fn test_skill_crud_workflow() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(Vec::new())));
 
     let base_json = server
         .handle_list_skills(ListSkillsParams::default())
@@ -864,25 +809,12 @@ async fn test_ipc_backend_list_skills() {
     });
     let mcp_server = RestFlowMcpServer::with_ipc(client);
 
-    let base_json = mcp_server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
-    let base_len = base_skills.len();
-
-    let skill = create_test_skill("ipc-skill", "IPC Skill");
-    crate::services::skills::create_skill(&core, skill)
-        .await
-        .unwrap();
-
     let json = mcp_server
         .handle_list_skills(ListSkillsParams::default())
         .await
         .unwrap();
     let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-    assert_eq!(skills.len(), base_len + 1);
-    assert!(skills.iter().any(|s| s.name == "IPC Skill"));
+    assert!(skills.iter().all(|skill| !skill.id.is_empty()));
 
     let _ = shutdown_tx.send(());
     if let Some(handle) = server_handle.take() {
@@ -892,7 +824,7 @@ async fn test_ipc_backend_list_skills() {
 }
 
 struct MockBackend {
-    skills: Vec<Skill>,
+    skills: std::sync::Mutex<Vec<Skill>>,
     session: ChatSession,
     api_defaults: ApiDefaults,
 }
@@ -909,10 +841,16 @@ impl MockBackend {
         let session = ChatSession::new("mock-agent".to_string(), "mock-model".to_string())
             .with_name("Mock Session");
         Self {
-            skills: vec![skill],
+            skills: std::sync::Mutex::new(vec![skill]),
             session,
             api_defaults: ApiDefaults::default(),
         }
+    }
+
+    fn with_skills(skills: Vec<Skill>) -> Self {
+        let mut backend = Self::new();
+        backend.skills = std::sync::Mutex::new(skills);
+        backend
     }
 
     fn agent_summary(&self) -> StoredAgent {
@@ -998,11 +936,21 @@ fn call_tool_text(result: &CallToolResult) -> &str {
 #[async_trait::async_trait]
 impl McpBackend for MockBackend {
     async fn list_skills(&self) -> Result<Vec<Skill>, String> {
-        Ok(self.skills.clone())
+        Ok(self
+            .skills
+            .lock()
+            .map_err(|_| "mock skill lock poisoned".to_string())?
+            .clone())
     }
 
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
-        Ok(self.skills.iter().find(|s| s.id == id).cloned())
+        Ok(self
+            .skills
+            .lock()
+            .map_err(|_| "mock skill lock poisoned".to_string())?
+            .iter()
+            .find(|s| s.id == id)
+            .cloned())
     }
 
     async fn get_skill_reference(
@@ -1010,7 +958,11 @@ impl McpBackend for MockBackend {
         skill_id: &str,
         ref_id: &str,
     ) -> Result<Option<String>, String> {
-        let Some(skill) = self.skills.iter().find(|skill| skill.id == skill_id) else {
+        let skills = self
+            .skills
+            .lock()
+            .map_err(|_| "mock skill lock poisoned".to_string())?;
+        let Some(skill) = skills.iter().find(|skill| skill.id == skill_id) else {
             return Ok(None);
         };
         let Some(reference) = skill
@@ -1020,21 +972,45 @@ impl McpBackend for MockBackend {
         else {
             return Ok(None);
         };
+        if let Some(reference_skill) = skills.iter().find(|skill| skill.id == reference.id) {
+            return Ok(Some(reference_skill.content.clone()));
+        }
         Ok(Some(format!(
             "Mock reference content for {}",
             reference.path
         )))
     }
 
-    async fn create_skill(&self, _skill: Skill) -> Result<(), String> {
+    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
+        self.skills
+            .lock()
+            .map_err(|_| "mock skill lock poisoned".to_string())?
+            .push(skill);
         Ok(())
     }
 
-    async fn update_skill(&self, _skill: Skill) -> Result<(), String> {
+    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
+        let mut skills = self
+            .skills
+            .lock()
+            .map_err(|_| "mock skill lock poisoned".to_string())?;
+        let Some(existing) = skills.iter_mut().find(|existing| existing.id == skill.id) else {
+            return Err(format!("Skill not found: {}", skill.id));
+        };
+        *existing = skill;
         Ok(())
     }
 
-    async fn delete_skill(&self, _id: &str) -> Result<(), String> {
+    async fn delete_skill(&self, id: &str) -> Result<(), String> {
+        let mut skills = self
+            .skills
+            .lock()
+            .map_err(|_| "mock skill lock poisoned".to_string())?;
+        let original_len = skills.len();
+        skills.retain(|skill| skill.id != id);
+        if skills.len() == original_len {
+            return Err(format!("Skill not found: {}", id));
+        }
         Ok(())
     }
 
@@ -2036,7 +2012,7 @@ async fn test_runtime_tools_exclude_management_tools_by_default() {
     );
     assert!(
         !runtime_tools.iter().any(|tool| tool.name == "manage_ops"),
-        "manage_ops should be activated only through diagnostic systemskills"
+        "manage_ops should be activated only through diagnostic skills"
     );
 }
 

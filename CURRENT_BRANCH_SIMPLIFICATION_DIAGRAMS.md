@@ -3,12 +3,10 @@
 ## Current Branch Graph
 
 This is the current shape of the `codex/tui-system-simplification` branch. The
-branch is already moving toward a read-only skill surface, but the files still
-mix three concepts:
+branch now uses a read-only skill surface with two concepts:
 
-- bundled systemskills
+- Markdown guidance skills discovered through `skrun`
 - executable skills discovered through `skrun`
-- legacy storage-backed user skills and mutation commands
 
 ```mermaid
 flowchart TD
@@ -18,10 +16,9 @@ flowchart TD
     end
 
     subgraph CORE_SERVICES["restflow-core service/catalog layer"]
-        SkillSvc["services/skills.rs\nlist/get still merges system + skrun + legacy storage"]
-        ProviderFile["services/adapters/skill_provider.rs\nSystemSkillProvider\nSkrunSkillProvider\nSkillStorageProvider\nCompositeSkillProvider"]
-        SkillFiles["skill_files.rs\nbundled systemskills"]
-        Storage["storage::skill::SkillStorage\nlegacy persisted skills"]
+        SkillSvc["services/skills.rs\nlist/get uses skrun only"]
+        ProviderFile["services/adapters/skill_provider.rs\nSkrunSkillProvider"]
+        SkillFiles["skrun examples/skills\nMarkdown guidance skills"]
         SkrunCatalog["external skrun CLI\nskrun skill list/show"]
     end
 
@@ -39,12 +36,10 @@ flowchart TD
     CLI --> SkillSvc
     SkillSvc --> SkillFiles
     SkillSvc --> SkrunCatalog
-    SkillSvc -. compatibility .-> Storage
 
     ToolAssembly --> ProviderFile
     ProviderFile --> SkillFiles
     ProviderFile --> SkrunCatalog
-    ProviderFile -. old provider still exists .-> Storage
     ToolAssembly --> LoadSkill
     ToolAssembly --> SkrunTool
     Activation --> ToolAssembly
@@ -72,7 +67,7 @@ flowchart LR
 
     subgraph CORE["crates/restflow-core"]
         Services["src/services/skills.rs\nservice-level effective catalog"]
-        Provider["src/services/adapters/skill_provider.rs\nmixed provider implementations"]
+        Provider["src/services/adapters/skill_provider.rs\nskrun-only provider"]
         RuntimeTools["src/runtime/agent/tools/mod.rs\nruntime registry and default tools"]
         SkillActivation["src/runtime/agent/tools/skill_activation.rs\nmention activation"]
         SessionExec["src/runtime/task_runtime/executor/session_execution.rs\nmentioned skill resolution"]
@@ -116,7 +111,7 @@ flowchart TD
 
     subgraph CORE_CATALOG["restflow-core: EffectiveSkillCatalog"]
         Effective["EffectiveSkillCatalog\nsingle read API for runtime-visible skills"]
-        System["SystemSkillCatalog\nbundled read-only systemskills"]
+        Guidance["SkrunGuidanceCatalog\nread-only Markdown skills"]
         Skrun["RunSkillCatalog\nread-only skrun discovery"]
         Legacy["LegacySkillCompatibility\noptional read/migration path only"]
     end
@@ -221,10 +216,8 @@ the important part is to isolate catalog ownership from runtime tool execution.
 ```mermaid
 flowchart LR
     subgraph CORE["crates/restflow-core"]
-        CatalogMod["src/services/skill_catalog/mod.rs\nEffectiveSkillCatalog facade"]
-        CatalogSystem["src/services/skill_catalog/system.rs\nsystemskill read provider"]
-        CatalogSkrun["src/services/skill_catalog/skrun.rs\nskrun list/show provider"]
-        CatalogLegacy["src/services/skill_catalog/legacy_storage.rs\ncompatibility or migration only"]
+        CatalogMod["src/services/adapters/skill_provider.rs\nSkrunSkillProvider"]
+        CatalogSkrun["skrun skill list/show\nsingle catalog source"]
         ServicesSkills["src/services/skills.rs\nthin service wrapper"]
         RuntimeRegistry["src/runtime/agent/tools/mod.rs\nregistry wiring only"]
         RuntimeActivation["src/runtime/agent/tools/skill_activation.rs\nactivation policy only"]
@@ -243,9 +236,7 @@ flowchart LR
         CliSkill["cli.rs + commands/skill.rs\nvisible list/show\nhidden compatibility commands"]
     end
 
-    CatalogMod --> CatalogSystem
     CatalogMod --> CatalogSkrun
-    CatalogMod -. optional .-> CatalogLegacy
     ServicesSkills --> CatalogMod
     RuntimeRegistry --> CatalogMod
     RuntimeActivation --> CatalogMod
@@ -267,8 +258,6 @@ flowchart TD
 
     CORE -. no direct UI state .-> TUI
     TOOLS -. no daemon/runtime ownership .-> CORE
-    CLI -. no direct storage skill mutation as primary UX .-> STORAGE["storage skills"]
-    TUI -. no direct storage writes .-> STORAGE
 ```
 
 Required invariants:
@@ -276,7 +265,7 @@ Required invariants:
 - `restflow-tui` and `restflow-cli` remain client surfaces.
 - `restflow-core` owns catalog composition and runtime assembly.
 - `restflow-tools` owns `load_skill` and `run_skill` behavior only.
-- Legacy storage-backed skills do not become model-visible tool names.
+- RestFlow storage is not a skill catalog source.
 - `skrun` is an external process boundary, not daemon-owned persistence.
 
 For the aggressive storage-free target, replace those invariants with:
@@ -293,8 +282,8 @@ For the aggressive storage-free target, replace those invariants with:
    boundary, then split it only if the file keeps growing.
 2. Keep `services/skills.rs` as the API wrapper, not the place where every
    catalog source is manually merged.
-3. Keep mutable skill CLI handlers hidden and mark them as compatibility until a
-   cleanup/migration branch removes or replaces them.
+3. Make mutable skill CLI handlers return `skrun` guidance instead of writing
+   RestFlow storage.
 4. Keep TUI `/skill` view-only unless a separate product decision reintroduces
    install or edit flows.
 5. Keep `load_skill` and `run_skill` separate: reading a skill is not running a
@@ -306,10 +295,10 @@ If we choose the aggressive `agent + skill run + TUI` direction, the migration
 should be explicit:
 
 1. First remove storage from the skill path only.
-   - `load_skill` reads systemskill/skrun catalog only.
+   - `load_skill` reads the `skrun` catalog only.
    - `run_skill` executes through `skrun`.
-   - Hidden legacy skill mutation commands remain temporarily but are no longer
-     part of the runtime path.
+   - Skill mutation commands should direct users to `skrun` instead of writing
+     RestFlow storage.
 
 2. Then decide whether RestFlow still has daemon/session/task ambitions.
    - If yes, keep storage for sessions/tasks and stop at the target simplified

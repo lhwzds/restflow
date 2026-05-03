@@ -668,7 +668,7 @@ mod tests {
             temp.path().join(INSTALL_SOURCE_METADATA_FILE),
             serde_json::json!({
                 "source": "system",
-                "source_ref": "restflow://system/fake"
+                "source_ref": "skrun:fake@0.1.0"
             })
             .to_string(),
         )

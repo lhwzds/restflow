@@ -895,7 +895,7 @@ async fn process_create_task_requires_confirmation_when_agent_provider_missing()
 }
 
 #[tokio::test]
-async fn process_create_skill_and_get_skill_round_trip() {
+async fn process_create_skill_returns_skrun_guidance() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let skill = Skill::new(
@@ -915,26 +915,11 @@ async fn process_create_skill_and_get_skill_round_trip() {
     )
     .await;
     match create_response {
-        IpcResponse::Success(_) => {}
-        other => panic!("expected success response, got {other:?}"),
-    }
-
-    let get_response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetSkill {
-            id: skill.id.clone(),
-        },
-    )
-    .await;
-
-    match get_response {
-        IpcResponse::Success(value) => {
-            let returned: Skill = serde_json::from_value(value).expect("skill");
-            assert_eq!(returned.id, skill.id);
-            assert_eq!(returned.name, "IPC Skill");
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 500);
+            assert!(error.message.contains("through skrun"));
         }
-        other => panic!("expected success response, got {other:?}"),
+        other => panic!("expected skrun guidance error response, got {other:?}"),
     }
 }
 

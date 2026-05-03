@@ -33,7 +33,7 @@ RestFlow uses one internal execution model:
 - `restflow-core` owns durable background/task runtime and daemon-side execution orchestration.
 - `restflow-core::runtime::subagent` is adapter-only and should not grow a second subagent runtime owner surface.
 - `restflow-tools` owns tool surfaces only, not runtime ownership.
-- Team-style coordination is systemskill guidance, not a saved product object or reusable template.
+- Team-style coordination is skrun skill guidance, not a saved product object or reusable template.
 - `spawn_subagent_batch` is the only team-style execution primitive. Durable work must use Task/Run history instead of separate team runtime state, mailbox, assignment state, or approval state.
 
 ### Core, Contracts, Runtime, Storage Adapters

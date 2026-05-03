@@ -4,7 +4,7 @@ use super::subagent_backend::{
     build_service_subagent_tool_registry, create_subagent_manager,
 };
 use super::*;
-use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill, SkillSource};
+use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery};
 use crate::services::adapters::{
     AgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter, TaskStoreAdapter,
 };
@@ -23,7 +23,6 @@ use restflow_contracts::request::{
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
 };
-use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, MemoryStore as _, TaskControlRequest,
     TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
@@ -188,7 +187,6 @@ fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
 
 #[allow(clippy::type_complexity)]
 fn setup_storage() -> (
-    SkillStorage,
     MemoryStorage,
     ChatSessionStorage,
     ChannelSessionBindingStorage,
@@ -212,7 +210,6 @@ fn setup_storage() -> (
         std::env::set_var("RESTFLOW_DIR", &state_dir);
     }
 
-    let skill_storage = SkillStorage::new(db.clone()).unwrap();
     let memory_storage = MemoryStorage::new(db.clone()).unwrap();
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
     let channel_session_binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
@@ -229,7 +226,6 @@ fn setup_storage() -> (
         std::env::remove_var("RESTFLOW_DIR");
     }
     (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -334,7 +330,6 @@ impl LlmClientFactory for TestLlmFactory {
 #[test]
 fn test_create_tool_registry() {
     let (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -348,7 +343,6 @@ fn test_create_tool_registry() {
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -413,7 +407,6 @@ fn test_create_tool_registry() {
 #[test]
 fn test_create_tool_registry_excludes_subagent_tools_by_default() {
     let (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -427,7 +420,6 @@ fn test_create_tool_registry_excludes_subagent_tools_by_default() {
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -651,67 +643,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
 }
 
 #[test]
-fn test_skill_provider_list_empty() {
-    let (
-        storage,
-        _memory_storage,
-        _chat_storage,
-        _channel_session_binding_storage,
-        _execution_trace_storage,
-        _secret_storage,
-        _config_storage,
-        _agent_storage,
-        _task_storage,
-        _terminal_storage,
-        _run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-    let provider = SkillStorageProvider::new(storage);
-
-    let skills = provider.list_skills();
-    assert!(skills.is_empty());
-}
-
-#[test]
-fn test_skill_provider_with_data() {
-    let (
-        storage,
-        _memory_storage,
-        _chat_storage,
-        _channel_session_binding_storage,
-        _execution_trace_storage,
-        _secret_storage,
-        _config_storage,
-        _agent_storage,
-        _task_storage,
-        _terminal_storage,
-        _run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let skill = crate::models::Skill::new(
-        "test-skill".to_string(),
-        "Test Skill".to_string(),
-        Some("A test".to_string()),
-        Some(vec!["run_skill".to_string()]),
-        "# Test Content".to_string(),
-    );
-    storage.create(&skill).unwrap();
-
-    let provider = SkillStorageProvider::new(storage);
-
-    let skills = provider.list_skills();
-    assert_eq!(skills.len(), 1);
-    assert_eq!(skills[0].id, "test-skill");
-
-    let content = provider.get_skill("test-skill").unwrap();
-    assert_eq!(content.id, "test-skill");
-    assert!(content.content.contains("Test Content"));
-
-    assert!(provider.get_skill("nonexistent").is_none());
-}
-
-#[test]
 fn test_agent_store_adapter_crud_flow() {
     struct AgentsDirEnvCleanup;
     impl Drop for AgentsDirEnvCleanup {
@@ -727,7 +658,6 @@ fn test_agent_store_adapter_crud_flow() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        skill_storage,
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
@@ -741,35 +671,12 @@ fn test_agent_store_adapter_crud_flow() {
         _temp_dir,
     ) = setup_storage();
 
-    let ops_skill = crate::models::Skill::new(
-        "ops-skill".to_string(),
-        "Ops Skill".to_string(),
-        None,
-        None,
-        "ops".to_string(),
-    );
-    skill_storage.create(&ops_skill).unwrap();
-    let trace_skill = crate::models::Skill::new(
-        "trace-skill".to_string(),
-        "Trace Skill".to_string(),
-        None,
-        None,
-        "trace".to_string(),
-    );
-    skill_storage.create(&trace_skill).unwrap();
-
     let known_tools = Arc::new(RwLock::new(
         ["manage_tasks".to_string(), "manage_agents".to_string()]
             .into_iter()
             .collect::<HashSet<_>>(),
     ));
-    let adapter = AgentStoreAdapter::new(
-        agent_storage,
-        skill_storage,
-        secret_storage,
-        task_storage,
-        known_tools,
-    );
+    let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, task_storage, known_tools);
     let base_node = crate::models::AgentNode {
         model_ref: Some(crate::models::ModelRef::from_model(
             crate::models::ModelId::ClaudeSonnet4_5,
@@ -780,7 +687,7 @@ fn test_agent_store_adapter_crud_flow() {
         codex_cli_execution_mode: None,
         api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
         tools: Some(vec!["manage_tasks".to_string()]),
-        skills: Some(vec!["ops-skill".to_string()]),
+        skills: None,
         skill_variables: None,
         skill_preflight_policy_mode: None,
         model_routing: None,
@@ -824,7 +731,7 @@ fn test_agent_store_adapter_crud_flow() {
                     "manage_tasks".to_string(),
                     "manage_agents".to_string(),
                 ]),
-                skills: Some(vec!["ops-skill".to_string(), "trace-skill".to_string()]),
+                skills: None,
                 ..ContractAgentNode::default()
             }),
         },
@@ -864,7 +771,6 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        skill_storage,
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
@@ -883,13 +789,7 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
             .into_iter()
             .collect::<HashSet<_>>(),
     ));
-    let adapter = AgentStoreAdapter::new(
-        agent_storage,
-        skill_storage,
-        secret_storage,
-        task_storage,
-        known_tools,
-    );
+    let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, task_storage, known_tools);
 
     let err = AgentStore::create_agent(
         &adapter,
@@ -920,7 +820,6 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        skill_storage,
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
@@ -941,7 +840,6 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage.clone(),
-        skill_storage,
         secret_storage,
         task_storage.clone(),
         known_tools,
@@ -996,7 +894,6 @@ fn test_task_store_adapter_task_flow() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1228,27 +1125,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
     let db_path = dir.path().join("marketplace-tool.db");
     let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
         .expect("storage should be created");
-    let skill_storage = storage.skills.clone();
-
-    let local_skill = Skill::new(
-        "local-skill".to_string(),
-        "Local Skill".to_string(),
-        Some("from test".to_string()),
-        None,
-        "# Local".to_string(),
-    );
-    skill_storage.create(&local_skill).unwrap();
-    let mut marketplace_skill = Skill::new(
-        "marketplace-skill".to_string(),
-        "Marketplace Skill".to_string(),
-        Some("from marketplace".to_string()),
-        None,
-        "# Marketplace".to_string(),
-    );
-    marketplace_skill.source = SkillSource::External;
-    marketplace_skill.source_ref = Some("mcp_marketplace:marketplace-skill@1.0.0".to_string());
-    skill_storage.create(&marketplace_skill).unwrap();
-
     let allowlist = vec!["manage_marketplace".to_string()];
     let registry = crate::runtime::agent::tools::registry_from_allowlist(
         Some(&allowlist),
@@ -1269,17 +1145,19 @@ async fn test_marketplace_tool_list_and_uninstall() {
         .await
         .unwrap();
     assert!(listed.success);
-    assert_eq!(listed.result.as_array().map(|items| items.len()), Some(1));
+    assert_eq!(listed.result.as_array().map(|items| items.len()), Some(0));
 
-    let deleted = registry
+    let delete_error = registry
         .execute_safe(
             "manage_marketplace",
             json!({ "operation": "uninstall", "id": "marketplace-skill" }),
         )
         .await
-        .unwrap();
-    assert!(deleted.success);
-    assert_eq!(deleted.result["deleted"].as_bool(), Some(true));
+        .expect_err("uninstall should report skrun guidance as a tool error");
+    assert!(
+        delete_error.to_string().contains("skrun"),
+        "unexpected error: {delete_error}"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1401,7 +1279,6 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_db_memory_store_adapter_crud() {
     let (
-        _skill_storage,
         memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
@@ -1491,7 +1368,6 @@ async fn test_db_memory_store_adapter_crud() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     let (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1506,7 +1382,6 @@ async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     ) = setup_storage();
 
     let registry = create_tool_registry(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1558,7 +1433,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         .expect("storage should be created");
 
     let service_registry = create_tool_registry(
-        storage.skills.clone(),
         storage.memory.clone(),
         storage.chat_sessions.clone(),
         storage.channel_session_bindings.clone(),
@@ -1680,7 +1554,6 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_subagent_manager_persists_execution_traces() {
     let (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1698,7 +1571,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         ExecutionTraceStorage::new(execution_trace_storage.db()).expect("execution trace storage");
 
     let service_registry = create_tool_registry(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1829,7 +1701,6 @@ async fn test_create_subagent_manager_persists_execution_traces() {
 #[tokio::test]
 async fn test_service_subagent_manager_supports_temporary_model_provider_only() {
     let (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1844,7 +1715,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
     ) = setup_storage();
 
     let service_registry = create_tool_registry(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1910,7 +1780,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
 #[test]
 fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     let (
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
@@ -1925,7 +1794,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     ) = setup_storage();
 
     let service_registry = create_tool_registry(
-        skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,

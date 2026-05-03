@@ -236,7 +236,6 @@ flowchart TD
     Agent["Agent runtime"] --> LoadSkill["load_skill: load/read only"]
     Agent --> RunSkill["run_skill: execute only"]
     LoadSkill --> Catalog
-    Catalog --> SystemSkills["bundled systemskills"]
     Catalog --> SkrunCatalog["skrun skill list/show"]
     RunSkill --> SkrunRun["skrun skill run"]
 ```
@@ -247,8 +246,8 @@ Concrete rules:
 - `run_skill` runs executable skills through the external `skrun` boundary.
 - RestFlow should not create, update, delete, import, export, or install
   runtime-visible skills in the primary TUI/agent path.
-- Legacy storage-backed skills can remain compatibility-only until a separate
-  migration/removal step.
+- RestFlow storage should not keep a compatibility skill catalog; any old data
+  migration should live outside the runtime path.
 
 ### Do not remove all storage unless the product scope is intentionally cut
 
@@ -281,11 +280,10 @@ or model-visible skill tools.
 
 1. Keep the branch focused on skill-path simplification, not full storage
    deletion.
-2. Make `systemskills + skrun` the only runtime-visible skill catalog.
+2. Make `skrun` the only runtime-visible skill catalog.
 3. Keep `/skill` in TUI as a view/read/detail surface.
 4. Keep `skrun` as the owner of installation, catalog persistence, and
    executable skill runs.
 5. If RestFlow needs resumable conversation history later, prefer a JSONL
    transcript/event stream first and add redb/SQLite only as a derived query
    index.
-

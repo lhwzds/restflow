@@ -1,5 +1,5 @@
 use super::*;
-use crate::services::adapters::CompositeSkillProvider;
+use crate::services::adapters::SkrunSkillProvider;
 use crate::services::skill_mentions::parse_skill_mentions;
 use restflow_ai::StreamDisplayMode;
 use restflow_ai::telemetry::RunAttemptTracker;
@@ -62,7 +62,7 @@ impl AgentRuntimeExecutor {
             return Vec::new();
         }
 
-        let provider = CompositeSkillProvider::with_skrun();
+        let provider = SkrunSkillProvider::default();
         let skills = provider.list_skills();
         mentioned_ids
             .into_iter()

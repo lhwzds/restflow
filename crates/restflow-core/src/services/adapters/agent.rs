@@ -1,6 +1,5 @@
 //! AgentStore adapter backed by AgentStorage.
 
-use crate::storage::skill::SkillStorage;
 use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
 use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_tools::ToolError;
@@ -12,7 +11,6 @@ use std::sync::{Arc, RwLock};
 #[derive(Clone)]
 pub struct AgentStoreAdapter {
     storage: AgentStorage,
-    skills: SkillStorage,
     secrets: SecretStorage,
     task_storage: TaskStorage,
     known_tools: Arc<RwLock<HashSet<String>>>,
@@ -21,14 +19,12 @@ pub struct AgentStoreAdapter {
 impl AgentStoreAdapter {
     pub fn new(
         storage: AgentStorage,
-        skills: SkillStorage,
         secrets: SecretStorage,
         task_storage: TaskStorage,
         known_tools: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         Self {
             storage,
-            skills,
             secrets,
             task_storage,
             known_tools,
@@ -88,21 +84,18 @@ impl AgentStoreAdapter {
                     }
                 })
                 .collect();
-            match self.skills.exists_many(&skill_ids) {
-                Ok(existing) => {
-                    for &id in &skill_ids {
-                        if !existing.contains(id) {
-                            errors.push(crate::models::ValidationError::new(
-                                "skills",
-                                format!("unknown skill: {}", id),
-                            ));
-                        }
-                    }
+            for id in skill_ids {
+                match crate::services::skills::skill_exists_in_catalog(id) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(crate::models::ValidationError::new(
+                        "skills",
+                        format!("unknown skill: {}", id),
+                    )),
+                    Err(err) => errors.push(crate::models::ValidationError::new(
+                        "skills",
+                        format!("failed to verify skill '{}': {}", id, err),
+                    )),
                 }
-                Err(err) => errors.push(crate::models::ValidationError::new(
-                    "skills",
-                    format!("failed to verify skills: {}", err),
-                )),
             }
         }
 
@@ -197,7 +190,6 @@ mod tests {
         let db = Arc::new(redb::Database::create(db_path).unwrap());
 
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
-        let skill_storage = SkillStorage::new(db.clone()).unwrap();
         let secret_storage = SecretStorage::with_config(
             db.clone(),
             restflow_storage::SecretStorageConfig {
@@ -209,13 +201,7 @@ mod tests {
         let known_tools = Arc::new(RwLock::new(HashSet::from(["bash".to_string()])));
 
         (
-            AgentStoreAdapter::new(
-                agent_storage,
-                skill_storage,
-                secret_storage,
-                bg_storage,
-                known_tools,
-            ),
+            AgentStoreAdapter::new(agent_storage, secret_storage, bg_storage, known_tools),
             env,
         )
     }
