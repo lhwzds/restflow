@@ -1,6 +1,8 @@
 ---
 title: skrun Examples
-description: External tool examples for RestFlow run_skill.
+covers:
+  - examples/skrun/**
+  - crates/restflow-tools/src/impls/skrun.rs
 ---
 
 # skrun Examples

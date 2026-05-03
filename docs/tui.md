@@ -1,6 +1,9 @@
 ---
 title: TUI
-description: RestFlow terminal UI model.
+covers:
+  - crates/restflow-tui/**/*.rs
+  - crates/restflow-cli/src/cli.rs
+  - crates/restflow-cli/src/commands/start.rs
 ---
 
 # TUI
@@ -19,8 +22,8 @@ streaming.
 
 ## Rendering Model
 
-The transcript is persistent conversation history. The composer and overlays are
-temporary UI. Overlay state should not be appended to conversation history.
+The transcript is persistent conversation history. The composer and overlays
+are temporary UI. Overlay state should not be appended to conversation history.
 
 ## Daemon Boundary
 

@@ -1,12 +1,17 @@
 ---
 title: Agent Framework
-description: RestFlow simplified runtime boundaries.
+covers:
+  - crates/restflow-ai/**/*.rs
+  - crates/restflow-core/src/runtime/agent/**/*.rs
+  - crates/restflow-core/src/runtime/orchestrator/**/*.rs
+  - crates/restflow-core/src/services/tool_registry/**/*.rs
+  - crates/restflow-tools/src/**/*.rs
 ---
 
 # Agent Framework
 
-RestFlow's core framework is intentionally small. The runtime should execute an
-agent, expose a minimal coding toolset, load skill guidance, and delegate
+RestFlow's core framework is intentionally small. The runtime executes an
+agent, exposes a minimal coding toolset, loads skill guidance, and delegates
 specialized capabilities to executable skrun skills.
 
 ## Core Runtime
@@ -37,15 +42,15 @@ These capabilities are not core tools:
 - image analysis
 - audio transcription
 - email and chat notifications
-- memory stores beyond transcript/checkpoint adapters
+- memory stores beyond transcript and checkpoint adapters
 
 They should live as external skrun skills or optional clients.
 
 ## Event Boundary
 
-`RunEvent` should represent runtime events only. It should not embed trace
-payloads. Trace records can be derived from runtime events or exported through a
-separate adapter.
+`RunEvent` represents runtime events only. It should not embed trace payloads.
+Trace records can be derived from runtime events or exported through a separate
+adapter.
 
 ## Python Integration
 

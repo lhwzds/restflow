@@ -1,3 +1,14 @@
+---
+title: Task and Run Domain Model
+covers:
+  - crates/restflow-core/src/models/task_runtime.rs
+  - crates/restflow-core/src/runtime/task_runtime/**/*.rs
+  - crates/restflow-core/src/storage/task_runtime/**/*.rs
+  - crates/restflow-core/src/mcp/server/tasks.rs
+  - crates/restflow-tools/src/impls/task/**/*.rs
+  - crates/restflow-storage/src/task.rs
+---
+
 # Task / Run Domain Model
 
 This document defines the canonical naming boundary for RestFlow.

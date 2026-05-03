@@ -1,6 +1,13 @@
 ---
 title: Skills
-description: RestFlow skill loading and executable skrun model.
+covers:
+  - crates/restflow-core/assets/skills/**
+  - crates/restflow-core/src/loader/**/*.rs
+  - crates/restflow-core/src/registry/**/*.rs
+  - crates/restflow-core/src/services/skill*.rs
+  - crates/restflow-tools/src/skill/**/*.rs
+  - crates/restflow-tools/src/impls/load_skill.rs
+  - crates/restflow-tools/src/impls/skrun.rs
 ---
 
 # Skills
@@ -19,8 +26,6 @@ agents. The runtime-visible skill catalog is system skills plus skrun skills.
 - `@skill` selects a skill for the current turn.
 - Natural language can still trigger assigned skill guidance when the runtime
   authorizes it.
-
-## System Skills
 
 ## Runtime Tools
 
