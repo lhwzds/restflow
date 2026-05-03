@@ -68,6 +68,8 @@ flowchart LR
     Tools --> Core
 
     Core --> Cli["restflow-cli"]
+    Core --> Tui["restflow-tui"]
+    Contracts --> Tui
 ```
 
 Notes:
@@ -291,14 +293,16 @@ of the runtime.
 - `restflow-core` owns trace domain models, typed trace storage wrappers, and
   runtime trace services
 - `restflow-storage` owns raw persistence primitives only
-- `restflow-ai` owns AI execution stream contracts and execution-domain stream
-  types
+- `restflow-contracts` owns IPC-visible task/session stream contracts
+- `restflow-ai` owns AI-internal execution stream types and telemetry events
 
 This means:
 
 - typed trace models belong in `restflow-core`
 - raw byte/table persistence stays in `restflow-storage`
-- execution streaming abstractions stay near AI execution runtime code
+- client-visible stream contracts stay in `restflow-contracts`
+- AI-internal execution streaming abstractions stay near AI execution runtime
+  code
 
 #### What Must Not Move
 

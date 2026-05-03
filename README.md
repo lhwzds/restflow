@@ -105,6 +105,7 @@ RestFlow is not a split frontend/backend app. It is a Rust runtime and TUI:
 
 - `restflow-core` owns daemon execution and runtime adapters
 - `restflow-ai` owns the agent loop, model execution, and subagent runtime capability
+- `restflow-ai` exposes the optional PyO3 native module for Python SDK primitives
 - `restflow-tools` owns tool implementations and registry assembly helpers
 - `restflow-tui` is the primary user interface
 - `skrun` owns external executable tool examples and installed skill runs

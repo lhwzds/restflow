@@ -1,12 +1,11 @@
 use std::collections::HashSet;
 
 use chrono::Utc;
-use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider,
     RunSummary, Skill, SkillSource,
 };
-use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
 
 use super::composer::ComposerState;
@@ -1290,7 +1289,7 @@ fn append_active_text(body: &mut String, text: &str) {
 mod tests {
     use super::{AppState, OverlayState};
     use crate::transcript::{TranscriptCellKind, transcript_cells};
-    use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+    use restflow_contracts::{ChatSessionEvent, StreamFrame};
 
     #[test]
     fn app_state_session_picker_uses_overlay() {

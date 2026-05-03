@@ -1,6 +1,7 @@
 //! Shared boundary contracts used across transport and app layers.
 
 mod error;
+mod events;
 mod operation;
 pub mod request;
 mod response;
@@ -8,6 +9,10 @@ mod stream;
 mod tool;
 
 pub use error::{ErrorKind, ErrorPayload};
+pub use events::{
+    ChatSessionEvent, ExecutionStats, IpcStreamEvent, StreamEventKind, StreamFrame,
+    TASK_STREAM_EVENT, TaskStreamEvent,
+};
 pub use operation::{
     AllowedPeerResponse, ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse,
     CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, IdResponse,

@@ -11,6 +11,8 @@ pub mod agent;
 pub mod cache;
 pub mod error;
 pub mod llm;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod steer;
 pub mod telemetry;
 pub mod text_utils;

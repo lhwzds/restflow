@@ -1,8 +1,7 @@
-use crate::daemon::session_events::ChatSessionEvent;
-use crate::runtime::TaskStreamEvent;
-pub use restflow_contracts::{IpcDaemonStatus, IpcRequest, ToolDefinition, ToolExecutionResult};
-use restflow_contracts::{ResponseEnvelope, StreamEnvelope};
-use serde::{Deserialize, Serialize};
+use restflow_contracts::ResponseEnvelope;
+pub use restflow_contracts::{
+    IpcDaemonStatus, IpcRequest, IpcStreamEvent, StreamFrame, ToolDefinition, ToolExecutionResult,
+};
 use serde_json::Value;
 
 /// Message frame: [4 bytes length LE][JSON payload]
@@ -11,18 +10,10 @@ pub const IPC_PROTOCOL_VERSION: &str = "2";
 
 pub type IpcResponse = ResponseEnvelope<Value>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IpcStreamEvent {
-    Task(TaskStreamEvent),
-    Session(ChatSessionEvent),
-}
-
-pub type StreamFrame = StreamEnvelope<IpcStreamEvent>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_contracts::TaskStreamEvent;
 
     #[test]
     fn test_ipc_request_reexport_roundtrip() {

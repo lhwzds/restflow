@@ -1,7 +1,5 @@
-use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{ChatRole, ChatSession};
-use restflow_core::runtime::TaskStreamEvent;
-use restflow_core::runtime::task_runtime::StreamEventKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -401,9 +399,8 @@ mod tests {
         message_from_session_event, message_from_stream_frame, message_from_task_event,
         messages_from_session, transcript_cells,
     };
-    use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+    use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
     use restflow_core::models::{ChatMessage, ChatSession};
-    use restflow_core::runtime::TaskStreamEvent;
 
     #[test]
     fn appends_and_finalizes_assistant_stream() {

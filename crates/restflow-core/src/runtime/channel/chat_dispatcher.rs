@@ -1020,11 +1020,52 @@ mod tests {
     use crate::models::ChatSessionSource;
     use crate::runtime::effective_main_agent_tool_names;
     use serde_json::json;
+    use std::ffi::OsString;
+    use std::path::Path;
     use tempfile::tempdir;
     use tokio::time::Duration;
 
+    struct StorageEnvGuard {
+        previous_restflow_dir: Option<OsString>,
+        previous_master_key: Option<OsString>,
+    }
+
+    impl StorageEnvGuard {
+        fn new(state_dir: &Path) -> Self {
+            let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+            let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+            unsafe {
+                std::env::set_var("RESTFLOW_DIR", state_dir);
+                std::env::set_var("RESTFLOW_MASTER_KEY", "11".repeat(32));
+            }
+            Self {
+                previous_restflow_dir,
+                previous_master_key,
+            }
+        }
+    }
+
+    impl Drop for StorageEnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match self.previous_restflow_dir.as_ref() {
+                    Some(value) => std::env::set_var("RESTFLOW_DIR", value),
+                    None => std::env::remove_var("RESTFLOW_DIR"),
+                }
+                match self.previous_master_key.as_ref() {
+                    Some(value) => std::env::set_var("RESTFLOW_MASTER_KEY", value),
+                    None => std::env::remove_var("RESTFLOW_MASTER_KEY"),
+                }
+            }
+        }
+    }
+
     fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
+        let _env_lock = crate::paths::restflow_dir_env_lock();
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let _env_guard = StorageEnvGuard::new(&state_dir);
         let db_path = temp_dir.path().join("test.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         (Arc::new(storage), temp_dir)

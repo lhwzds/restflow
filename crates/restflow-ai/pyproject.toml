@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "restflow-ai"
-version = "0.1.0"
+version = "0.4.1"
 description = "Rust-powered AI Agent framework with Python SDK"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,6 @@ Homepage = "https://github.com/restflow/restflow"
 Repository = "https://github.com/restflow/restflow"
 
 [tool.maturin]
-features = ["python"]
+features = ["python", "pyo3/extension-module"]
 python-source = "../../python"
 module-name = "restflow_ai._native"

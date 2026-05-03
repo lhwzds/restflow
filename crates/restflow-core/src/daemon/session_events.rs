@@ -1,28 +1,8 @@
-use serde::{Deserialize, Serialize};
+pub use restflow_contracts::ChatSessionEvent;
 use std::sync::OnceLock;
 use tokio::sync::broadcast;
 
 const BUFFER_CAPACITY: usize = 256;
-
-/// Event types for chat session changes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ChatSessionEvent {
-    Created {
-        session_id: String,
-    },
-    Updated {
-        session_id: String,
-    },
-    MessageAdded {
-        session_id: String,
-        /// Where the change originated (e.g. "workspace", "telegram", "ipc")
-        source: String,
-    },
-    Deleted {
-        session_id: String,
-    },
-}
 
 fn stream_sender() -> &'static broadcast::Sender<ChatSessionEvent> {
     static SENDER: OnceLock<broadcast::Sender<ChatSessionEvent>> = OnceLock::new();

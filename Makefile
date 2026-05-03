@@ -1,6 +1,9 @@
 .PHONY: dev prod build down logs clean help run install cli release release-check fmt test lint audit stress toolchain
 
 RUST_TOOLCHAIN ?= stable
+CARGO_TARGET_DIR ?= $(HOME)/.cargo-targets/restflow
+export CARGO_TARGET_DIR
+RESTFLOW_RELEASE_BIN := $(CARGO_TARGET_DIR)/release/restflow
 
 # Development mode with hot reload
 dev:
@@ -118,7 +121,7 @@ release:
 # Install CLI with rf alias
 install: cli
 	@mkdir -p $(HOME)/.local/bin
-	@cp target/release/restflow $(HOME)/.local/bin/restflow
+	@cp "$(RESTFLOW_RELEASE_BIN)" $(HOME)/.local/bin/restflow
 	@codesign --force --sign - $(HOME)/.local/bin/restflow 2>/dev/null || true
 	@ln -sf $(HOME)/.local/bin/restflow $(HOME)/.local/bin/rf
 	@echo "Installed: ~/.local/bin/restflow"

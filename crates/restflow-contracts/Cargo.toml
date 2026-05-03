@@ -6,6 +6,7 @@ edition.workspace = true
 description = "Shared transport and boundary contracts for RestFlow"
 
 [dependencies]
+chrono = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 specta = { version = "=2.0.0-rc.23", features = ["derive"] }

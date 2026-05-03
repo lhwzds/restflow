@@ -6,11 +6,10 @@ use super::state::{
     SkillPickerItem, TaskPickerItem,
 };
 use super::transcript::ShellMessage;
-use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary,
 };
-use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::agent::StoredAgent;
 
 const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
@@ -759,7 +758,7 @@ mod tests {
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
     use crate::state::{AppState, PendingSessionState, SkillPickerItem};
-    use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+    use restflow_contracts::{ChatSessionEvent, StreamFrame};
     use restflow_core::models::{ChatSession, ChatSessionSummary, Skill, SkillSource};
 
     fn session_summary(id: &str, name: &str) -> ChatSessionSummary {

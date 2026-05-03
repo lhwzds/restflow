@@ -1,5 +1,5 @@
+use restflow_contracts::TaskStreamEvent;
 use restflow_core::runtime::TaskEventEmitter;
-use restflow_core::runtime::TaskStreamEvent;
 use std::io::{self, Write};
 use tokio::sync::Mutex;
 
