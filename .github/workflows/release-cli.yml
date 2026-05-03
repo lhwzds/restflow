@@ -13,10 +13,56 @@ jobs:
     name: Release preflight
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          MAIN_SHA="$(git rev-parse origin/main)"
+
+          if [ "$RELEASE_SHA" != "$MAIN_SHA" ]; then
+            echo "::error::Release tags must point at the latest origin/main commit."
+            echo "::error::Release SHA: $RELEASE_SHA"
+            echo "::error::origin/main SHA: $MAIN_SHA"
+            exit 1
+          fi
+
+          TEST_RUN="$(gh run list \
+            --workflow Tests \
+            --branch main \
+            --commit "$RELEASE_SHA" \
+            --event push \
+            --limit 1 \
+            --json status,conclusion,url \
+            --jq 'if length == 0 then "" else .[0] | [.status, .conclusion, .url] | @tsv end')"
+
+          if [ -z "$TEST_RUN" ]; then
+            echo "::error::No Tests workflow run found for $RELEASE_SHA on main."
+            exit 1
+          fi
+
+          IFS=$'\t' read -r TEST_STATUS TEST_CONCLUSION TEST_URL <<< "$TEST_RUN"
+
+          if [ "$TEST_STATUS" != "completed" ] || [ "$TEST_CONCLUSION" != "success" ]; then
+            echo "::error::Release requires a completed successful Tests workflow on main."
+            echo "::error::Tests status: $TEST_STATUS"
+            echo "::error::Tests conclusion: $TEST_CONCLUSION"
+            echo "::error::Tests URL: $TEST_URL"
+            exit 1
+          fi
+
+          echo "Release source verified: $RELEASE_SHA is latest green main."
 
       - name: Install Linux dependencies
         run: |
