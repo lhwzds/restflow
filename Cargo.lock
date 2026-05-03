@@ -3378,7 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-ai"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3410,7 +3410,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-cli"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3450,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-contracts"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "serde",
@@ -3461,7 +3461,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-models"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "restflow-traits",
  "serde",
@@ -3543,7 +3543,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-storage"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3570,7 +3570,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-tools"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -3607,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-traits"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3627,7 +3627,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-tui"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "chrono",

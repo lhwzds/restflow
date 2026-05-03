@@ -16,7 +16,7 @@ resolver = "2"
 default-members = ["crates/restflow-core"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.4.2"
 authors = ["RestFlow Team"]
 edition = "2024"
 
