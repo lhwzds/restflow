@@ -5,7 +5,6 @@ use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::{ChannelRouter, PairingManager};
 use restflow_core::daemon::publish_task_event;
-use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{Task, TaskControlAction, TaskMessageSource, TaskStatus};
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
@@ -111,8 +110,6 @@ impl CliTaskRunner {
         .with_reply_sender_factory(reply_sender_factory);
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
-        let hook_executor = Arc::new(HookExecutor::with_storage(storage.hooks.clone()));
-
         let runner = Arc::new(
             TaskRunner::with_memory_persistence(
                 Arc::new(storage.tasks.clone()),
@@ -124,8 +121,7 @@ impl CliTaskRunner {
                 steer_registry,
             )
             .with_event_emitter(event_emitter)
-            .with_channel_router_handle(channel_router.clone())
-            .with_hook_executor(hook_executor),
+            .with_channel_router_handle(channel_router.clone()),
         );
 
         let handle = runner.clone().start();

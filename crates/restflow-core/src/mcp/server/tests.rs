@@ -678,11 +678,10 @@ fn test_tool_definitions() {
         "chat_session_list",
         "chat_session_get",
         "manage_tasks",
-        "manage_hooks",
     ];
 
     // Verify we have definitions for all expected tools
-    assert_eq!(expected_tools.len(), 16);
+    assert_eq!(expected_tools.len(), 15);
 }
 
 #[tokio::test]
@@ -896,7 +895,6 @@ struct MockBackend {
     skills: Vec<Skill>,
     session: ChatSession,
     api_defaults: ApiDefaults,
-    hooks: Vec<Hook>,
 }
 
 impl MockBackend {
@@ -914,14 +912,6 @@ impl MockBackend {
             skills: vec![skill],
             session,
             api_defaults: ApiDefaults::default(),
-            hooks: Vec::new(),
-        }
-    }
-
-    fn with_hooks(hooks: Vec<Hook>) -> Self {
-        Self {
-            hooks,
-            ..Self::new()
         }
     }
 
@@ -1273,26 +1263,6 @@ impl McpBackend for MockBackend {
         );
         task.chat_session_id = id.to_string();
         Ok(task)
-    }
-
-    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
-        Ok(self.hooks.clone())
-    }
-
-    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
-        Ok(hook)
-    }
-
-    async fn update_hook(&self, _id: &str, hook: Hook) -> Result<Hook, String> {
-        Ok(hook)
-    }
-
-    async fn delete_hook(&self, _id: &str) -> Result<bool, String> {
-        Ok(true)
-    }
-
-    async fn test_hook(&self, _id: &str) -> Result<(), String> {
-        Ok(())
     }
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
@@ -1952,150 +1922,6 @@ async fn test_manage_tasks_read_trace_prefers_run_scoped_backend_for_run_ids() {
     assert_eq!(value["trace_id"], "run-123");
     assert_eq!(value["total"], 1);
     assert_eq!(value["events"][0]["run_id"], "run-123");
-}
-
-#[tokio::test]
-async fn test_manage_hooks_list_operation() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let params = ManageHooksParams {
-        operation: "list".to_string(),
-        id: None,
-        name: None,
-        description: None,
-        event: None,
-        action: None,
-        filter: None,
-        enabled: None,
-    };
-
-    let json = server.handle_manage_hooks(params).await.unwrap();
-    let hooks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
-    assert!(hooks.is_empty());
-}
-
-#[tokio::test]
-async fn test_manage_hooks_create_operation() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let params = ManageHooksParams {
-        operation: "create".to_string(),
-        id: None,
-        name: Some("Test Hook".to_string()),
-        description: Some(Some("A test hook".to_string())),
-        event: Some("task_completed".to_string()),
-        action: Some(serde_json::json!({
-            "type": "webhook",
-            "url": "https://example.com/hook"
-        })),
-        filter: None,
-        enabled: None,
-    };
-
-    let json = server.handle_manage_hooks(params).await.unwrap();
-    let hook: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(hook["name"], "Test Hook");
-    assert_eq!(hook["event"], "task_completed");
-    assert_eq!(hook["enabled"], true);
-}
-
-#[tokio::test]
-async fn test_manage_hooks_invalid_operation() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let params = ManageHooksParams {
-        operation: "invalid".to_string(),
-        id: None,
-        name: None,
-        description: None,
-        event: None,
-        action: None,
-        filter: None,
-        enabled: None,
-    };
-
-    let result = server.handle_manage_hooks(params).await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Unknown operation"));
-}
-
-#[tokio::test]
-async fn test_manage_hooks_test_operation() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let params = ManageHooksParams {
-        operation: "test".to_string(),
-        id: Some("hook-1".to_string()),
-        name: None,
-        description: None,
-        event: None,
-        action: None,
-        filter: None,
-        enabled: None,
-    };
-
-    let json = server.handle_manage_hooks(params).await.unwrap();
-    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(value["id"], "hook-1");
-    assert_eq!(value["tested"], true);
-}
-
-#[tokio::test]
-async fn test_manage_hooks_rejects_invalid_runtime_event() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let params = ManageHooksParams {
-        operation: "create".to_string(),
-        id: None,
-        name: Some("Unsupported Hook".to_string()),
-        description: None,
-        event: Some("tool_executed".to_string()),
-        action: Some(serde_json::json!({
-            "type": "webhook",
-            "url": "https://example.com/hook"
-        })),
-        filter: None,
-        enabled: None,
-    };
-
-    let error = server
-        .handle_manage_hooks(params)
-        .await
-        .expect_err("invalid event should fail");
-    assert!(error.contains("Invalid event: tool_executed"));
-}
-
-#[tokio::test]
-async fn test_manage_hooks_update_operation_can_clear_description_and_filter() {
-    let mut existing_hook = Hook::new(
-        "Test Hook".to_string(),
-        HookEvent::TaskCompleted,
-        HookAction::Webhook {
-            url: "https://example.com/hook".to_string(),
-            method: None,
-            headers: None,
-        },
-    );
-    existing_hook.id = "hook-1".to_string();
-    existing_hook.description = Some("A test hook".to_string());
-    existing_hook.filter = Some(HookFilter {
-        task_name_pattern: Some("deploy-*".to_string()),
-        agent_id: Some("agent-1".to_string()),
-        success_only: Some(true),
-    });
-    let server =
-        RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_hooks(vec![existing_hook])));
-    let params = ManageHooksParams {
-        operation: "update".to_string(),
-        id: Some("hook-1".to_string()),
-        name: None,
-        description: Some(None),
-        event: None,
-        action: None,
-        filter: Some(None),
-        enabled: None,
-    };
-
-    let json = server.handle_manage_hooks(params).await.unwrap();
-    let hook: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(hook["id"], "hook-1");
-    assert_eq!(hook["description"], serde_json::Value::Null);
-    assert_eq!(hook["filter"], serde_json::Value::Null);
 }
 
 #[tokio::test]

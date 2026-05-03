@@ -106,7 +106,6 @@ impl RouteResolver {
             "discord" => "discord".to_string(),
             "slack" => "slack".to_string(),
             "email" => "email".to_string(),
-            "webhook" => "webhook".to_string(),
             // If unknown, return as-is (let caller handle validation)
             other => other.to_string(),
         }

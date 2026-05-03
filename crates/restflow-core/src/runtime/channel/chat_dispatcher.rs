@@ -298,7 +298,7 @@ impl ChatSessionManager {
             ChannelType::Telegram => Some(ChatSessionSource::Telegram),
             ChannelType::Discord => Some(ChatSessionSource::Discord),
             ChannelType::Slack => Some(ChatSessionSource::Slack),
-            ChannelType::Email | ChannelType::Webhook => None,
+            ChannelType::Email => None,
         }
     }
 
@@ -307,7 +307,7 @@ impl ChatSessionManager {
             ChannelType::Telegram => Some("telegram"),
             ChannelType::Discord => Some("discord"),
             ChannelType::Slack => Some("slack"),
-            ChannelType::Email | ChannelType::Webhook => None,
+            ChannelType::Email => None,
         }
     }
 

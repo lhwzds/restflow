@@ -7,7 +7,6 @@ pub mod checkpoint;
 pub mod execution_console;
 pub mod execution_trace;
 pub(crate) mod execution_trace_builders;
-pub mod hook;
 pub mod memory;
 pub mod model_ref;
 mod provider_policy;
@@ -22,7 +21,6 @@ pub mod storage_mode;
 pub mod task_runtime;
 pub mod terminal_session;
 pub mod validation;
-pub mod webhook;
 
 #[cfg(test)]
 mod model_tests;
@@ -38,7 +36,6 @@ pub use execution_console::{
     ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
     ExecutionThread, RunKind, RunListQuery, RunSummary,
 };
-pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
 pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
@@ -58,8 +55,6 @@ pub use task_runtime::{
     TaskEvent, TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch,
     TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus,
 };
-pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
-
 // Export execution trace types (new naming)
 pub use execution_trace::{
     ExecutionLogField, ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery,

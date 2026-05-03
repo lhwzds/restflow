@@ -282,45 +282,6 @@ impl CommandExecutor for IpcExecutor {
         Ok(())
     }
 
-    async fn list_hooks(&self) -> Result<Vec<restflow_core::models::Hook>> {
-        self.request_typed(IpcRequest::ListHooks).await
-    }
-
-    async fn create_hook(
-        &self,
-        hook: restflow_core::models::Hook,
-    ) -> Result<restflow_core::models::Hook> {
-        let hook = to_contract(hook)?;
-        self.request_typed(IpcRequest::CreateHook { hook }).await
-    }
-
-    async fn update_hook(
-        &self,
-        id: &str,
-        hook: restflow_core::models::Hook,
-    ) -> Result<restflow_core::models::Hook> {
-        let hook = to_contract(hook)?;
-        self.request_typed(IpcRequest::UpdateHook {
-            id: id.to_string(),
-            hook,
-        })
-        .await
-    }
-
-    async fn delete_hook(&self, id: &str) -> Result<bool> {
-        let resp: restflow_contracts::DeleteResponse = self
-            .request_typed(IpcRequest::DeleteHook { id: id.to_string() })
-            .await?;
-        Ok(resp.deleted)
-    }
-
-    async fn test_hook(&self, id: &str) -> Result<()> {
-        let _: OkResponse = self
-            .request_typed(IpcRequest::TestHook { id: id.to_string() })
-            .await?;
-        Ok(())
-    }
-
     async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
         self.request_typed(IpcRequest::ListPairingState).await
     }

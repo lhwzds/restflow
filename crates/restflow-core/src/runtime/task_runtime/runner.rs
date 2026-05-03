@@ -8,10 +8,9 @@
 //! - Sending notifications on completion/failure
 
 use crate::channel::{ChannelRouter, MessageLevel, OutboundMessage};
-use crate::hooks::HookExecutor;
 use crate::models::{
-    ExecutionMode, HookContext, MemoryConfig, MemoryScope, NotificationConfig, SteerMessage,
-    SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus,
+    ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource, Task,
+    TaskMessageSource, TaskRun, TaskStatus,
 };
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
@@ -436,8 +435,6 @@ pub struct TaskRunner {
     start_time: Instant,
     /// Optional memory persister for long-term memory storage
     memory_persister: Option<MemoryPersister>,
-    /// Optional hook executor for lifecycle automation
-    hook_executor: Option<Arc<HookExecutor>>,
     steer_registry: Arc<SteerRegistry>,
     /// Optional channel router for broadcasting notifications to all configured channels
     channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
@@ -476,7 +473,6 @@ impl TaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
-            hook_executor: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
@@ -515,7 +511,6 @@ impl TaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
-            hook_executor: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
@@ -558,7 +553,6 @@ impl TaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: Some(MemoryPersister::new(memory_storage)),
-            hook_executor: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
@@ -569,12 +563,6 @@ impl TaskRunner {
     /// Attach a task event emitter for streaming updates.
     pub fn with_event_emitter(mut self, event_emitter: Arc<dyn TaskEventEmitter>) -> Self {
         self.event_emitter = event_emitter;
-        self
-    }
-
-    /// Attach a hook executor for lifecycle actions.
-    pub fn with_hook_executor(mut self, hook_executor: Arc<HookExecutor>) -> Self {
-        self.hook_executor = Some(hook_executor);
         self
     }
 
@@ -708,7 +696,7 @@ impl TaskRunner {
         Ok(())
     }
 
-    async fn rollback_precommit_launch(
+    async fn rollback_failed_launch_start(
         &self,
         task_id: &str,
         original_task: &Task,
@@ -724,7 +712,7 @@ impl TaskRunner {
                 task_id = %task_id,
                 run_id = %run_id,
                 error = %err,
-                "Failed to mark pre-commit task run as interrupted"
+                "Failed to mark launch task run as interrupted"
             );
         }
 
@@ -756,7 +744,7 @@ impl TaskRunner {
                 warn!(
                     task_id = %task_id,
                     error = %err,
-                    "Failed to load task during pre-commit rollback"
+                    "Failed to load task during launch rollback"
                 );
             }
         }
@@ -775,33 +763,6 @@ impl TaskRunner {
         let finalizer = TaskRunFinalizer::new(self, task.clone(), None, run_handle);
         let duration_ms = ended_at.saturating_sub(run.started_at);
         finalizer.finalize_interrupted(reason, duration_ms).await;
-    }
-
-    /// Install RestFlow git hooks in the given repository.
-    ///
-    /// This installs a pre-commit hook that prevents task executions from
-    /// committing directly to main/master branches.
-    pub fn install_git_hooks(repo_path: &str) {
-        let hook_path = format!("{}/.git/hooks/pre-commit", repo_path);
-
-        // Only install if no existing pre-commit hook
-        if std::path::Path::new(&hook_path).exists() {
-            debug!("Pre-commit hook already exists at {}", hook_path);
-            return;
-        }
-
-        let hook_content = include_str!("../../../assets/hooks/pre-commit");
-        if let Ok(()) = std::fs::write(&hook_path, hook_content) {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755));
-            }
-            info!("Installed RestFlow pre-commit hook at {}", hook_path);
-        } else {
-            warn!("Failed to install pre-commit hook at {}", hook_path);
-        }
     }
 
     /// Start the runner and return a handle for controlling it
@@ -1283,7 +1244,7 @@ impl TaskRunner {
             Ok(Some(task)) => task,
             Ok(None) => {
                 warn!("Task {} not found", task_id_owned);
-                self.rollback_precommit_launch(
+                self.rollback_failed_launch_start(
                     &task_id_owned,
                     &original_task,
                     resume_task_activated,
@@ -1295,7 +1256,7 @@ impl TaskRunner {
             }
             Err(error) => {
                 error!("Failed to load task {}: {}", task_id_owned, error);
-                self.rollback_precommit_launch(
+                self.rollback_failed_launch_start(
                     &task_id_owned,
                     &original_task,
                     resume_task_activated,
@@ -1309,7 +1270,7 @@ impl TaskRunner {
 
         if let Err(err) = self.task_queue.submit(task, TaskPriority::High).await {
             warn!("Failed to enqueue task {}: {:?}", task_id_owned, err);
-            self.rollback_precommit_launch(
+            self.rollback_failed_launch_start(
                 &task_id_owned,
                 &original_task,
                 resume_task_activated,
@@ -1483,7 +1444,7 @@ impl TaskRunner {
         match source {
             TaskMessageSource::User => SteerSource::User,
             TaskMessageSource::Agent => SteerSource::Api,
-            TaskMessageSource::System => SteerSource::Hook,
+            TaskMessageSource::System => SteerSource::System,
         }
     }
 
@@ -1560,7 +1521,7 @@ impl TaskRunner {
             Ok(task) => task,
             Err(e) => {
                 error!("Failed to start task execution for {}: {}", task_id, e);
-                self.rollback_precommit_launch(
+                self.rollback_failed_launch_start(
                     task_id,
                     &original_task,
                     resume_launch,
@@ -1639,7 +1600,7 @@ impl TaskRunner {
                         let source = match &queued.source {
                             TaskMessageSource::User => SteerSource::User,
                             TaskMessageSource::Agent => SteerSource::Api,
-                            TaskMessageSource::System => SteerSource::Hook,
+                            TaskMessageSource::System => SteerSource::System,
                         };
                         let steer_message = SteerMessage::message(queued.message.clone(), source);
 
@@ -1706,7 +1667,7 @@ impl TaskRunner {
             if let Some(pump) = message_pump.take() {
                 let _ = pump.await;
             }
-            self.rollback_precommit_launch(
+            self.rollback_failed_launch_start(
                 &task.id,
                 &original_task,
                 resume_launch,
@@ -1731,7 +1692,7 @@ impl TaskRunner {
             if let Some(pump) = message_pump.take() {
                 let _ = pump.await;
             }
-            self.rollback_precommit_launch(
+            self.rollback_failed_launch_start(
                 &task.id,
                 &original_task,
                 resume_launch,
@@ -1779,7 +1740,6 @@ impl TaskRunner {
                 &execution_mode_str,
             ))
             .await;
-        self.fire_hooks(&HookContext::from_started(&task)).await;
         let telemetry_context = Some(run_handle.cloned_context());
 
         if resolved_input
@@ -1917,16 +1877,12 @@ impl TaskRunner {
                     if let Some(timeout_secs) = execution_timeout_secs {
                         tokio::time::timeout(
                             Duration::from_secs(timeout_secs),
-                            cli_executor.execute_cli(
-                                cli_config,
-                                resolved_input.as_deref(),
-                                Some(task_id),
-                            ),
+                            cli_executor.execute_cli(cli_config, resolved_input.as_deref()),
                         )
                         .await
                     } else {
                         Ok(cli_executor
-                            .execute_cli(cli_config, resolved_input.as_deref(), Some(task_id))
+                            .execute_cli(cli_config, resolved_input.as_deref())
                             .await)
                     }
                 }

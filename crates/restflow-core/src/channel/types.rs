@@ -16,7 +16,6 @@ pub enum ChannelType {
     Discord,
     Slack,
     Email,
-    Webhook,
 }
 
 impl ChannelType {
@@ -27,7 +26,6 @@ impl ChannelType {
             Self::Discord => "discord",
             Self::Slack => "slack",
             Self::Email => "email",
-            Self::Webhook => "webhook",
         }
     }
 
@@ -43,7 +41,6 @@ impl ChannelType {
             Self::Discord => "Discord",
             Self::Slack => "Slack",
             Self::Email => "Email",
-            Self::Webhook => "Webhook",
         }
     }
 }
@@ -316,7 +313,6 @@ mod tests {
         assert!(ChannelType::Discord.supports_interaction());
         assert!(ChannelType::Slack.supports_interaction());
         assert!(!ChannelType::Email.supports_interaction());
-        assert!(!ChannelType::Webhook.supports_interaction());
     }
 
     #[test]

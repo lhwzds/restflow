@@ -4,7 +4,6 @@ use crate::boundary::task::{
     core_spec_to_create_request,
 };
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
-use crate::services::hook_capability::HookCapabilityService;
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 
@@ -17,7 +16,7 @@ fn resolve_task_id(
         .map_err(|e| e.to_string())
 }
 use crate::daemon::request_mapper::to_contract;
-use restflow_contracts::{DeleteResponse, DeleteWithIdResponse};
+use restflow_contracts::DeleteWithIdResponse;
 use restflow_traits::{TaskCommandOutcome, store::TaskDeleteRequest};
 
 pub(super) struct CoreBackend {
@@ -338,37 +337,6 @@ impl McpBackend for CoreBackend {
             .ok_or_else(|| format!("Task {} not found", resolved_id))
     }
 
-    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
-        HookCapabilityService::from_storage(self.core.storage.as_ref())
-            .list()
-            .map_err(|e| e.to_string())
-    }
-
-    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
-        HookCapabilityService::from_storage(self.core.storage.as_ref())
-            .create(hook)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
-        HookCapabilityService::from_storage(self.core.storage.as_ref())
-            .update(id, hook)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn delete_hook(&self, id: &str) -> Result<bool, String> {
-        HookCapabilityService::from_storage(self.core.storage.as_ref())
-            .delete(id)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn test_hook(&self, id: &str) -> Result<(), String> {
-        HookCapabilityService::from_storage(self.core.storage.as_ref())
-            .test(id)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
         let registry = self.get_registry()?;
         Ok(registry
@@ -673,38 +641,6 @@ impl McpBackend for IpcBackend {
             .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Task {} not found", id))
-    }
-
-    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
-        self.request_typed(IpcRequest::ListHooks).await
-    }
-
-    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
-        let hook = to_contract(hook).map_err(|e| e.to_string())?;
-        self.request_typed(IpcRequest::CreateHook { hook }).await
-    }
-
-    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
-        let hook = to_contract(hook).map_err(|e| e.to_string())?;
-        self.request_typed(IpcRequest::UpdateHook {
-            id: id.to_string(),
-            hook,
-        })
-        .await
-    }
-
-    async fn delete_hook(&self, id: &str) -> Result<bool, String> {
-        let response: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteHook { id: id.to_string() })
-            .await?;
-        Ok(response.deleted)
-    }
-
-    async fn test_hook(&self, id: &str) -> Result<(), String> {
-        let _: restflow_contracts::OkResponse = self
-            .request_typed(IpcRequest::TestHook { id: id.to_string() })
-            .await?;
-        Ok(())
     }
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {

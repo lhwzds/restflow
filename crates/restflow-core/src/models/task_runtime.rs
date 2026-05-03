@@ -1124,9 +1124,6 @@ pub struct Task {
     /// Last error message if failed
     #[serde(default)]
     pub last_error: Option<String>,
-    /// Webhook configuration for external triggers
-    #[serde(default)]
-    pub webhook: Option<super::webhook::WebhookConfig>,
     /// Summary message pointer for compacted task sessions
     #[serde(default)]
     pub summary_message_id: Option<String>,
@@ -1168,7 +1165,6 @@ impl Task {
             total_tokens_used: 0,
             total_cost_usd: 0.0,
             last_error: None,
-            webhook: None,
             summary_message_id: None,
         }
     }

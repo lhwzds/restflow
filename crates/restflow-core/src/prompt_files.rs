@@ -8,20 +8,20 @@ const TASK_POLICY_FILE: &str = "task.md";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
-const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/agents/default.md");
-const TASK_POLICY_ASSET: &str = include_str!("../assets/agents/task.md");
+const DEFAULT_AGENT_PROMPT: &str = include_str!("../prompts/agents/default.md");
+const TASK_POLICY_PROMPT: &str = include_str!("../prompts/agents/task.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
-    ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_ASSET)?;
+    ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_PROMPT)?;
     Ok(())
 }
 
 pub fn load_default_main_agent_prompt() -> Result<String> {
-    Ok(DEFAULT_AGENT_PROMPT_ASSET.to_string())
+    Ok(DEFAULT_AGENT_PROMPT.to_string())
 }
 
 pub fn load_task_policy(task_id: Option<&str>) -> Result<String> {
-    let path = ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_ASSET)?;
+    let path = ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_PROMPT)?;
     let content = fs::read_to_string(&path)
         .with_context(|| format!("Failed to read task policy prompt: {}", path.display()))?;
     Ok(apply_task_id_placeholder(&content, task_id))

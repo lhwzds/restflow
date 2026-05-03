@@ -246,34 +246,6 @@ pub struct ManageTasksParams {
     pub approval_id: Option<String>,
 }
 
-/// Parameters for manage_hooks tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ManageHooksParams {
-    /// Operation to perform: list, create, update, delete, test
-    pub operation: String,
-    /// Hook ID (required for update/delete/test)
-    #[serde(default)]
-    pub id: Option<String>,
-    /// Hook name (required for create)
-    #[serde(default)]
-    pub name: Option<String>,
-    /// Optional description
-    #[serde(default)]
-    pub description: Option<Option<String>>,
-    /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_interrupted
-    #[serde(default)]
-    pub event: Option<String>,
-    /// Hook action payload (required for create)
-    #[serde(default)]
-    pub action: Option<Value>,
-    /// Optional filter to limit when the hook fires
-    #[serde(default)]
-    pub filter: Option<Option<Value>>,
-    /// Whether the hook is enabled (default: true)
-    #[serde(default)]
-    pub enabled: Option<bool>,
-}
-
 /// Skill summary for list_skills response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SkillSummary {

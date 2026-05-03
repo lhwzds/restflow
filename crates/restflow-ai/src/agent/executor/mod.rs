@@ -52,6 +52,7 @@ mod steer;
 mod streaming;
 mod tool_exec;
 pub use config::*;
+use steer::DeferredExecutionOptions;
 use tool_exec::{ToolExecutionOptions, ToolInvocationContext};
 
 use std::sync::Arc;
@@ -454,12 +455,17 @@ impl AgentExecutor {
                 .await;
             self.poll_subagent_completions(&mut state, config.max_tool_result_length)
                 .await;
+            let deferred_review_messages = state.messages.clone();
             self.process_resolved_deferred_calls(
                 &deferred_manager,
                 &mut state,
-                config.tool_timeout,
-                config.max_tool_result_length,
-                config.tool_output_dir.as_deref(),
+                DeferredExecutionOptions {
+                    tool_timeout: config.tool_timeout,
+                    max_tool_result_length: config.max_tool_result_length,
+                    tool_output_dir: config.tool_output_dir.as_deref(),
+                    reviewer: config.tool_call_reviewer.as_ref(),
+                    review_messages: &deferred_review_messages,
+                },
             )
             .await;
 
@@ -704,6 +710,8 @@ impl AgentExecutor {
                             trace_session_id,
                             trace_scope_id,
                         },
+                        reviewer: config.tool_call_reviewer.as_ref(),
+                        review_messages: &state.messages,
                     },
                 )
                 .await;

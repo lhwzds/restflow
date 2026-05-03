@@ -108,7 +108,7 @@ pub use route_binding::{MatchedBy, ResolvedRoute, RouteBinding, RouteBindingType
 pub use router::ChannelRouter;
 pub use slack::{SlackChannel, SlackConfig};
 pub use telegram::{TelegramChannel, TelegramConfig};
-pub use traits::{Channel, StreamReceiver, WebhookReceiver};
+pub use traits::{Channel, StreamReceiver};
 pub use types::{ChannelType, ConversationContext, InboundMessage, MessageLevel, OutboundMessage};
 
 #[cfg(test)]

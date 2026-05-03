@@ -3,7 +3,6 @@ pub(crate) mod boundary;
 pub mod channel;
 pub mod daemon;
 pub mod features;
-pub mod hooks;
 pub mod loader;
 pub mod lsp;
 pub mod mcp;
@@ -35,23 +34,22 @@ pub use models::{
     ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery, ExecutionMetricsResponse,
     ExecutionMode, ExecutionStep, ExecutionStepInfo, ExecutionThread, ExecutionTimeline,
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
-    ExecutionTraceStats, ExecutionTraceTimeRange, GatingCheckResult, GatingRequirements, Hook,
-    HookAction, HookContext, HookEvent, HookFilter, InstallStatus, InstalledSkill, LifecycleTrace,
-    LlmCallTrace, LogRecordTrace, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
-    MemorySearchResult, MemorySession, MemorySource, MemoryStats, MessageExecution, MessageTrace,
-    MetricDimension, MetricSampleTrace, ModelId, ModelMetadataDTO, ModelRoutingConfig,
-    ModelSwitchTrace, NotificationConfig, OsType, PendingApproval, Provider, ProviderHealthQuery,
-    ProviderHealthResponse, ProviderHealthTrace, ResourceLimits, ResumePayload, RunArtifact,
-    RunArtifactKind, RunKind, RunListQuery, RunSummary, SearchMode, SecurityAction,
-    SecurityCheckResult, SecurityMode, SecurityPolicy, Skill, SkillAuthor, SkillDependency,
-    SkillGating, SkillManifest, SkillMeta, SkillPermission, SkillPermissions, SkillReference,
-    SkillScript, SkillSource, SkillStatus, SkillVersion, SourceTypeFilter, SteerMessage,
-    SteerSource, StorageMode, Task, TaskControlAction, TaskConversionResult, TaskEvent,
-    TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress,
-    TaskRun, TaskRunMetrics, TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus, TerminalSession,
-    TerminalStatus, ToolAction, ToolCallInfo, ToolCallPhase, ToolRule, UnifiedSearchQuery,
-    ValidationError, ValidationErrorResponse, VersionRequirement, WebhookConfig,
-    WebhookRateLimiter, WebhookRequest, WebhookResponse, encode_validation_error,
+    ExecutionTraceStats, ExecutionTraceTimeRange, GatingCheckResult, GatingRequirements,
+    InstallStatus, InstalledSkill, LifecycleTrace, LlmCallTrace, LogRecordTrace, MemoryChunk,
+    MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource,
+    MemoryStats, MessageExecution, MessageTrace, MetricDimension, MetricSampleTrace, ModelId,
+    ModelMetadataDTO, ModelRoutingConfig, ModelSwitchTrace, NotificationConfig, OsType,
+    PendingApproval, Provider, ProviderHealthQuery, ProviderHealthResponse, ProviderHealthTrace,
+    ResourceLimits, ResumePayload, RunArtifact, RunArtifactKind, RunKind, RunListQuery, RunSummary,
+    SearchMode, SecurityAction, SecurityCheckResult, SecurityMode, SecurityPolicy, Skill,
+    SkillAuthor, SkillDependency, SkillGating, SkillManifest, SkillMeta, SkillPermission,
+    SkillPermissions, SkillReference, SkillScript, SkillSource, SkillStatus, SkillVersion,
+    SourceTypeFilter, SteerMessage, SteerSource, StorageMode, Task, TaskControlAction,
+    TaskConversionResult, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
+    TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus,
+    TaskSchedule, TaskSpec, TaskStatus, TerminalSession, TerminalStatus, ToolAction, ToolCallInfo,
+    ToolCallPhase, ToolRule, UnifiedSearchQuery, ValidationError, ValidationErrorResponse,
+    VersionRequirement, encode_validation_error,
 };
 pub use steer::SteerRegistry;
 

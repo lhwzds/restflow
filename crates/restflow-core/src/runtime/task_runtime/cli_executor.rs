@@ -77,13 +77,10 @@ impl CliAgentExecutor {
     }
 
     /// Execute a CLI command with the given configuration and input.
-    ///
-    /// `task_id` is used to tag task execution processes for hook enforcement.
     pub async fn execute_cli(
         &self,
         config: &CliExecutionConfig,
         input: Option<&str>,
-        task_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         info!(
             binary = %config.binary,
@@ -99,12 +96,6 @@ impl CliAgentExecutor {
         let mut cmd = Command::new(&config.binary);
         cmd.args(&config.args);
         cmd.current_dir(cwd);
-
-        // Tag process as a task execution for git hook enforcement.
-        if let Some(tid) = task_id {
-            cmd.env("RESTFLOW_TASK_ID", tid);
-        }
-        cmd.env("RESTFLOW_AGENT", "1");
 
         // Add input as prompt argument if provided
         if let Some(input_text) = input {
@@ -270,7 +261,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -296,7 +287,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         assert!(result.is_ok());
         assert!(line_count.load(Ordering::SeqCst) >= 1);
     }
@@ -313,7 +304,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         assert!(result.is_err());
 
         let error = result.unwrap_err();
@@ -332,7 +323,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         assert!(result.is_err());
 
         let error = result.unwrap_err();
@@ -352,9 +343,7 @@ mod tests {
         };
 
         // Input is added as -p argument
-        let result = executor
-            .execute_cli(&config, Some("test input"), None)
-            .await;
+        let result = executor.execute_cli(&config, Some("test input")).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -375,7 +364,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -396,7 +385,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -415,7 +404,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         let error = result.expect_err("missing working_dir should fail");
         assert!(
             error
@@ -435,7 +424,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None, None).await;
+        let result = executor.execute_cli(&config, None).await;
         let error = result.expect_err("relative working_dir should fail");
         assert!(
             error

@@ -77,8 +77,8 @@ pub enum SteerSource {
     User,
     /// From Telegram channel.
     Telegram,
-    /// From a hook or automation.
-    Hook,
+    /// From internal system automation.
+    System,
     /// From REST/WebSocket API.
     Api,
 }

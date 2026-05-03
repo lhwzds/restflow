@@ -1,9 +1,8 @@
 use super::*;
 use crate::channel::{Channel, ChannelType, InboundMessage, OutboundMessage};
-use crate::hooks::{HookExecutor, HookTaskScheduler};
 use crate::models::{
-    AgentCheckpoint, Hook, HookAction, HookEvent, MemoryScope, ResumePayload, Task,
-    TaskControlAction, TaskEventType, TaskSchedule, TaskStatus,
+    AgentCheckpoint, MemoryScope, ResumePayload, Task, TaskControlAction, TaskEventType,
+    TaskSchedule, TaskStatus,
 };
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use async_trait::async_trait;
@@ -265,30 +264,6 @@ impl AgentExecutor for DefaultDelegatingExecutor {
     }
 }
 
-struct MockHookScheduler {
-    call_count: AtomicU32,
-}
-
-impl MockHookScheduler {
-    fn new() -> Self {
-        Self {
-            call_count: AtomicU32::new(0),
-        }
-    }
-
-    fn call_count(&self) -> u32 {
-        self.call_count.load(Ordering::SeqCst)
-    }
-}
-
-#[async_trait::async_trait]
-impl HookTaskScheduler for MockHookScheduler {
-    async fn schedule_task(&self, _agent_id: &str, _input: &str) -> Result<()> {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-}
-
 struct CaptureChannel {
     sent: Arc<Mutex<Vec<OutboundMessage>>>,
 }
@@ -366,17 +341,6 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = Arc::new(MockExecutor::new());
     let notifier = Arc::new(NoopNotificationSender);
-    let hook_scheduler = Arc::new(MockHookScheduler::new());
-    let hook = Hook::new(
-        "Interrupt follow-up".to_string(),
-        HookEvent::TaskInterrupted,
-        HookAction::RunTask {
-            agent_id: "agent-next".to_string(),
-            input_template: "Recovered".to_string(),
-        },
-    );
-    let hook_executor =
-        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
     let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
     let current_time = chrono::Utc::now().timestamp_millis();
     let past_time = current_time - 120_000;
@@ -405,8 +369,7 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
         },
         Arc::new(SteerRegistry::new()),
     )
-    .with_event_emitter(Arc::new(channel_emitter))
-    .with_hook_executor(hook_executor);
+    .with_event_emitter(Arc::new(channel_emitter));
 
     runner.recover_stalled_running_tasks(current_time).await;
 
@@ -419,8 +382,6 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
         run.error.as_deref(),
         Some("Recovered stalled task execution")
     );
-    assert_eq!(hook_scheduler.call_count(), 1);
-
     let mut interrupted_seen = false;
     while let Ok(event) = event_rx.try_recv() {
         if let StreamEventKind::Interrupted { reason, .. } = event.kind {
@@ -592,54 +553,6 @@ async fn test_runner_emits_stream_events_with_custom_emitter() {
 
     assert!(started_seen);
     assert!(completed_seen);
-}
-
-#[tokio::test]
-async fn test_runner_triggers_hooks_on_completion() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let notifier = Arc::new(NoopNotificationSender);
-    let hook_scheduler = Arc::new(MockHookScheduler::new());
-
-    let hook = Hook::new(
-        "Run follow-up".to_string(),
-        HookEvent::TaskCompleted,
-        HookAction::RunTask {
-            agent_id: "agent-next".to_string(),
-            input_template: "From hook".to_string(),
-        },
-    );
-    let hook_executor =
-        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
-
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Task With Hook".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("Hook task input".to_string());
-    task.next_run_at = Some(past_time);
-    storage.update_task(&task).unwrap();
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(
-        TaskRunner::new(storage, executor, notifier, config, steer_registry)
-            .with_hook_executor(hook_executor),
-    );
-
-    let handle = runner.clone().start();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    handle.stop().await.unwrap();
-
-    assert_eq!(hook_scheduler.call_count(), 1);
 }
 
 #[tokio::test]
@@ -1443,17 +1356,6 @@ async fn test_resume_from_checkpoint_start_task_run_failure_rolls_back_without_s
  {
     let (storage, _temp_dir) = create_test_storage();
     let executor = Arc::new(MockExecutor::new());
-    let hook_scheduler = Arc::new(MockHookScheduler::new());
-    let hook = Hook::new(
-        "Started follow-up".to_string(),
-        HookEvent::TaskStarted,
-        HookAction::RunTask {
-            agent_id: "agent-next".to_string(),
-            input_template: "Started".to_string(),
-        },
-    );
-    let hook_executor =
-        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
     let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
 
     let runner = Arc::new(
@@ -1464,8 +1366,7 @@ async fn test_resume_from_checkpoint_start_task_run_failure_rolls_back_without_s
             TaskRunnerConfig::default(),
             Arc::new(SteerRegistry::new()),
         )
-        .with_event_emitter(Arc::new(channel_emitter))
-        .with_hook_executor(hook_executor),
+        .with_event_emitter(Arc::new(channel_emitter)),
     );
 
     let mut task = storage
@@ -1518,8 +1419,6 @@ async fn test_resume_from_checkpoint_start_task_run_failure_rolls_back_without_s
 
     let updated_checkpoint = storage.load_checkpoint(&checkpoint_id).unwrap().unwrap();
     assert!(updated_checkpoint.resumed_at.is_none());
-    assert_eq!(hook_scheduler.call_count(), 0);
-
     let mut started_seen = false;
     while let Ok(event) = event_rx.try_recv() {
         if matches!(event.kind, StreamEventKind::Started { .. }) {
@@ -1533,17 +1432,6 @@ async fn test_resume_from_checkpoint_start_task_run_failure_rolls_back_without_s
 async fn test_execute_task_without_stop_receiver_fails_before_commit() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = Arc::new(MockExecutor::new());
-    let hook_scheduler = Arc::new(MockHookScheduler::new());
-    let hook = Hook::new(
-        "Started follow-up".to_string(),
-        HookEvent::TaskStarted,
-        HookAction::RunTask {
-            agent_id: "agent-next".to_string(),
-            input_template: "Started".to_string(),
-        },
-    );
-    let hook_executor =
-        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
     let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
 
     let runner = TaskRunner::new(
@@ -1553,8 +1441,7 @@ async fn test_execute_task_without_stop_receiver_fails_before_commit() {
         TaskRunnerConfig::default(),
         Arc::new(SteerRegistry::new()),
     )
-    .with_event_emitter(Arc::new(channel_emitter))
-    .with_hook_executor(hook_executor);
+    .with_event_emitter(Arc::new(channel_emitter));
 
     let mut task = storage
         .create_task(
@@ -1574,7 +1461,6 @@ async fn test_execute_task_without_stop_receiver_fails_before_commit() {
         storage.get_task(&task.id).unwrap().unwrap().status,
         TaskStatus::Active
     );
-    assert_eq!(hook_scheduler.call_count(), 0);
     assert_eq!(runner.running_task_count().await, 0);
 
     let mut started_seen = false;

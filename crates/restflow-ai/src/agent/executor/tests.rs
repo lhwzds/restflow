@@ -5,6 +5,7 @@ use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
 use crate::agent::StreamDisplayMode;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
+use crate::agent::{ToolCallReviewer, ToolReviewOutcome, ToolReviewRequest};
 use crate::llm::{
     CompletionRequest, CompletionResponse, FinishReason, Role, StreamChunk, StreamResult,
     TokenUsage, ToolCall,
@@ -318,6 +319,64 @@ impl Tool for EchoTool {
 
     async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
         Ok(ToolOutput::success(input))
+    }
+}
+
+struct CountingEchoTool {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Tool for CountingEchoTool {
+    fn name(&self) -> &str {
+        "counting_echo"
+    }
+
+    fn description(&self) -> &str {
+        "Echo the input payload and count executions"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(ToolOutput::success(input))
+    }
+}
+
+#[derive(Clone)]
+struct StaticToolReviewer {
+    outcome: ToolReviewOutcome,
+    calls: Arc<AtomicUsize>,
+    captured: Arc<Mutex<Vec<ToolReviewRequest>>>,
+}
+
+impl StaticToolReviewer {
+    fn new(outcome: ToolReviewOutcome) -> Self {
+        Self {
+            outcome,
+            calls: Arc::new(AtomicUsize::new(0)),
+            captured: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn call_count(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    fn captured(&self) -> Vec<ToolReviewRequest> {
+        self.captured.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ToolCallReviewer for StaticToolReviewer {
+    async fn review_tool_call(&self, request: ToolReviewRequest) -> Result<ToolReviewOutcome> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.captured.lock().unwrap().push(request);
+        Ok(self.outcome.clone())
     }
 }
 
@@ -738,6 +797,147 @@ async fn test_executor_multi_turn_with_tool_calls() {
 
     // Should have: system, user, assistant (with tool calls), tool result
     assert_eq!(second_request.len(), 4);
+}
+
+#[tokio::test]
+async fn test_executor_configured_reviewer_sees_session_context_before_tool_execution() {
+    let responses = vec![
+        CompletionResponse {
+            content: Some("Checking".to_string()),
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "echo".to_string(),
+                arguments: serde_json::json!({"message": "hello"}),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: None,
+        },
+        CompletionResponse {
+            content: Some("All done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        },
+    ];
+    let mock_llm = Arc::new(MockLlmClient::new(responses));
+    let mut registry = ToolRegistry::new();
+    registry.register(EchoTool);
+    let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+    let reviewer = Arc::new(StaticToolReviewer::new(ToolReviewOutcome::allow(None)));
+
+    let result = executor
+        .run(
+            AgentConfig::new("primary user goal")
+                .with_prompt_flags(PromptFlags::new().without_workspace_context())
+                .with_tool_call_reviewer(reviewer.clone()),
+        )
+        .await
+        .expect("reviewed execution should complete");
+
+    assert!(result.success);
+    assert_eq!(reviewer.call_count(), 1);
+    let captured = reviewer.captured();
+    assert_eq!(captured[0].tool_call.name, "echo");
+    assert!(
+        captured[0]
+            .messages
+            .iter()
+            .any(|message| message.content.contains("primary user goal"))
+    );
+}
+
+#[tokio::test]
+async fn test_reviewer_denial_blocks_tool_execution() {
+    let tool_calls = Arc::new(AtomicUsize::new(0));
+    let reviewer = Arc::new(StaticToolReviewer::new(ToolReviewOutcome::deny(Some(
+        "outside scope".to_string(),
+    ))));
+    let reviewer_trait: Arc<dyn ToolCallReviewer> = reviewer.clone();
+    let mut registry = ToolRegistry::new();
+    registry.register(CountingEchoTool {
+        calls: tool_calls.clone(),
+    });
+    let executor = AgentExecutor::new(Arc::new(MockLlmClient::new(vec![])), Arc::new(registry));
+    let calls = vec![ToolCall {
+        id: "call_1".to_string(),
+        name: "counting_echo".to_string(),
+        arguments: serde_json::json!({"message": "hello"}),
+    }];
+    let review_messages = vec![Message::user("Do a safe task")];
+    let mut emitter = NullEmitter;
+
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext::default(),
+                reviewer: Some(&reviewer_trait),
+                review_messages: &review_messages,
+            },
+        )
+        .await;
+
+    assert_eq!(tool_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(reviewer.call_count(), 1);
+    let output = results[0].1.as_ref().expect("review denial is tool output");
+    assert!(!output.success);
+    assert_eq!(output.result["review_denied"], true);
+    assert!(output.error.as_deref().unwrap().contains("outside scope"));
+}
+
+#[tokio::test]
+async fn test_reviewer_denial_blocks_deferred_replay() {
+    let tool_calls = Arc::new(AtomicUsize::new(0));
+    let reviewer = Arc::new(StaticToolReviewer::new(ToolReviewOutcome::deny(Some(
+        "approved action is still unsafe".to_string(),
+    ))));
+    let reviewer_trait: Arc<dyn ToolCallReviewer> = reviewer.clone();
+    let mut registry = ToolRegistry::new();
+    registry.register(CountingEchoTool {
+        calls: tool_calls.clone(),
+    });
+    let executor = AgentExecutor::new(Arc::new(MockLlmClient::new(vec![])), Arc::new(registry));
+    let deferred = DeferredExecutionManager::new(Duration::from_secs(300));
+    deferred
+        .defer(
+            "call_1",
+            "counting_echo",
+            serde_json::json!({"message": "hello"}),
+            Some("approval-1".to_string()),
+        )
+        .await;
+    assert!(deferred.resolve("call_1", true, None).await);
+    let mut state = AgentState::new("exec-1".to_string(), 10);
+    state.add_message(Message::user("Run the approved action"));
+    let review_messages = state.messages.clone();
+
+    executor
+        .process_resolved_deferred_calls(
+            &deferred,
+            &mut state,
+            DeferredExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                max_tool_result_length: 4_000,
+                tool_output_dir: None,
+                reviewer: Some(&reviewer_trait),
+                review_messages: &review_messages,
+            },
+        )
+        .await;
+
+    assert_eq!(tool_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(reviewer.call_count(), 1);
+    assert!(state.messages.iter().any(|message| {
+        message
+            .content
+            .contains("blocked by reviewer: approved action is still unsafe")
+    }));
 }
 
 #[tokio::test]
@@ -1809,6 +2009,8 @@ async fn test_parallel_tools_returns_results_in_submission_order() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext::default(),
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -1871,6 +2073,8 @@ async fn test_parallel_tools_true_concurrency() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext::default(),
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -1924,6 +2128,8 @@ async fn test_parallel_tools_panic_recovery() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext::default(),
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -1986,6 +2192,8 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
                 telemetry_sink: None,
                 telemetry_context: None,
                 invocation: ToolInvocationContext::default(),
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2043,6 +2251,8 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
                     trace_session_id: Some("session-main-1"),
                     trace_scope_id: Some("scope-main-1"),
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2099,6 +2309,8 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2150,6 +2362,8 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2206,6 +2420,8 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2259,6 +2475,8 @@ async fn test_promote_to_background_injects_chat_session_id() {
                     trace_session_id: None,
                     trace_scope_id: None,
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2311,6 +2529,8 @@ async fn test_promote_to_background_overrides_explicit_session_id() {
                     trace_session_id: None,
                     trace_scope_id: None,
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2355,6 +2575,8 @@ async fn test_list_subagents_injects_parent_run_id() {
                     trace_session_id: None,
                     trace_scope_id: None,
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;
@@ -2405,6 +2627,8 @@ async fn test_wait_subagents_overrides_explicit_parent_run_id() {
                     trace_session_id: None,
                     trace_scope_id: None,
                 },
+                reviewer: None,
+                review_messages: &[],
             },
         )
         .await;

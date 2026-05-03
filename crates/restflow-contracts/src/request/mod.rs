@@ -3,7 +3,7 @@ mod defaults;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,20 +56,6 @@ pub enum IpcRequest {
         current_time: Option<i64>,
     },
     GetTask {
-        id: String,
-    },
-    ListHooks,
-    CreateHook {
-        hook: Hook,
-    },
-    UpdateHook {
-        id: String,
-        hook: Hook,
-    },
-    DeleteHook {
-        id: String,
-    },
-    TestHook {
         id: String,
     },
     ListPairingState,
@@ -909,71 +895,6 @@ pub struct ChatSessionUpdate {
     pub agent_id: Option<String>,
     pub model: Option<String>,
     pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum HookEvent {
-    #[serde(rename = "task_started")]
-    TaskStarted,
-    #[serde(rename = "task_completed")]
-    TaskCompleted,
-    #[serde(rename = "task_failed")]
-    TaskFailed,
-    #[serde(rename = "task_interrupted")]
-    TaskInterrupted,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum HookAction {
-    Webhook {
-        url: String,
-        #[serde(default)]
-        method: Option<String>,
-        #[serde(default)]
-        headers: Option<BTreeMap<String, String>>,
-    },
-    Script {
-        path: String,
-        #[serde(default)]
-        args: Option<Vec<String>>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-    },
-    SendMessage {
-        channel_type: String,
-        message_template: String,
-    },
-    RunTask {
-        agent_id: String,
-        input_template: String,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct HookFilter {
-    #[serde(default)]
-    pub task_name_pattern: Option<String>,
-    #[serde(default)]
-    pub agent_id: Option<String>,
-    #[serde(default)]
-    pub success_only: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Hook {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    pub event: HookEvent,
-    pub action: HookAction,
-    #[serde(default)]
-    pub filter: Option<HookFilter>,
-    #[serde(default = "defaults::default_true")]
-    pub enabled: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

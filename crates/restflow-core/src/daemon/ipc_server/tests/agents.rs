@@ -550,22 +550,6 @@ async fn process_create_terminal_session_returns_session() {
 }
 
 #[tokio::test]
-async fn process_list_hooks_returns_empty_by_default() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(&core, &runtime_tool_registry, IpcRequest::ListHooks).await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let hooks: Vec<crate::models::Hook> = serde_json::from_value(value).expect("hooks");
-            assert!(hooks.is_empty());
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn process_list_pairing_state_returns_empty_by_default() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

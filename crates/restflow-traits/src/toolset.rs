@@ -28,7 +28,7 @@ pub trait Toolset: Send + Sync {
     /// Call a tool with parallel-safety semantics.
     async fn call_tool_safe(&self, name: &str, args: Value) -> Result<ToolOutput>;
 
-    /// Optional hook before each step.
+    /// Optional preparation callback before each step.
     async fn prepare(&self, _context: &ToolsetContext) -> Result<()> {
         Ok(())
     }

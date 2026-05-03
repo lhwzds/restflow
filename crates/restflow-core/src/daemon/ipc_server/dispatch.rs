@@ -6,8 +6,6 @@ mod auth;
 mod config;
 #[path = "dispatch/execution.rs"]
 mod execution;
-#[path = "dispatch/hooks.rs"]
-mod hooks;
 #[path = "dispatch/maintenance.rs"]
 mod maintenance;
 #[path = "dispatch/memory.rs"]
@@ -81,17 +79,6 @@ impl IpcServer {
                 Self::handle_list_runnable_tasks(core, current_time).await
             }
             IpcRequest::GetTask { id } => Self::handle_get_task(core, id).await,
-            IpcRequest::ListHooks => Self::handle_list_hooks(core).await,
-            IpcRequest::CreateHook { hook } => match from_contract(hook) {
-                Ok(hook) => Self::handle_create_hook(core, hook).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::UpdateHook { id, hook } => match from_contract(hook) {
-                Ok(hook) => Self::handle_update_hook(core, id, hook).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::DeleteHook { id } => Self::handle_delete_hook(core, id).await,
-            IpcRequest::TestHook { id } => Self::handle_test_hook(core, id).await,
             IpcRequest::ListPairingState => Self::handle_list_pairing_state(core).await,
             IpcRequest::ApprovePairing { code } => Self::handle_approve_pairing(core, code).await,
             IpcRequest::DenyPairing { code } => Self::handle_deny_pairing(core, code).await,

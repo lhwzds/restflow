@@ -1,12 +1,6 @@
 use super::*;
 
 impl TaskRunner {
-    pub(super) async fn fire_hooks(&self, context: &HookContext) {
-        if let Some(executor) = &self.hook_executor {
-            executor.fire(context).await;
-        }
-    }
-
     /// Send notification for task completion/failure.
     ///
     /// Prefers broadcasting through ChannelRouter when available. Falls

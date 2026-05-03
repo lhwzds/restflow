@@ -93,13 +93,6 @@ impl<'a> TaskRunFinalizer<'a> {
                 duration_ms,
             ))
             .await;
-        self.runner
-            .fire_hooks(&HookContext::from_completed(
-                &self.task,
-                &exec_result.output,
-                duration_ms,
-            ))
-            .await;
 
         if let Err(err) = self.runner.storage.complete_task_execution(
             &self.task.id,
@@ -182,13 +175,6 @@ impl<'a> TaskRunFinalizer<'a> {
                 false,
             ))
             .await;
-        self.runner
-            .fire_hooks(&HookContext::from_failed(
-                &self.task,
-                error_msg,
-                duration_ms,
-            ))
-            .await;
 
         if let Err(err) = self.runner.storage.fail_task_execution(
             &self.task.id,
@@ -237,13 +223,6 @@ impl<'a> TaskRunFinalizer<'a> {
                 duration_ms,
             ))
             .await;
-        self.runner
-            .fire_hooks(&HookContext::from_failed(
-                &self.task,
-                error_msg,
-                duration_ms,
-            ))
-            .await;
 
         if let Err(err) = self.runner.storage.fail_task_execution(
             &self.task.id,
@@ -287,13 +266,6 @@ impl<'a> TaskRunFinalizer<'a> {
             .event_emitter
             .emit(TaskStreamEvent::interrupted(
                 &self.task.id,
-                reason,
-                duration_ms,
-            ))
-            .await;
-        self.runner
-            .fire_hooks(&HookContext::from_interrupted(
-                &self.task,
                 reason,
                 duration_ms,
             ))

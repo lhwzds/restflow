@@ -80,34 +80,6 @@ pub trait Channel: Send + Sync {
     fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>>;
 }
 
-/// Channel that supports webhook-style message receiving
-///
-/// Implement this trait for channels that receive messages via HTTP webhooks
-/// (e.g., Telegram webhook mode, Slack events API).
-#[async_trait]
-pub trait WebhookReceiver: Channel {
-    /// Handle incoming webhook payload
-    ///
-    /// # Arguments
-    /// * `payload` - Raw HTTP request body
-    /// * `headers` - HTTP headers as key-value pairs
-    ///
-    /// # Returns
-    /// Parsed inbound messages (may be empty if payload is not a message event)
-    async fn handle_webhook(
-        &self,
-        payload: &[u8],
-        headers: &[(String, String)],
-    ) -> Result<Vec<InboundMessage>>;
-
-    /// Verify webhook signature if applicable
-    fn verify_signature(&self, payload: &[u8], signature: &str) -> bool {
-        // Default: no verification
-        let _ = (payload, signature);
-        true
-    }
-}
-
 /// Channel that supports long-polling or websocket receiving
 ///
 /// Implement this trait for channels that actively poll for messages

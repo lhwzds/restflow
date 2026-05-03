@@ -8,15 +8,17 @@ use crate::telemetry::{
 use futures::StreamExt;
 use futures::stream::FuturesOrdered;
 use serde_json::Value;
+use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use restflow_traits::store::is_task_management_tool_name;
 
+use crate::agent::reviewer::{ToolCallReviewer, ToolReviewRequest};
 use crate::agent::stream::StreamEmitter;
 use crate::error::{AiError, Result};
-use crate::llm::ToolCall;
+use crate::llm::{Message, ToolCall};
 use crate::tools::{ToolErrorCategory, ToolRegistry};
 
 use super::{AgentExecutor, MAX_TOOL_RETRIES};
@@ -43,6 +45,8 @@ pub(crate) struct ToolExecutionOptions<'a> {
     pub telemetry_sink: Option<&'a Arc<dyn TelemetrySink>>,
     pub telemetry_context: Option<&'a TelemetryContext>,
     pub invocation: ToolInvocationContext<'a>,
+    pub reviewer: Option<&'a Arc<dyn ToolCallReviewer>>,
+    pub review_messages: &'a [Message],
 }
 
 impl AgentExecutor {
@@ -279,6 +283,38 @@ impl AgentExecutor {
         }
     }
 
+    fn reviewer_denied_output(reason: Option<String>) -> crate::tools::ToolOutput {
+        let message = reason
+            .filter(|reason| !reason.trim().is_empty())
+            .unwrap_or_else(|| "Operation denied by reviewer.".to_string());
+        crate::tools::ToolOutput {
+            success: false,
+            result: json!({
+                "review_denied": true,
+                "reason": message,
+            }),
+            error: Some(format!("Operation denied by reviewer: {message}")),
+            error_category: Some(ToolErrorCategory::Auth),
+            retryable: Some(false),
+            retry_after_ms: None,
+        }
+    }
+
+    fn reviewer_failed_output(error: impl ToString) -> crate::tools::ToolOutput {
+        let message = error.to_string();
+        crate::tools::ToolOutput {
+            success: false,
+            result: json!({
+                "review_failed": true,
+                "reason": message,
+            }),
+            error: Some(format!("Operation review failed closed: {message}")),
+            error_category: Some(ToolErrorCategory::Auth),
+            retryable: Some(false),
+            retry_after_ms: None,
+        }
+    }
+
     pub(crate) async fn execute_tools_parallel(
         &self,
         tool_calls: &[ToolCall],
@@ -297,7 +333,10 @@ impl AgentExecutor {
             telemetry_sink,
             telemetry_context,
             invocation: context,
+            reviewer,
+            review_messages,
         } = options;
+        let reviewer = reviewer.cloned();
 
         // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
@@ -351,12 +390,32 @@ impl AgentExecutor {
             Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
+            let reviewer = reviewer.clone();
+            let review_messages = review_messages.to_vec();
+            let review_call = ToolCall {
+                id: tool_call_id.clone(),
+                name: name.clone(),
+                arguments: args.clone(),
+            };
 
             let handle: JoinHandle<Result<crate::tools::ToolOutput>> = tokio::spawn(async move {
                 let _permit = sem
                     .acquire()
                     .await
                     .map_err(|_| AiError::Tool("Tool concurrency semaphore closed".to_string()))?;
+                if let Some(reviewer) = reviewer {
+                    match reviewer
+                        .review_tool_call(ToolReviewRequest {
+                            messages: review_messages,
+                            tool_call: review_call,
+                        })
+                        .await
+                    {
+                        Ok(outcome) if outcome.is_allowed() => {}
+                        Ok(outcome) => return Ok(Self::reviewer_denied_output(outcome.reason)),
+                        Err(error) => return Ok(Self::reviewer_failed_output(error)),
+                    }
+                }
                 Self::execute_tool_with_retry(tools, name, args, tool_timeout, yolo_mode).await
             });
 

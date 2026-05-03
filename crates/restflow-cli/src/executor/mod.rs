@@ -7,19 +7,15 @@ use restflow_contracts::{
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, Hook, MemoryChunk,
-    MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task,
-    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, MemoryChunk, MemorySearchResult,
+    MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task, TaskControlAction,
+    TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
 use std::sync::Arc;
 
-// DirectExecutor exists only for isolated command tests. Production CLI commands always
-// reach hook/runtime mutations through the daemon-backed IpcExecutor returned by create().
-// Hook operations are intentionally unsupported in DirectExecutor so CLI hook management
-// cannot mutate runtime state outside the daemon command surface.
 #[cfg(test)]
 pub mod direct;
 pub mod ipc;
@@ -92,15 +88,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn get_config(&self) -> Result<SystemConfig>;
     async fn get_global_config(&self) -> Result<SystemConfig>;
     async fn set_config(&self, config: SystemConfig) -> Result<()>;
-
-    // Hooks are daemon-owned runtime state in production. Production CLI commands reach these
-    // operations only through the daemon-backed IpcExecutor returned by create(). DirectExecutor
-    // intentionally rejects these operations so hook management cannot bypass the daemon.
-    async fn list_hooks(&self) -> Result<Vec<Hook>>;
-    async fn create_hook(&self, hook: Hook) -> Result<Hook>;
-    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook>;
-    async fn delete_hook(&self, id: &str) -> Result<bool>;
-    async fn test_hook(&self, id: &str) -> Result<()>;
 
     async fn list_pairing_state(&self) -> Result<PairingStateResponse>;
     async fn approve_pairing(&self, code: &str) -> Result<PairingApprovalResponse>;

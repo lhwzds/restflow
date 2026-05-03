@@ -129,6 +129,29 @@ Notes:
 - `restflow-tools` owns tool implementations and template/payload adapters, not daemon runtime ownership.
 - Team-style coordination is guidance from the `team` systemskill executed through `spawn_subagent_batch`; Task/Run history remains the only durable execution state.
 
+### Auxiliary Reviewer Agent Gate
+
+The primary agent loop may be configured with an auxiliary tool-call reviewer
+inside the same session execution. This is a runtime gate in `restflow-ai`, not a
+new storage owner.
+
+```mermaid
+flowchart LR
+    Main["Primary agent"] -->|"plans tool call"| Review["Optional reviewer agent"]
+    Review -->|"allow"| Tool["Tool execution"]
+    Review -->|"deny / reviewer failure"| Block["Fail closed tool result"]
+    Tool --> Observe["Observation to primary agent"]
+    Block --> Observe
+```
+
+Invariants:
+
+- The reviewer receives the current session transcript snapshot plus the exact planned tool call.
+- Tool arguments are reviewed after runtime context injection, such as parent run and trace IDs.
+- Reviewer denial or reviewer failure prevents the tool from executing.
+- The reviewer is an auxiliary decision point only; it does not write storage,
+  mutate task/run state, or own daemon runtime behavior.
+
 ### Model and Provider Ownership
 
 Provider/model ownership is intentionally split from daemon runtime ownership:

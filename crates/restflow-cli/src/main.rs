@@ -191,9 +191,6 @@ async fn run() -> Result<()> {
             Some(Commands::Secret { command }) => {
                 commands::secret::run(exec, command, cli.format).await
             }
-            Some(Commands::Hook { command }) => {
-                commands::hook::run(exec, command, cli.format).await
-            }
             Some(Commands::Config { command }) => {
                 commands::config::run(exec, command, cli.format).await
             }
@@ -230,27 +227,12 @@ async fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        command_needs_direct_core, command_uses_daemon_executor, executor_db_path_flag,
-        should_launch_tui_by_default,
-    };
-    use crate::cli::{
-        Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs,
-    };
-
-    fn hook_command(command: HookCommands) -> Option<Commands> {
-        Some(Commands::Hook { command })
-    }
+    use super::{command_needs_direct_core, executor_db_path_flag, should_launch_tui_by_default};
+    use crate::cli::{Commands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
         let command = Some(Commands::Start(StartArgs::default()));
-        assert!(!command_needs_direct_core(&command));
-    }
-
-    #[test]
-    fn hook_does_not_need_direct_core() {
-        let command = hook_command(HookCommands::List);
         assert!(!command_needs_direct_core(&command));
     }
 
@@ -266,63 +248,8 @@ mod tests {
     }
 
     #[test]
-    fn hook_list_uses_daemon_executor() {
-        let command = hook_command(HookCommands::List);
-        assert!(command_uses_daemon_executor(&command));
-    }
-
-    #[test]
-    fn hook_create_uses_daemon_executor() {
-        let command = hook_command(HookCommands::Create {
-            name: "notify".to_string(),
-            event: "task_started".to_string(),
-            action: "webhook".to_string(),
-            url: Some("https://example.com/hook".to_string()),
-            script: None,
-            channel: None,
-            message: None,
-            agent: None,
-            input: None,
-        });
-        assert!(command_uses_daemon_executor(&command));
-    }
-
-    #[test]
-    fn hook_update_uses_daemon_executor() {
-        let command = hook_command(HookCommands::Update {
-            id: "hook-123".to_string(),
-            name: "notify".to_string(),
-            event: "task_started".to_string(),
-            action: "webhook".to_string(),
-            url: Some("https://example.com/hook".to_string()),
-            script: None,
-            channel: None,
-            message: None,
-            agent: None,
-            input: None,
-        });
-        assert!(command_uses_daemon_executor(&command));
-    }
-
-    #[test]
-    fn hook_delete_uses_daemon_executor() {
-        let command = hook_command(HookCommands::Delete {
-            id: "hook-123".to_string(),
-        });
-        assert!(command_uses_daemon_executor(&command));
-    }
-
-    #[test]
     fn task_command_module_is_available() {
         let _ = crate::commands::task::run;
-    }
-
-    #[test]
-    fn hook_test_uses_daemon_executor() {
-        let command = hook_command(HookCommands::Test {
-            id: "hook-123".to_string(),
-        });
-        assert!(command_uses_daemon_executor(&command));
     }
 
     #[test]

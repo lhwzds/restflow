@@ -8,11 +8,10 @@ use crate::auth::build_runtime_api_keys;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource, Hook,
-    HookAction, HookEvent, HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult,
-    MemorySource, MemoryStats, ModelId, RunArtifact, RunListQuery, RunSummary, SearchMode, Skill,
-    SkillStatus, Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress,
-    TaskSpec, TaskStatus, ValidationError,
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
+    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, ModelId,
+    RunArtifact, RunListQuery, RunSummary, SearchMode, Skill, SkillStatus, Task, TaskControlAction,
+    TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec, TaskStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -53,8 +52,6 @@ use tokio::sync::Mutex;
 mod agents;
 #[path = "server/backends.rs"]
 mod backends;
-#[path = "server/hooks.rs"]
-mod hooks;
 #[path = "server/memory.rs"]
 mod memory;
 #[path = "server/runtime_tools.rs"]
@@ -144,12 +141,6 @@ pub trait McpBackend: Send + Sync {
         limit: usize,
     ) -> Result<Vec<ExecutionTraceEvent>, String>;
     async fn get_task(&self, id: &str) -> Result<Task, String>;
-
-    async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
-    async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
-    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String>;
-    async fn delete_hook(&self, id: &str) -> Result<bool, String>;
-    async fn test_hook(&self, id: &str) -> Result<(), String>;
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String>;
     async fn execute_runtime_tool(
@@ -517,13 +508,6 @@ impl RestFlowMcpServer {
         })
     }
 
-    fn required_string(value: Option<String>, field: &str) -> Result<String, String> {
-        value
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| format!("Missing required field: {}", field))
-    }
-
     fn parse_task_status(value: Option<String>) -> Result<Option<TaskStatus>, String> {
         match value.map(|s| s.trim().to_lowercase()) {
             None => Ok(None),
@@ -648,10 +632,9 @@ impl ServerHandler for RestFlowMcpServer {
         info.server_info = Implementation::new("restflow", env!("CARGO_PKG_VERSION"))
             .with_title("RestFlow MCP Server");
         info.instructions = Some(
-            "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, tasks, and hooks. \
+            "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and tasks. \
             Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
             memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
-            manage_hooks for lifecycle hook automation, \
             and manage_tasks for task lifecycle, session conversion, progress, and messaging operations."
                 .to_string(),
         );
@@ -740,11 +723,6 @@ impl ServerHandler for RestFlowMcpServer {
                 "manage_tasks",
                 restflow_tools::impls::task::tool_description(),
                 schema_map_from_value(restflow_tools::impls::task::tool_parameters_schema()),
-            ),
-            Tool::new(
-                "manage_hooks",
-                "Create, list, update, delete, and test lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_interrupted).",
-                schema_for_type::<ManageHooksParams>(),
             ),
         ];
 
@@ -907,14 +885,6 @@ impl ServerHandler for RestFlowMcpServer {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
                 self.handle_manage_tasks(params).await
-            }
-            "manage_hooks" => {
-                let params: ManageHooksParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_manage_hooks(params).await
             }
             "switch_model" => {
                 self.handle_switch_model_for_mcp(Value::Object(

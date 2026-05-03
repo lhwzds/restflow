@@ -16,6 +16,7 @@ mod executor;
 pub mod model_router;
 mod prompt_flags;
 mod resource;
+mod reviewer;
 mod state;
 mod step;
 mod stream;
@@ -36,6 +37,9 @@ pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability
 pub use model_router::{ModelRoutingConfig, TaskTier, classify_task, select_model};
 pub use prompt_flags::PromptFlags;
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
+pub use reviewer::{
+    LlmToolCallReviewer, ToolCallReviewer, ToolReviewDecision, ToolReviewOutcome, ToolReviewRequest,
+};
 pub use state::{AgentState, AgentStatus};
 pub use step::ExecutionStep;
 pub use stream::{

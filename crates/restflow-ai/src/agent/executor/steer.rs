@@ -2,12 +2,21 @@ use std::time::Duration;
 
 use crate::agent::context_manager;
 use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
+use crate::agent::reviewer::{ToolCallReviewer, ToolReviewRequest};
 use crate::agent::state::AgentState;
 use crate::error::AiError;
-use crate::llm::Message;
+use crate::llm::{Message, ToolCall};
 use crate::steer::SteerMessage;
 
 use super::{AgentExecutor, truncate_tool_output};
+
+pub(crate) struct DeferredExecutionOptions<'a> {
+    pub tool_timeout: Duration,
+    pub max_tool_result_length: usize,
+    pub tool_output_dir: Option<&'a std::path::Path>,
+    pub reviewer: Option<&'a std::sync::Arc<dyn ToolCallReviewer>>,
+    pub review_messages: &'a [Message],
+}
 
 impl AgentExecutor {
     /// Poll the sub-agent tracker for completions and inject notification messages.
@@ -180,9 +189,7 @@ impl AgentExecutor {
         &self,
         deferred_manager: &DeferredExecutionManager,
         state: &mut AgentState,
-        tool_timeout: Duration,
-        max_tool_result_length: usize,
-        tool_output_dir: Option<&std::path::Path>,
+        options: DeferredExecutionOptions<'_>,
     ) {
         let resolved_calls = deferred_manager.drain_resolved().await;
         if resolved_calls.is_empty() {
@@ -192,8 +199,40 @@ impl AgentExecutor {
         for deferred in resolved_calls {
             match deferred.status {
                 DeferredStatus::Approved => {
+                    if let Some(reviewer) = options.reviewer {
+                        let review = reviewer
+                            .review_tool_call(ToolReviewRequest {
+                                messages: options.review_messages.to_vec(),
+                                tool_call: ToolCall {
+                                    id: deferred.call_id.clone(),
+                                    name: deferred.tool_name.clone(),
+                                    arguments: deferred.args.clone(),
+                                },
+                            })
+                            .await;
+                        match review {
+                            Ok(outcome) if outcome.is_allowed() => {}
+                            Ok(outcome) => {
+                                let reason = outcome
+                                    .reason
+                                    .unwrap_or_else(|| "Operation denied by reviewer.".to_string());
+                                state.add_message(Message::system(format!(
+                                    "Deferred tool call '{}' was blocked by reviewer: {}",
+                                    deferred.tool_name, reason
+                                )));
+                                continue;
+                            }
+                            Err(error) => {
+                                state.add_message(Message::system(format!(
+                                    "Deferred tool call '{}' review failed closed: {}",
+                                    deferred.tool_name, error
+                                )));
+                                continue;
+                            }
+                        }
+                    }
                     let result = tokio::time::timeout(
-                        tool_timeout,
+                        options.tool_timeout,
                         self.execute_tool_call(&deferred.tool_name, deferred.args.clone(), false),
                     )
                     .await
@@ -219,8 +258,8 @@ impl AgentExecutor {
                     };
                     text = truncate_tool_output(
                         &text,
-                        max_tool_result_length,
-                        tool_output_dir,
+                        options.max_tool_result_length,
+                        options.tool_output_dir,
                         &deferred.call_id,
                         &deferred.tool_name,
                     );

@@ -13,7 +13,7 @@ use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
-    AgentNode, ExecutionTimeline, ExecutionTraceQuery, Hook, RunListQuery, RunSummary, Task,
+    AgentNode, ExecutionTimeline, ExecutionTraceQuery, RunListQuery, RunSummary, Task,
     TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use restflow_core::services::{
@@ -33,14 +33,7 @@ use restflow_storage::PairingStorage;
 
 const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
 const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";
-const HOOK_DAEMON_MODE_MESSAGE: &str =
-    "Hook operations require daemon mode. Use 'restflow daemon start' first.";
-
 /// Test-only executor used by command unit tests.
-///
-/// This module is compiled behind `#[cfg(test)]`; production CLI commands use
-/// `executor::create()` and mutate hook/runtime state through the daemon-backed
-/// `IpcExecutor` instead of calling storage services directly.
 pub struct DirectExecutor {
     core: Arc<AppCore>,
 }
@@ -254,26 +247,6 @@ impl CommandExecutor for DirectExecutor {
 
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
         config_service::update_config(&self.core, config).await
-    }
-
-    async fn list_hooks(&self) -> Result<Vec<Hook>> {
-        bail!(HOOK_DAEMON_MODE_MESSAGE)
-    }
-
-    async fn create_hook(&self, _hook: Hook) -> Result<Hook> {
-        bail!(HOOK_DAEMON_MODE_MESSAGE)
-    }
-
-    async fn update_hook(&self, _id: &str, _hook: Hook) -> Result<Hook> {
-        bail!(HOOK_DAEMON_MODE_MESSAGE)
-    }
-
-    async fn delete_hook(&self, _id: &str) -> Result<bool> {
-        bail!(HOOK_DAEMON_MODE_MESSAGE)
-    }
-
-    async fn test_hook(&self, _id: &str) -> Result<()> {
-        bail!(HOOK_DAEMON_MODE_MESSAGE)
     }
 
     async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
@@ -526,70 +499,4 @@ fn route_binding_response(
         created_at: binding.created_at,
         priority: binding.priority,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{DirectExecutor, HOOK_DAEMON_MODE_MESSAGE};
-    use crate::executor::CommandExecutor;
-    use restflow_core::models::{Hook, HookAction, HookEvent};
-    use tempfile::tempdir;
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_support::env_lock()
-    }
-
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn hook_operations_require_daemon_mode_even_in_direct_executor() {
-        let _guard = env_lock();
-        let temp = tempdir().expect("tempdir");
-        let prev = std::env::var_os("RESTFLOW_DIR");
-        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
-
-        let executor = DirectExecutor::connect(None)
-            .await
-            .expect("direct executor");
-        let hook = Hook::new(
-            "notify".to_string(),
-            HookEvent::TaskStarted,
-            HookAction::Webhook {
-                url: "https://example.com/hook".to_string(),
-                method: None,
-                headers: None,
-            },
-        );
-
-        let list_err = executor.list_hooks().await.expect_err("list should fail");
-        assert_eq!(list_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
-
-        let create_err = executor
-            .create_hook(hook.clone())
-            .await
-            .expect_err("create should fail");
-        assert_eq!(create_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
-
-        let update_err = executor
-            .update_hook("hook-1", hook)
-            .await
-            .expect_err("update should fail");
-        assert_eq!(update_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
-
-        let delete_err = executor
-            .delete_hook("hook-1")
-            .await
-            .expect_err("delete should fail");
-        assert_eq!(delete_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
-
-        let test_err = executor
-            .test_hook("hook-1")
-            .await
-            .expect_err("test should fail");
-        assert_eq!(test_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
-
-        match prev {
-            Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },
-            None => unsafe { std::env::remove_var("RESTFLOW_DIR") },
-        }
-    }
 }

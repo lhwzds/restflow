@@ -8,7 +8,6 @@ pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod execution_trace;
-pub mod hook;
 pub mod memory;
 pub mod provider_health_snapshot;
 pub mod run_artifact;
@@ -38,7 +37,6 @@ pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use execution_trace::ExecutionTraceStorage;
-pub use hook::HookStorage;
 pub use memory::MemoryStorage;
 pub use provider_health_snapshot::ProviderHealthSnapshotStorage;
 pub use run_artifact::RunArtifactStorage;
@@ -67,7 +65,6 @@ pub struct Storage {
     pub channel_session_bindings: ChannelSessionBindingStorage,
     pub sessions: SessionStorage,
     pub run_artifacts: RunArtifactStorage,
-    pub hooks: HookStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
     /// Primary execution trace storage.
@@ -120,7 +117,6 @@ impl Storage {
             ExecutionTraceStorage::new(db.clone())?,
         );
         let run_artifacts = RunArtifactStorage::new(db.clone())?;
-        let hooks = HookStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
@@ -142,7 +138,6 @@ impl Storage {
             channel_session_bindings,
             sessions,
             run_artifacts,
-            hooks,
             checkpoints,
             pairing,
             execution_traces,

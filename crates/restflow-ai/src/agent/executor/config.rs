@@ -18,6 +18,7 @@ use crate::agent::PromptFlags;
 use crate::agent::context::AgentContext;
 use crate::agent::model_router::ModelRoutingConfig;
 use crate::agent::resource::{ResourceLimits, ResourceUsage};
+use crate::agent::reviewer::ToolCallReviewer;
 use crate::agent::state::AgentState;
 use crate::agent::streaming_buffer::StreamDisplayMode;
 use crate::agent::stuck::StuckDetectorConfig;
@@ -98,6 +99,8 @@ pub struct AgentConfig {
     pub telemetry_context: Option<TelemetryContext>,
     /// Auto-approve security-gated tool calls (scheduled automation mode).
     pub yolo_mode: bool,
+    /// Optional auxiliary reviewer invoked before each tool call.
+    pub tool_call_reviewer: Option<Arc<dyn ToolCallReviewer>>,
     /// Checkpoint persistence policy.
     pub checkpoint_durability: CheckpointDurability,
     /// Optional callback to persist agent state checkpoints.
@@ -136,6 +139,7 @@ impl AgentConfig {
             telemetry_sink: None,
             telemetry_context: None,
             yolo_mode: false,
+            tool_call_reviewer: None,
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
             prompt_flags: PromptFlags::default(),
@@ -251,6 +255,12 @@ impl AgentConfig {
 
     pub fn with_stream_display_mode(mut self, mode: StreamDisplayMode) -> Self {
         self.stream_display_mode = mode;
+        self
+    }
+
+    /// Configure an auxiliary reviewer that must allow each tool call before execution.
+    pub fn with_tool_call_reviewer(mut self, reviewer: Arc<dyn ToolCallReviewer>) -> Self {
+        self.tool_call_reviewer = Some(reviewer);
         self
     }
 
