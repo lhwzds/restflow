@@ -11,6 +11,8 @@
 /doc/
 /docs/*
 !/docs/TASK_RUN_DOMAIN_MODEL.md
+!/docs/site/
+!/docs/site/**
 /v2/docs/
 /v2/migration/**/Cargo.lock
 /v2/migration/**/target/
