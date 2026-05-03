@@ -1,0 +1,8 @@
+{
+  "id": "python-exec",
+  "name": "Python Exec",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Run short Python snippets outside the RestFlow core tool registry.",
+  "entrypoint": "python run.py"
+}

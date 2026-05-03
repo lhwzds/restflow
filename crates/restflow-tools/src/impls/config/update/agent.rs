@@ -21,12 +21,6 @@ pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> 
         "bash_timeout_secs" => {
             config.agent.bash_timeout_secs = parse_u64(value, "agent.bash_timeout_secs")?;
         }
-        "python_timeout_secs" => {
-            config.agent.python_timeout_secs = parse_u64(value, "agent.python_timeout_secs")?;
-        }
-        "browser_timeout_secs" => {
-            config.agent.browser_timeout_secs = parse_u64(value, "agent.browser_timeout_secs")?;
-        }
         "process_session_ttl_secs" => {
             config.agent.process_session_ttl_secs =
                 parse_u64(value, "agent.process_session_ttl_secs")?;

@@ -23,7 +23,6 @@ use restflow_contracts::request::{
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
 };
-use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, MemoryStore as _, TaskControlRequest,
@@ -245,35 +244,6 @@ fn setup_storage() -> (
     )
 }
 
-struct DenyProcessSecurityGate;
-
-#[async_trait]
-impl SecurityGate for DenyProcessSecurityGate {
-    async fn check_command(
-        &self,
-        _command: &str,
-        _task_id: &str,
-        _agent_id: &str,
-        _workdir: Option<&str>,
-    ) -> restflow_traits::error::Result<SecurityDecision> {
-        Ok(SecurityDecision::allowed(None))
-    }
-
-    async fn check_tool_action(
-        &self,
-        action: &ToolAction,
-        _agent_id: Option<&str>,
-        _task_id: Option<&str>,
-    ) -> restflow_traits::error::Result<SecurityDecision> {
-        if action.tool_name == "process" {
-            return Ok(SecurityDecision::blocked(Some(
-                "process blocked by registry gate".to_string(),
-            )));
-        }
-        Ok(SecurityDecision::allowed(None))
-    }
-}
-
 struct TestLlmFactory {
     client: Arc<dyn LlmClient>,
     model: String,
@@ -395,43 +365,53 @@ fn test_create_tool_registry() {
     )
     .unwrap();
 
-    // Should have default tools + skill tool
-    assert!(registry.has("http_request"));
-    assert!(registry.has("send_email"));
-    assert!(registry.has("telegram_send"));
-    assert!(registry.has("discord_send"));
-    assert!(registry.has("slack_send"));
-    assert!(registry.has("browser"));
-    assert!(registry.has("patch"));
-    assert!(registry.has("edit"));
-    assert!(registry.has("multiedit"));
-    assert!(registry.has("glob"));
-    assert!(registry.has("grep"));
-    assert!(registry.has("skill"));
-    assert!(registry.has("memory_search"));
-    assert!(registry.has("process"));
-    assert!(registry.has("reply"));
-    assert!(registry.has("switch_model"));
-    assert!(registry.has("spawn_subagent"));
-    assert!(registry.has("wait_subagents"));
-    assert!(registry.has("list_subagents"));
-    // New system management tools
-    assert!(registry.has("manage_secrets"));
-    assert!(registry.has("manage_config"));
-    assert!(registry.has("manage_agents"));
-    assert!(registry.has("manage_tasks"));
-    assert!(registry.has("manage_marketplace"));
-    assert!(registry.has("manage_terminal"));
+    for tool_name in [
+        "bash",
+        "file",
+        "load_skill",
+        "run_skill",
+        "patch",
+        "edit",
+        "multiedit",
+        "glob",
+        "grep",
+    ] {
+        assert!(registry.has(tool_name), "missing {tool_name}");
+    }
+
+    for tool_name in [
+        "http_request",
+        "send_email",
+        "telegram_send",
+        "discord_send",
+        "slack_send",
+        "browser",
+        "skill",
+        "memory_search",
+        "process",
+        "reply",
+        "switch_model",
+        "spawn_subagent",
+        "wait_subagents",
+        "list_subagents",
+        "manage_secrets",
+        "manage_config",
+    ] {
+        assert!(!registry.has(tool_name), "unexpected {tool_name}");
+    }
     assert!(!registry.has("manage_ops"));
-    assert!(registry.has("security_query"));
-    // Session and auth profile tools
-    assert!(registry.has("manage_sessions"));
-    assert!(registry.has("manage_auth_profiles"));
+    assert!(!registry.has("manage_agents"));
+    assert!(!registry.has("manage_tasks"));
+    assert!(!registry.has("manage_marketplace"));
+    assert!(!registry.has("manage_terminal"));
+    assert!(!registry.has("security_query"));
+    assert!(!registry.has("manage_sessions"));
+    assert!(!registry.has("manage_auth_profiles"));
     assert!(!registry.has("save_artifact"));
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
+#[test]
+fn test_create_tool_registry_excludes_subagent_tools_by_default() {
     let (
         skill_storage,
         memory_storage,
@@ -464,23 +444,10 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
     )
     .unwrap();
 
-    let error = registry
-        .execute_safe(
-            "spawn_subagent",
-            json!({
-                "agent": "coder",
-                "task": "hello"
-            }),
-        )
-        .await
-        .unwrap_err();
-
-    assert!(
-        error
-            .to_string()
-            .contains("No callable sub-agents available"),
-        "unexpected error: {error}"
-    );
+    assert!(!registry.has("spawn_subagent"));
+    assert!(!registry.has("spawn_subagent_batch"));
+    assert!(!registry.has("wait_subagents"));
+    assert!(!registry.has("list_subagents"));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -633,36 +600,24 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
     let agents_temp = tempdir().unwrap();
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("manage-agents-tools.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
+    let allowlist = vec![
+        "manage_agents".to_string(),
+        "manage_tasks".to_string(),
+        "manage_terminal".to_string(),
+        "security_query".to_string(),
+    ];
+    let registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&allowlist),
         None,
         None,
+        Some(&storage),
         None,
+        None,
+        Some(dir.path()),
     )
     .unwrap();
 
@@ -674,9 +629,9 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
                 "name": "Late Tool Validation Agent",
                 "agent": {
                     "tools": [
-                        "manage_tasks",
-                        "manage_terminal",
-                        "security_query"
+                        "bash",
+                        "file",
+                        "run_skill"
                     ]
                 }
             }),
@@ -684,9 +639,13 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         .await
         .unwrap();
 
-    assert!(
-        output.success,
-        "expected create to pass known tool validation, got: {:?}",
+    let blockers = output.result["assessment"]["blockers"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
+    assert_eq!(
+        blockers, 0,
+        "expected known tool validation to pass, got: {:?}",
         output.result
     );
 }
@@ -734,7 +693,7 @@ fn test_skill_provider_with_data() {
         "test-skill".to_string(),
         "Test Skill".to_string(),
         Some("A test".to_string()),
-        Some(vec!["http_request".to_string()]),
+        Some(vec!["run_skill".to_string()]),
         "# Test Content".to_string(),
     );
     storage.create(&skill).unwrap();
@@ -1265,20 +1224,11 @@ fn test_task_store_adapter_task_flow() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_marketplace_tool_list_and_uninstall() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("marketplace-tool.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
+    let skill_storage = storage.skills.clone();
 
     let local_skill = Skill::new(
         "local-skill".to_string(),
@@ -1299,21 +1249,15 @@ async fn test_marketplace_tool_list_and_uninstall() {
     marketplace_skill.source_ref = Some("mcp_marketplace:marketplace-skill@1.0.0".to_string());
     skill_storage.create(&marketplace_skill).unwrap();
 
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+    let allowlist = vec!["manage_marketplace".to_string()];
+    let registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&allowlist),
         None,
         None,
+        Some(&storage),
         None,
+        None,
+        Some(dir.path()),
     )
     .unwrap();
 
@@ -1340,36 +1284,19 @@ async fn test_marketplace_tool_list_and_uninstall() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_terminal_tool_create_send_read_close() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("terminal-tool.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
+    let allowlist = vec!["manage_terminal".to_string()];
+    let registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&allowlist),
         None,
         None,
+        Some(&storage),
         None,
+        None,
+        Some(dir.path()),
     )
     .unwrap();
 
@@ -1431,36 +1358,19 @@ async fn test_terminal_tool_create_send_read_close() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_security_query_tool_show_policy_and_check_permission() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("security-query.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
+    let allowlist = vec!["security_query".to_string()];
+    let registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&allowlist),
         None,
         None,
+        Some(&storage),
         None,
+        None,
+        Some(dir.path()),
     )
     .unwrap();
 
@@ -1579,7 +1489,7 @@ async fn test_db_memory_store_adapter_crud() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_create_tool_registry_always_has_memory_tools() {
+async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     let (
         skill_storage,
         memory_storage,
@@ -1613,10 +1523,31 @@ async fn test_create_tool_registry_always_has_memory_tools() {
     )
     .unwrap();
 
-    assert!(registry.has("save_to_memory"));
-    assert!(registry.has("read_memory"));
-    assert!(registry.has("list_memories"));
-    assert!(registry.has("delete_memory"));
+    for tool_name in [
+        "bash",
+        "file",
+        "edit",
+        "multiedit",
+        "patch",
+        "glob",
+        "grep",
+        "load_skill",
+        "run_skill",
+    ] {
+        assert!(registry.has(tool_name), "missing {tool_name}");
+    }
+
+    for tool_name in [
+        "save_to_memory",
+        "read_memory",
+        "list_memories",
+        "delete_memory",
+        "http_request",
+        "send_email",
+        "python",
+    ] {
+        assert!(!registry.has(tool_name), "unexpected {tool_name}");
+    }
 }
 
 #[test]
@@ -1653,16 +1584,10 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
     );
 
     let allowlist = vec![
-        "http_request".to_string(),
-        "send_email".to_string(),
         "bash".to_string(),
         "file".to_string(),
-        "run_python".to_string(),
-        "manage_agents".to_string(),
-        "manage_tasks".to_string(),
-        "spawn_subagent".to_string(),
-        "wait_subagents".to_string(),
-        "list_subagents".to_string(),
+        "load_skill".to_string(),
+        "run_skill".to_string(),
     ];
     let runtime_registry = crate::runtime::agent::tools::registry_from_allowlist(
         Some(&allowlist),
@@ -1675,18 +1600,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
     )
     .unwrap();
 
-    for tool_name in [
-        "http_request",
-        "send_email",
-        "bash",
-        "file",
-        "run_python",
-        "manage_agents",
-        "manage_tasks",
-        "spawn_subagent",
-        "wait_subagents",
-        "list_subagents",
-    ] {
+    for tool_name in ["bash", "file", "load_skill", "run_skill"] {
         assert_eq!(
             runtime_registry.has(tool_name),
             service_registry.has(tool_name),
@@ -1716,9 +1630,8 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
 
     let allowlist = vec![
         "manage_agents".to_string(),
-        "http_request".to_string(),
-        "send_email".to_string(),
-        "run_python".to_string(),
+        "bash".to_string(),
+        "file".to_string(),
     ];
     let runtime_registry = crate::runtime::agent::tools::registry_from_allowlist(
         Some(&allowlist),
@@ -1738,7 +1651,7 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
                 "operation": "create",
                 "name": "Runtime Alias Agent",
                 "agent": {
-                    "tools": ["http", "email", "run_python"]
+                    "tools": ["http", "email", "python"]
                 },
                 "preview": true
             }),
@@ -1762,65 +1675,6 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
             .as_str()
             .is_some_and(|message| message.contains("unknown tool: email"))
     }));
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        Some("agent-1".to_string()),
-        Some(Arc::new(DenyProcessSecurityGate)),
-    )
-    .unwrap();
-
-    let list_output = registry
-        .execute_safe("process", json!({ "action": "list" }))
-        .await
-        .unwrap();
-    assert!(!list_output.success);
-    assert_eq!(
-        list_output.error.as_deref(),
-        Some("Action blocked: process blocked by registry gate")
-    );
-
-    let poll_output = registry
-        .execute_safe(
-            "process",
-            json!({ "action": "poll", "session_id": "session-1" }),
-        )
-        .await
-        .unwrap();
-    assert!(!poll_output.success);
-    assert_eq!(
-        poll_output.error.as_deref(),
-        Some("Action blocked: process blocked by registry gate")
-    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -2111,6 +1965,6 @@ fn test_build_service_subagent_tool_registry_filters_non_default_tools() {
     let names = filtered.list();
 
     assert!(names.contains(&"bash"));
-    assert!(names.contains(&"reply"));
+    assert!(!names.contains(&"reply"));
     assert!(!names.contains(&"custom_extra"));
 }

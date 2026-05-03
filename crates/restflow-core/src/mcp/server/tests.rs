@@ -1615,7 +1615,7 @@ async fn test_mcp_manage_tasks_run_batch_accepts_runtime_inputs() {
                     "agent_id": agent_id
                 }
             ],
-            "inputs": ["scan backend", "scan frontend"],
+            "inputs": ["scan runtime", "scan tui"],
             "run_now": false
         }),
     )

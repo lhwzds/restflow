@@ -66,7 +66,7 @@ mod tests {
         }
     }
 
-    /// Ensure JSON uses `"type"` tag with flat fields — frontend depends on this.
+    /// Ensure JSON uses `"type"` tag with flat fields for runtime clients.
     #[test]
     fn test_serialization_uses_type_tag() {
         let event = ChatSessionEvent::MessageAdded {
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization_from_frontend_format() {
+    fn test_deserialization_from_client_format() {
         let json = r#"{"type":"MessageAdded","session_id":"abc","source":"workspace"}"#;
         let event: ChatSessionEvent = serde_json::from_str(json).unwrap();
         match event {

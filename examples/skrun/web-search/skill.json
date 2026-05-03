@@ -1,0 +1,8 @@
+{
+  "id": "web-search",
+  "name": "Web Search",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Search the web through an external provider API.",
+  "entrypoint": "python run.py"
+}

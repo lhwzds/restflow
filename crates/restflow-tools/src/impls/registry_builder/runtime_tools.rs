@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use crate::impls::list_subagents::ListSubagentsTool;
+use crate::impls::load_skill::LoadSkillTool;
 use crate::impls::spawn::SpawnTool;
 use crate::impls::spawn_subagent::SpawnSubagentTool;
-use crate::impls::use_skill::UseSkillTool;
 use crate::impls::wait_subagents::WaitSubagentsTool;
 use crate::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
@@ -32,12 +32,12 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_use_skill(mut self, provider: Arc<dyn SkillProvider>) -> Self {
-        self.registry.register(UseSkillTool::new(provider));
+    pub fn with_load_skill(mut self, provider: Arc<dyn SkillProvider>) -> Self {
+        self.registry.register(LoadSkillTool::new(provider));
         self
     }
 
-    pub fn with_use_skill_with_security(
+    pub fn with_load_skill_with_security(
         mut self,
         provider: Arc<dyn SkillProvider>,
         security_gate: Arc<dyn SecurityGate>,
@@ -45,7 +45,7 @@ impl ToolRegistryBuilder {
         task_id: impl Into<String>,
     ) -> Self {
         self.registry
-            .register(UseSkillTool::new(provider).with_security(security_gate, agent_id, task_id));
+            .register(LoadSkillTool::new(provider).with_security(security_gate, agent_id, task_id));
         self
     }
 }

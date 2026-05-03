@@ -1,0 +1,8 @@
+{
+  "id": "vision",
+  "name": "Vision",
+  "version": "0.1.0",
+  "kind": "command",
+  "description": "Analyze an image by delegating to an external command.",
+  "entrypoint": "python run.py"
+}

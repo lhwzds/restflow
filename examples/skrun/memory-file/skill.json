@@ -1,0 +1,8 @@
+{
+  "id": "memory-file",
+  "name": "Memory File",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Store and search JSONL notes outside RestFlow core storage.",
+  "entrypoint": "python run.py"
+}

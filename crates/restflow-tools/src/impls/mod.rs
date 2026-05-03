@@ -6,16 +6,10 @@ pub(crate) mod path_utils;
 pub(crate) mod shared;
 pub(crate) mod subagent_read_capability;
 
-// Original 7 tools
 mod bash;
 mod binary_skill;
-pub mod browser;
-mod discord;
-mod email;
 mod file;
-mod http;
-mod slack;
-pub mod telegram;
+mod skrun;
 
 pub mod edit;
 pub mod multiedit;
@@ -26,22 +20,15 @@ pub mod auth_profile;
 pub mod config;
 pub mod diagnostics;
 pub mod file_tracker;
-pub mod jina_reader;
 pub mod memory_store;
-pub mod monty_python;
 pub mod patch;
 pub mod process;
-pub mod python_backend;
 pub mod reply;
 pub mod secrets;
 pub mod session;
 pub mod skill;
 pub mod switch_model;
 pub mod task;
-pub mod transcribe;
-pub mod vision;
-pub mod web_fetch;
-pub mod web_search;
 
 // Migrated from restflow-core (tool_registry inline tools)
 pub mod manage_ops;
@@ -59,11 +46,11 @@ pub mod batch;
 
 // Migrated from restflow-core
 pub mod list_subagents;
+pub mod load_skill;
 pub mod registry_builder;
 pub mod spawn;
 pub mod spawn_subagent;
 pub mod spawn_subagent_batch;
-pub mod use_skill;
 pub mod wait_subagents;
 
 // Re-export edit tools
@@ -77,35 +64,23 @@ pub use binary_skill::{
     BinarySkillUpdateTool, InstalledBinarySkillTool, binary_skill_tool_name,
     discover_installed_binary_skill_tools, discover_installed_binary_skill_tools_from,
 };
-pub use browser::BrowserTool;
-pub use discord::DiscordTool;
-pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
-pub use http::HttpTool;
-pub use slack::SlackTool;
-pub use telegram::{TelegramTool, send_telegram_notification};
+pub use skrun::RunSkillTool;
 
 // Re-export migrated tools
 pub use agent_crud::AgentCrudTool;
 pub use auth_profile::AuthProfileTool;
 pub use config::ConfigTool;
 pub use diagnostics::DiagnosticsTool;
-pub use jina_reader::JinaReaderTool;
 pub use memory_store::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
-pub use monty_python::RunPythonTool;
 pub use patch::PatchTool;
 pub use process::ProcessTool;
-pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};
 pub use reply::ReplyTool;
 pub use secrets::{SecretGetPolicy, SecretsTool};
 pub use session::SessionTool;
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
 pub use task::TaskTool;
-pub use transcribe::{TranscribeConfig, TranscribeTool};
-pub use vision::VisionTool;
-pub use web_fetch::WebFetchTool;
-pub use web_search::WebSearchTool;
 
 // Re-export tool_registry inline migrated tools
 pub use manage_ops::ManageOpsTool;
@@ -123,11 +98,11 @@ pub use batch::BatchTool;
 
 // Re-export core-migrated tools
 pub use list_subagents::ListSubagentsTool;
+pub use load_skill::LoadSkillTool;
 pub use registry_builder::{
     BashConfig, FileConfig, SecretsConfig, ToolRegistryBuilder, default_registry,
 };
 pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
 pub use spawn_subagent_batch::SpawnSubagentBatchTool;
-pub use use_skill::UseSkillTool;
 pub use wait_subagents::WaitSubagentsTool;

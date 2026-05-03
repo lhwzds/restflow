@@ -1,0 +1,8 @@
+{
+  "id": "email-send",
+  "name": "Email Send",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Send email through SMTP outside the RestFlow core tool registry.",
+  "entrypoint": "python run.py"
+}

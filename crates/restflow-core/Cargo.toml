@@ -27,7 +27,6 @@ restflow-storage = { path = "../restflow-storage" }
 anyhow = "1.0.101"
 async-trait = "0.1.89"
 axum = { version = "0.8.6", features = ["json"] }
-base64 = "0.22.1"
 chrono = "0.4.44"
 chrono-tz = "0.10"
 cron = "0.15"

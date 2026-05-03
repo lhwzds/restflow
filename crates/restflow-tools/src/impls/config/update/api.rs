@@ -28,9 +28,6 @@ pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> 
         "task_trace_line_limit" => {
             config.api.task_trace_line_limit = parse_usize(value, "api.task_trace_line_limit")?;
         }
-        "web_search_num_results" => {
-            config.api.web_search_num_results = parse_usize(value, "api.web_search_num_results")?;
-        }
         "diagnostics_timeout_ms" => {
             config.api.diagnostics_timeout_ms = parse_u64(value, "api.diagnostics_timeout_ms")?;
         }

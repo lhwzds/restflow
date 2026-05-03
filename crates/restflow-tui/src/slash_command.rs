@@ -75,7 +75,7 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
     SlashCommandSpec {
         command: "/skill",
         args: "",
-        description: "Manage skills",
+        description: "View skills",
     },
     SlashCommandSpec {
         command: "/model",

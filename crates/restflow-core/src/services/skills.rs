@@ -3,6 +3,7 @@
 use crate::{
     AppCore,
     models::{Skill, SkillSource, ValidationError},
+    services::adapters::SkrunSkillProvider,
     skill_files,
     storage::skill::SkillStorage,
 };
@@ -22,11 +23,18 @@ pub fn list_available_skills(skill_storage: &SkillStorage) -> Result<Vec<Skill>>
     let reserved_ids = systemskill_id_set();
     let mut skills = skill_files::list_systemskills().context("Failed to list systemskills")?;
     skills.extend(
+        SkrunSkillProvider::default()
+            .list_skill_models()
+            .into_iter()
+            .filter(|skill| !reserved_ids.contains(skill.id.as_str())),
+    );
+    let effective_ids: HashSet<String> = skills.iter().map(|skill| skill.id.clone()).collect();
+    skills.extend(
         skill_storage
             .list()
             .context("Failed to list skills")?
             .into_iter()
-            .filter(|skill| !reserved_ids.contains(skill.id.as_str())),
+            .filter(|skill| !effective_ids.contains(skill.id.as_str())),
     );
     Ok(skills)
 }
@@ -34,6 +42,9 @@ pub fn list_available_skills(skill_storage: &SkillStorage) -> Result<Vec<Skill>>
 /// Check whether a skill exists in the effective system + storage catalog.
 pub fn skill_exists_in_catalog(skill_storage: &SkillStorage, id: &str) -> Result<bool> {
     if is_systemskill_id(id) {
+        return Ok(true);
+    }
+    if SkrunSkillProvider::default().get_skill_model(id).is_some() {
         return Ok(true);
     }
     skill_storage
@@ -44,6 +55,9 @@ pub fn skill_exists_in_catalog(skill_storage: &SkillStorage, id: &str) -> Result
 /// Get a skill by ID
 pub async fn get_skill(core: &Arc<AppCore>, id: &str) -> Result<Option<Skill>> {
     if let Some(skill) = skill_files::get_systemskill(id)? {
+        return Ok(Some(skill));
+    }
+    if let Some(skill) = SkrunSkillProvider::default().get_skill_model(id) {
         return Ok(Some(skill));
     }
     core.storage

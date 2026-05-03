@@ -1,0 +1,8 @@
+{
+  "id": "browser-automation",
+  "name": "Browser Automation",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Run a minimal Playwright browser action outside the RestFlow core tool registry.",
+  "entrypoint": "python run.py"
+}

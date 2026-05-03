@@ -716,42 +716,17 @@ fn build_skill_manager_lines(
 
     let mut lines = vec![Line::from(vec![
         Span::styled("Skill Manager", tool_title_style()),
-        Span::styled(
-            "  Up/Down select, Enter details/create, d delete, Esc close",
-            muted_style(),
-        ),
+        Span::styled("  Up/Down select, Enter details, Esc close", muted_style()),
     ])];
-    let create_selected = *selected == 0;
-    lines.push(Line::from(vec![
-        Span::styled(
-            if create_selected { "› " } else { "  " },
-            if create_selected {
-                tool_title_style()
-            } else {
-                muted_style()
-            },
-        ),
-        Span::styled(
-            "Create Skill",
-            if create_selected {
-                tool_title_style()
-            } else {
-                Style::default().add_modifier(Modifier::BOLD)
-            },
-        ),
-        Span::styled("  Ask the assistant to generate a new skill", muted_style()),
-    ]));
     if state.skills.is_empty() {
         lines.push(styled_line("  No installed skills yet.", muted_style()));
         return Some(lines);
     }
 
-    let visible_capacity = (max_rows as usize).saturating_sub(2).max(1);
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
     let rows_per_skill = 2usize;
     let visible_skills = (visible_capacity / rows_per_skill).max(1);
-    let selected_skill_index = selected
-        .saturating_sub(1)
-        .min(state.skills.len().saturating_sub(1));
+    let selected_skill_index = (*selected).min(state.skills.len().saturating_sub(1));
     let start = selected_skill_index
         .saturating_sub(visible_skills / 2)
         .min(state.skills.len().saturating_sub(visible_skills));
@@ -760,7 +735,7 @@ fn build_skill_manager_lines(
 
     for (index, skill) in state.skills[start..end].iter().enumerate() {
         let index = start + index;
-        let is_selected = *selected > 0 && index == selected_skill_index;
+        let is_selected = index == selected_skill_index;
         if previous_source != Some(skill.source) {
             previous_source = Some(skill.source);
             push_if_space(
@@ -2703,7 +2678,6 @@ mod tests {
         let text = line_texts(&lines).join("\n");
 
         assert!(text.contains("Skill Manager"));
-        assert!(text.contains("Create Skill"));
         assert!(text.contains("System skills"));
         assert!(text.contains("External skills"));
         assert!(text.contains("Team · team · read-only"));

@@ -36,7 +36,6 @@ impl Drop for DaemonChild {
 }
 
 fn spawn_daemon(db_path: &str, env: &RestflowTestEnv, port: u16) -> Result<DaemonChild> {
-    let web_dist_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist");
     let log_path = env.root().join("mcp-daemon-test.log");
     let log_file = File::create(&log_path).context("create daemon test log")?;
     let stderr_file = log_file
@@ -54,7 +53,6 @@ fn spawn_daemon(db_path: &str, env: &RestflowTestEnv, port: u16) -> Result<Daemo
             "--mcp-port",
             &port.to_string(),
         ])
-        .env("RESTFLOW_WEB_DIST_DIR", web_dist_dir)
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(stderr_file))
         .spawn()
@@ -247,7 +245,7 @@ fn parse_tool_text_json(text: &str) -> Result<Value> {
 
     let start = text
         .find(['{', '['])
-        .context("tool text should contain JSON payload")?;
+        .with_context(|| format!("tool text should contain JSON payload: {text}"))?;
     serde_json::from_str(&text[start..]).with_context(|| format!("parse tool text json: {text}"))
 }
 
@@ -336,6 +334,28 @@ async fn test_daemon_mcp_manage_tasks_run_batch_contract() -> Result<()> {
             .any(|tool| tool["name"].as_str() == Some("manage_tasks")),
         "manage_tasks must be exposed over MCP"
     );
+    let agents = post_json_rpc(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "list_agents",
+                "arguments": {}
+            }
+        }),
+    )
+    .await?;
+    let agents_text = tool_call_text(&agents);
+    let agents_value = parse_tool_text_json(&agents_text)?;
+    let agent_id = agents_value
+        .as_array()
+        .and_then(|agents| agents.first())
+        .and_then(|agent| agent["id"].as_str())
+        .context("list_agents should return at least one agent with an id")?
+        .to_string();
 
     let run_batch_initial = post_json_rpc(
         &client,
@@ -351,7 +371,7 @@ async fn test_daemon_mcp_manage_tasks_run_batch_contract() -> Result<()> {
                     "workers": [
                         {
                             "count": 2,
-                            "agent_id": "default"
+                            "agent_id": agent_id.clone()
                         }
                     ],
                     "inputs": ["alpha", "beta"],
@@ -381,7 +401,7 @@ async fn test_daemon_mcp_manage_tasks_run_batch_contract() -> Result<()> {
                             "workers": [
                                 {
                                     "count": 2,
-                                    "agent_id": "default"
+                                    "agent_id": agent_id
                                 }
                             ],
                             "inputs": ["alpha", "beta"],

@@ -1,4 +1,4 @@
-//! SkillProvider implementations for user, external, and systemskill catalogs.
+//! SkillProvider implementations for skrun, user, external, and systemskill catalogs.
 
 use crate::models::Skill;
 use crate::skill_files;
@@ -7,7 +7,27 @@ use restflow_traits::skill::{
     SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource, SkillUpdate,
 };
 use std::collections::HashSet;
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
+
+const RESTFLOW_SKRUN_BIN_ENV: &str = "RESTFLOW_SKRUN_BIN";
+const SKRUN_TOOL_NAME: &str = "run_skill";
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct SkrunCliSkill {
+    id: String,
+    name: String,
+    version: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default, rename = "ref", alias = "source_ref")]
+    source_ref: Option<String>,
+}
 
 fn skill_info(skill: Skill) -> SkillInfo {
     SkillInfo {
@@ -43,6 +63,59 @@ fn skill_record(skill: Skill) -> SkillRecord {
         read_only: skill.read_only,
         source_ref: skill.source_ref,
     }
+}
+
+fn default_skrun_bin() -> PathBuf {
+    std::env::var_os(RESTFLOW_SKRUN_BIN_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("skrun"))
+}
+
+fn parse_skrun_json_list(stdout: &str) -> Result<Vec<SkrunCliSkill>, serde_json::Error> {
+    serde_json::from_str::<Vec<SkrunCliSkill>>(stdout)
+}
+
+fn parse_skrun_tsv_list(stdout: &str) -> Vec<SkrunCliSkill> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            if fields.len() < 4 {
+                return None;
+            }
+            Some(SkrunCliSkill {
+                id: fields[0].to_string(),
+                kind: fields[1].to_string(),
+                version: fields[2].to_string(),
+                name: fields[3].to_string(),
+                description: None,
+                content: None,
+                source_ref: None,
+            })
+        })
+        .collect()
+}
+
+fn skrun_cli_skill_to_model(record: SkrunCliSkill) -> Skill {
+    let description = record
+        .description
+        .clone()
+        .or_else(|| Some(format!("Executable skrun {} skill.", record.kind)));
+    let content = record.content.unwrap_or_else(|| {
+        format!(
+            "# {}\n\nExecutable skrun skill.\n\n- id: `{}`\n- kind: `{}`\n- version: `{}`\n",
+            record.name, record.id, record.kind, record.version
+        )
+    });
+    let mut skill = Skill::new(record.id.clone(), record.name, description, None, content);
+    skill.source = SkillSource::External;
+    skill.read_only = true;
+    skill.version = Some(record.version.clone());
+    skill.source_ref = record
+        .source_ref
+        .or_else(|| Some(format!("skrun:{}@{}", record.id, record.version)));
+    skill.suggested_tools = vec![SKRUN_TOOL_NAME.to_string()];
+    skill
 }
 
 fn writable_model_from_record(record: &SkillRecord) -> Result<Skill, String> {
@@ -172,6 +245,133 @@ impl SkillProvider for SkillStorageProvider {
     }
 }
 
+/// Read-only provider for skills exposed by the skrun public CLI contract.
+pub struct SkrunSkillProvider {
+    bin: PathBuf,
+}
+
+impl SkrunSkillProvider {
+    pub fn new(bin: impl Into<PathBuf>) -> Self {
+        Self { bin: bin.into() }
+    }
+
+    pub fn from_default_bin() -> Self {
+        Self::new(default_skrun_bin())
+    }
+
+    pub fn list_skill_models(&self) -> Vec<Skill> {
+        let output = match Command::new(&self.bin)
+            .arg("skill")
+            .arg("list")
+            .arg("--format")
+            .arg("json")
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            _ => match Command::new(&self.bin).arg("skill").arg("list").output() {
+                Ok(output) if output.status.success() => output,
+                Ok(output) => {
+                    tracing::debug!(
+                        stderr = %String::from_utf8_lossy(&output.stderr),
+                        "skrun skill list failed"
+                    );
+                    return Vec::new();
+                }
+                Err(error) => {
+                    tracing::debug!(error = %error, "skrun executable is not available");
+                    return Vec::new();
+                }
+            },
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let records =
+            parse_skrun_json_list(&stdout).unwrap_or_else(|_| parse_skrun_tsv_list(&stdout));
+        if records.is_empty() {
+            return Vec::new();
+        }
+        let mut skills = records
+            .into_iter()
+            .map(skrun_cli_skill_to_model)
+            .collect::<Vec<_>>();
+        skills.sort_by(|left, right| left.id.cmp(&right.id));
+        skills
+    }
+
+    pub fn get_skill_model(&self, id: &str) -> Option<Skill> {
+        let output = Command::new(&self.bin)
+            .arg("skill")
+            .arg("show")
+            .arg(id)
+            .arg("--format")
+            .arg("json")
+            .output();
+        if let Ok(output) = output
+            && output.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Ok(record) = serde_json::from_str::<SkrunCliSkill>(&stdout) {
+                return Some(skrun_cli_skill_to_model(record));
+            }
+        }
+        self.list_skill_models()
+            .into_iter()
+            .find(|skill| skill.id == id)
+    }
+}
+
+impl Default for SkrunSkillProvider {
+    fn default() -> Self {
+        Self::from_default_bin()
+    }
+}
+
+impl SkillProvider for SkrunSkillProvider {
+    fn list_skills(&self) -> Vec<SkillInfo> {
+        self.list_skill_models()
+            .into_iter()
+            .map(skill_info)
+            .collect()
+    }
+
+    fn get_skill(&self, id: &str) -> Option<SkillContent> {
+        self.get_skill_model(id).map(skill_content)
+    }
+
+    fn create_skill(&self, _: SkillRecord) -> Result<SkillRecord, String> {
+        Err(
+            "skrun skill catalog is read-only from RestFlow; use skrun to install skills"
+                .to_string(),
+        )
+    }
+
+    fn update_skill(&self, id: &str, _: SkillUpdate) -> Result<SkillRecord, String> {
+        Err(format!(
+            "skrun skill '{}' is read-only from RestFlow; use skrun to update it",
+            id
+        ))
+    }
+
+    fn delete_skill(&self, id: &str) -> Result<bool, String> {
+        Err(format!(
+            "skrun skill '{}' is read-only from RestFlow; use skrun to remove it",
+            id
+        ))
+    }
+
+    fn export_skill(&self, id: &str) -> Result<String, String> {
+        self.get_skill_model(id)
+            .map(|skill| skill.to_markdown())
+            .ok_or_else(|| format!("Skill {} not found", id))
+    }
+
+    fn import_skill(&self, id: &str, _: &str, _: bool) -> Result<SkillRecord, String> {
+        Err(format!(
+            "skrun skill '{}' cannot be imported through RestFlow; use skrun",
+            id
+        ))
+    }
+}
+
 /// Read-only provider for RestFlow-shipped systemskills.
 pub struct SystemSkillProvider;
 
@@ -254,6 +454,13 @@ impl CompositeSkillProvider {
         Self::new(
             Arc::new(SystemSkillProvider::new()),
             Arc::new(SkillStorageProvider::new(skill_storage)),
+        )
+    }
+
+    pub fn with_skrun() -> Self {
+        Self::new(
+            Arc::new(SystemSkillProvider::new()),
+            Arc::new(SkrunSkillProvider::default()),
         )
     }
 
@@ -464,5 +671,109 @@ mod tests {
             SkillSource::System
         );
         assert!(provider.delete_skill("team").is_err());
+    }
+
+    #[cfg(unix)]
+    fn fake_skrun_bin(dir: &tempfile::TempDir, response: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let bin = dir.path().join("skrun");
+        std::fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nprintf '%s' '{}'\n",
+                response.replace('\'', "'\\''")
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&bin, permissions).unwrap();
+        bin
+    }
+
+    #[test]
+    fn test_skrun_json_list_parser() {
+        let records = parse_skrun_json_list(
+            r##"[{
+              "id": "regex-finder",
+              "name": "Regex Finder",
+              "version": "0.1.0",
+              "kind": "rust_binary",
+              "description": "Find text with regex.",
+              "content": "# Regex Finder\n\nFind text with regex.",
+              "source_ref": "crate:regex-finder@0.1.0"
+            }]"##,
+        )
+        .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "regex-finder");
+        assert_eq!(
+            records[0].source_ref.as_deref(),
+            Some("crate:regex-finder@0.1.0")
+        );
+    }
+
+    #[test]
+    fn test_skrun_tsv_list_parser() {
+        let records = parse_skrun_tsv_list("regex-finder\trust_binary\t0.1.0\tRegex Finder\n");
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "regex-finder");
+        assert_eq!(records[0].name, "Regex Finder");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_skrun_provider_lists_installed_artifacts() {
+        let dir = tempdir().unwrap();
+        let bin = fake_skrun_bin(
+            &dir,
+            r##"[{
+              "id": "regex-finder",
+              "name": "Regex Finder",
+              "version": "0.1.0",
+              "kind": "rust_binary",
+              "description": "Find text with regex.",
+              "content": "# Regex Finder\n\nFind text with regex."
+            }]"##,
+        );
+
+        let provider = SkrunSkillProvider::new(bin);
+        let skills = provider.list_skill_models();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "regex-finder");
+        assert_eq!(skills[0].source, SkillSource::External);
+        assert!(skills[0].read_only);
+        assert_eq!(skills[0].suggested_tools, vec![SKRUN_TOOL_NAME]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_composite_provider_hides_skrun_shadow_for_systemskill() {
+        let dir = tempdir().unwrap();
+        let bin = fake_skrun_bin(
+            &dir,
+            r#"[{
+              "id": "team",
+              "name": "Shadow Team",
+              "version": "0.1.0",
+              "kind": "python_uv"
+            }]"#,
+        );
+
+        let provider = CompositeSkillProvider::new(
+            Arc::new(SystemSkillProvider::new()),
+            Arc::new(SkrunSkillProvider::new(bin)),
+        );
+
+        let skills = provider.list_skills();
+        assert_eq!(skills.iter().filter(|skill| skill.id == "team").count(), 1);
+        assert_eq!(
+            provider.get_skill("team").unwrap().source,
+            SkillSource::System
+        );
     }
 }

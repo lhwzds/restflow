@@ -1,0 +1,8 @@
+{
+  "id": "web-fetch",
+  "name": "Web Fetch",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Fetch a web page and return text outside the RestFlow core tool registry.",
+  "entrypoint": "python run.py"
+}

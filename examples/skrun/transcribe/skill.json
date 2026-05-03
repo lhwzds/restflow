@@ -1,0 +1,8 @@
+{
+  "id": "transcribe",
+  "name": "Transcribe",
+  "version": "0.1.0",
+  "kind": "command",
+  "description": "Transcribe audio by delegating to an external command.",
+  "entrypoint": "python run.py"
+}

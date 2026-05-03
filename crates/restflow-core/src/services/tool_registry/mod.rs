@@ -3,17 +3,16 @@
 //! Adapter implementations live in [`super::adapters`]. This module provides
 //! the [`create_tool_registry`] function that wires adapters into tools.
 
-use crate::memory::UnifiedSearchEngine;
+#[cfg(test)]
 use crate::models::ModelId;
-use crate::process::ProcessRegistry;
+#[cfg(test)]
 use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{
-    build_agent_crud_components, build_task_store_components, populate_known_tools_from_registry,
-    register_bash_execution_tool, register_binary_skill_tools, register_file_execution_tool,
-    register_http_execution_tool, register_management_tools, register_python_execution_tools,
-    register_send_email_execution_tool, register_subagent_management_tools,
+    register_bash_execution_tool, register_file_execution_tool,
 };
+#[cfg(test)]
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
+#[cfg(test)]
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
@@ -21,56 +20,41 @@ use crate::storage::{
     AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ConfigStorage,
     ExecutionTraceStorage, MemoryStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
 };
+#[cfg(test)]
 use restflow_ai::AgentState;
+#[cfg(test)]
 use restflow_ai::agent::{
     StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentExecutionBridge, SubagentManagerImpl,
     SubagentTracker, execute_subagent_plan,
 };
-use restflow_ai::llm::{
-    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmSwitcherImpl,
-    SwappableLlm,
-};
+#[cfg(test)]
+use restflow_ai::llm::{CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory};
+#[cfg(test)]
 use restflow_models::LlmProvider;
-use restflow_storage::{AgentDefaults, ApiDefaults, SystemConfig};
-use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool, ToolRegistryBuilder};
+use restflow_storage::{AgentDefaults, SystemConfig};
+use restflow_tools::ToolRegistryBuilder;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
-use restflow_traits::store::{ProcessManager, ReplySender};
-use restflow_traits::tool::SecretResolver;
+#[cfg(test)]
 use restflow_traits::{ExecutionOutcome, ExecutionPlan};
+#[cfg(test)]
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
+#[cfg(test)]
 use tokio::sync::mpsc;
 use tracing::warn;
 
-#[derive(Debug)]
-struct UnavailableReplySender;
 const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
 const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
-impl ReplySender for UnavailableReplySender {
-    fn send(&self, _message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
-        Box::pin(async move {
-            anyhow::bail!(
-                "reply is unavailable in this context. Use an active chat/background session for streamed replies."
-            )
-        })
-    }
-}
-
 mod assembly;
 mod config;
+#[cfg(test)]
 mod subagent_backend;
 
-use self::config::{
-    build_llm_factory, build_switch_model_tool, load_agent_defaults, load_api_defaults,
-    load_registry_defaults, load_subagent_config,
-};
-use self::subagent_backend::{
-    build_service_subagent_manager, build_service_subagent_runtime_bundle,
-};
+use self::config::load_agent_defaults;
+#[cfg(test)]
+use self::config::{build_llm_factory, load_subagent_config};
 
 pub use self::assembly::{create_tool_registry, create_tool_registry_with_assessor};
 

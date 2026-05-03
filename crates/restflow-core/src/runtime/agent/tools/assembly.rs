@@ -8,8 +8,8 @@ use crate::storage::Storage;
 use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, SkillStorage, TaskStorage};
 use restflow_tools::{
     BashConfig, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool, BinarySkillRunTool,
-    BinarySkillUpdateTool, EmailTool, FileConfig, HttpTool, ListSubagentsTool, RunPythonTool,
-    SpawnSubagentBatchTool, SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
+    BinarySkillUpdateTool, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool,
+    SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
     discover_installed_binary_skill_tools,
 };
 use restflow_traits::AgentOperationAssessor;
@@ -62,54 +62,6 @@ pub(crate) fn register_file_execution_tool(
         builder = builder.with_file(config);
     }
 
-    builder
-}
-
-pub(crate) fn register_http_execution_tool(
-    mut builder: ToolRegistryBuilder,
-    security_gate: Option<Arc<dyn SecurityGate>>,
-    agent_id: &str,
-    task_id: &str,
-) -> anyhow::Result<ToolRegistryBuilder> {
-    if let Some(gate) = security_gate {
-        builder
-            .registry
-            .register(HttpTool::new()?.with_security(gate, agent_id, task_id));
-    } else {
-        builder = builder.with_http()?;
-    }
-    Ok(builder)
-}
-
-pub(crate) fn register_send_email_execution_tool(
-    mut builder: ToolRegistryBuilder,
-    security_gate: Option<Arc<dyn SecurityGate>>,
-    agent_id: &str,
-    task_id: &str,
-) -> ToolRegistryBuilder {
-    if let Some(gate) = security_gate {
-        builder
-            .registry
-            .register(EmailTool::new().with_security(gate, agent_id, task_id));
-    } else {
-        builder = builder.with_email();
-    }
-    builder
-}
-
-pub(crate) fn register_python_execution_tools(
-    mut builder: ToolRegistryBuilder,
-    security_gate: Option<Arc<dyn SecurityGate>>,
-    agent_id: &str,
-    task_id: &str,
-) -> ToolRegistryBuilder {
-    if let Some(gate) = security_gate {
-        builder
-            .registry
-            .register(RunPythonTool::new().with_security(gate, agent_id, task_id));
-    } else {
-        builder = builder.with_python();
-    }
     builder
 }
 

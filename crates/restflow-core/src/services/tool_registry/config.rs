@@ -1,12 +1,15 @@
 use super::*;
+#[cfg(test)]
 use crate::auth::build_runtime_api_keys;
 
+#[cfg(test)]
 pub(super) fn build_api_keys(
     secret_storage: Option<&SecretStorage>,
 ) -> HashMap<LlmProvider, String> {
     build_runtime_api_keys(secret_storage)
 }
 
+#[cfg(test)]
 pub(super) fn build_llm_factory(
     secret_storage: Option<&SecretStorage>,
 ) -> Arc<dyn LlmClientFactory> {
@@ -17,13 +20,7 @@ pub(super) fn build_llm_factory(
     ))
 }
 
-pub(super) fn build_switch_model_tool(factory: Arc<dyn LlmClientFactory>) -> SwitchModelTool {
-    let initial_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
-    let swappable = Arc::new(SwappableLlm::new(initial_client));
-    let switcher = Arc::new(LlmSwitcherImpl::new(swappable, factory));
-    SwitchModelTool::new(switcher)
-}
-
+#[cfg(test)]
 pub(super) fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
     SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
@@ -50,16 +47,7 @@ pub(super) fn load_agent_defaults(config_storage: &ConfigStorage) -> AgentDefaul
     load_system_config(config_storage).agent
 }
 
-pub(super) fn load_api_defaults(config_storage: &ConfigStorage) -> ApiDefaults {
-    load_system_config(config_storage).api_defaults
-}
-
-pub(super) fn load_registry_defaults(
-    config_storage: &ConfigStorage,
-) -> restflow_storage::RegistryDefaults {
-    load_system_config(config_storage).registry_defaults
-}
-
+#[cfg(test)]
 pub(super) fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
     let defaults = load_agent_defaults(config_storage);
     build_subagent_config(&defaults)

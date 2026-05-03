@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help run web local install cli release release-check fmt test lint audit types stress toolchain
+.PHONY: dev prod build down logs clean help run install cli release release-check fmt test lint audit stress toolchain
 
 RUST_TOOLCHAIN ?= stable
 
@@ -25,23 +25,12 @@ logs:
 
 # Clean up volumes and images (includes down)
 clean: down
-	docker volume rm restflow_cargo-cache restflow_target-cache restflow_node-modules 2>/dev/null || true
+	docker volume rm restflow_cargo-cache restflow_target-cache 2>/dev/null || true
 	docker rmi restflow-backend restflow-restflow 2>/dev/null || true
 
 # Run daemon locally (no docker)
 run:
 	cargo run --bin restflow -- daemon start --foreground
-
-# Run frontend locally (no docker)
-web:
-	cd web && npm run dev
-
-# Run both locally in background
-local:
-	@echo "Starting daemon..."
-	@cargo run --bin restflow -- daemon start --foreground &
-	@echo "Starting frontend..."
-	@cd web && npm run dev
 
 help:
 	@echo "Usage:"
@@ -54,16 +43,13 @@ help:
 	@echo "    make clean  - Remove containers and volumes"
 	@echo ""
 	@echo "  Local (no docker):"
-	@echo "    make run    - Run backend locally"
-	@echo "    make web    - Run frontend locally"
-	@echo "    make local  - Run both backend and frontend locally"
+	@echo "    make run    - Run daemon locally"
 	@echo "  CLI:"
-	@echo "    make fmt     - Format Rust and web code"
-	@echo "    make test    - Run backend and frontend tests"
+	@echo "    make fmt     - Format Rust code"
+	@echo "    make test    - Run Rust tests"
 	@echo "    make stress  - Run smoke, stress, and soak stress tests sequentially"
-	@echo "    make lint    - Run backend clippy and frontend lint checks"
+	@echo "    make lint    - Run Rust fmt and clippy checks"
 	@echo "    make audit   - Run cargo security audit"
-	@echo "    make types   - Regenerate web TypeScript bindings"
 	@echo "    make cli     - Build CLI in release mode"
 	@echo "    make release - Run make lint, make audit, make test, and make cli"
 	@echo "    make install - Install CLI (restflow & rf) to ~/.local/bin"
@@ -72,18 +58,16 @@ help:
 toolchain:
 	rustup toolchain install $(RUST_TOOLCHAIN) --component clippy --component rustfmt
 
-# Format Rust and web code
+# Format Rust code
 fmt:
 	cargo fmt --all
-	cd web && npm run format
 
-# Run backend and frontend tests
+# Run Rust tests
 test:
 	@set -e; \
 	TYPEGEN_DIR="$$(mktemp -d)"; \
 	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
 	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test
-	cd web && npm run test
 
 # Run smoke, stress, and soak stress tests sequentially
 stress:
@@ -106,11 +90,10 @@ stress:
 	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
 	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1
 
-# Run backend and frontend lint checks
+# Run Rust lint checks
 lint: toolchain
 	cargo +$(RUST_TOOLCHAIN) fmt --all --check
 	cargo +$(RUST_TOOLCHAIN) clippy --all-targets -- -D warnings
-	cd web && npm run format:check
 
 # Run Rust security audit
 audit: toolchain
@@ -120,10 +103,6 @@ audit: toolchain
 # Build CLI
 cli:
 	cargo build --release --package restflow-cli
-
-# Regenerate web TypeScript bindings
-types:
-	./scripts/generate_web_types.sh
 
 release-check:
 	$(MAKE) lint

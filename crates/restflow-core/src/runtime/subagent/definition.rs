@@ -21,13 +21,10 @@ fn subagent_default_tool_names() -> Vec<String> {
         "edit",
         "multiedit",
         "patch",
-        "diagnostics",
-        "web_search",
-        "web_fetch",
-        "jina_reader",
-        "http_request",
-        "run_python",
-        "process",
+        "glob",
+        "grep",
+        "load_skill",
+        "run_skill",
     ]
     .into_iter()
     .map(str::to_string)

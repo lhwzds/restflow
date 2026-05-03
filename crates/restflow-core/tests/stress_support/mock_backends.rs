@@ -448,13 +448,12 @@ fn build_tool_call_args(step: usize, user_input: &str) -> (String, Value) {
             }),
         ),
         _ => (
-            "run_python".to_string(),
+            "file".to_string(),
             json!({
-                "code": format!(
-                    "from pathlib import Path\npath = Path({:?})\npath.parent.mkdir(parents=True, exist_ok=True)\nwith path.open('a', encoding='utf-8') as fh:\n    fh.write(('python-chunk ' * 128) + '\\n')\nprint(path.stat().st_size)\n",
-                    file_path
-                ),
-                "timeout_seconds": 30,
+                "action": "write",
+                "path": file_path,
+                "content": build_large_content("skill-chunk", 128),
+                "append": true,
             }),
         ),
     }
@@ -1221,7 +1220,7 @@ struct PythonInput {
 #[async_trait]
 impl Tool for StressPythonTool {
     fn name(&self) -> &str {
-        "run_python"
+        "run_skill"
     }
 
     fn description(&self) -> &str {

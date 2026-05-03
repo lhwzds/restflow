@@ -163,7 +163,7 @@ pub trait McpBackend: Send + Sync {
 fn create_runtime_tool_registry_for_core(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
-    create_tool_registry_with_assessor(
+    let mut registry = create_tool_registry_with_assessor(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
@@ -179,7 +179,25 @@ fn create_runtime_tool_registry_for_core(
         None,
         None,
         Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
-    )
+    )?;
+
+    let manage_tasks = ["manage_tasks".to_string()];
+    let task_registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&manage_tasks),
+        None,
+        None,
+        Some(core.storage.as_ref()),
+        None,
+        None,
+        None,
+    )?;
+    for name in task_registry.list() {
+        if let Some(tool) = task_registry.get(name) {
+            registry.register_arc(tool);
+        }
+    }
+
+    Ok(registry)
 }
 
 fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchModelTool {

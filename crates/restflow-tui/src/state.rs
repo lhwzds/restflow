@@ -56,7 +56,6 @@ impl From<Skill> for SkillPickerItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SkillManagerSelection {
-    Create,
     Skill(SkillPickerItem),
 }
 
@@ -623,7 +622,7 @@ impl AppState {
             }
             OverlayState::DaemonPicker { .. } => Some(2),
             OverlayState::SessionPicker { .. } => Some(self.sessions.len()),
-            OverlayState::SkillManager { .. } => Some(self.skills.len() + 1),
+            OverlayState::SkillManager { .. } => Some(self.skills.len()),
             OverlayState::SkillMentionPicker { .. } => Some(self.skill_mention_matches().len()),
             OverlayState::SkillDetail => None,
             OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
@@ -654,12 +653,9 @@ impl AppState {
 
     pub fn selected_skill_manager_item(&self) -> Option<SkillManagerSelection> {
         match self.overlay.as_ref() {
-            Some(OverlayState::SkillManager { selected }) if *selected == 0 => {
-                Some(SkillManagerSelection::Create)
-            }
             Some(OverlayState::SkillManager { selected }) => self
                 .skills
-                .get(selected.saturating_sub(1))
+                .get(*selected)
                 .cloned()
                 .map(SkillManagerSelection::Skill),
             _ => None,

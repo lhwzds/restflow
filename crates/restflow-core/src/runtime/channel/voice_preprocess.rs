@@ -1,9 +1,6 @@
-use crate::runtime::agent::tools::secret_resolver_from_storage;
 use crate::storage::Storage;
-use anyhow::{Result, anyhow, bail};
-use restflow_tools::Tool;
-use restflow_tools::impls::transcribe::{TranscribeConfig, TranscribeTool};
-use serde_json::{Value, json};
+use anyhow::{Result, bail};
+use serde_json::Value;
 
 const VOICE_MEDIA_TYPE_LINE: &str = "media_type: voice";
 const FILE_PATH_PREFIX: &str = "local_file_path: ";
@@ -23,12 +20,6 @@ pub(crate) struct VoicePreprocessResult {
     pub(crate) persisted_input: String,
     pub(crate) transcript: String,
     pub(crate) file_path: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct VoiceTranscriptionResult {
-    pub(crate) text: String,
-    pub(crate) model: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +84,7 @@ pub(crate) fn detect_voice_message(
 }
 
 pub(crate) async fn preprocess_voice_message(
-    storage: &Storage,
+    _storage: &Storage,
     descriptor: &VoiceMessageDescriptor,
 ) -> Result<VoicePreprocessResult> {
     let transcript = match descriptor
@@ -103,11 +94,9 @@ pub(crate) async fn preprocess_voice_message(
         .filter(|value| !value.is_empty())
     {
         Some(existing) => existing.to_string(),
-        None => {
-            transcribe_media_file(storage, &descriptor.file_path, None, None)
-                .await?
-                .text
-        }
+        None => bail!(
+            "Voice transcription is no longer part of the core runtime. Use an external skrun transcribe skill and provide the transcript in the message."
+        ),
     };
 
     let persisted_input = descriptor.persisted_content(Some(&transcript));
@@ -117,56 +106,6 @@ pub(crate) async fn preprocess_voice_message(
         transcript,
         file_path: descriptor.file_path.clone(),
     })
-}
-
-pub(crate) async fn transcribe_media_file(
-    storage: &Storage,
-    file_path: &str,
-    model: Option<&str>,
-    language: Option<&str>,
-) -> Result<VoiceTranscriptionResult> {
-    let resolver = secret_resolver_from_storage(storage);
-    let mut config = TranscribeConfig::default();
-    if let Some(parent) = std::path::Path::new(file_path).parent()
-        && !config.allowed_paths.iter().any(|allowed| allowed == parent)
-    {
-        config.allowed_paths.push(parent.to_path_buf());
-    }
-    let tool = TranscribeTool::with_config(resolver, config)?;
-    let mut input = json!({ "file_path": file_path });
-    if let Some(model) = model {
-        input["model"] = json!(model);
-    }
-    if let Some(language) = language {
-        input["language"] = json!(language);
-    }
-
-    let output = tool.execute(input).await?;
-    if !output.success {
-        bail!(
-            "{}",
-            output
-                .error
-                .unwrap_or_else(|| "Transcription failed".to_string())
-        );
-    }
-
-    let text = output
-        .result
-        .get("text")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| anyhow!("Transcription returned an empty transcript"))?;
-    let model = output
-        .result
-        .get("model")
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| model.unwrap_or("whisper-1").to_string());
-
-    Ok(VoiceTranscriptionResult { text, model })
 }
 
 fn parse_voice_message_content(content: &str) -> Option<ParsedVoiceMessage> {

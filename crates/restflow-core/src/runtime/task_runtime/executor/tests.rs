@@ -415,7 +415,7 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
         .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
         .expect("explicit skill mention should activate suggested tools");
 
-    assert!(tools.iter().any(|tool| tool == "use_skill"));
+    assert!(tools.iter().any(|tool| tool == "load_skill"));
     assert!(tools.iter().any(|tool| tool == "manage_tasks"));
     assert!(tools.iter().any(|tool| tool == "reply"));
 }
@@ -430,7 +430,7 @@ fn test_resolve_effective_tool_names_does_not_escalate_unassigned_skill_mention(
         .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
         .expect("unassigned mention should remain readable but not activate tools");
 
-    assert!(tools.iter().any(|tool| tool == "use_skill"));
+    assert!(tools.iter().any(|tool| tool == "load_skill"));
     assert!(!tools.iter().any(|tool| tool == "manage_tasks"));
 }
 

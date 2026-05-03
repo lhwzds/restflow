@@ -27,7 +27,9 @@ pub use ops::OpsProviderAdapter;
 pub use secret::SecretStoreAdapter;
 pub use security_query::SecurityQueryProviderAdapter;
 pub use session::SessionStorageAdapter;
-pub use skill_provider::{CompositeSkillProvider, SkillStorageProvider, SystemSkillProvider};
+pub use skill_provider::{
+    CompositeSkillProvider, SkillStorageProvider, SkrunSkillProvider, SystemSkillProvider,
+};
 pub use task_store::TaskStoreAdapter;
 pub use terminal::TerminalStoreAdapter;
 pub use unified_search::UnifiedMemorySearchAdapter;

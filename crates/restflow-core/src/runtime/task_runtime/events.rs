@@ -610,13 +610,13 @@ mod tests {
 
     #[test]
     fn test_task_stream_event_constant() {
-        // Verify the event name constant for frontend usage
+        // Verify the event name constant for client usage
         assert_eq!(TASK_STREAM_EVENT, "task:stream");
     }
 
     #[test]
     fn test_event_json_structure() {
-        // Test that the JSON structure matches what the frontend expects
+        // Test that the JSON structure matches what runtime clients expect
         let event =
             TaskStreamEvent::started("task-123", "Build Project", "agent-456", "cli:claude");
         let json = serde_json::to_value(&event).unwrap();

@@ -575,7 +575,7 @@ pub fn install_real_io_tool_overrides() -> (
             )) as Arc<dyn restflow_ai::tools::Tool>,
         ),
         (
-            "run_python".to_string(),
+            "run_skill".to_string(),
             Arc::new(StressPythonTool::new(
                 tool_calls.clone(),
                 tool_failures.clone(),
@@ -934,7 +934,7 @@ pub async fn run_task_workload_with_real_runtime(
                     "http_request".to_string(),
                     "bash".to_string(),
                     "file".to_string(),
-                    "run_python".to_string(),
+                    "run_skill".to_string(),
                 ]),
                 ..AgentNode::new()
             },

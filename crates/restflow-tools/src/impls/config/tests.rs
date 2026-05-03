@@ -312,8 +312,6 @@ async fn test_set_agent_defaults() {
         ("agent.tool_timeout_secs", json!(180)),
         ("agent.llm_timeout_secs", json!(900)),
         ("agent.bash_timeout_secs", json!(600)),
-        ("agent.python_timeout_secs", json!(60)),
-        ("agent.browser_timeout_secs", json!(240)),
         ("agent.process_session_ttl_secs", json!(5400)),
         ("agent.approval_timeout_secs", json!(420)),
         ("agent.max_iterations", json!(50)),
@@ -366,10 +364,6 @@ async fn test_set_agent_defaults() {
         Some(50)
     );
     assert_eq!(agent.get("max_depth").and_then(|v| v.as_u64()), Some(4));
-    assert_eq!(
-        agent.get("browser_timeout_secs").and_then(|v| v.as_u64()),
-        Some(240)
-    );
     assert_eq!(
         agent
             .get("process_session_ttl_secs")
@@ -438,7 +432,6 @@ async fn test_get_includes_agent_defaults() {
     assert!(agent.get("tool_timeout_secs").is_some());
     assert!(agent.get("llm_timeout_secs").is_some());
     assert!(agent.get("bash_timeout_secs").is_some());
-    assert!(agent.get("browser_timeout_secs").is_some());
     assert!(agent.get("process_session_ttl_secs").is_some());
     assert!(agent.get("approval_timeout_secs").is_some());
     assert!(agent.get("max_iterations").is_some());
@@ -647,7 +640,6 @@ async fn test_set_api_defaults() {
         ("api.task_message_list_limit", json!(60)),
         ("api.task_trace_list_limit", json!(80)),
         ("api.task_trace_line_limit", json!(300)),
-        ("api.web_search_num_results", json!(7)),
         ("api.diagnostics_timeout_ms", json!(9000)),
     ];
 
@@ -665,10 +657,6 @@ async fn test_set_api_defaults() {
 
     let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
     let api = output.result.get("api").expect("api block should exist");
-    assert_eq!(
-        api.get("web_search_num_results").and_then(|v| v.as_u64()),
-        Some(7)
-    );
     assert_eq!(
         api.get("diagnostics_timeout_ms").and_then(|v| v.as_u64()),
         Some(9000)

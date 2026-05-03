@@ -28,11 +28,6 @@ jobs:
         with:
           components: clippy,rustfmt
 
-      - name: Install frontend dependencies
-        run: |
-          cd web
-          npm ci
-
       - name: Run release lint checks
         run: make lint
 

@@ -7,18 +7,16 @@ use crate::registry::{
     GatingChecker, GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery,
     SkillSearchResult, SkillSortOrder,
 };
-use crate::runtime::channel::transcribe_media_file;
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 use anyhow::Result;
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{OriginalUri, State};
+use axum::extract::State;
 use axum::http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, post_service};
-use base64::Engine as _;
 use bytes::Bytes;
 use futures::StreamExt;
 use http::{
@@ -34,7 +32,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
@@ -42,7 +39,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower::util::MapResponseLayer;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::ipc_protocol::IpcDaemonStatus;
 
@@ -50,8 +47,6 @@ const ERROR_CONTENT_TYPE: &str = "application/json; charset=utf-8";
 const RECOVERY_HEADER: &str = "x-restflow-mcp-recover";
 const RECOVERY_REINITIALIZE: &str = "reinitialize";
 const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson; charset=utf-8";
-const WEB_DIST_ENV: &str = "RESTFLOW_WEB_DIST_DIR";
-
 type McpHttpBody = BoxBody<Bytes, Infallible>;
 type McpHttpResponse = HttpResponse<McpHttpBody>;
 
@@ -61,34 +56,6 @@ type RuntimeToolRegistry = restflow_ai::tools::ToolRegistry;
 struct DaemonHttpState {
     core: Arc<AppCore>,
     runtime_tool_registry: Arc<OnceLock<RuntimeToolRegistry>>,
-    web_dist_dir: Option<PathBuf>,
-}
-
-#[derive(Debug, Deserialize)]
-struct VoiceTranscribeRequest {
-    audio_base64: String,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    language: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct VoiceTranscribeResponse {
-    text: String,
-    model: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SaveVoiceMessageRequest {
-    audio_base64: String,
-    #[serde(default)]
-    session_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ReadMediaFileRequest {
-    file_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,7 +118,7 @@ pub async fn run_mcp_http_server(
     mut shutdown: broadcast::Receiver<()>,
 ) -> Result<()> {
     let cancellation = CancellationToken::new();
-    let app = build_http_router(core, cancellation.clone(), resolve_web_dist_dir());
+    let app = build_http_router(core, cancellation.clone());
     let listener = TcpListener::bind(addr).await?;
     info!(%addr, "Daemon HTTP server listening");
 
@@ -165,11 +132,7 @@ pub async fn run_mcp_http_server(
     Ok(())
 }
 
-fn build_http_router(
-    core: Arc<AppCore>,
-    cancellation: CancellationToken,
-    web_dist_dir: Option<PathBuf>,
-) -> Router {
+fn build_http_router(core: Arc<AppCore>, cancellation: CancellationToken) -> Router {
     let config = build_streamable_http_server_config(cancellation);
     let server_factory = build_mcp_server_factory(RestFlowMcpServer::new(core.clone()));
 
@@ -185,7 +148,6 @@ fn build_http_router(
     let state = DaemonHttpState {
         core,
         runtime_tool_registry: Arc::new(OnceLock::new()),
-        web_dist_dir,
     };
 
     Router::new()
@@ -223,11 +185,8 @@ fn build_http_router(
             "/api/marketplace/installed",
             get(api_marketplace_list_installed),
         )
-        .route("/api/voice/transcribe", post(api_transcribe_audio))
-        .route("/api/voice/save", post(api_save_voice_message))
-        .route("/api/voice/read", post(api_read_media_file))
         .route_service("/mcp", post_service(mcp_service))
-        .fallback(get(static_or_missing))
+        .fallback(get(not_found))
         .with_state(state)
 }
 
@@ -694,130 +653,6 @@ async fn api_marketplace_list_installed(
     ))
 }
 
-async fn api_transcribe_audio(
-    State(state): State<DaemonHttpState>,
-    Json(request): Json<VoiceTranscribeRequest>,
-) -> std::result::Result<Json<VoiceTranscribeResponse>, (StatusCode, String)> {
-    let file_path = save_audio_to_temp(&request.audio_base64)?;
-    let model = request.model;
-    let language = request.language;
-    let response = transcribe_media_file(
-        &state.core.storage,
-        &file_path,
-        model.as_deref(),
-        language.as_deref(),
-    )
-    .await;
-
-    let _ = std::fs::remove_file(&file_path);
-
-    let transcription = response.map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-    Ok(Json(VoiceTranscribeResponse {
-        text: transcription.text,
-        model: transcription.model,
-    }))
-}
-
-async fn api_save_voice_message(
-    Json(request): Json<SaveVoiceMessageRequest>,
-) -> std::result::Result<Json<String>, (StatusCode, String)> {
-    let file_path = save_audio_to_session(&request.audio_base64, request.session_id.as_deref())?;
-    Ok(Json(file_path))
-}
-
-async fn api_read_media_file(
-    Json(request): Json<ReadMediaFileRequest>,
-) -> std::result::Result<Json<String>, (StatusCode, String)> {
-    let media_dir = crate::paths::media_dir().map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to resolve media dir: {error}"),
-        )
-    })?;
-    let requested = Path::new(&request.file_path);
-    if !requested.starts_with(&media_dir) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Path is not within the media directory".to_string(),
-        ));
-    }
-
-    let bytes = std::fs::read(requested).map_err(|error| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("Failed to read media file: {error}"),
-        )
-    })?;
-    Ok(Json(
-        base64::engine::general_purpose::STANDARD.encode(bytes),
-    ))
-}
-
-fn save_audio_to_session(
-    audio_base64: &str,
-    session_id: Option<&str>,
-) -> std::result::Result<String, (StatusCode, String)> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(audio_base64)
-        .map_err(|error| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to decode base64 audio: {error}"),
-            )
-        })?;
-
-    let dir = match session_id {
-        Some(session_id) => crate::paths::session_media_dir(session_id).map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create session media dir: {error}"),
-            )
-        })?,
-        None => crate::paths::media_dir().map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create media dir: {error}"),
-            )
-        })?,
-    };
-
-    let file_path = dir.join(format!("voice-{}.webm", uuid::Uuid::new_v4()));
-    std::fs::write(&file_path, bytes).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write audio file: {error}"),
-        )
-    })?;
-
-    Ok(file_path.to_string_lossy().to_string())
-}
-
-fn save_audio_to_temp(audio_base64: &str) -> std::result::Result<String, (StatusCode, String)> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(audio_base64)
-        .map_err(|error| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to decode base64 audio: {error}"),
-            )
-        })?;
-
-    let dir = crate::paths::media_dir().map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create media dir: {error}"),
-        )
-    })?;
-    let file_path = dir.join(format!("tmp-{}.webm", uuid::Uuid::new_v4()));
-    std::fs::write(&file_path, bytes).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write audio file: {error}"),
-        )
-    })?;
-    Ok(file_path.to_string_lossy().to_string())
-}
-
 fn stream_frames_response(receiver: mpsc::UnboundedReceiver<StreamFrame>) -> Response {
     let stream = UnboundedReceiverStream::new(receiver).map(|frame| {
         let mut bytes = match serde_json::to_vec(&frame) {
@@ -845,124 +680,14 @@ fn single_frame_channel(frame: StreamFrame) -> mpsc::UnboundedReceiver<StreamFra
     rx
 }
 
-async fn static_or_missing(
-    State(state): State<DaemonHttpState>,
-    OriginalUri(uri): OriginalUri,
-) -> Response {
-    let Some(dist_dir) = state.web_dist_dir else {
-        return missing_web_dist().await.into_response();
-    };
-
-    let request_path = sanitize_static_path(uri.path());
-    let file_path = resolve_static_file_path(&dist_dir, request_path.as_deref());
-
-    match tokio::fs::read(&file_path).await {
-        Ok(bytes) => (
-            [(
-                CONTENT_TYPE,
-                HeaderValue::from_static(content_type_for_path(&file_path)),
-            )],
-            bytes,
-        )
-            .into_response(),
-        Err(error) => {
-            if request_path
-                .as_ref()
-                .is_some_and(|path| path.extension().is_none())
-            {
-                let fallback_path = dist_dir.join("index.html");
-                match tokio::fs::read(&fallback_path).await {
-                    Ok(bytes) => {
-                        return (
-                            [(
-                                CONTENT_TYPE,
-                                HeaderValue::from_static(content_type_for_path(&fallback_path)),
-                            )],
-                            bytes,
-                        )
-                            .into_response();
-                    }
-                    Err(fallback_error) => {
-                        warn!(
-                            path = %fallback_path.display(),
-                            error = %fallback_error,
-                            "Failed to read SPA fallback asset"
-                        );
-                    }
-                }
-            }
-
-            warn!(path = %file_path.display(), error = %error, "Failed to read web asset");
-            (StatusCode::NOT_FOUND, "Requested asset was not found.").into_response()
-        }
-    }
-}
-
-fn sanitize_static_path(path: &str) -> Option<PathBuf> {
-    let trimmed = path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let candidate = Path::new(trimmed);
-    if candidate
-        .components()
-        .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
-    {
-        return None;
-    }
-
-    Some(candidate.to_path_buf())
-}
-
-fn resolve_static_file_path(dist_dir: &Path, request_path: Option<&Path>) -> PathBuf {
-    match request_path {
-        Some(path) if path.extension().is_some() => dist_dir.join(path),
-        Some(path) => dist_dir.join(path).join("index.html"),
-        None => dist_dir.join("index.html"),
-    }
-}
-
-fn content_type_for_path(path: &Path) -> &'static str {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("html") => "text/html; charset=utf-8",
-        Some("js") => "application/javascript; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("json") => "application/json; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("webp") => "image/webp",
-        Some("woff") => "font/woff",
-        Some("woff2") => "font/woff2",
-        _ => "application/octet-stream",
-    }
-}
-
-async fn missing_web_dist() -> impl IntoResponse {
+async fn not_found() -> impl IntoResponse {
     (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "RestFlow web assets are not available. Build the web app or set RESTFLOW_WEB_DIST_DIR.",
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": "not_found",
+            "message": "RestFlow exposes daemon HTTP and MCP APIs only.",
+        })),
     )
-}
-
-fn resolve_web_dist_dir() -> Option<PathBuf> {
-    let from_env = std::env::var(WEB_DIST_ENV)
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| path.join("index.html").exists());
-    if from_env.is_some() {
-        return from_env;
-    }
-
-    let candidates = [Some(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist"),
-    )];
-
-    candidates
-        .into_iter()
-        .flatten()
-        .find(|path| path.join("index.html").exists())
 }
 
 fn build_mcp_server_factory(
@@ -1069,10 +794,9 @@ fn is_expected_connection_close(error: &str) -> bool {
 mod tests {
     use super::{
         ERROR_CONTENT_TYPE, NDJSON_CONTENT_TYPE, RECOVERY_HEADER, RECOVERY_REINITIALIZE,
-        WEB_DIST_ENV, build_http_router, build_mcp_server_factory,
-        build_streamable_http_server_config, is_expected_connection_close,
-        is_marketplace_installed_skill, is_marketplace_source_ref, is_reserved_systemskill_id,
-        manifest_to_skill, normalize_mcp_error_response, resolve_web_dist_dir,
+        build_http_router, build_mcp_server_factory, build_streamable_http_server_config,
+        is_expected_connection_close, is_marketplace_installed_skill, is_marketplace_source_ref,
+        is_reserved_systemskill_id, manifest_to_skill, normalize_mcp_error_response,
     };
     use crate::AppCore;
     use crate::daemon::session_events::ChatSessionEvent;
@@ -1091,7 +815,7 @@ mod tests {
     use http_body_util::{BodyExt, Full};
     use serde_json::Value;
     use std::env;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::Arc;
     use std::sync::{Mutex, MutexGuard, OnceLock};
     use tempfile::tempdir;
@@ -1140,24 +864,6 @@ mod tests {
                     env::remove_var(self.key);
                 }
             }
-        }
-    }
-
-    struct CurrentDirGuard {
-        original: PathBuf,
-    }
-
-    impl CurrentDirGuard {
-        fn set(path: &Path) -> Self {
-            let original = env::current_dir().expect("current dir");
-            env::set_current_dir(path).expect("set current dir");
-            Self { original }
-        }
-    }
-
-    impl Drop for CurrentDirGuard {
-        fn drop(&mut self) {
-            let _ = env::set_current_dir(&self.original);
         }
     }
 
@@ -1275,7 +981,7 @@ mod tests {
             .create(&user_skill)
             .expect("create user skill");
 
-        let app = build_http_router(core, CancellationToken::new(), None);
+        let app = build_http_router(core, CancellationToken::new());
         let response = app
             .oneshot(
                 Request::builder()
@@ -1310,7 +1016,7 @@ mod tests {
             .create(&user_skill)
             .expect("create user skill");
 
-        let app = build_http_router(core.clone(), CancellationToken::new(), None);
+        let app = build_http_router(core.clone(), CancellationToken::new());
         let response = app
             .oneshot(
                 Request::builder()
@@ -1388,7 +1094,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_health_returns_daemon_status() {
-        let app = build_http_router(test_core().await, CancellationToken::new(), None);
+        let app = build_http_router(test_core().await, CancellationToken::new());
         let response = app
             .oneshot(
                 Request::builder()
@@ -1409,7 +1115,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_request_round_trips_ipc_request() {
-        let app = build_http_router(test_core().await, CancellationToken::new(), None);
+        let app = build_http_router(test_core().await, CancellationToken::new());
         let response = app
             .oneshot(
                 Request::builder()
@@ -1460,7 +1166,7 @@ mod tests {
             .create(&session)
             .expect("create session");
 
-        let app = build_http_router(core, CancellationToken::new(), None);
+        let app = build_http_router(core, CancellationToken::new());
         let response = app
             .clone()
             .oneshot(
@@ -1495,7 +1201,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_stream_emits_ndjson_frames() {
-        let app = build_http_router(test_core().await, CancellationToken::new(), None);
+        let app = build_http_router(test_core().await, CancellationToken::new());
         let response = app
             .oneshot(
                 Request::builder()
@@ -1551,38 +1257,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn static_assets_are_served_when_dist_exists() {
-        let dir = tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("index.html"), "<html>ok</html>").unwrap();
-        std::fs::create_dir_all(dir.path().join("assets")).unwrap();
-        std::fs::write(dir.path().join("assets/app.js"), "console.log('ok')").unwrap();
-
-        let app = build_http_router(
-            test_core().await,
-            CancellationToken::new(),
-            Some(dir.path().to_path_buf()),
-        );
-        let response = app
-            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(body, Bytes::from_static(b"<html>ok</html>"));
-    }
-
-    #[tokio::test]
-    async fn spa_routes_fallback_to_index_html() {
-        let dir = tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("index.html"), "<html>spa</html>").unwrap();
-
-        let app = build_http_router(
-            test_core().await,
-            CancellationToken::new(),
-            Some(dir.path().to_path_buf()),
-        );
+    async fn unknown_routes_return_api_not_found() {
+        let app = build_http_router(test_core().await, CancellationToken::new());
         let response = app
             .oneshot(
                 Request::builder()
@@ -1593,35 +1269,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(body, Bytes::from_static(b"<html>spa</html>"));
-    }
-
-    #[test]
-    fn resolve_web_dist_dir_ignores_current_dir_without_env_override() {
-        let _lock = env_lock();
-        let temp = tempdir().expect("tempdir");
-        let cwd = temp.path().join("cwd");
-        let dist = cwd.join("web/dist");
-        std::fs::create_dir_all(&dist).unwrap();
-        std::fs::write(dist.join("index.html"), "<html>cwd</html>").unwrap();
-        let _cwd_guard = CurrentDirGuard::set(&cwd);
-
-        let resolved = resolve_web_dist_dir();
-        assert_ne!(resolved, Some(dist));
-    }
-
-    #[test]
-    fn resolve_web_dist_dir_prefers_env_override() {
-        let _lock = env_lock();
-        let temp = tempdir().expect("tempdir");
-        std::fs::write(temp.path().join("index.html"), "<html>env</html>").unwrap();
-        let _env_guard = EnvGuard::set_path(WEB_DIST_ENV, temp.path());
-
-        let resolved = resolve_web_dist_dir();
-        assert_eq!(resolved, Some(temp.path().to_path_buf()));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

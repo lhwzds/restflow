@@ -17,15 +17,13 @@ use tracing::{debug, warn};
 use self::assembly::{
     build_agent_crud_components, build_runtime_assessor, build_task_store_runtime_components,
     populate_known_tools_from_registry, register_bash_execution_tool, register_binary_skill_tools,
-    register_file_execution_tool, register_http_execution_tool, register_management_tools,
-    register_python_execution_tools, register_send_email_execution_tool,
-    register_subagent_management_tools,
+    register_file_execution_tool, register_management_tools, register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
-use restflow_storage::{AgentSettings, ApiSettings};
+use restflow_storage::ApiSettings;
 use restflow_traits::SubagentManager;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
@@ -35,11 +33,9 @@ use restflow_traits::store::{
 
 // Re-export tool types from restflow-tools
 pub use restflow_tools::impls::{
-    BashConfig, BashTool, DiscordTool, EmailTool, FileConfig, FileTool, HttpTool,
-    ListSubagentsTool, SlackTool, SpawnSubagentTool, SpawnTool, TelegramTool, ToolRegistryBuilder,
-    UseSkillTool, WaitSubagentsTool, default_registry,
+    BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool, RunSkillTool,
+    SpawnSubagentTool, SpawnTool, ToolRegistryBuilder, WaitSubagentsTool, default_registry,
 };
-pub use restflow_tools::{RunPythonTool, TranscribeConfig, TranscribeTool, VisionTool};
 
 pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub use skill_activation::{
@@ -106,35 +102,13 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
     vec![
         "bash",
         "file",
-        "http_request",
-        "send_email",
-        "telegram_send",
-        "discord_send",
-        "slack_send",
-        "run_python",
-        "browser",
-        "transcribe",
-        "vision",
-        "spawn_subagent",
-        "spawn_subagent_batch",
-        "wait_subagents",
-        "list_subagents",
-        "use_skill",
-        "manage_terminal",
-        "security_query",
-        "switch_model",
-        "memory_search",
         "edit",
         "multiedit",
         "patch",
-        "diagnostics",
-        "web_search",
-        "web_fetch",
-        "jina_reader",
-        "reply",
-        "process",
         "glob",
         "grep",
+        "load_skill",
+        "run_skill",
     ]
     .into_iter()
     .map(str::to_string)
@@ -162,7 +136,7 @@ pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<Str
 pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
     subagent_manager: Option<Arc<dyn SubagentManager>>,
-    secret_resolver: Option<SecretResolver>,
+    _secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
     agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
@@ -171,7 +145,7 @@ pub fn registry_from_allowlist(
     registry_from_allowlist_with_security_gate(
         tool_names,
         subagent_manager,
-        secret_resolver,
+        _secret_resolver,
         storage,
         agent_id,
         bash_config,
@@ -189,7 +163,7 @@ pub fn registry_from_allowlist(
 pub fn registry_from_allowlist_with_security_gate(
     tool_names: Option<&[String]>,
     subagent_manager: Option<Arc<dyn SubagentManager>>,
-    secret_resolver: Option<SecretResolver>,
+    _secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
     agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
@@ -286,39 +260,6 @@ pub fn registry_from_allowlist_with_security_gate(
                 allow_file = true;
                 allow_file_write = true;
             }
-            "http_request" => {
-                builder = register_http_execution_tool(
-                    builder,
-                    security_gate.clone(),
-                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                    DEFAULT_SECURITY_TASK_ID,
-                )?;
-            }
-            "send_email" => {
-                builder = register_send_email_execution_tool(
-                    builder,
-                    security_gate.clone(),
-                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                    DEFAULT_SECURITY_TASK_ID,
-                );
-            }
-            "telegram_send" => {
-                builder = builder.with_telegram()?;
-            }
-            "discord_send" => {
-                builder = builder.with_discord()?;
-            }
-            "slack_send" => {
-                builder = builder.with_slack()?;
-            }
-            "run_python" => {
-                builder = register_python_execution_tools(
-                    builder,
-                    security_gate.clone(),
-                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                    DEFAULT_SECURITY_TASK_ID,
-                );
-            }
             "binary_skill_new"
             | "binary_skill_build"
             | "binary_skill_read"
@@ -330,53 +271,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
                     DEFAULT_SECURITY_TASK_ID,
                 );
-            }
-            "browser" => {
-                let timeout_secs = effective_config
-                    .as_ref()
-                    .map(|config| config.agent.browser_timeout_secs)
-                    .unwrap_or_else(|| AgentSettings::default().browser_timeout_secs);
-                builder = builder.with_browser_timeout(timeout_secs)?;
-            }
-            "transcribe" => {
-                if let Some(resolver) = secret_resolver.clone() {
-                    let config = workspace_root
-                        .map(TranscribeConfig::for_workspace_root)
-                        .unwrap_or_default();
-                    builder = builder.with_transcribe_config(resolver, config)?;
-                } else {
-                    warn!(
-                        tool_name = "transcribe",
-                        "Secret resolver missing, skipping"
-                    );
-                }
-            }
-            "vision" => {
-                if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_vision(resolver)?;
-                } else {
-                    warn!(tool_name = "vision", "Secret resolver missing, skipping");
-                }
-            }
-            "web_search" => {
-                let default_num_results = effective_config
-                    .as_ref()
-                    .map(|config| config.api_defaults.web_search_num_results)
-                    .unwrap_or_else(|| ApiSettings::default().web_search_num_results);
-                if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_web_search_with_resolver_and_defaults(
-                        resolver,
-                        default_num_results,
-                    )?;
-                } else {
-                    builder = builder.with_web_search_with_defaults(default_num_results)?;
-                }
-            }
-            "web_fetch" => {
-                builder = builder.with_web_fetch();
-            }
-            "jina_reader" => {
-                builder = builder.with_jina_reader()?;
             }
             "diagnostics" => {
                 if let Some(diag) = &shared_diagnostics {
@@ -415,23 +309,30 @@ pub fn registry_from_allowlist_with_security_gate(
 
             // --- Subagent tools ---
             "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents" => {}
-            "use_skill" => {
-                if let Some(storage) = storage {
-                    let provider: Arc<dyn SkillProvider> =
-                        Arc::new(CompositeSkillProvider::with_storage(storage.skills.clone()));
-                    builder = if let Some(gate) = security_gate.clone() {
-                        builder.with_use_skill_with_security(
-                            provider,
-                            gate,
-                            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                            DEFAULT_SECURITY_TASK_ID,
-                        )
-                    } else {
-                        builder.with_use_skill(provider)
-                    };
+            "load_skill" => {
+                let provider: Arc<dyn SkillProvider> =
+                    Arc::new(CompositeSkillProvider::with_skrun());
+                builder = if let Some(gate) = security_gate.clone() {
+                    builder.with_load_skill_with_security(
+                        provider,
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    )
                 } else {
-                    debug!(tool_name = "use_skill", "Storage missing, skipping");
+                    builder.with_load_skill(provider)
+                };
+            }
+            "run_skill" => {
+                let mut tool = RunSkillTool::new();
+                if let Some(gate) = security_gate.clone() {
+                    tool = tool.with_security(
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    );
                 }
+                builder.registry.register(tool);
             }
 
             // --- Storage-backed tools ---
@@ -462,19 +363,17 @@ pub fn registry_from_allowlist_with_security_gate(
                 });
             }
             "skill" => {
-                with_storage!(storage, "skill", builder, |s| {
-                    let provider = Arc::new(CompositeSkillProvider::with_storage(s.skills.clone()));
-                    if let Some(gate) = security_gate.clone() {
-                        builder.with_skill_tool_with_security(
-                            provider,
-                            gate,
-                            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                            DEFAULT_SECURITY_TASK_ID,
-                        )
-                    } else {
-                        builder.with_skill_tool(provider)
-                    }
-                });
+                let provider = Arc::new(CompositeSkillProvider::with_skrun());
+                builder = if let Some(gate) = security_gate.clone() {
+                    builder.with_skill_tool_with_security(
+                        provider,
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    )
+                } else {
+                    builder.with_skill_tool(provider)
+                };
             }
             "memory_search" => {
                 with_storage!(storage, "memory_search", builder, |s| {
@@ -546,22 +445,21 @@ pub fn registry_from_allowlist_with_security_gate(
                 // Registered by callers that provide a ProcessRegistry.
             }
             unknown => {
+                let provider = CompositeSkillProvider::with_skrun();
+                if provider.get_skill(unknown).is_some() {
+                    if recorded_skill_ids.insert(unknown.to_string()) {
+                        allowlisted_skill_ids.push(unknown.to_string());
+                    }
+                    continue;
+                }
                 if let Some(store) = storage {
                     match store.skills.exists(unknown) {
-                        Ok(true) => {
-                            if recorded_skill_ids.insert(unknown.to_string()) {
-                                allowlisted_skill_ids.push(unknown.to_string());
-                            }
-                            continue;
-                        }
-                        Ok(false) => {}
-                        Err(err) => {
-                            warn!(
-                                tool_name = %unknown,
-                                error = %err,
-                                "Failed to verify skill while building registry"
-                            );
-                        }
+                        Ok(true) | Ok(false) => {}
+                        Err(err) => warn!(
+                            tool_name = %unknown,
+                            error = %err,
+                            "Failed to verify legacy skill while building registry"
+                        ),
                     }
                 }
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
@@ -583,24 +481,16 @@ pub fn registry_from_allowlist_with_security_gate(
         );
     }
 
-    // Register allowlisted skills as callable tools
-    if let Some(storage) = storage {
-        if !allowlisted_skill_ids.is_empty() {
-            let provider: Arc<dyn SkillProvider> =
-                Arc::new(CompositeSkillProvider::with_storage(storage.skills.clone()));
-            register_allowlisted_skill_tools(
-                &mut builder.registry,
-                provider,
-                &allowlisted_skill_ids,
-                security_gate,
-                agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                DEFAULT_SECURITY_TASK_ID,
-            );
-        }
-    } else if !allowlisted_skill_ids.is_empty() {
-        warn!(
-            count = allowlisted_skill_ids.len(),
-            "Skill entries found in allowlist but storage unavailable; skipping"
+    // Register allowlisted skills as callable context-loading tools.
+    if !allowlisted_skill_ids.is_empty() {
+        let provider: Arc<dyn SkillProvider> = Arc::new(CompositeSkillProvider::with_skrun());
+        register_allowlisted_skill_tools(
+            &mut builder.registry,
+            provider,
+            &allowlisted_skill_ids,
+            security_gate,
+            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+            DEFAULT_SECURITY_TASK_ID,
         );
     }
 
@@ -743,12 +633,25 @@ mod tests {
     #[test]
     fn test_main_agent_default_tools_keep_management_out_of_default_surface() {
         let names = main_agent_default_tool_names();
-        assert!(names.contains(&"use_skill".to_string()));
-        assert!(names.contains(&"http_request".to_string()));
-        assert!(names.contains(&"send_email".to_string()));
-        assert!(names.contains(&"telegram_send".to_string()));
-        assert!(names.contains(&"discord_send".to_string()));
-        assert!(names.contains(&"slack_send".to_string()));
+        assert_eq!(
+            names,
+            vec![
+                "bash",
+                "file",
+                "edit",
+                "multiedit",
+                "patch",
+                "glob",
+                "grep",
+                "load_skill",
+                "run_skill",
+            ]
+        );
+        assert!(!names.contains(&"http_request".to_string()));
+        assert!(!names.contains(&"send_email".to_string()));
+        assert!(!names.contains(&"telegram_send".to_string()));
+        assert!(!names.contains(&"discord_send".to_string()));
+        assert!(!names.contains(&"slack_send".to_string()));
         assert!(!names.contains(&"http".to_string()));
         assert!(!names.contains(&"email".to_string()));
         assert!(!names.contains(&"telegram".to_string()));
@@ -794,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn test_skills_only_registered_when_allowlisted() {
+    fn test_legacy_storage_skills_are_not_registered_as_runtime_tools() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-skills.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -817,7 +720,7 @@ mod tests {
         storage.skills.create(&alpha).expect("create alpha");
         storage.skills.create(&beta).expect("create beta");
 
-        let base_allowlist = vec!["use_skill".to_string()];
+        let base_allowlist = vec!["load_skill".to_string()];
         let registry = registry_from_allowlist(
             Some(&base_allowlist),
             None,
@@ -835,7 +738,7 @@ mod tests {
         assert!(!registry.has("beta-skill"));
 
         let scoped_allowlist = vec![
-            "use_skill".to_string(),
+            "load_skill".to_string(),
             "skill".to_string(),
             "alpha-skill".to_string(),
         ];
@@ -849,7 +752,10 @@ mod tests {
             None,
         )
         .expect("registry should build with allowlisted skill");
-        assert!(scoped_registry.has("alpha-skill"));
+        assert!(
+            !scoped_registry.has("alpha-skill"),
+            "RestFlow no longer registers storage-owned skills as runtime tools"
+        );
         assert!(
             !scoped_registry.has("beta-skill"),
             "non-allowlisted skills stay unavailable"
@@ -879,15 +785,16 @@ mod tests {
     }
 
     #[test]
-    fn test_main_agent_default_tools_include_transcribe_and_switch_model() {
+    fn test_main_agent_default_tools_exclude_external_and_management_tools() {
         let tools = main_agent_default_tool_names();
-        assert!(tools.iter().any(|name| name == "run_python"));
-        assert!(tools.iter().any(|name| name == "browser"));
-        assert!(tools.iter().any(|name| name == "transcribe"));
-        assert!(tools.iter().any(|name| name == "vision"));
-        assert!(tools.iter().any(|name| name == "switch_model"));
-        assert!(tools.iter().any(|name| name == "manage_terminal"));
-        assert!(tools.iter().any(|name| name == "security_query"));
+        assert!(tools.iter().any(|name| name == "run_skill"));
+        assert!(!tools.iter().any(|name| name == "python"));
+        assert!(!tools.iter().any(|name| name == "browser"));
+        assert!(!tools.iter().any(|name| name == "transcribe"));
+        assert!(!tools.iter().any(|name| name == "vision"));
+        assert!(!tools.iter().any(|name| name == "switch_model"));
+        assert!(!tools.iter().any(|name| name == "manage_terminal"));
+        assert!(!tools.iter().any(|name| name == "security_query"));
     }
 
     #[tokio::test]
@@ -947,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_from_allowlist_uses_configured_api_defaults() {
+    fn test_registry_from_allowlist_uses_configured_diagnostics_defaults() {
         let env = RestflowTestEnv::new();
         let db_path = env.db_path("registry-api-defaults.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -957,14 +864,13 @@ mod tests {
             .get_config()
             .expect("config should load")
             .expect("config should exist");
-        config.api_defaults.web_search_num_results = 7;
         config.api_defaults.diagnostics_timeout_ms = 9_000;
         storage
             .config
             .update_config(config)
             .expect("config should update");
 
-        let names = vec!["web_search".to_string(), "diagnostics".to_string()];
+        let names = vec!["diagnostics".to_string()];
         let registry = registry_from_allowlist(
             Some(&names),
             None,
@@ -975,12 +881,6 @@ mod tests {
             Some(env.root()),
         )
         .unwrap();
-
-        let web_search_schema = registry
-            .get("web_search")
-            .expect("web_search tool should exist")
-            .parameters_schema();
-        assert_eq!(web_search_schema["properties"]["num_results"]["default"], 7);
 
         let diagnostics_schema = registry
             .get("diagnostics")
@@ -1067,9 +967,8 @@ mod tests {
         let names = vec![
             "manage_agents".to_string(),
             "manage_tasks".to_string(),
-            "http_request".to_string(),
-            "send_email".to_string(),
-            "run_python".to_string(),
+            "bash".to_string(),
+            "file".to_string(),
         ];
         let registry =
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
@@ -1089,7 +988,7 @@ mod tests {
                 "operation": "create",
                 "name": "Runtime Preview Agent",
                 "agent": {
-                    "tools": ["http_request", "send_email", "run_python", "manage_tasks"]
+                    "tools": ["bash", "file", "manage_tasks"]
                 },
                 "preview": true
             }))

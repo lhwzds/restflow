@@ -5,17 +5,6 @@
 
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/web"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
-    labels:
-      - dependencies
-      - frontend
-
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:

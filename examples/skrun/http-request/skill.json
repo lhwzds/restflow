@@ -1,0 +1,8 @@
+{
+  "id": "http-request",
+  "name": "HTTP Request",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Send an HTTP request outside the RestFlow core tool registry.",
+  "entrypoint": "python run.py"
+}

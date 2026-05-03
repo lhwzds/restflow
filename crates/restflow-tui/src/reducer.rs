@@ -82,7 +82,6 @@ pub enum ShellAction {
         skills: Vec<SkillPickerItem>,
         status: String,
     },
-    StartSkillCreatePrompt,
     ProviderPickerLoaded {
         items: Vec<ProviderPickerItem>,
         available_models: Vec<ModelMetadataDTO>,
@@ -296,11 +295,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.open_skill_manager();
             state.status = status.clone();
             state.push_info(format!("Deleted skill {skill_id}"));
-        }
-        ShellAction::StartSkillCreatePrompt => {
-            state.clear_overlay();
-            state.composer.replace("Create a new RestFlow skill for: ");
-            state.status = "Describe the skill you want the assistant to create.".to_string();
         }
         ShellAction::ProviderPickerLoaded {
             items,
@@ -542,7 +536,7 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                             state.status = format!("Press d again to delete skill {}", skill.name);
                         }
                     }
-                    Some(SkillManagerSelection::Create) | None => {}
+                    None => {}
                 }
             } else if state.overlay.is_none()
                 || matches!(
@@ -868,7 +862,7 @@ mod tests {
                     source: SkillSource::System,
                     read_only: true,
                 }],
-                status: "Manage skills".to_string(),
+                status: "View skills".to_string(),
             },
         );
 

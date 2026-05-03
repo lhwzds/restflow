@@ -116,14 +116,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.bash_timeout_secs),
     ]);
     table.add_row(vec![
-        Cell::new("agent.python_timeout_secs"),
-        Cell::new(config.agent.python_timeout_secs),
-    ]);
-    table.add_row(vec![
-        Cell::new("agent.browser_timeout_secs"),
-        Cell::new(config.agent.browser_timeout_secs),
-    ]);
-    table.add_row(vec![
         Cell::new("agent.process_session_ttl_secs"),
         Cell::new(config.agent.process_session_ttl_secs),
     ]);
@@ -205,10 +197,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     table.add_row(vec![
         Cell::new("api.task_trace_line_limit"),
         Cell::new(config.api.task_trace_line_limit),
-    ]);
-    table.add_row(vec![
-        Cell::new("api.web_search_num_results"),
-        Cell::new(config.api.web_search_num_results),
     ]);
     table.add_row(vec![
         Cell::new("api.diagnostics_timeout_ms"),
@@ -324,8 +312,6 @@ async fn get_config_value(
         "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
         "agent.llm_timeout_secs" => json!(config.agent.llm_timeout_secs),
         "agent.bash_timeout_secs" => json!(config.agent.bash_timeout_secs),
-        "agent.python_timeout_secs" => json!(config.agent.python_timeout_secs),
-        "agent.browser_timeout_secs" => json!(config.agent.browser_timeout_secs),
         "agent.process_session_ttl_secs" => json!(config.agent.process_session_ttl_secs),
         "agent.approval_timeout_secs" => json!(config.agent.approval_timeout_secs),
         "agent.max_iterations" => json!(config.agent.max_iterations),
@@ -356,7 +342,6 @@ async fn get_config_value(
         "api.task_trace_line_limit" => {
             json!(config.api.task_trace_line_limit)
         }
-        "api.web_search_num_results" => json!(config.api.web_search_num_results),
         "api.diagnostics_timeout_ms" => {
             json!(config.api.diagnostics_timeout_ms)
         }
@@ -497,12 +482,6 @@ async fn set_config_value(
             "agent.bash_timeout_secs" => {
                 config.agent.bash_timeout_secs = parse_value(value)?;
             }
-            "agent.python_timeout_secs" => {
-                config.agent.python_timeout_secs = parse_value(value)?;
-            }
-            "agent.browser_timeout_secs" => {
-                config.agent.browser_timeout_secs = parse_value(value)?;
-            }
             "agent.process_session_ttl_secs" => {
                 config.agent.process_session_ttl_secs = parse_value(value)?;
             }
@@ -565,9 +544,6 @@ async fn set_config_value(
             }
             "api.task_trace_line_limit" => {
                 config.api_defaults.task_trace_line_limit = parse_value(value)?;
-            }
-            "api.web_search_num_results" => {
-                config.api_defaults.web_search_num_results = parse_value(value)?;
             }
             "api.diagnostics_timeout_ms" => {
                 config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;

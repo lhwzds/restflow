@@ -62,7 +62,7 @@ impl AgentRuntimeExecutor {
             return Vec::new();
         }
 
-        let provider = CompositeSkillProvider::with_storage(self.storage.skills.clone());
+        let provider = CompositeSkillProvider::with_skrun();
         let skills = provider.list_skills();
         mentioned_ids
             .into_iter()
@@ -80,7 +80,7 @@ impl AgentRuntimeExecutor {
 
         system_prompt.push_str("\n\n## User-Mentioned Skills\n");
         system_prompt.push_str(
-            "The latest user message explicitly mentioned these skills. Before applying a mentioned skill, call `use_skill` with `action=read` and `id` set to the skill id.\n\n",
+            "The latest user message explicitly mentioned these skills. Before applying a mentioned skill, call `load_skill` with `action=read` and `id` set to the skill id.\n\n",
         );
         for skill in mentioned_skills {
             let description = skill.description.as_deref().unwrap_or("No description");
@@ -946,7 +946,7 @@ mod tests {
         );
 
         assert!(prompt.contains("User-Mentioned Skills"));
-        assert!(prompt.contains("use_skill"));
+        assert!(prompt.contains("load_skill"));
         assert!(prompt.contains("Team (team): Coordinate subagents"));
         assert!(!prompt.contains("# Team"));
     }

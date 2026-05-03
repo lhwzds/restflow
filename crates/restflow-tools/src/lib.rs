@@ -1,15 +1,13 @@
 //! Unified tool and skill system for RestFlow.
 //!
 //! This crate provides:
-//! - All tool implementations (bash, file, http, email, telegram, discord, slack, and 30+ more)
-//! - Security implementations (BashSecurityConfig, network SSRF protection)
+//! - Core tool implementations for local agent execution
+//! - Security implementations for shell and filesystem operations
 //! - Skill-as-Tool system (SkillAsTool, register_skills)
-//! - HTTP client utilities
 //!
 //! Core abstractions (Tool trait, ToolError, ToolRegistry, SecurityGate, etc.)
 //! are defined in `restflow-traits` and re-exported here for convenience.
 
-pub mod audio;
 pub mod http_client;
 
 // Implementation modules (owned by this crate)
@@ -35,10 +33,8 @@ pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
 // Store traits are defined in restflow-traits::store.
 // Consumers should import them directly from restflow-traits.
 
-// Re-export tool implementations (original 7)
-pub use impls::BrowserTool;
-pub use impls::telegram::send_telegram_notification;
-pub use impls::{BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool};
+// Re-export core tool implementations.
+pub use impls::{BashTool, FileTool};
 
 // Re-export edit tools
 pub use impls::{EditTool, MultiEditTool};
@@ -47,11 +43,9 @@ pub use impls::{EditTool, MultiEditTool};
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BinarySkillBuildTool, BinarySkillNewTool, BinarySkillReadTool,
     BinarySkillRunTool, BinarySkillUpdateTool, ConfigTool, DeleteMemoryTool, DiagnosticsTool,
-    InstalledBinarySkillTool, JinaReaderTool, ListMemoryTool, PatchTool, ProcessTool,
-    PythonExecutionBackend, PythonExecutionLimits, ReadMemoryTool, ReplyTool, RunPythonTool,
+    InstalledBinarySkillTool, ListMemoryTool, PatchTool, ProcessTool, ReadMemoryTool, ReplyTool,
     SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool, SwitchModelTool,
-    TaskTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool, WebSearchTool,
-    binary_skill_tool_name, discover_installed_binary_skill_tools,
+    TaskTool, binary_skill_tool_name, discover_installed_binary_skill_tools,
     discover_installed_binary_skill_tools_from,
 };
 
@@ -68,8 +62,8 @@ pub use impls::BatchTool;
 
 // Re-export core-migrated tools
 pub use impls::{
-    BashConfig, FileConfig, ListSubagentsTool, SecretsConfig, SpawnSubagentBatchTool,
-    SpawnSubagentTool, SpawnTool, ToolRegistryBuilder, UseSkillTool, WaitSubagentsTool,
+    BashConfig, FileConfig, ListSubagentsTool, LoadSkillTool, RunSkillTool, SecretsConfig,
+    SpawnSubagentBatchTool, SpawnSubagentTool, SpawnTool, ToolRegistryBuilder, WaitSubagentsTool,
     default_registry,
 };
 
@@ -83,7 +77,7 @@ pub use skill::tool::SkillAsTool;
 // Re-export security implementations
 pub use security::bash_security::BashSecurityConfig;
 
-// Re-export http client utilities
+// Re-export HTTP client utilities for consumers that still own runtime HTTP side effects.
 pub use http_client::{build_http_client, build_ssrf_safe_client};
 
 #[cfg(test)]

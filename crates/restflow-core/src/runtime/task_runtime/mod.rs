@@ -12,7 +12,7 @@
 //! - `executor`: Real agent executor that bridges to restflow_ai
 //! - `cli_executor`: CLI agent executor for external tools (Claude Code, Aider)
 //! - `notifier`: Telegram notification sender for task results
-//! - `events`: Real-time streaming events for frontend updates
+//! - `events`: Real-time streaming events for runtime clients
 //! - `heartbeat`: Status types and emitters (integrated into runner)
 //! - `retry`: Retry mechanism for transient failures
 //! - `failover`: Model failover system for automatic fallback
@@ -63,7 +63,7 @@
 //!
 //! # Streaming Events
 //!
-//! The events module provides real-time streaming to the frontend:
+//! The events module provides real-time streaming to runtime clients:
 //!
 //! ```ignore
 //! use restflow_core::runtime::task_runtime::events::{TaskStreamEvent, TASK_STREAM_EVENT};

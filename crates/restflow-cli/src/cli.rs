@@ -573,12 +573,14 @@ pub enum SkillCommands {
     Show { id: String },
 
     /// Create skill
+    #[command(hide = true)]
     Create {
         #[arg(short, long)]
         name: String,
     },
 
     /// Update skill
+    #[command(hide = true)]
     Update {
         /// Skill ID
         id: String,
@@ -605,12 +607,15 @@ pub enum SkillCommands {
     },
 
     /// Delete skill
+    #[command(hide = true)]
     Delete { id: String },
 
     /// Import skill from file
+    #[command(hide = true)]
     Import { path: String },
 
     /// Export skill to file
+    #[command(hide = true)]
     Export {
         id: String,
 
@@ -619,9 +624,11 @@ pub enum SkillCommands {
     },
 
     /// Search marketplace
+    #[command(hide = true)]
     Search { query: String },
 
     /// Install a skill from marketplace, git, local, package, or official binary sources
+    #[command(hide = true)]
     Install {
         /// Source: marketplace id, git URL, local path, .skill package, or official binary skill
         source: String,

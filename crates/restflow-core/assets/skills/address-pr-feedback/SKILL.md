@@ -38,7 +38,6 @@ Use this skill when you need to process unresolved GitHub PR review comments end
 
 4. Verify before replying.
 - If Rust changed, run `cargo clippy -- -D warnings`.
-- If web TypeScript/Vue changed, run `cd web && npm run format` and targeted tests.
 - If no code changed, verification can be skipped with a stated reason.
 
 5. Reply and resolve.

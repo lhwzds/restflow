@@ -2,16 +2,16 @@
 
 ## Status
 
-- Updated: 2026-04-05
+- Updated: 2026-05-02
 - Scope: Runtime architecture, deployment model, and migration baseline
-- Audience: Core contributors working on browser, CLI, daemon, and runtime channels
+- Audience: Core contributors working on TUI, CLI, daemon, skills, and runtime channels
 
 ## 1. Architectural Decision
 
-RestFlow follows a **daemon-centric** architecture.
+RestFlow follows a **runtime-and-TUI-centric** architecture.
 
 - Daemon is the only execution and persistence owner.
-- Browser and CLI are client facades and must call daemon APIs (HTTP/MCP/IPC).
+- TUI and CLI are client facades and must call runtime APIs (IPC/HTTP/MCP).
 - Business execution happens in core runtime on daemon side.
 - Storage writes are centralized in daemon-owned service/storage layers.
 
@@ -22,7 +22,7 @@ This avoids split-brain behavior, inconsistent routing logic, and duplicated wri
 1. Single writer: only daemon writes sessions, tool traces, task/run state, and bindings.
 2. Single execution center: agent execution and routing decisions are daemon-owned.
 3. Single event identity: realtime and persisted events must share stable IDs.
-4. Client isolation: browser/CLI must not add direct storage business paths.
+4. Client isolation: TUI/CLI must not add direct storage business paths.
 5. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
 
 ## 3. Runtime Topology
@@ -31,7 +31,7 @@ This avoids split-brain behavior, inconsistent routing logic, and duplicated wri
 
 ```mermaid
 flowchart TD
-    Browser["Browser frontend"] -->|"HTTP stream/request"| Daemon["Daemon"]
+    TUI["TUI"] -->|"IPC / stream"| Daemon["Daemon"]
     CLI["CLI"] -->|"IPC / HTTP"| Daemon
     Channels["Telegram / Discord / Slack"] -->|"channel events"| Daemon
     McpCallers["MCP callers"] -->|"JSON-RPC over HTTP"| Daemon
@@ -74,7 +74,8 @@ flowchart LR
 Notes:
 
 - `restflow-tools` only depends on `restflow-ai` in `dev-dependencies`; there is no production `tools -> ai` dependency.
-- `restflow-browser` is a standalone runtime crate and is not part of the main daemon execution stack.
+- Browser automation is no longer a core crate or daemon tool. Use an external
+  skrun skill when browser automation is required.
 
 ## 4. Main Execution Flows
 
@@ -99,31 +100,13 @@ Notes:
 2. `tool_traces` persists execution traces.
 3. Session execution steps are backfilled from traces for persisted UI rendering.
 
-### 4.4 Browser Workspace Inspection Flow
-
-```mermaid
-flowchart TD
-    Sidebar["Sidebar run tree"] --> Route["Canonical route"]
-    RoutePath["/workspace/c/:containerId/r/:runId"] --> Thread["GetExecutionRunThread(run_id)"]
-    Route --> RoutePath
-    RoutePath --> TopLevel["ListExecutionSessions(container)"]
-    Sidebar --> Children["ListChildExecutionSessions(parent_run_id)"]
-
-    Thread --> Center["Center panel: selected run only"]
-    Thread --> Inspector["Inspector overview baseline"]
-    Children --> Sidebar
-    Children --> Inspector
-    TopLevel --> Sidebar
-    Inspector --> Detail["Detail mode when a message/event/tool is selected"]
-```
-
 ## 5. Component Responsibilities
 
-### Browser Frontend
+### TUI
 
-- UI state and interaction only.
-- Calls daemon through shared HTTP request and stream contracts.
-- No local direct storage write path.
+- Primary local user interface.
+- Calls daemon/runtime through IPC and stream contracts.
+- No direct storage write path.
 
 ### CLI
 
@@ -282,7 +265,8 @@ When adding or changing a provider/model:
 2. Update shared provider metadata in `restflow-models/src/provider_meta.rs`.
 3. Add or update descriptors and aliases under `restflow-models/src/catalog/`.
 4. Update auth policy in `restflow-core` only if authentication behavior changes.
-5. Regenerate frontend types if any `#[derive(TS)]` shape changed.
+5. Keep generated bindings out of the runtime source tree; export checks should
+   write to a temporary or target directory.
 
 Review guidance:
 
@@ -334,118 +318,18 @@ without a full dependency review:
 The goal is not to force every trace-related type into one crate. The goal is
 to keep protocol, domain, runtime, and storage responsibilities explicit.
 
-### Browser Workspace Execution Architecture
+### TUI Execution Architecture
 
-The browser workspace now follows a **run-first inspection model**.
+The TUI is the primary local client. It consumes daemon/runtime stream events
+and renders the current conversation-first execution state. It must not own
+durable execution state or introduce alternate write paths.
 
-The canonical routes are:
+The TUI should remain a client of:
 
-- `/workspace/c/:containerId`
-- `/workspace/c/:containerId/r/:runId`
-
-The workspace shell is intentionally split into three roles:
-
-- Left sidebar: run tree navigation
-- Center panel: selected run thread only
-- Right inspector: selected run overview by default, selected event detail on demand
-
-#### Canonical Data Flows
-
-The browser workspace uses separate daemon read paths for run content and run
-relationships.
-
-1. Run content flow:
-   - `GetExecutionRunThread { run_id }`
-   - Drives the center panel thread and the inspector overview baseline
-2. Top-level run flow:
-   - `ListExecutionSessions { container }`
-   - Returns top-level runs for a container only
-3. Child relation flow:
-   - `ListChildExecutionSessions { parent_run_id }`
-   - Returns direct child runs only
-
-This separation is intentional:
-
-- `GetExecutionRunThread` must describe the body of one run only
-- child/subagent relationships must not be embedded into thread content
-- left navigation and relationship views must be driven by relation queries
-
-#### Center Panel Rules
-
-The center panel renders only the selected run:
-
-- user-visible messages that belong to the selected run
-- timeline events from `ExecutionThread.timeline`
-- optimistic/live overlays for the selected run during execution
-
-The center panel must not render:
-
-- child run pseudo-items
-- `child_run_link` rows
-- sibling or parent run content mixed into the current thread
-
-Parent/child context belongs in navigation and run metadata, not in the body of
-the selected run thread.
-
-#### Run Relationship Model
-
-Every run summary used by the workspace must preserve enough identity to resolve
-navigation consistently:
-
-- `run_id`
-- `container_id`
-- `parent_run_id`
-- `root_run_id`
-
-The intended interpretation is:
-
-- `container_id`: canonical container used by the route
-- `parent_run_id`: direct parent run when the run was spawned by another run
-- `root_run_id`: top-level root run in the same execution tree
-
-This allows child runs to behave as first-class runs while still preserving
-their lineage.
-
-#### Sidebar Run Tree
-
-The left sidebar is the primary navigation model for execution inspection.
-
-- top-level runs come from `ListExecutionSessions(container)`
-- child runs are loaded lazily with `ListChildExecutionSessions(parent_run_id)`
-- current run ancestors should auto-expand when needed
-- clicking any run, top-level or child, must navigate to the same canonical run
-  route shape
-
-The sidebar is responsible for traversal. It is not responsible for composing
-thread content across multiple runs.
-
-#### Inspector Modes
-
-The right inspector operates in two modes:
-
-1. Overview mode
-   - default state for the active run
-   - shows run summary, lineage, child runs, run-scoped telemetry, and related execution metadata
-2. Detail mode
-   - entered when the user selects a message, event, or tool result
-   - shows the detail panel for that selected item
-
-Closing detail must return to overview for the same active run instead of
-hiding the inspector entirely.
-
-#### Supporting Interaction Layers
-
-The workspace includes several browser-only interaction layers that sit on top
-of the daemon-backed run model:
-
-- `RunOverviewPanel`: run summary and lineage-aware inspector overview
-- `ExecutionStatusBar`: active execution state, elapsed time, and current phase
-- `CommandPalette`: global browser navigation/action surface for sessions,
-  agents, and workspace actions
-
-These layers improve inspection and navigation, but they must not introduce
-alternative write paths or alternate execution ownership. Daemon contracts
-remain the single source of truth.
+- daemon IPC requests and streams
+- runtime event contracts
+- skill catalog reads
+- explicit runtime actions exposed by the daemon
 
 ## 6. Deployment Model
 
@@ -511,7 +395,7 @@ tooling.
 | --- | --- | --- | --- | --- |
 | System | `[system]` | Cross-cutting system policy, retention, and feature flags | `worker_count`, `task_timeout_seconds`, `max_retries`, `chat_session_retention_days`, `log_file_retention_days` | cleanup services, daemon/runtime setup, feature flag loading |
 | Agent | `[agent]` | Agent and sub-agent execution policy | `max_iterations`, `subagent_timeout_secs`, `max_parallel_subagents`, `max_tool_calls`, `tool_timeout_secs` | agent executor, subagent manager, task runtime, chat dispatcher |
-| API | `[api]` | Default limits for MCP and API-facing operations | `memory_search_limit`, `session_list_limit`, `task_trace_line_limit`, `web_search_num_results` | MCP server handlers, runtime tool registry |
+| API | `[api]` | Default limits for MCP and API-facing operations | `memory_search_limit`, `session_list_limit`, `task_trace_line_limit`, `diagnostics_timeout_ms` | MCP server handlers, runtime tool registry |
 | Runtime | `[runtime]` | Default daemon runtime behavior | `task_runner_poll_interval_ms`, `task_runner_max_concurrent_tasks`, `chat_max_session_history` | task runner, chat dispatcher |
 | Channel | `[channel]` | External channel integration defaults | `telegram_api_timeout_secs`, `telegram_polling_timeout_secs` | Telegram channel runtime |
 | Registry | `[registry]` | Skill and marketplace integration defaults | `github_cache_ttl_secs`, `marketplace_cache_ttl_secs` | marketplace adapters, skill discovery/install flows |
@@ -528,8 +412,8 @@ Section names describe ownership domains, not implementation details:
 - CLI convenience selections are flattened into `[cli]` as `agent` and `model`;
   there is no `[cli.default]` subsection anymore.
 - Tool-adjacent knobs should live with the subsystem that owns the behavior,
-  not in a generic `[tool]` bucket. For example, `web_search_num_results`
-  belongs to `[api]`, while channel transport timeouts belong to `[channel]`.
+  not in a generic `[tool]` bucket. Channel transport timeouts belong to
+  `[channel]`, while MCP and API list limits belong to `[api]`.
 
 ## 8. Migration Baseline
 
@@ -560,12 +444,6 @@ merge:
   - `cargo fmt --all -- --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test --workspace`
-- Frontend:
-  - `cd web && npm run test`
-  - `cd web && npm run build`
-- End-to-end:
-  - `cd e2e-tests && npm test`
-
 ### Required Smoke Flows
 
 After architecture-sensitive changes, verify at least these flows:
@@ -619,9 +497,8 @@ Required parity guards before the response move:
 - Rust round-trip tests between `restflow-core` re-exports and
   `restflow-contracts` DTOs.
 - Serialization compatibility tests for representative event payloads.
-- Frontend generated type existence and field-shape tests for event/timeline
-  response types.
-- No wrapper-only response shapes added in browser, CLI, IPC, or MCP facades.
+- Contract existence and field-shape tests for event/timeline response types.
+- No wrapper-only response shapes added in TUI, CLI, IPC, or MCP facades.
 
 Do:
 
@@ -631,7 +508,7 @@ Do:
 
 Do not:
 
-- Add direct storage access in browser adapters or request handlers.
+- Add direct storage access in TUI adapters or request handlers.
 - Add fallback write paths that bypass daemon ownership.
 - Encode routing ownership only in display fields on session models.
 

@@ -12,7 +12,7 @@ pub struct ModelMetadata {
     pub name: &'static str,
 }
 
-/// Serializable model metadata for transferring to frontend.
+/// Serializable model metadata for runtime clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]

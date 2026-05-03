@@ -13,8 +13,8 @@ use crate::{
     models::{NotificationConfig, Task},
     storage::SecretStorage,
 };
-use restflow_tools::send_telegram_notification;
 use restflow_traits::floor_char_boundary;
+use serde_json::json;
 
 use super::runner::NotificationSender;
 
@@ -198,6 +198,47 @@ async fn send_telegram_message_with_retry(
         send_telegram_notification(bot_token, chat_id, message, None).await
     })
     .await
+}
+
+async fn send_telegram_notification(
+    bot_token: &str,
+    chat_id: &str,
+    message: &str,
+    parse_mode: Option<&str>,
+) -> std::result::Result<(), String> {
+    let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
+    let mut payload = json!({
+        "chat_id": chat_id,
+        "text": message,
+    });
+    if let Some(parse_mode) = parse_mode {
+        payload["parse_mode"] = json!(parse_mode);
+    }
+
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| sanitize_telegram_error(&error.to_string(), bot_token))?;
+
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|error| format!("failed to read Telegram response body: {error}"));
+    Err(sanitize_telegram_error(
+        &format!("Telegram API returned {status}: {body}"),
+        bot_token,
+    ))
+}
+
+fn sanitize_telegram_error(raw: &str, bot_token: &str) -> String {
+    raw.replace(bot_token, "[REDACTED]")
 }
 
 #[cfg(test)]

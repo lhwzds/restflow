@@ -68,16 +68,10 @@ impl ToolRegistryBuilder {
     }
 }
 
-/// Create a registry with default tools.
-pub fn default_registry() -> std::result::Result<ToolRegistry, reqwest::Error> {
+/// Create a registry with default core tools.
+pub fn default_registry() -> anyhow::Result<ToolRegistry> {
     Ok(ToolRegistryBuilder::new()
         .with_bash(BashConfig::default())
         .with_file(FileConfig::default())
-        .with_http()?
-        .with_email()
-        .with_telegram()?
-        .with_discord()?
-        .with_slack()?
-        .with_python()
         .build())
 }

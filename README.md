@@ -1,6 +1,3 @@
-<div align="center">
-  <img src="web/src/assets/restflow.svg" alt="RestFlow Logo" width="120" height="120" />
-
 # RestFlow
 
 **Make your agent binary. Make your workflow binary. Make your skill binary.**
@@ -10,31 +7,26 @@
 [![Release](https://img.shields.io/github/v/release/lhwzds/restflow?label=latest)](https://github.com/lhwzds/restflow/releases/latest)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-dea584)](https://www.rust-lang.org/)
 
-</div>
-
 ---
 
 ## What RestFlow Is
 
-RestFlow is a daemon-centric AI runtime that is evolving toward a simple product idea:
-
-This product model is under active development and is being implemented incrementally on top of the existing daemon runtime.
+RestFlow is a local agent framework with a terminal-first interface and an
+external executable skill boundary.
 
 - **Skill Binary**: package one reusable AI capability as a portable executable unit
 - **Agent Binary**: compile one agent with its model, tools, policy, and behavior into a runnable unit
 - **Workflow Binary**: compose multiple skills and agents into a fixed executable flow
 
-The daemon remains the runtime center.
-It is already the execution and persistence binary for RestFlow today, and the higher-level
-skill / agent / workflow binary model is built on top of that runtime rather than replacing it.
+The runtime center is the Rust agent framework plus TUI. Specialized external
+capabilities are packaged and run through `skrun`.
 
 In practice, this means RestFlow is not just "an AI chat app" or "a workflow editor".
 It is building toward a portable execution system for AI work:
 
 - agents
 - skills
-- workflows
-- parallel execution
+- executable skill runs
 
 ## Quick Start
 
@@ -109,15 +101,13 @@ A compiled execution flow.
 
 ## Runtime Architecture
 
-Today, RestFlow's implementation center is still the daemon runtime.
+RestFlow is not a split frontend/backend app. It is a Rust runtime and TUI:
 
-RestFlow is not a split frontend/backend app with duplicated execution logic.
-It is a daemon-centric runtime:
-
-- `restflow-core` owns daemon execution, persistence, background task runtime, and chat routing
+- `restflow-core` owns daemon execution and runtime adapters
 - `restflow-ai` owns the agent loop, model execution, and subagent runtime capability
 - `restflow-tools` owns tool implementations and registry assembly helpers
-- Browser and CLI are client facades over daemon HTTP/MCP/IPC surfaces
+- `restflow-tui` is the primary user interface
+- `skrun` owns external executable tool examples and installed skill runs
 
 Execution naming follows one canonical model:
 
@@ -133,13 +123,13 @@ See the local architecture references for the current design:
 
 ## Current State
 
-RestFlow already has the daemon-first runtime foundation:
+RestFlow now focuses on the minimal runtime foundation:
 
 - daemon-owned execution
-- browser and CLI as clients
-- persistent chat sessions
-- background task runtime
-- tool execution and tracing
+- TUI and CLI as clients
+- minimal tool execution
+- skill discovery through `load_skill`
+- executable skill runs through `run_skill`
 - MCP/HTTP/IPC surfaces
 
 The product direction from here is to raise these runtime capabilities into first-class,
@@ -160,11 +150,6 @@ portable artifacts:
 ```bash
 # Rust workspace
 cargo check
-
-# Web app
-cd web
-npm install
-npm run dev
 ```
 
 Default MCP HTTP endpoint:

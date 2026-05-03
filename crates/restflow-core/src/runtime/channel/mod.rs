@@ -80,9 +80,7 @@ pub use handler::{
 pub use router::{MessageRouter, RouteDecision};
 pub use trigger::{SystemStatus, TaskTrigger};
 pub(crate) use turn_persistence::build_turn_persistence_payload;
-pub(crate) use voice_preprocess::{
-    detect_voice_message, preprocess_voice_message, transcribe_media_file,
-};
+pub(crate) use voice_preprocess::{detect_voice_message, preprocess_voice_message};
 pub(crate) use voice_transcript::{
     hydrate_voice_message_metadata, replace_latest_user_message_content,
 };

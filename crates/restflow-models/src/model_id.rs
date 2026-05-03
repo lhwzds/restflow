@@ -259,7 +259,7 @@ impl ModelId {
         self.descriptor().openrouter_equivalent
     }
 
-    /// Convert metadata to serializable DTO for frontend
+    /// Convert metadata to serializable DTO for runtime clients.
     pub fn to_metadata_dto(&self) -> ModelMetadataDTO {
         self.descriptor().metadata_dto()
     }

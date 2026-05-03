@@ -259,7 +259,6 @@ impl ShellController {
                     return Ok(Vec::new());
                 };
                 match item {
-                    SkillManagerSelection::Create => Ok(vec![ShellAction::StartSkillCreatePrompt]),
                     SkillManagerSelection::Skill(skill) => {
                         self.skill_detail_actions(skill.id).await
                     }
@@ -503,7 +502,7 @@ impl ShellController {
         let status = if skills.is_empty() {
             "No skills installed.".to_string()
         } else {
-            "Manage skills".to_string()
+            "View skills".to_string()
         };
         Ok(vec![ShellAction::SkillPickerLoaded { skills, status }])
     }

@@ -1,0 +1,8 @@
+{
+  "id": "slack-send",
+  "name": "Slack Send",
+  "version": "0.1.0",
+  "kind": "python",
+  "description": "Send Slack webhook messages outside the RestFlow core tool registry.",
+  "entrypoint": "python run.py"
+}
