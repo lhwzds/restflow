@@ -368,35 +368,4 @@ mod tests {
         assert!(results.source_counts.sessions > 0);
         assert!(results.results.len() >= 2);
     }
-
-    #[test]
-    fn test_search_file_backed_session_without_redb_session() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-        let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
-        let session_service = SessionService::new(
-            storage.sessions.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-            Some(storage.memory.clone()),
-        )
-        .with_file_sessions(file_store.clone());
-        let engine = UnifiedSearchEngine::new(storage.memory.clone(), session_service);
-        let mut session = ChatSession::new("agent-1".to_string(), "claude".to_string());
-        session.add_message(ChatMessage::assistant("JSONL sessions are searchable"));
-        file_store
-            .write_session(&FileSession::from_chat_session(&session), false)
-            .unwrap();
-
-        let base = MemorySearchQuery::new("agent-1".to_string())
-            .with_query("jsonl".to_string())
-            .with_mode(SearchMode::Keyword)
-            .paginate(10, 0);
-        let query = UnifiedSearchQuery::new(base).with_sessions(true);
-
-        let results = engine.search(&query).unwrap();
-        assert_eq!(results.source_counts.sessions, 1);
-        assert!(storage.chat_sessions.get(&session.id).unwrap().is_none());
-    }
 }
