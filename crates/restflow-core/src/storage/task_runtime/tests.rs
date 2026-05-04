@@ -976,52 +976,44 @@ fn test_delete_task_removes_checkpoints_and_savepoints() {
 }
 
 #[test]
-fn test_delete_task_archives_owned_chat_session() {
+fn test_delete_task_does_not_archive_owned_chat_session() {
     let storage = create_test_storage();
     let task = storage
-        .create_task_from_spec(TaskSpec {
-            name: "Archive On Delete".to_string(),
-            agent_id: "agent-archive".to_string(),
-            chat_session_id: None,
-            description: None,
-            input: Some("archive me".to_string()),
-            input_template: None,
-            schedule: TaskSchedule::default(),
-            notification: None,
-            execution_mode: None,
-            timeout_secs: None,
-            memory: None,
-            durability_mode: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
+        .create_task_from_spec_with_binding(
+            TaskSpec {
+                name: "Archive On Delete".to_string(),
+                agent_id: "agent-archive".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("archive me".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            },
+            TaskSessionBinding {
+                session_id: "owned-session".to_string(),
+                owns_session: true,
+            },
+        )
         .unwrap();
 
     assert!(task.owns_chat_session);
-    let session_before = storage
-        .chat_sessions()
-        .get(&task.chat_session_id)
-        .unwrap()
-        .unwrap();
-    assert!(session_before.archived_at.is_none());
-
     let deleted = storage.delete_task(&task.id).unwrap();
     assert!(deleted);
-    let session_after = storage
-        .chat_sessions()
-        .get(&task.chat_session_id)
-        .unwrap()
-        .unwrap();
-    assert!(session_after.archived_at.is_some());
+    assert!(storage.get_task(&task.id).unwrap().is_none());
 }
 
 #[test]
 fn test_delete_task_does_not_archive_non_owned_chat_session() {
     let storage = create_test_storage();
-    let shared_session = ChatSession::new("agent-shared".to_string(), "gpt-5".to_string());
-    let shared_session_id = shared_session.id.clone();
-    storage.chat_sessions().create(&shared_session).unwrap();
+    let shared_session_id = "shared-session".to_string();
 
     let task = storage
         .create_task_from_spec(TaskSpec {
@@ -1046,22 +1038,18 @@ fn test_delete_task_does_not_archive_non_owned_chat_session() {
     assert!(!task.owns_chat_session);
     let deleted = storage.delete_task(&task.id).unwrap();
     assert!(deleted);
-    let session_after = storage
-        .chat_sessions()
-        .get(&shared_session_id)
-        .unwrap()
-        .unwrap();
-    assert!(session_after.archived_at.is_none());
+    assert!(storage.get_task(&task.id).unwrap().is_none());
 }
 
 #[test]
-fn test_create_task_rejects_reused_chat_session_binding() {
+fn test_create_task_accepts_raw_reused_chat_session_binding() {
     let storage = create_test_storage();
+    let shared_session_id = "shared-session".to_string();
     let owner_task = storage
         .create_task_from_spec(TaskSpec {
             name: "Owner".to_string(),
             agent_id: "agent-owner".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some(shared_session_id.clone()),
             description: None,
             input: Some("owner".to_string()),
             input_template: None,
@@ -1080,7 +1068,7 @@ fn test_create_task_rejects_reused_chat_session_binding() {
     let result = storage.create_task_from_spec(TaskSpec {
         name: "Reuser".to_string(),
         agent_id: "agent-owner".to_string(),
-        chat_session_id: Some(owner_task.chat_session_id.clone()),
+        chat_session_id: Some(shared_session_id.clone()),
         description: None,
         input: Some("reuse".to_string()),
         input_template: None,
@@ -1095,9 +1083,11 @@ fn test_create_task_rejects_reused_chat_session_binding() {
         continuation: None,
     });
 
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("already bound to task"));
+    let reused = result.unwrap();
+    assert_eq!(owner_task.chat_session_id, shared_session_id);
+    assert_eq!(reused.chat_session_id, shared_session_id);
+    assert!(!owner_task.owns_chat_session);
+    assert!(!reused.owns_chat_session);
 }
 
 #[test]
@@ -1479,7 +1469,7 @@ fn test_repair_runnable_task_does_not_overwrite_paused_status_from_stale_snapsho
 }
 
 #[test]
-fn test_list_runnable_tasks_skips_task_when_repair_persist_fails() {
+fn test_list_runnable_tasks_repairs_stale_task_with_duplicate_session_binding() {
     let storage = create_test_storage();
 
     let created = storage
@@ -1505,7 +1495,7 @@ fn test_list_runnable_tasks_skips_task_when_repair_persist_fails() {
         })
         .unwrap();
 
-    // Create a stale schedule state that requires repair and is runnable now.
+    // Create stale schedule state that requires repair before scheduling can continue.
     let now = chrono::Utc::now().timestamp_millis();
     let mut broken = storage.get_task(&created.id).unwrap().unwrap();
     broken.next_run_at = Some(now - 5_000);
@@ -1529,8 +1519,8 @@ fn test_list_runnable_tasks_skips_task_when_repair_persist_fails() {
     storage.update_task(&ready_task).unwrap();
     assert!(ready_task.should_run(now));
 
-    // Inject a conflicting task with same chat_session_id by bypassing uniqueness checks.
-    // This makes update_task fail during repair persistence.
+    // Duplicate chat-session bindings are a service-layer policy concern.
+    // Storage repair persists the task record without consulting session state.
     let mut conflicting = broken.clone();
     conflicting.id = format!("conflict-{}", Uuid::new_v4());
     conflicting.status = TaskStatus::Paused;
@@ -1541,11 +1531,11 @@ fn test_list_runnable_tasks_skips_task_when_repair_persist_fails() {
         .unwrap();
 
     let runnable = storage.list_runnable_tasks(now).unwrap();
-    assert!(runnable.iter().all(|task| task.id != created.id));
+    assert!(!runnable.iter().any(|task| task.id == created.id));
     assert!(runnable.iter().any(|task| task.id == ready.id));
 
     let after = storage.get_task(&created.id).unwrap().unwrap();
-    assert_eq!(after.next_run_at, broken.next_run_at);
+    assert_ne!(after.next_run_at, broken.next_run_at);
     assert_eq!(after.last_run_at, broken.last_run_at);
 }
 
@@ -1752,7 +1742,7 @@ fn test_create_task_with_template_and_memory_scope() {
 }
 
 #[test]
-fn test_create_task_auto_creates_bound_chat_session() {
+fn test_create_task_does_not_auto_create_bound_chat_session() {
     let storage = create_test_storage();
     let created = storage
         .create_task_from_spec(TaskSpec {
@@ -1774,57 +1764,47 @@ fn test_create_task_auto_creates_bound_chat_session() {
         })
         .unwrap();
 
-    assert!(!created.chat_session_id.trim().is_empty());
-    let session = storage
-        .chat_sessions
-        .get(&created.chat_session_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(session.agent_id, "agent-001");
-    assert!(session.name.contains("Bound Session Task"));
+    assert!(created.chat_session_id.trim().is_empty());
+    assert!(!created.owns_chat_session);
 }
 
 #[test]
-fn test_create_task_rejects_chat_session_bound_to_other_agent() {
+fn test_create_task_accepts_raw_chat_session_binding() {
     let storage = create_test_storage();
-    let foreign_session = ChatSession::new(
-        "agent-002".to_string(),
-        ModelId::Gpt5.as_serialized_str().to_string(),
-    );
-    storage.chat_sessions.create(&foreign_session).unwrap();
+    let foreign_session_id = "foreign-session".to_string();
 
-    let result = storage.create_task_from_spec(TaskSpec {
-        name: "Reject Foreign Session".to_string(),
-        agent_id: "agent-001".to_string(),
-        chat_session_id: Some(foreign_session.id.clone()),
-        description: None,
-        input: Some("Run".to_string()),
-        input_template: None,
-        schedule: TaskSchedule::default(),
-        notification: None,
-        execution_mode: None,
-        timeout_secs: None,
-        memory: None,
-        durability_mode: None,
-        resource_limits: None,
-        prerequisites: Vec::new(),
-        continuation: None,
-    });
+    let task = storage
+        .create_task_from_spec(TaskSpec {
+            name: "Reject Foreign Session".to_string(),
+            agent_id: "agent-001".to_string(),
+            chat_session_id: Some(foreign_session_id.clone()),
+            description: None,
+            input: Some("Run".to_string()),
+            input_template: None,
+            schedule: TaskSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })
+        .unwrap();
 
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("is bound to agent"));
-    assert!(err.contains("agent-002"));
+    assert_eq!(task.chat_session_id, foreign_session_id);
+    assert!(!task.owns_chat_session);
 }
 
 #[test]
-fn test_update_task_agent_change_rebinds_chat_session() {
+fn test_update_task_agent_change_preserves_chat_session_binding() {
     let storage = create_test_storage();
     let created = storage
         .create_task_from_spec(TaskSpec {
             name: "Rebind Session Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("Run".to_string()),
             input_template: None,
@@ -1852,24 +1832,18 @@ fn test_update_task_agent_change_rebinds_chat_session() {
         .unwrap();
 
     assert_eq!(updated.agent_id, "agent-002");
-    assert_ne!(updated.chat_session_id, original_session_id);
-
-    let rebound_session = storage
-        .chat_sessions
-        .get(&updated.chat_session_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(rebound_session.agent_id, "agent-002");
+    assert_eq!(updated.chat_session_id, original_session_id);
+    assert!(!updated.owns_chat_session);
 }
 
 #[test]
-fn test_update_task_rejects_reused_chat_session_binding() {
+fn test_update_task_accepts_raw_reused_chat_session_binding() {
     let storage = create_test_storage();
     let owner = storage
         .create_task_from_spec(TaskSpec {
             name: "Owner".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("shared-session".to_string()),
             description: None,
             input: Some("Owner input".to_string()),
             input_template: None,
@@ -1889,7 +1863,7 @@ fn test_update_task_rejects_reused_chat_session_binding() {
         .create_task_from_spec(TaskSpec {
             name: "Other".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("other-session".to_string()),
             description: None,
             input: Some("Other input".to_string()),
             input_template: None,
@@ -1905,16 +1879,17 @@ fn test_update_task_rejects_reused_chat_session_binding() {
         })
         .unwrap();
 
-    let result = storage.update_task_from_patch(
-        &other.id,
-        TaskPatch {
-            chat_session_id: Some(owner.chat_session_id.clone()),
-            ..Default::default()
-        },
-    );
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("already bound to task"));
+    let updated = storage
+        .update_task_from_patch(
+            &other.id,
+            TaskPatch {
+                chat_session_id: Some(owner.chat_session_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.chat_session_id, owner.chat_session_id);
+    assert!(!updated.owns_chat_session);
 }
 
 #[test]

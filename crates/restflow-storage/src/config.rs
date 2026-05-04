@@ -45,7 +45,6 @@ const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
 const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_AUDIT_EVENT_RETENTION_DAYS: u32 = 7;
-const DEFAULT_TELEMETRY_METRIC_SAMPLE_RETENTION_DAYS: u32 = 7;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
@@ -98,7 +97,6 @@ pub struct SystemSection {
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     pub audit_event_retention_days: u32,
-    pub telemetry_metric_sample_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
 }
@@ -117,7 +115,6 @@ impl Default for SystemSection {
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
-            telemetry_metric_sample_retention_days: DEFAULT_TELEMETRY_METRIC_SAMPLE_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
         }
@@ -138,7 +135,6 @@ impl From<&SystemConfig> for SystemSection {
             checkpoint_retention_days: config.checkpoint_retention_days,
             memory_chunk_retention_days: config.memory_chunk_retention_days,
             audit_event_retention_days: config.audit_event_retention_days,
-            telemetry_metric_sample_retention_days: config.telemetry_metric_sample_retention_days,
             log_file_retention_days: config.log_file_retention_days,
             experimental_features: config.experimental_features.clone(),
         }
@@ -184,9 +180,6 @@ impl ConfigDocument {
             checkpoint_retention_days: self.system.checkpoint_retention_days,
             memory_chunk_retention_days: self.system.memory_chunk_retention_days,
             audit_event_retention_days: self.system.audit_event_retention_days,
-            telemetry_metric_sample_retention_days: self
-                .system
-                .telemetry_metric_sample_retention_days,
             log_file_retention_days: self.system.log_file_retention_days,
             experimental_features: self.system.experimental_features.clone(),
             agent: self.agent.clone(),
@@ -645,9 +638,6 @@ pub struct SystemConfig {
     /// Retention period for execution audit events.
     /// 0 = keep forever, otherwise delete events older than N days.
     pub audit_event_retention_days: u32,
-    /// Retention period for telemetry metric samples.
-    /// 0 = keep forever, otherwise delete samples older than N days.
-    pub telemetry_metric_sample_retention_days: u32,
     /// Retention period for daemon and event log files on disk.
     /// 0 = keep forever, otherwise delete files older than N days.
     pub log_file_retention_days: u32,
@@ -683,7 +673,6 @@ impl Default for SystemConfig {
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
-            telemetry_metric_sample_retention_days: DEFAULT_TELEMETRY_METRIC_SAMPLE_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
             agent: AgentSettings::default(),
@@ -778,15 +767,6 @@ impl SystemConfig {
         {
             return Err(anyhow::anyhow!(
                 "Audit event retention must be 0 (forever) or at least {} day",
-                MIN_RETENTION_DAYS
-            ));
-        }
-
-        if self.telemetry_metric_sample_retention_days != 0
-            && self.telemetry_metric_sample_retention_days < MIN_RETENTION_DAYS
-        {
-            return Err(anyhow::anyhow!(
-                "Telemetry metric sample retention must be 0 (forever) or at least {} day",
                 MIN_RETENTION_DAYS
             ));
         }
@@ -1173,7 +1153,6 @@ struct SystemSectionOverride {
     pub checkpoint_retention_days: Option<u32>,
     pub memory_chunk_retention_days: Option<u32>,
     pub audit_event_retention_days: Option<u32>,
-    pub telemetry_metric_sample_retention_days: Option<u32>,
     pub log_file_retention_days: Option<u32>,
     pub experimental_features: Option<Vec<String>>,
 }
@@ -1218,9 +1197,6 @@ impl SystemSectionOverride {
         }
         if let Some(value) = self.audit_event_retention_days {
             config.audit_event_retention_days = value;
-        }
-        if let Some(value) = self.telemetry_metric_sample_retention_days {
-            config.telemetry_metric_sample_retention_days = value;
         }
         if let Some(value) = self.log_file_retention_days {
             config.log_file_retention_days = value;

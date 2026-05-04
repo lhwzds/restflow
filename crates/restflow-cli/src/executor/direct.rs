@@ -13,8 +13,9 @@ use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
-    AgentNode, ExecutionTimeline, ExecutionTraceQuery, RunListQuery, RunSummary, Task,
-    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ExecutionTraceQuery,
+    RunListQuery, RunSummary, Task, TaskControlAction, TaskConversionResult, TaskPatch,
+    TaskProgress, TaskSpec,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
@@ -24,10 +25,7 @@ use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AppCore,
-    models::{
-        ChatSession, ChatSessionSource, ChatSessionSummary, MemoryChunk, MemorySearchResult,
-        MemoryStats, Secret, Skill,
-    },
+    models::{MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill},
 };
 use restflow_storage::PairingStorage;
 
@@ -158,47 +156,6 @@ impl CommandExecutor for DirectExecutor {
         }
         let id = self.core.storage.memory.store_chunk(&chunk)?;
         Ok(id)
-    }
-
-    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
-        self.core.storage.chat_sessions.list_summaries()
-    }
-
-    async fn get_session(&self, id: &str) -> Result<ChatSession> {
-        self.core
-            .storage
-            .chat_sessions
-            .get(id)?
-            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))
-    }
-
-    async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession> {
-        let mut session = ChatSession::new(agent_id, model);
-        session.source_channel = Some(ChatSessionSource::Workspace);
-        self.core.storage.chat_sessions.create(&session)?;
-        Ok(session)
-    }
-
-    async fn delete_session(&self, id: &str) -> Result<bool> {
-        let sessions = SessionService::from_storage(&self.core.storage);
-        sessions.delete_workspace_session(id)
-    }
-
-    async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>> {
-        let query = query.to_lowercase();
-        let sessions = self.core.storage.chat_sessions.list()?;
-        let matches: Vec<ChatSessionSummary> = sessions
-            .into_iter()
-            .filter(|session| {
-                session.name.to_lowercase().contains(&query)
-                    || session
-                        .messages
-                        .iter()
-                        .any(|message| message.content.to_lowercase().contains(&query))
-            })
-            .map(|session| ChatSessionSummary::from(&session))
-            .collect();
-        Ok(matches)
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
@@ -354,11 +311,46 @@ impl CommandExecutor for DirectExecutor {
             checkpoints: report.checkpoints,
             memory_chunks: report.memory_chunks,
             audit_events: report.audit_events,
-            telemetry_metric_samples: report.telemetry_metric_samples,
+            telemetry_metric_samples: 0,
             memory_sessions: report.memory_sessions,
             vector_orphans: report.vector_orphans,
             daemon_log_files: report.daemon_log_files,
         })
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
+        Ok(SessionService::from_storage(&self.core.storage)
+            .list_session_views(None, None, false)?
+            .iter()
+            .map(ChatSessionSummary::from)
+            .collect())
+    }
+
+    async fn list_full_sessions(&self) -> Result<Vec<ChatSession>> {
+        SessionService::from_storage(&self.core.storage).list_session_views(None, None, false)
+    }
+
+    async fn get_session(&self, id: &str) -> Result<ChatSession> {
+        SessionService::from_storage(&self.core.storage)
+            .get_session_view(id)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))
+    }
+
+    async fn create_session(
+        &self,
+        agent_id: Option<String>,
+        model: Option<String>,
+        name: Option<String>,
+        skill_id: Option<String>,
+    ) -> Result<ChatSession> {
+        let agent_id = resolve_agent_id(&self.core, agent_id).await?;
+        let model = model.unwrap_or_else(|| "gpt-5.4".to_string());
+        SessionService::from_storage(&self.core.storage)
+            .create_workspace_session(agent_id, model, name, skill_id, None)
+    }
+
+    async fn delete_session(&self, id: &str) -> Result<bool> {
+        SessionService::from_storage(&self.core.storage).delete_session(id)
     }
 
     // Task operations - require daemon

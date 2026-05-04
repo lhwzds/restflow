@@ -29,7 +29,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
-    /// Database path (defaults to ~/.restflow/restflow.db)
+    /// Database path for daemon lifecycle commands
     #[arg(long, global = true, env = "RESTFLOW_DB_PATH")]
     pub db_path: Option<String>,
 
@@ -140,6 +140,9 @@ pub enum Commands {
         command: SessionCommands,
     },
 
+    /// Import local coding-agent history into RestFlow sessions
+    Import(ImportArgs),
+
     /// Telegram pairing / access control
     Pairing {
         #[command(subcommand)]
@@ -205,6 +208,31 @@ mod tests {
     fn parses_upgrade_command() {
         let cli = Cli::try_parse_from(["restflow", "upgrade"]).expect("parse upgrade");
         assert!(matches!(cli.command, Some(super::Commands::Upgrade(_))));
+    }
+
+    #[test]
+    fn parses_import_command() {
+        let cli = Cli::try_parse_from(["restflow", "import", "codex", "--dry-run"])
+            .expect("parse import");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Import(super::ImportArgs {
+                source: super::ImportSourceArg::Codex,
+                dry_run: true,
+                ..
+            }))
+        ));
+    }
+
+    #[test]
+    fn parses_session_list_command() {
+        let cli = Cli::try_parse_from(["restflow", "session", "list"]).expect("parse session list");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Session {
+                command: super::SessionCommands::List
+            })
+        ));
     }
 
     #[test]
@@ -727,7 +755,7 @@ pub enum McpCommands {
     Serve,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum SessionCommands {
     /// List all sessions
     List,
@@ -764,6 +792,34 @@ pub enum SessionCommands {
         #[arg(long)]
         agent: Option<String>,
     },
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImportSourceArg {
+    #[default]
+    All,
+    Claude,
+    Codex,
+    Opencode,
+}
+
+#[derive(Args, Clone, Debug, Default)]
+pub struct ImportArgs {
+    /// Source history to import
+    #[arg(value_enum, default_value_t = ImportSourceArg::All)]
+    pub source: ImportSourceArg,
+
+    /// Override the source root path for a single-source import
+    #[arg(long)]
+    pub path: Option<std::path::PathBuf>,
+
+    /// Only report what would be imported
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Overwrite existing RestFlow session JSONL files with the same id
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Subcommand)]

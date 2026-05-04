@@ -7,62 +7,30 @@ use restflow_ai::telemetry::{
     normalize_telemetry_preview, sanitize_telemetry_secrets, truncate_telemetry_text,
 };
 
-use crate::models::ExecutionTraceCategory;
-use crate::storage::{
-    ExecutionTraceStorage, ProviderHealthSnapshotStorage, StructuredExecutionLogStorage,
-    TelemetryMetricSampleStorage,
-};
+use crate::storage::ExecutionTraceStorage;
 
 use super::derive::derive_projection_events;
 use super::mapping::execution_event_to_trace_event;
-use super::projector::{
-    ExecutionTraceProjector, MetricsProjector, ProviderHealthProjector, StructuredLogProjector,
-    TelemetryProjector,
-};
+use super::projector::{ExecutionTraceProjector, TelemetryProjector};
 
 #[derive(Clone)]
 pub struct CoreTelemetrySink {
     trace_projector: ExecutionTraceProjector,
-    metrics_projector: MetricsProjector,
-    provider_health_projector: ProviderHealthProjector,
-    structured_log_projector: StructuredLogProjector,
 }
 
 impl CoreTelemetrySink {
-    pub fn new(
-        execution_traces: ExecutionTraceStorage,
-        _chat_sessions: crate::storage::ChatSessionStorage,
-        telemetry_metric_samples: TelemetryMetricSampleStorage,
-        provider_health_snapshots: ProviderHealthSnapshotStorage,
-        structured_execution_logs: StructuredExecutionLogStorage,
-    ) -> Self {
+    pub fn new(execution_traces: ExecutionTraceStorage) -> Self {
         Self {
             trace_projector: ExecutionTraceProjector::new(execution_traces),
-            metrics_projector: MetricsProjector::new(telemetry_metric_samples),
-            provider_health_projector: ProviderHealthProjector::new(provider_health_snapshots),
-            structured_log_projector: StructuredLogProjector::new(structured_execution_logs),
         }
     }
 
     fn project_primary_event(&self, event: &crate::models::ExecutionTraceEvent) -> Result<()> {
-        self.trace_projector.project(event)?;
-        self.metrics_projector.project(event)?;
-        self.provider_health_projector.project(event)?;
-        self.structured_log_projector.project(event)?;
-        Ok(())
+        self.trace_projector.project(event)
     }
 
     fn project_derived_event(&self, event: &crate::models::ExecutionTraceEvent) -> Result<()> {
-        self.trace_projector.project(event)?;
-        match event.category {
-            ExecutionTraceCategory::MetricSample => self.metrics_projector.project(event)?,
-            ExecutionTraceCategory::ProviderHealth => {
-                self.provider_health_projector.project(event)?
-            }
-            ExecutionTraceCategory::LogRecord => self.structured_log_projector.project(event)?,
-            _ => {}
-        }
-        Ok(())
+        self.trace_projector.project(event)
     }
 }
 
@@ -134,13 +102,7 @@ impl TelemetrySink for ExecutionTraceSink {
 }
 
 pub fn build_core_telemetry_sink(storage: &crate::storage::Storage) -> Arc<dyn TelemetrySink> {
-    Arc::new(CoreTelemetrySink::new(
-        storage.execution_traces.clone(),
-        storage.chat_sessions.clone(),
-        storage.telemetry_metric_samples.clone(),
-        storage.provider_health_snapshots.clone(),
-        storage.structured_execution_logs.clone(),
-    ))
+    Arc::new(CoreTelemetrySink::new(storage.execution_traces.clone()))
 }
 
 pub fn build_execution_trace_sink(

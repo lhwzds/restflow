@@ -2,28 +2,31 @@
 
 ## Status
 
-- Updated: 2026-05-02
-- Scope: Runtime architecture, deployment model, and migration baseline
+- Updated: 2026-05-03
+- Scope: Runtime architecture, session storage, deployment model, and migration baseline
 - Audience: Core contributors working on TUI, CLI, daemon, skills, and runtime channels
 
 ## 1. Architectural Decision
 
-RestFlow follows a **runtime-and-TUI-centric** architecture.
+RestFlow follows a **local agent runtime with file-backed sessions** architecture.
 
-- Daemon is the only execution and persistence owner.
-- TUI and CLI are client facades and must call runtime APIs (IPC/HTTP/MCP).
-- Business execution happens in core runtime on daemon side.
-- Storage writes are centralized in daemon-owned service/storage layers.
+- Daemon is the execution owner for agent loops, tasks, channels, approvals, secrets, and runtime side effects.
+- User-visible chat sessions are stored as one JSONL file per session under `~/.restflow/sessions/`.
+- TUI reads session history through daemon IPC; `SessionService` is the canonical user-visible session read/write boundary and prefers JSONL when the file store is available.
+- CLI `session` commands route through daemon IPC and `SessionService`; `import` may write JSONL session transcripts directly because it only migrates external history.
+- `restflow.db` remains a legacy daemon state store during reduction; it is not the canonical source for user-visible chat sessions.
 
-This avoids split-brain behavior, inconsistent routing logic, and duplicated write paths.
+This keeps execution ownership centralized while making session history portable,
+inspectable, and compatible with other coding-agent transcripts.
 
 ## 2. System Invariants
 
-1. Single writer: only daemon writes sessions, tool traces, task/run state, and bindings.
-2. Single execution center: agent execution and routing decisions are daemon-owned.
-3. Single event identity: realtime and persisted events must share stable IDs.
-4. Client isolation: TUI/CLI must not add direct storage business paths.
-5. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
+1. Single execution center: agent execution and routing decisions are daemon-owned.
+2. Canonical session files: user-visible session history lives in JSONL files under `~/.restflow/sessions/`.
+3. Direct session-file writes outside `SessionService` are limited to transcript import.
+4. Daemon-owned state remains daemon-owned: tasks, runs, channels, approvals, secrets, and runtime side effects must not be written by TUI adapters.
+5. One file per session: imported Claude Code, Codex, and OpenCode histories are normalized into RestFlow session JSONL, without preserving source-specific storage ownership fields.
+6. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
 
 ## 3. Runtime Topology
 
@@ -42,8 +45,9 @@ flowchart TD
     Daemon --> Runner["Task runner"]
     Daemon --> Runtime["Runtime event publishing"]
     Daemon --> Services["Service layer"]
+    CLI -->|"session/import JSONL only"| SessionFiles["~/.restflow/sessions/**/*.jsonl"]
 
-    Services --> Sessions["sessions / messages"]
+    Services --> SessionFiles
     Services --> Traces["tool_traces / execution traces"]
     Services --> Tasks["tasks / runs / history"]
     Services --> Secrets["auth / secrets / config"]
@@ -85,17 +89,27 @@ Notes:
 1. Client sends request to daemon.
 2. Daemon routes message via channel runtime.
 3. Runtime executes agent/tool loop.
-4. Daemon emits realtime events and persists final state.
-5. Client renders stream and later reads history from the same source of truth.
+4. Daemon emits realtime events and appends normalized transcript events.
+5. Client renders stream and later reads history from `~/.restflow/sessions/**/*.jsonl`.
 
-### 4.2 Task / Run Flow
+### 4.2 Session Import Flow
+
+1. CLI reads local source history:
+   - Claude Code: `~/.claude/projects/**/*.jsonl`
+   - Codex: `~/.codex/sessions/**/rollout-*.jsonl`
+   - OpenCode: `~/.local/share/opencode/opencode.db`, XDG data dir, or legacy JSON storage
+2. Source adapters extract stable fields: id, title, cwd, timestamps, model, provider, messages, reasoning, tool calls, tool results, compaction summaries, and usage.
+3. RestFlow writes one normalized JSONL file per imported session.
+4. Source-specific ownership fields are not preserved as RestFlow session state.
+
+### 4.3 Task / Run Flow
 
 1. Task is scheduled/triggered in daemon.
 2. Runner executes task in daemon runtime.
 3. Messages/events are published once with stable IDs.
 4. Task history and message history are persisted by daemon only.
 
-### 4.3 Tool Trace Flow
+### 4.4 Tool Trace Flow
 
 1. Runtime emits turn/tool events during execution.
 2. `tool_traces` persists execution traces.
@@ -107,13 +121,15 @@ Notes:
 
 - Primary local user interface.
 - Calls daemon/runtime through IPC and stream contracts.
-- No direct storage write path.
+- Reads session history through daemon IPC; daemon services own JSONL transcript access.
+- Does not write task/run/channel/secrets state.
 
 ### CLI
 
 - Command interface and user-facing formatting.
 - Uses daemon as primary runtime endpoint.
 - Does not duplicate core runtime behavior.
+- Owns transcript-only file commands: `session` and `import`.
 
 ### Daemon/Core Runtime
 
@@ -389,7 +405,9 @@ RestFlow unified runtime directory:
 ```text
 ~/.restflow/
 ├── config.toml
-├── restflow.db
+├── sessions/
+│   └── YYYY/MM/DD/<session-id>.jsonl
+├── restflow.db      # legacy daemon state during storage reduction
 ├── master.key
 └── logs/
 ```
@@ -407,9 +425,26 @@ Runtime configuration resolves in this order:
 2. Global `~/.restflow/config.toml`
 3. Workspace `./.restflow/config.toml`
 
-Database state is no longer part of the runtime configuration read path. The
-database remains the persistence layer for secrets, traces, sessions, and other
-runtime state.
+Database state is no longer part of the runtime configuration read path.
+Session history is file-backed JSONL. New workspace sessions, imported
+sessions, channel-created external sessions, execution-console session views,
+background task session binding/results, and agent-deletion session checks go
+through `SessionService` and prefer JSONL when the file store is available.
+`TaskStorage` persists task records only; session binding validation, creation,
+archival, and transcript writes are owned by `TaskCommandService` and
+`SessionService`.
+`restflow.db` remains only for daemon state that has not yet been reduced, such
+as secrets, task/runtime state, and legacy trace plumbing.
+
+Task final outputs are no longer persisted as new `run_artifacts` payloads.
+Prerequisite checks use task completion state instead of artifact existence.
+The low-level `run_artifacts` redb tables are no longer created. Existing
+`list_artifacts` protocol operations remain as compatibility no-ops and return
+an empty list.
+
+Telemetry projection tables are also no longer created. Metrics, provider
+health, and structured log queries read the canonical `audit_events_v2`
+execution trace stream instead of maintaining duplicate projection stores.
 
 ### 7.2 Config Groups and Primary Consumers
 
@@ -458,8 +493,8 @@ Compatibility remains part of the architecture, not an optional release task.
    - add optional fields before removing old ones
    - keep tolerant readers while migrations are still in flight
    - preserve old aliases until rollout is complete
-3. Browser, CLI, and MCP remain facades over daemon-owned behavior. New client
-   features must not create alternate write paths.
+3. TUI, CLI, and MCP remain facades over daemon-owned execution behavior.
+   Transcript import is the explicit file-write exception.
 
 ### Validation Gates
 
@@ -534,7 +569,7 @@ Do:
 
 Do not:
 
-- Add direct storage access in TUI adapters or request handlers.
+- Add direct daemon-state storage access in TUI adapters or request handlers.
 - Add fallback write paths that bypass daemon ownership.
 - Encode routing ownership only in display fields on session models.
 

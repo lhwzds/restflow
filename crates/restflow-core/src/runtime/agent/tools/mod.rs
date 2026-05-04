@@ -369,8 +369,10 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "memory_search" => {
                 with_storage!(storage, "memory_search", builder, |s| {
-                    let engine =
-                        UnifiedSearchEngine::new(s.memory.clone(), s.chat_sessions.clone());
+                    let engine = UnifiedSearchEngine::new(
+                        s.memory.clone(),
+                        crate::services::session::SessionService::from_storage(s),
+                    );
                     builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(engine)))
                 });
             }

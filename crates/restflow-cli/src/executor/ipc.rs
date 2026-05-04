@@ -176,33 +176,6 @@ impl CommandExecutor for IpcExecutor {
         Ok(resp.id)
     }
 
-    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
-        let mut client = self.client.lock().await;
-        client.list_sessions().await
-    }
-
-    async fn get_session(&self, id: &str) -> Result<ChatSession> {
-        let mut client = self.client.lock().await;
-        client.get_session(id.to_string()).await
-    }
-
-    async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession> {
-        let mut client = self.client.lock().await;
-        client
-            .create_session(Some(agent_id), Some(model), None, None)
-            .await
-    }
-
-    async fn delete_session(&self, id: &str) -> Result<bool> {
-        let mut client = self.client.lock().await;
-        client.delete_session(id.to_string()).await
-    }
-
-    async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>> {
-        let mut client = self.client.lock().await;
-        client.search_sessions(query).await
-    }
-
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
         self.request_typed(IpcRequest::ListSecrets).await
     }
@@ -349,6 +322,37 @@ impl CommandExecutor for IpcExecutor {
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
         self.request_typed(IpcRequest::RunCleanup).await
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
+        let mut client = self.client.lock().await;
+        client.list_sessions().await
+    }
+
+    async fn list_full_sessions(&self) -> Result<Vec<ChatSession>> {
+        let mut client = self.client.lock().await;
+        client.list_full_sessions().await
+    }
+
+    async fn get_session(&self, id: &str) -> Result<ChatSession> {
+        let mut client = self.client.lock().await;
+        client.get_session(id.to_string()).await
+    }
+
+    async fn create_session(
+        &self,
+        agent_id: Option<String>,
+        model: Option<String>,
+        name: Option<String>,
+        skill_id: Option<String>,
+    ) -> Result<ChatSession> {
+        let mut client = self.client.lock().await;
+        client.create_session(agent_id, model, name, skill_id).await
+    }
+
+    async fn delete_session(&self, id: &str) -> Result<bool> {
+        let mut client = self.client.lock().await;
+        client.delete_session(id.to_string()).await
     }
 
     // Task operations - use IPC client methods

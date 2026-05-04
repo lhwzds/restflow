@@ -100,32 +100,9 @@ pub(super) fn build_service_subagent_runtime_bundle(
 ) -> ServiceSubagentRuntimeBundle {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-    let db = execution_trace_storage.db();
-    let telemetry_sink = match (
+    let telemetry_sink = Some(Arc::new(crate::telemetry::CoreTelemetrySink::new(
         execution_trace_storage.clone(),
-        crate::storage::ChatSessionStorage::new(db.clone()),
-        crate::storage::TelemetryMetricSampleStorage::new(db.clone()),
-        crate::storage::ProviderHealthSnapshotStorage::new(db.clone()),
-        crate::storage::StructuredExecutionLogStorage::new(db),
-    ) {
-        (
-            execution_traces,
-            Ok(chat_sessions),
-            Ok(telemetry_metric_samples),
-            Ok(provider_health_snapshots),
-            Ok(structured_execution_logs),
-        ) => Some(Arc::new(crate::telemetry::CoreTelemetrySink::new(
-            execution_traces,
-            chat_sessions,
-            telemetry_metric_samples,
-            provider_health_snapshots,
-            structured_execution_logs,
-        )) as Arc<dyn restflow_ai::telemetry::TelemetrySink>),
-        _ => {
-            warn!("Failed to initialize core telemetry sink for service subagents");
-            None
-        }
-    };
+    )) as Arc<dyn restflow_ai::telemetry::TelemetrySink>);
     if let Some(sink) = telemetry_sink.clone() {
         tracker.set_telemetry_sink(sink);
     }

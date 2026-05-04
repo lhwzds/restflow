@@ -4,14 +4,15 @@ use crate::boundary::task::{
 };
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{
-    Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskMessageSource, TaskPatch,
-    TaskProgress, TaskSpec,
+    ChatSession, ChatSessionSource, ModelId, Task, TaskControlAction, TaskConversionResult,
+    TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec,
 };
 use crate::services::operation_assessment::{
     assessment_requires_confirmation, assessment_summary, ensure_assessment_confirmed,
 };
 use crate::services::session::SessionService;
 use crate::services::task_conversion::{ConvertSessionSpecOptions, build_convert_session_spec};
+use crate::storage::task_runtime::TaskSessionBinding;
 use crate::storage::{AgentStorage, Storage, TaskStorage};
 use restflow_contracts::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 use restflow_tools::ToolError;
@@ -188,10 +189,195 @@ impl TaskCommandService {
         self
     }
 
+    fn normalize_optional_id(value: Option<String>) -> Option<String> {
+        value.and_then(|id| {
+            let trimmed = id.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    }
+
+    fn resolve_agent_model_for_session(&self, agent_id: &str) -> anyhow::Result<String> {
+        let fallback_model = ModelId::Gpt5_4.as_serialized_str().to_string();
+        let Some(agent) = self.agents.get_agent(agent_id.to_string())? else {
+            return Ok(fallback_model);
+        };
+
+        Ok(agent
+            .agent
+            .resolved_model_ref()
+            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
+            .unwrap_or(fallback_model))
+    }
+
+    fn create_bound_session(&self, agent_id: &str, task_name: &str) -> anyhow::Result<String> {
+        let model = self.resolve_agent_model_for_session(agent_id)?;
+        let session_name = format!("Background: {}", task_name);
+        let session = ChatSession::new(agent_id.to_string(), model)
+            .with_name(session_name)
+            .with_source(ChatSessionSource::Background, task_name.to_string());
+        let session = self.session_service.create_external_session(session)?;
+        Ok(session.id)
+    }
+
+    fn ensure_session_binding(&self, chat_session_id: &str, agent_id: &str) -> anyhow::Result<()> {
+        let session = self
+            .session_service
+            .get_session_view(chat_session_id)?
+            .ok_or_else(|| anyhow::anyhow!("chat_session_id '{}' not found", chat_session_id))?;
+
+        if session.agent_id != agent_id {
+            anyhow::bail!(
+                "chat_session_id '{}' is bound to agent '{}', expected '{}'",
+                chat_session_id,
+                session.agent_id,
+                agent_id
+            );
+        }
+
+        Ok(())
+    }
+
+    fn ensure_unique_session_binding(
+        &self,
+        chat_session_id: &str,
+        current_task_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let target = chat_session_id.trim();
+        if target.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(conflict) = self.storage.list_tasks()?.into_iter().find(|task| {
+            let same_session = task.chat_session_id.trim() == target;
+            let same_task = current_task_id.is_some_and(|task_id| task.id == task_id);
+            same_session && !same_task
+        }) {
+            anyhow::bail!(
+                "chat_session_id '{}' is already bound to task '{}' ({})",
+                target,
+                conflict.id,
+                conflict.name
+            );
+        }
+
+        Ok(())
+    }
+
+    fn resolve_task_session_for_create(
+        &self,
+        requested_chat_session_id: Option<String>,
+        agent_id: &str,
+        task_name: &str,
+    ) -> anyhow::Result<TaskSessionBinding> {
+        if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
+            self.ensure_session_binding(&chat_session_id, agent_id)?;
+            self.ensure_unique_session_binding(&chat_session_id, None)?;
+            return Ok(TaskSessionBinding {
+                session_id: chat_session_id,
+                owns_session: false,
+            });
+        }
+
+        Ok(TaskSessionBinding {
+            session_id: self.create_bound_session(agent_id, task_name)?,
+            owns_session: true,
+        })
+    }
+
+    fn resolve_task_session_for_update(
+        &self,
+        task: &Task,
+        requested_chat_session_id: Option<String>,
+        next_agent_id: &str,
+    ) -> anyhow::Result<TaskSessionBinding> {
+        if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
+            self.ensure_session_binding(&chat_session_id, next_agent_id)?;
+            self.ensure_unique_session_binding(&chat_session_id, Some(&task.id))?;
+            return Ok(TaskSessionBinding {
+                session_id: chat_session_id,
+                owns_session: false,
+            });
+        }
+
+        let current_chat_session_id = task.chat_session_id.trim();
+        if !current_chat_session_id.is_empty()
+            && self
+                .ensure_session_binding(current_chat_session_id, next_agent_id)
+                .is_ok()
+        {
+            self.ensure_unique_session_binding(current_chat_session_id, Some(&task.id))?;
+            return Ok(TaskSessionBinding {
+                session_id: current_chat_session_id.to_string(),
+                owns_session: task.owns_chat_session,
+            });
+        }
+
+        Ok(TaskSessionBinding {
+            session_id: self.create_bound_session(next_agent_id, &task.name)?,
+            owns_session: true,
+        })
+    }
+
+    fn archive_owned_task_session_if_unused(&self, task: &Task) -> anyhow::Result<()> {
+        let session_id = task.chat_session_id.trim();
+        if session_id.is_empty() || !task.owns_chat_session {
+            return Ok(());
+        }
+
+        let session_reused = self
+            .storage
+            .list_tasks()?
+            .into_iter()
+            .any(|other| other.id != task.id && other.chat_session_id.trim() == session_id);
+        if !session_reused {
+            let _ = self.session_service.archive_managed_session(session_id)?;
+        }
+        Ok(())
+    }
+
+    fn archive_created_task_session(&self, session_binding: &TaskSessionBinding) {
+        if session_binding.owns_session && !session_binding.session_id.trim().is_empty() {
+            let _ = self
+                .session_service
+                .archive_managed_session(&session_binding.session_id);
+        }
+    }
+
     fn create(&self, spec: TaskSpec) -> CommandResult<Task> {
-        self.storage
-            .create_task_from_spec(spec)
-            .map_err(TaskCommandError::from_anyhow)
+        TaskStorage::validate_create_spec(&spec).map_err(TaskCommandError::from_anyhow)?;
+        let session_binding = self
+            .resolve_task_session_for_create(
+                spec.chat_session_id.clone(),
+                &spec.agent_id,
+                &spec.name,
+            )
+            .map_err(TaskCommandError::from_anyhow)?;
+        match self
+            .storage
+            .create_task_from_spec_with_binding(spec, session_binding.clone())
+        {
+            Ok(task) => Ok(task),
+            Err(error) => {
+                self.archive_created_task_session(&session_binding);
+                Err(TaskCommandError::from_anyhow(error))
+            }
+        }
+    }
+
+    pub fn create_from_spec_direct(&self, spec: TaskSpec) -> CommandResult<Task> {
+        self.create(spec)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn create_session_for_test(
+        &self,
+        session: ChatSession,
+    ) -> anyhow::Result<ChatSession> {
+        self.session_service.create_external_session(session)
     }
 
     pub async fn create_from_request(
@@ -204,9 +390,38 @@ impl TaskCommandService {
     }
 
     fn update(&self, id: &str, patch: TaskPatch) -> CommandResult<Task> {
-        self.storage
-            .update_task_from_patch(id, patch)
-            .map_err(TaskCommandError::from_anyhow)
+        let task = self
+            .storage
+            .get_task(id)
+            .map_err(TaskCommandError::from_anyhow)?
+            .ok_or_else(|| TaskCommandError::not_found(format!("Task {} not found", id)))?;
+        let next_agent_id = patch
+            .agent_id
+            .clone()
+            .unwrap_or_else(|| task.agent_id.clone());
+        TaskStorage::validate_update_patch_for_task(&task, &patch)
+            .map_err(TaskCommandError::from_anyhow)?;
+        let session_binding = self
+            .resolve_task_session_for_update(&task, patch.chat_session_id.clone(), &next_agent_id)
+            .map_err(TaskCommandError::from_anyhow)?;
+        match self
+            .storage
+            .update_task_from_patch_with_binding(id, patch, session_binding.clone())
+        {
+            Ok(updated) => {
+                if updated.chat_session_id != task.chat_session_id
+                    || updated.owns_chat_session != task.owns_chat_session
+                {
+                    self.archive_owned_task_session_if_unused(&task)
+                        .map_err(TaskCommandError::from_anyhow)?;
+                }
+                Ok(updated)
+            }
+            Err(error) => {
+                self.archive_created_task_session(&session_binding);
+                Err(TaskCommandError::from_anyhow(error))
+            }
+        }
     }
 
     pub async fn update_from_request(
@@ -219,9 +434,16 @@ impl TaskCommandService {
     }
 
     pub fn delete(&self, id: &str) -> CommandResult<bool> {
-        self.storage
-            .delete_task(id)
-            .map_err(TaskCommandError::from_anyhow)
+        let deleted = self
+            .storage
+            .delete_task_record(id)
+            .map_err(TaskCommandError::from_anyhow)?;
+        let Some(task) = deleted else {
+            return Ok(false);
+        };
+        self.archive_owned_task_session_if_unused(&task)
+            .map_err(TaskCommandError::from_anyhow)?;
+        Ok(true)
     }
 
     pub async fn delete_from_request(
@@ -601,10 +823,7 @@ impl TaskCommandService {
         &self,
         prepared: PreparedSessionConversion,
     ) -> CommandResult<TaskConversionResult> {
-        let mut task = self
-            .storage
-            .create_task_from_spec(prepared.spec)
-            .map_err(TaskCommandError::from_anyhow)?;
+        let mut task = self.create(prepared.spec)?;
         if prepared.run_now {
             task = self
                 .storage
@@ -626,6 +845,7 @@ mod tests {
     use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId, TaskSpec};
     use crate::prompt_files;
     use crate::services::session::SessionService;
+    use crate::session_log::FileSessionStore;
     use crate::storage::{
         AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage,
         MemoryStorage, SessionStorage, TaskStorage,
@@ -1092,6 +1312,29 @@ mod tests {
             session,
             temp_dir,
         )
+    }
+
+    fn create_agent_for_test(
+        service: &TaskCommandService,
+        temp_dir: &tempfile::TempDir,
+        name: &str,
+    ) -> String {
+        let _guard = prompt_files::agents_dir_env_lock();
+        let prompts_dir = temp_dir.path().join("state").join("agents");
+        std::fs::create_dir_all(&prompts_dir).expect("prompts dir");
+        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
+        let agent = service
+            .agents
+            .create_agent(name.to_string(), AgentNode::default())
+            .expect("create agent");
+        unsafe {
+            match prev_agents_dir {
+                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
+                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
+            }
+        }
+        agent.id
     }
 
     #[test]
@@ -1581,8 +1824,7 @@ mod tests {
     async fn delete_direct_executes_without_approval_id() {
         let (service, session, _dir) = setup();
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Delete Direct".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1616,6 +1858,12 @@ mod tests {
 
         assert_eq!(result.id, task.id);
         assert!(result.deleted);
+        let archived_session = service
+            .session_service
+            .get_session_view(&task.chat_session_id)
+            .expect("load session")
+            .expect("session still present");
+        assert!(archived_session.is_archived());
         assert!(
             service
                 .storage
@@ -1653,6 +1901,228 @@ mod tests {
             .expect("create direct");
 
         assert_eq!(result.name, "Create Direct Warning");
+    }
+
+    #[tokio::test]
+    async fn create_direct_persists_background_session_through_file_store() {
+        let (mut service, session, dir) = setup();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        service.session_service = service
+            .session_service
+            .clone()
+            .with_file_sessions(file_store.clone());
+
+        let result = service
+            .create_from_request(
+                TaskCreateRequest {
+                    name: "Create File Session".to_string(),
+                    agent_id: session.agent_id,
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: Some("run".to_string()),
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .and_then(TaskCommandService::into_direct_result)
+            .expect("create direct");
+
+        assert!(file_store.get(&result.chat_session_id).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn create_direct_invalid_spec_does_not_create_file_session() {
+        let (mut service, session, dir) = setup();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        service.session_service = service
+            .session_service
+            .clone()
+            .with_file_sessions(file_store.clone());
+
+        let result = service
+            .create_from_request(
+                TaskCreateRequest {
+                    name: "Invalid File Session".to_string(),
+                    agent_id: session.agent_id,
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: None,
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .and_then(TaskCommandService::into_direct_result);
+
+        assert!(result.is_err());
+        assert!(file_store.list().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_direct_invalid_rebind_does_not_create_file_session() {
+        let (mut service, session, dir) = setup();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        service.session_service = service
+            .session_service
+            .clone()
+            .with_file_sessions(file_store.clone());
+        let next_agent_id = create_agent_for_test(&service, &dir, "svc-agent-2");
+        let created = service
+            .create_from_request(
+                TaskCreateRequest {
+                    name: "Valid File Session".to_string(),
+                    agent_id: session.agent_id,
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: Some("run".to_string()),
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .and_then(TaskCommandService::into_direct_result)
+            .expect("create direct");
+        let session_count = file_store.list().unwrap().len();
+
+        let result = service
+            .update_from_request(
+                TaskUpdateRequest {
+                    id: created.id,
+                    name: None,
+                    description: None,
+                    agent_id: Some(next_agent_id),
+                    chat_session_id: None,
+                    input: Some(" ".to_string()),
+                    input_template: None,
+                    schedule: None,
+                    notification: None,
+                    execution_mode: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .and_then(TaskCommandService::into_direct_result);
+
+        assert!(result.is_err());
+        assert_eq!(file_store.list().unwrap().len(), session_count);
+    }
+
+    #[tokio::test]
+    async fn update_direct_rebind_archives_old_owned_file_session() {
+        let (mut service, session, dir) = setup();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        service.session_service = service
+            .session_service
+            .clone()
+            .with_file_sessions(file_store.clone());
+        let task = service
+            .create_from_request(
+                TaskCreateRequest {
+                    name: "Rebind File Session".to_string(),
+                    agent_id: session.agent_id.clone(),
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: Some("run".to_string()),
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .and_then(TaskCommandService::into_direct_result)
+            .expect("create direct");
+        let old_session_id = task.chat_session_id.clone();
+        let external_session = service
+            .session_service
+            .create_external_session(
+                ChatSession::new(
+                    session.agent_id.clone(),
+                    ModelId::Gpt5.as_serialized_str().to_string(),
+                )
+                .with_name("External Background"),
+            )
+            .expect("create external session");
+
+        let updated = service
+            .update_from_request(
+                TaskUpdateRequest {
+                    id: task.id,
+                    name: None,
+                    description: None,
+                    agent_id: None,
+                    chat_session_id: Some(external_session.id.clone()),
+                    input: None,
+                    input_template: None,
+                    schedule: None,
+                    notification: None,
+                    execution_mode: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    approval_id: None,
+                },
+                TaskExecutionMode::Direct,
+            )
+            .await
+            .and_then(TaskCommandService::into_direct_result)
+            .expect("update direct");
+
+        assert_eq!(updated.chat_session_id, external_session.id);
+        assert!(!updated.owns_chat_session);
+        assert!(
+            file_store
+                .get(&old_session_id)
+                .unwrap()
+                .unwrap()
+                .to_chat_session()
+                .is_archived()
+        );
+        assert!(
+            !file_store
+                .get(&updated.chat_session_id)
+                .unwrap()
+                .unwrap()
+                .to_chat_session()
+                .is_archived()
+        );
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@ use restflow_core::runtime::{
     TaskRunnerConfig, TaskRunnerHandle, TaskTrigger, TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
+use restflow_core::services::session::SessionService;
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::{SecretStorage, SystemConfig};
 use restflow_storage::{AgentDefaults, AuthProfileStorage};
@@ -121,6 +122,7 @@ impl CliTaskRunner {
                 steer_registry,
             )
             .with_event_emitter(event_emitter)
+            .with_session_service(SessionService::from_storage(storage.as_ref()))
             .with_channel_router_handle(channel_router.clone()),
         );
 

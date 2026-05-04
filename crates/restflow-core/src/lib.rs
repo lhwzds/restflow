@@ -16,6 +16,8 @@ pub mod registry;
 pub mod runtime;
 pub mod security;
 pub mod services;
+pub mod session_import;
+pub mod session_log;
 pub mod steer;
 pub mod storage;
 pub mod telemetry;

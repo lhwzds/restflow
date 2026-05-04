@@ -3,7 +3,8 @@
 use crate::memory::{SearchConfig, SearchEngine};
 use crate::models::chat_session::{ChatMessage, ChatRole, ChatSession};
 use crate::models::memory::UnifiedSearchQuery;
-use crate::storage::{ChatSessionStorage, MemoryStorage};
+use crate::services::session::SessionService;
+use crate::storage::MemoryStorage;
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -87,16 +88,16 @@ impl Default for UnifiedSearchConfig {
 #[derive(Clone)]
 pub struct UnifiedSearchEngine {
     memory_engine: SearchEngine,
-    chat_storage: ChatSessionStorage,
+    session_service: SessionService,
     config: UnifiedSearchConfig,
 }
 
 impl UnifiedSearchEngine {
     /// Create a new unified search engine with default configuration.
-    pub fn new(memory_storage: MemoryStorage, chat_storage: ChatSessionStorage) -> Self {
+    pub fn new(memory_storage: MemoryStorage, session_service: SessionService) -> Self {
         Self {
             memory_engine: SearchEngine::new(memory_storage),
-            chat_storage,
+            session_service,
             config: UnifiedSearchConfig::default(),
         }
     }
@@ -104,12 +105,12 @@ impl UnifiedSearchEngine {
     /// Create a new unified search engine with custom configuration.
     pub fn with_config(
         memory_storage: MemoryStorage,
-        chat_storage: ChatSessionStorage,
+        session_service: SessionService,
         config: UnifiedSearchConfig,
     ) -> Self {
         Self {
             memory_engine: SearchEngine::with_config(memory_storage, config.memory_config.clone()),
-            chat_storage,
+            session_service,
             config,
         }
     }
@@ -186,7 +187,9 @@ impl UnifiedSearchEngine {
             return Ok(Vec::new());
         }
 
-        let sessions = self.chat_storage.list_by_agent(agent_id)?;
+        let sessions = self
+            .session_service
+            .list_session_views(Some(agent_id), None, false)?;
         let mut results = Vec::new();
 
         for session in sessions {
@@ -283,27 +286,30 @@ mod tests {
     use super::*;
     use crate::models::chat_session::ChatMessage;
     use crate::models::memory::{MemoryChunk, MemorySearchQuery, SearchMode};
-    use crate::storage::ChatSessionStorage;
-    use redb::Database;
-    use std::sync::Arc;
+    use crate::session_log::{FileSession, FileSessionStore};
+    use crate::storage::Storage;
     use tempfile::tempdir;
 
-    fn create_engine() -> (UnifiedSearchEngine, tempfile::TempDir) {
+    fn create_engine() -> (UnifiedSearchEngine, Storage, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let memory_storage = MemoryStorage::new(db.clone()).unwrap();
-        let chat_storage = ChatSessionStorage::new(db).unwrap();
-
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let session_service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+            Some(storage.memory.clone()),
+        );
         (
-            UnifiedSearchEngine::new(memory_storage, chat_storage),
+            UnifiedSearchEngine::new(storage.memory.clone(), session_service),
+            storage,
             temp_dir,
         )
     }
 
     #[test]
     fn test_search_memory_only() {
-        let (engine, _temp) = create_engine();
+        let (engine, _storage, _temp) = create_engine();
 
         let chunk = MemoryChunk::new("agent-1".to_string(), "Rust memory guide".to_string());
         engine.memory_engine.storage().store_chunk(&chunk).unwrap();
@@ -322,13 +328,13 @@ mod tests {
 
     #[test]
     fn test_search_sessions() {
-        let (engine, _temp) = create_engine();
+        let (engine, storage, _temp) = create_engine();
         let mut session = ChatSession::new("agent-1".to_string(), "claude".to_string());
         session.add_message(ChatMessage::user("Tell me about Rust"));
         session.add_message(ChatMessage::assistant(
             "Rust is a systems programming language",
         ));
-        engine.chat_storage.save(&session).unwrap();
+        storage.chat_sessions.save(&session).unwrap();
 
         let base = MemorySearchQuery::new("agent-1".to_string())
             .with_query("rust".to_string())
@@ -342,14 +348,14 @@ mod tests {
 
     #[test]
     fn test_unified_search_combines_sources() {
-        let (engine, _temp) = create_engine();
+        let (engine, storage, _temp) = create_engine();
 
         let chunk = MemoryChunk::new("agent-1".to_string(), "Rust memory safety".to_string());
         engine.memory_engine.storage().store_chunk(&chunk).unwrap();
 
         let mut session = ChatSession::new("agent-1".to_string(), "claude".to_string());
         session.add_message(ChatMessage::assistant("Rust prevents memory leaks"));
-        engine.chat_storage.save(&session).unwrap();
+        storage.chat_sessions.save(&session).unwrap();
 
         let base = MemorySearchQuery::new("agent-1".to_string())
             .with_query("rust memory".to_string())
@@ -361,5 +367,36 @@ mod tests {
         assert!(results.source_counts.memory > 0);
         assert!(results.source_counts.sessions > 0);
         assert!(results.results.len() >= 2);
+    }
+
+    #[test]
+    fn test_search_file_backed_session_without_redb_session() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
+        let session_service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+            Some(storage.memory.clone()),
+        )
+        .with_file_sessions(file_store.clone());
+        let engine = UnifiedSearchEngine::new(storage.memory.clone(), session_service);
+        let mut session = ChatSession::new("agent-1".to_string(), "claude".to_string());
+        session.add_message(ChatMessage::assistant("JSONL sessions are searchable"));
+        file_store
+            .write_session(&FileSession::from_chat_session(&session), false)
+            .unwrap();
+
+        let base = MemorySearchQuery::new("agent-1".to_string())
+            .with_query("jsonl".to_string())
+            .with_mode(SearchMode::Keyword)
+            .paginate(10, 0);
+        let query = UnifiedSearchQuery::new(base).with_sessions(true);
+
+        let results = engine.search(&query).unwrap();
+        assert_eq!(results.source_counts.sessions, 1);
+        assert!(storage.chat_sessions.get(&session.id).unwrap().is_none());
     }
 }

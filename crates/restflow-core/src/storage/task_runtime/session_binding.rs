@@ -3,12 +3,44 @@ use super::*;
 impl TaskStorage {
     // ============== Task Operations ==============
 
+    /// Validate a task creation spec without creating records or sessions.
+    pub fn validate_create_spec(spec: &TaskSpec) -> Result<()> {
+        Self::validate_timeout_secs(spec.timeout_secs)?;
+        Self::validate_task_input(spec.input.as_deref(), spec.input_template.as_deref())
+    }
+
+    /// Validate a task update patch against the current task without mutating storage.
+    pub fn validate_update_patch_for_task(task: &Task, patch: &TaskPatch) -> Result<()> {
+        Self::validate_timeout_secs(patch.timeout_secs)?;
+        let input = patch.input.as_deref().or(task.input.as_deref());
+        let input_template = patch
+            .input_template
+            .as_deref()
+            .or(task.input_template.as_deref());
+        Self::validate_task_input(input, input_template)
+    }
+
     /// Create a task from a rich spec.
     pub fn create_task_from_spec(&self, spec: TaskSpec) -> Result<Task> {
+        let session_binding = TaskSessionBinding {
+            session_id: Self::normalize_optional_id(spec.chat_session_id.clone())
+                .unwrap_or_default(),
+            owns_session: false,
+        };
+        self.create_task_from_spec_with_binding(spec, session_binding)
+    }
+
+    /// Create a task after the caller has resolved its chat-session binding.
+    pub fn create_task_from_spec_with_binding(
+        &self,
+        spec: TaskSpec,
+        session_binding: TaskSessionBinding,
+    ) -> Result<Task> {
+        Self::validate_create_spec(&spec)?;
         let TaskSpec {
             name,
             agent_id,
-            chat_session_id,
+            chat_session_id: _,
             description,
             input,
             input_template,
@@ -23,10 +55,6 @@ impl TaskStorage {
             continuation,
         } = spec;
 
-        Self::validate_timeout_secs(timeout_secs)?;
-        Self::validate_task_input(input.as_deref(), input_template.as_deref())?;
-        let session_binding =
-            self.resolve_chat_session_id_for_create(chat_session_id, &agent_id, &name)?;
         let mut task = Task::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
 
         task.chat_session_id = session_binding.session_id;
@@ -65,11 +93,41 @@ impl TaskStorage {
 
     /// Update a task with a partial patch.
     pub fn update_task_from_patch(&self, id: &str, patch: TaskPatch) -> Result<Task> {
+        let task = self
+            .get_task(id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+        Self::validate_update_patch_for_task(&task, &patch)?;
+        let session_binding =
+            if let Some(session_id) = Self::normalize_optional_id(patch.chat_session_id.clone()) {
+                TaskSessionBinding {
+                    session_id,
+                    owns_session: false,
+                }
+            } else {
+                TaskSessionBinding {
+                    session_id: task.chat_session_id.clone(),
+                    owns_session: task.owns_chat_session,
+                }
+            };
+        self.update_task_from_patch_with_binding(id, patch, session_binding)
+    }
+
+    /// Update a task after the caller has resolved its chat-session binding.
+    pub fn update_task_from_patch_with_binding(
+        &self,
+        id: &str,
+        patch: TaskPatch,
+        session_binding: TaskSessionBinding,
+    ) -> Result<Task> {
+        let mut task = self
+            .get_task(id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+        Self::validate_update_patch_for_task(&task, &patch)?;
         let TaskPatch {
             name,
             description,
             agent_id,
-            chat_session_id,
+            chat_session_id: _,
             input,
             input_template,
             schedule,
@@ -82,14 +140,6 @@ impl TaskStorage {
             prerequisites,
             continuation,
         } = patch;
-        Self::validate_timeout_secs(timeout_secs)?;
-        let mut task = self
-            .get_task(id)?
-            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
-
-        let next_agent_id = agent_id.clone().unwrap_or_else(|| task.agent_id.clone());
-        let session_binding =
-            self.resolve_chat_session_id_for_update(&task, chat_session_id, &next_agent_id)?;
 
         if let Some(name) = name {
             task.name = name;
@@ -138,8 +188,6 @@ impl TaskStorage {
             task.continuation_total_iterations = 0;
             task.continuation_segments_completed = 0;
         }
-        Self::validate_task_input(task.input.as_deref(), task.input_template.as_deref())?;
-
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
         Ok(task)

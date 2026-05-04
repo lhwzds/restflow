@@ -155,17 +155,7 @@ fn create_runtime_tool_registry_for_core(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
     let mut registry = create_tool_registry_with_assessor(
-        core.storage.memory.clone(),
-        core.storage.chat_sessions.clone(),
-        core.storage.channel_session_bindings.clone(),
-        core.storage.execution_traces.clone(),
-        core.storage.secrets.clone(),
         core.storage.config.clone(),
-        core.storage.agents.clone(),
-        core.storage.tasks.clone(),
-        core.storage.terminal_sessions.clone(),
-        core.storage.run_artifacts.clone(),
-        None,
         None,
         None,
         Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),

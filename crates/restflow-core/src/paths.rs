@@ -10,6 +10,7 @@ const DB_FILE: &str = "restflow.db";
 const LOGS_DIR: &str = "logs";
 const SKILLS_DIR: &str = "skills";
 const MEDIA_DIR: &str = "media";
+const SESSIONS_DIR: &str = "sessions";
 
 /// Get the database path: ~/.restflow/restflow.db
 pub fn database_path() -> Result<PathBuf> {
@@ -29,6 +30,13 @@ pub fn ensure_database_path_string() -> Result<String> {
 /// Get the logs directory: ~/.restflow/logs/
 pub fn logs_dir() -> Result<PathBuf> {
     let dir = resolve_restflow_dir()?.join(LOGS_DIR);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Session transcript directory: ~/.restflow/sessions/
+pub fn sessions_dir() -> Result<PathBuf> {
+    let dir = ensure_restflow_dir()?.join(SESSIONS_DIR);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

@@ -318,33 +318,24 @@ impl TaskStorage {
         )
     }
 
-    /// Delete an agent task and all its events
-    pub fn delete_task(&self, id: &str) -> Result<bool> {
+    /// Delete an agent task and all task-owned records without touching sessions.
+    pub fn delete_task_record(&self, id: &str) -> Result<Option<Task>> {
         let task = self.get_task(id)?;
         self.delete_checkpoints_for_task(id)?;
         let deleted = self.inner.delete_task_cascade(id)?;
         if !deleted {
-            return Ok(false);
+            return Ok(None);
         }
 
-        let Some(task) = task else {
-            return Ok(true);
-        };
-        let session_id = task.chat_session_id.trim();
-        if session_id.is_empty() || !task.owns_chat_session {
-            return Ok(true);
-        }
+        Ok(task)
+    }
 
-        let session_reused = self
-            .list_tasks()?
-            .into_iter()
-            .any(|other| other.id != task.id && other.chat_session_id.trim() == session_id);
-        if session_reused {
-            return Ok(true);
-        }
-
-        let _ = self.chat_sessions.archive(session_id)?;
-        Ok(true)
+    /// Delete an agent task and all its owned task records.
+    ///
+    /// Session lifecycle side effects are owned by TaskCommandService so JSONL
+    /// and legacy redb sessions remain consistent.
+    pub fn delete_task(&self, id: &str) -> Result<bool> {
+        Ok(self.delete_task_record(id)?.is_some())
     }
 
     /// Pause an agent task

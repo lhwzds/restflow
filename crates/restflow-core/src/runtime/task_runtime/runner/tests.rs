@@ -1,10 +1,16 @@
 use super::*;
 use crate::channel::{Channel, ChannelType, InboundMessage, OutboundMessage};
 use crate::models::{
-    AgentCheckpoint, MemoryScope, ResumePayload, Task, TaskControlAction, TaskEventType,
-    TaskSchedule, TaskStatus,
+    AgentCheckpoint, ChatSession, MemoryScope, ResumePayload, Task, TaskControlAction,
+    TaskEventType, TaskSchedule, TaskStatus,
 };
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
+use crate::services::session::SessionService;
+use crate::session_log::FileSessionStore;
+use crate::storage::{
+    ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage, MemoryStorage,
+    SessionStorage,
+};
 use async_trait::async_trait;
 use futures::Stream;
 use std::pin::Pin;
@@ -300,6 +306,60 @@ fn create_test_storage() -> (Arc<TaskStorage>, tempfile::TempDir) {
     let db_path = temp_dir.path().join("test.db");
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     (Arc::new(TaskStorage::new(db).unwrap()), temp_dir)
+}
+
+#[test]
+fn persist_to_chat_session_uses_session_service_when_available() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let db = Arc::new(redb::Database::create(db_path).unwrap());
+    let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
+    let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
+    let session_storage = SessionStorage::new(
+        chat_storage.clone(),
+        ChannelSessionBindingStorage::new(db.clone()).unwrap(),
+        ExecutionTraceStorage::new(db.clone()).unwrap(),
+    );
+    let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
+    let session_service = SessionService::new(
+        session_storage,
+        None,
+        task_storage.as_ref().clone(),
+        Some(MemoryStorage::new(db).unwrap()),
+    )
+    .with_file_sessions(file_store.clone());
+
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session = session_service
+        .create_external_session(session)
+        .expect("create file session");
+    let mut task = Task::new(
+        "task-1".to_string(),
+        "Task".to_string(),
+        "agent-1".to_string(),
+        TaskSchedule::default(),
+    );
+    task.chat_session_id = session.id.clone();
+
+    let runner = TaskRunner::new(
+        task_storage,
+        Arc::new(MockExecutor::new()),
+        Arc::new(NoopNotificationSender),
+        TaskRunnerConfig::default(),
+        Arc::new(SteerRegistry::new()),
+    )
+    .with_session_service(session_service);
+    runner.persist_to_chat_session(&task, Some("input"), "output", false, 10);
+
+    let file_session = file_store
+        .get(&session.id)
+        .unwrap()
+        .expect("updated file session")
+        .to_chat_session();
+    assert_eq!(file_session.messages.len(), 2);
+    assert_eq!(file_session.messages[0].content, "input");
+    assert_eq!(file_session.messages[1].content, "output");
+    assert!(chat_storage.get(&session.id).unwrap().is_none());
 }
 
 #[tokio::test]

@@ -5,9 +5,10 @@
 
 use crate::{
     AppCore,
-    models::{AgentNode, encode_validation_error},
+    models::{AgentNode, ChatSessionSource, encode_validation_error},
+    services::session::SessionService,
     storage::{
-        ChannelSessionBindingStorage, ChatSessionStorage, TaskStorage,
+        TaskStorage,
         agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
     },
 };
@@ -83,34 +84,25 @@ pub(crate) fn check_agent_has_active_tasks(
 /// Returns `Ok(Some(source_list))` when linked channel sessions exist,
 /// `Ok(None)` otherwise.
 pub(crate) fn check_agent_has_external_channel_sessions(
-    chat_storage: &ChatSessionStorage,
-    channel_session_bindings: &ChannelSessionBindingStorage,
+    session_service: &SessionService,
     agent_id: &str,
 ) -> Result<Option<String>> {
-    let sessions = chat_storage.list_by_agent_all(agent_id)?;
+    let sessions = session_service.list_session_views(Some(agent_id), None, true)?;
     let mut sources: BTreeSet<String> = BTreeSet::new();
 
     for session in sessions {
-        let bindings = channel_session_bindings.list_by_session(&session.id)?;
-        if !bindings.is_empty() {
-            for binding in bindings {
-                let normalized = binding.channel.trim().to_ascii_lowercase();
-                match normalized.as_str() {
-                    "telegram" => {
-                        sources.insert("telegram".to_string());
-                    }
-                    "discord" => {
-                        sources.insert("discord".to_string());
-                    }
-                    "slack" => {
-                        sources.insert("slack".to_string());
-                    }
-                    other => {
-                        sources.insert(other.to_string());
-                    }
-                }
+        let (source, _) = session_service.effective_source(&session)?;
+        match source {
+            ChatSessionSource::Telegram => {
+                sources.insert("telegram".to_string());
             }
-            continue;
+            ChatSessionSource::Discord => {
+                sources.insert("discord".to_string());
+            }
+            ChatSessionSource::Slack => {
+                sources.insert("slack".to_string());
+            }
+            ChatSessionSource::Workspace | ChatSessionSource::Background => {}
         }
     }
 
@@ -153,12 +145,9 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         );
     }
 
-    if let Some(sources) = check_agent_has_external_channel_sessions(
-        &core.storage.chat_sessions,
-        &core.storage.channel_session_bindings,
-        &resolved_id,
-    )
-    .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
+    let session_service = SessionService::from_storage(&core.storage);
+    if let Some(sources) = check_agent_has_external_channel_sessions(&session_service, &resolved_id)
+        .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
     {
         anyhow::bail!(
             "Cannot delete agent {}: external channel sessions exist ({})",
@@ -167,14 +156,12 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         );
     }
 
-    archive_agent_workspace_sessions(&core.storage.chat_sessions, &resolved_id).with_context(
-        || {
-            format!(
-                "Failed to archive workspace sessions before deleting agent {}",
-                id
-            )
-        },
-    )?;
+    archive_agent_workspace_sessions(&session_service, &resolved_id).with_context(|| {
+        format!(
+            "Failed to archive workspace sessions before deleting agent {}",
+            id
+        )
+    })?;
 
     core.storage
         .agents
@@ -190,11 +177,13 @@ fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {
 }
 
 fn archive_agent_workspace_sessions(
-    chat_storage: &ChatSessionStorage,
+    session_service: &SessionService,
     agent_id: &str,
 ) -> Result<()> {
-    for session in chat_storage.list_by_agent_all(agent_id)? {
-        let _ = chat_storage.archive(&session.id)?;
+    for session in session_service.list_session_views(Some(agent_id), None, true)? {
+        if session_service.management_owner(&session)?.is_none() {
+            let _ = session_service.archive_session(&session.id)?;
+        }
     }
     Ok(())
 }

@@ -16,6 +16,7 @@ use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
+use crate::services::session::SessionService;
 use crate::steer::SteerRegistry;
 use crate::storage::{MemoryStorage, TaskStorage};
 use anyhow::{Result, anyhow};
@@ -435,6 +436,8 @@ pub struct TaskRunner {
     start_time: Instant,
     /// Optional memory persister for long-term memory storage
     memory_persister: Option<MemoryPersister>,
+    /// Optional JSONL-first session service for bound task transcript updates.
+    session_service: Option<SessionService>,
     steer_registry: Arc<SteerRegistry>,
     /// Optional channel router for broadcasting notifications to all configured channels
     channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
@@ -473,6 +476,7 @@ impl TaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
+            session_service: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
@@ -511,6 +515,7 @@ impl TaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
+            session_service: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
@@ -553,6 +558,7 @@ impl TaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: Some(MemoryPersister::new(memory_storage)),
+            session_service: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
@@ -563,6 +569,12 @@ impl TaskRunner {
     /// Attach a task event emitter for streaming updates.
     pub fn with_event_emitter(mut self, event_emitter: Arc<dyn TaskEventEmitter>) -> Self {
         self.event_emitter = event_emitter;
+        self
+    }
+
+    /// Attach the canonical session service used for bound task transcripts.
+    pub fn with_session_service(mut self, session_service: SessionService) -> Self {
+        self.session_service = Some(session_service);
         self
     }
 

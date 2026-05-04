@@ -9,12 +9,8 @@ pub mod chat_session;
 pub mod checkpoint;
 pub mod execution_trace;
 pub mod memory;
-pub mod provider_health_snapshot;
-pub mod run_artifact;
 pub mod session;
-pub mod structured_execution_log;
 pub mod task_runtime;
-pub mod telemetry_metric_sample;
 pub mod terminal_session;
 
 use anyhow::Result;
@@ -37,12 +33,8 @@ pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use execution_trace::ExecutionTraceStorage;
 pub use memory::MemoryStorage;
-pub use provider_health_snapshot::ProviderHealthSnapshotStorage;
-pub use run_artifact::RunArtifactStorage;
 pub use session::SessionStorage;
-pub use structured_execution_log::StructuredExecutionLogStorage;
 pub use task_runtime::TaskStorage;
-pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
 
 /// Central storage manager that initializes all storage subsystems.
@@ -61,17 +53,10 @@ pub struct Storage {
     pub chat_sessions: ChatSessionStorage,
     pub channel_session_bindings: ChannelSessionBindingStorage,
     pub sessions: SessionStorage,
-    pub run_artifacts: RunArtifactStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
     /// Primary execution trace storage.
     pub execution_traces: ExecutionTraceStorage,
-    /// Telemetry metric sample projection storage.
-    pub telemetry_metric_samples: TelemetryMetricSampleStorage,
-    /// Provider health projection storage.
-    pub provider_health_snapshots: ProviderHealthSnapshotStorage,
-    /// Structured execution log projection storage.
-    pub structured_execution_logs: StructuredExecutionLogStorage,
 }
 
 impl Storage {
@@ -112,13 +97,9 @@ impl Storage {
             channel_session_bindings.clone(),
             ExecutionTraceStorage::new(db.clone())?,
         );
-        let run_artifacts = RunArtifactStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
-        let telemetry_metric_samples = TelemetryMetricSampleStorage::new(db.clone())?;
-        let provider_health_snapshots = ProviderHealthSnapshotStorage::new(db.clone())?;
-        let structured_execution_logs = StructuredExecutionLogStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -132,13 +113,9 @@ impl Storage {
             chat_sessions,
             channel_session_bindings,
             sessions,
-            run_artifacts,
             checkpoints,
             pairing,
             execution_traces,
-            telemetry_metric_samples,
-            provider_health_snapshots,
-            structured_execution_logs,
         })
     }
 

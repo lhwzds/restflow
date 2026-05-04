@@ -5,7 +5,7 @@ use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
-use crate::storage::{AgentStorage, RunArtifactStorage, SecretStorage, TaskStorage};
+use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
 use restflow_tools::{
     BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool, SpawnSubagentTool,
     ToolRegistryBuilder, WaitSubagentsTool,
@@ -98,16 +98,10 @@ pub(crate) fn build_agent_crud_components(
 pub(crate) fn build_task_store_components(
     task_storage: TaskStorage,
     agent_storage: AgentStorage,
-    run_artifact_storage: RunArtifactStorage,
     session_service: SessionService,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> TaskStoreComponents {
-    let mut store = TaskStoreAdapter::new(
-        task_storage,
-        agent_storage,
-        run_artifact_storage,
-        session_service,
-    );
+    let mut store = TaskStoreAdapter::new(task_storage, agent_storage, session_service);
     if let Some(assessor) = assessor {
         store = store.with_assessor(assessor);
     }
@@ -167,7 +161,6 @@ pub(crate) fn build_task_store_runtime_components(
     build_task_store_components(
         storage.tasks.clone(),
         storage.agents.clone(),
-        storage.run_artifacts.clone(),
         SessionService::from_storage(storage),
         assessor,
     )

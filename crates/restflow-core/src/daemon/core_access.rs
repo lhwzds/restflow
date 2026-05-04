@@ -8,7 +8,7 @@ use crate::models::{AgentNode, Skill, Task, TaskSpec, TaskStatus};
 use crate::paths;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
-    skills as skills_service,
+    skills as skills_service, task_command::TaskCommandService,
 };
 use crate::storage::SystemConfig;
 use anyhow::Result;
@@ -189,7 +189,9 @@ impl CoreAccess {
 
     pub async fn create_task(&mut self, spec: TaskSpec) -> Result<Task> {
         match self {
-            CoreAccess::Local(core) => core.storage.tasks.create_task_from_spec(spec),
+            CoreAccess::Local(core) => TaskCommandService::from_storage(&core.storage, None)
+                .create_from_spec_direct(spec)
+                .map_err(|error| anyhow::anyhow!(error.to_string())),
             CoreAccess::Remote(client) => {
                 let spec = core_spec_to_contract(spec)?;
                 client.request_typed(IpcRequest::CreateTask { spec }).await

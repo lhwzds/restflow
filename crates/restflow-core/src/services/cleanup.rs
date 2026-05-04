@@ -16,7 +16,6 @@ pub struct CleanupReport {
     pub checkpoints: usize,
     pub memory_chunks: usize,
     pub audit_events: usize,
-    pub telemetry_metric_samples: usize,
     pub memory_sessions: usize,
     pub vector_orphans: usize,
     pub daemon_log_files: usize,
@@ -59,16 +58,6 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
             0
         };
 
-    let telemetry_metric_samples = if let Some(cutoff) =
-        retention_cutoff(now_ms, config.telemetry_metric_sample_retention_days)
-    {
-        core.storage
-            .telemetry_metric_samples
-            .cleanup_older_than(cutoff)?
-    } else {
-        0
-    };
-
     // M2: Clean up empty memory sessions
     let memory_sessions = cleanup_empty_memory_sessions(core)?;
 
@@ -87,7 +76,6 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         checkpoints,
         memory_chunks,
         audit_events,
-        telemetry_metric_samples,
         memory_sessions,
         vector_orphans,
         daemon_log_files,

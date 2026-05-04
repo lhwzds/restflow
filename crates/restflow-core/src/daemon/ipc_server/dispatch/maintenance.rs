@@ -10,7 +10,7 @@ impl IpcServer {
                 checkpoints: report.checkpoints,
                 memory_chunks: report.memory_chunks,
                 audit_events: report.audit_events,
-                telemetry_metric_samples: report.telemetry_metric_samples,
+                telemetry_metric_samples: 0,
                 memory_sessions: report.memory_sessions,
                 vector_orphans: report.vector_orphans,
                 daemon_log_files: report.daemon_log_files,

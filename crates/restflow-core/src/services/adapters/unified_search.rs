@@ -39,18 +39,24 @@ impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::session::SessionService;
     use crate::storage::MemoryStorage;
+    use crate::storage::Storage;
     use restflow_traits::store::UnifiedMemorySearch;
-    use std::sync::Arc;
     use tempfile::tempdir;
 
     fn setup() -> (UnifiedMemorySearchAdapter, MemoryStorage, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let memory_storage = MemoryStorage::new(db.clone()).unwrap();
-        let chat_storage = crate::storage::ChatSessionStorage::new(db).unwrap();
-        let engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage);
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let memory_storage = storage.memory.clone();
+        let session_service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+            Some(storage.memory.clone()),
+        );
+        let engine = UnifiedSearchEngine::new(memory_storage.clone(), session_service);
         (
             UnifiedMemorySearchAdapter::new(engine),
             memory_storage,

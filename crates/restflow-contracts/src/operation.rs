@@ -119,6 +119,9 @@ pub struct CleanupReportResponse {
     pub checkpoints: usize,
     pub memory_chunks: usize,
     pub audit_events: usize,
+    /// Deprecated compatibility field. Telemetry metric samples are no longer a
+    /// separate projection table; this remains zero for one release cycle.
+    #[serde(default)]
     pub telemetry_metric_samples: usize,
     pub memory_sessions: usize,
     pub vector_orphans: usize,
@@ -287,7 +290,7 @@ mod tests {
             checkpoints: 3,
             memory_chunks: 4,
             audit_events: 5,
-            telemetry_metric_samples: 6,
+            telemetry_metric_samples: 0,
             memory_sessions: 7,
             vector_orphans: 8,
             daemon_log_files: 9,

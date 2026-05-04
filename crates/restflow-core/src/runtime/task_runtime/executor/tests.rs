@@ -1,6 +1,6 @@
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use crate::models::{AgentNode, MemoryConfig, SkillPreflightPolicyMode, SkillSource};
+use crate::models::{AgentNode, MemoryConfig, SkillPreflightPolicyMode, SkillSource, TaskSchedule};
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use crate::test_support::RestflowTestEnv;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
@@ -728,32 +728,56 @@ async fn test_resolve_api_key_requires_matching_zai_coding_plan_secret() {
 }
 
 #[test]
-fn test_validate_prerequisites_passes_with_valid_artifacts() {
+fn test_validate_prerequisites_passes_with_completed_tasks() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    executor
-        .save_task_artifact("task-a", "run-a", "agent-1", "ok")
-        .expect("first artifact should save");
-    executor
-        .save_task_artifact("task-b", "run-b", "agent-1", "done")
-        .expect("second artifact should save");
+    let task_a = storage
+        .tasks
+        .create_task(
+            "task-a".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Once { run_at: 0 },
+        )
+        .expect("first task should create");
+    let task_b = storage
+        .tasks
+        .create_task(
+            "task-b".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Once { run_at: 0 },
+        )
+        .expect("second task should create");
+    storage
+        .tasks
+        .complete_task_execution(&task_a.id, Some("ok".to_string()), 1)
+        .expect("first task should complete");
+    storage
+        .tasks
+        .complete_task_execution(&task_b.id, Some("done".to_string()), 1)
+        .expect("second task should complete");
 
-    let prerequisites = vec!["task-a".to_string(), "task-b".to_string()];
+    let prerequisites = vec![task_a.id, task_b.id];
     let result = executor.validate_prerequisites(&prerequisites);
     assert!(result.is_ok(), "validation should pass: {:?}", result.err());
 }
 
 #[test]
-fn test_validate_prerequisites_prefers_run_artifacts() {
+fn test_validate_prerequisites_rejects_incomplete_task() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    executor
-        .save_task_artifact("task-artifact", "run-1", "agent-1", "final answer")
-        .expect("save artifact should succeed");
+    let task = storage
+        .tasks
+        .create_task(
+            "task-pending".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::default(),
+        )
+        .expect("task should create");
 
-    let prerequisites = vec!["task-artifact".to_string()];
-    let result = executor.validate_prerequisites(&prerequisites);
-    assert!(result.is_ok(), "validation should pass: {:?}", result.err());
+    let err = executor
+        .validate_prerequisites(std::slice::from_ref(&task.id))
+        .expect_err("validation should fail");
+    assert!(err.to_string().contains(&format!("{} (active)", task.id)));
 }
 
 #[test]
@@ -769,29 +793,13 @@ fn test_validate_prerequisites_fails_when_missing() {
 }
 
 #[test]
-fn test_save_task_artifact_persists_structured_payload() {
+fn test_persist_artifact_if_needed_does_not_write_run_artifact_payload() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
 
     executor
-        .save_task_artifact("task-save", "run-save", "agent-1", "final answer")
-        .expect("save artifact should succeed");
-
-    let artifacts = storage
-        .run_artifacts
-        .list_by_task("task-save")
-        .expect("artifact list should succeed");
-    assert_eq!(artifacts.len(), 1);
-    assert_eq!(artifacts[0].run_id, "run-save");
-    assert_eq!(artifacts[0].content.as_deref(), Some("final answer"));
-    assert_eq!(
-        artifacts[0]
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.get("agent_id"))
-            .map(String::as_str),
-        Some("agent-1")
-    );
+        .persist_artifact_if_needed(Some("task-save"), "run-save", "agent-1", "final answer")
+        .expect("artifact persistence should be a no-op");
 }
 
 #[test]

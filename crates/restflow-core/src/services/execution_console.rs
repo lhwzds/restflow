@@ -10,6 +10,7 @@ use crate::models::{
     ExecutionThread, ExecutionTraceEvent, ExecutionTraceQuery, RunKind, RunListQuery, RunSummary,
     Task,
 };
+use crate::services::session::SessionService;
 use crate::services::session_policy::{EffectiveSessionSource, SessionPolicy};
 use crate::storage::Storage;
 use crate::telemetry::get_execution_timeline;
@@ -300,8 +301,8 @@ impl ExecutionConsoleService {
     }
 
     fn load_session_contexts(&self) -> Result<Vec<SessionContext>> {
-        let sessions = self.storage.chat_sessions.list()?;
-        let session_policy = SessionPolicy::from_storage(&self.storage);
+        let session_service = SessionService::from_storage(&self.storage);
+        let sessions = session_service.list_session_views(None, None, false)?;
         let mut bound_tasks_by_session_id = HashMap::new();
         for task in self.storage.tasks.list_tasks()? {
             let trimmed_session_id = task.chat_session_id.trim();
@@ -313,7 +314,11 @@ impl ExecutionConsoleService {
         let mut contexts = Vec::with_capacity(sessions.len());
 
         for session in sessions {
-            let source = session_policy.effective_source(&session)?;
+            let (source, conversation_id) = session_service.effective_source(&session)?;
+            let source = EffectiveSessionSource {
+                source,
+                conversation_id,
+            };
             let bound_task = bound_tasks_by_session_id.get(&session.id).cloned();
             contexts.push(SessionContext {
                 session,
@@ -326,13 +331,16 @@ impl ExecutionConsoleService {
     }
 
     fn list_workspace_runs(&self, session_id: &str) -> Result<Vec<RunSummary>> {
-        let session = self
-            .storage
-            .chat_sessions
-            .get(session_id)?
+        let session_service = SessionService::from_storage(&self.storage);
+        let session = session_service
+            .get_session_view(session_id)?
             .ok_or_else(|| anyhow!("workspace session '{}' not found", session_id))?;
         let policy = SessionPolicy::from_storage(&self.storage);
-        let source = policy.effective_source(&session)?;
+        let (source, conversation_id) = session_service.effective_source(&session)?;
+        let source = EffectiveSessionSource {
+            source,
+            conversation_id,
+        };
         let bound_task = policy.bound_task(session_id)?;
         if source.source != ChatSessionSource::Workspace || bound_task.is_some() {
             return Err(anyhow!("workspace session '{}' not found", session_id));
@@ -712,11 +720,16 @@ impl ExecutionConsoleService {
             ));
         }
 
+        let session_service = SessionService::from_storage(&self.storage);
         if let Some(session_id) = latest.session_id.as_deref()
-            && let Ok(Some(session)) = self.storage.chat_sessions.get(session_id)
+            && let Ok(Some(session)) = session_service.get_session_view(session_id)
         {
             let policy = SessionPolicy::from_storage(&self.storage);
-            let source = policy.effective_source(&session)?;
+            let (source, conversation_id) = session_service.effective_source(&session)?;
+            let source = EffectiveSessionSource {
+                source,
+                conversation_id,
+            };
             if let Some(task) = policy.bound_task(session_id)? {
                 return Ok(self.build_run_summary(
                     run_id,

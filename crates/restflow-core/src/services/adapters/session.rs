@@ -1,4 +1,4 @@
-//! SessionStore adapter backed by ChatSessionStorage.
+//! SessionStore adapter backed by the canonical SessionService boundary.
 
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, SessionStorage, TaskStorage};
@@ -35,6 +35,7 @@ impl SessionStorageAdapter {
             self.task_storage.clone(),
             None,
         )
+        .with_default_file_sessions()
     }
 }
 

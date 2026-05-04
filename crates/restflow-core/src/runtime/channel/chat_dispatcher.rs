@@ -231,16 +231,27 @@ impl ChatSessionManager {
         }
 
         // Re-check after acquiring lock (another task may have created it)
-        let sessions = self.storage.chat_sessions.list_all()?;
-        if let Some(mut session) = sessions
-            .iter()
-            .find(|s| {
-                s.source_channel == source_channel
-                    && s.source_conversation_id.as_deref() == Some(conversation_id)
+        if let Some(mut session) = source_channel
+            .map(|source| {
+                self.session_service
+                    .find_session_by_source_fields(source, conversation_id)
             })
-            .cloned()
+            .transpose()?
+            .flatten()
         {
             self.maybe_rebind_to_forced_default(&mut session)?;
+            if let Some(channel_key) = binding_channel
+                && let Err(err) =
+                    self.upsert_channel_binding(channel_key, conversation_id, &session.id)
+            {
+                warn!(
+                    session_id = %session.id,
+                    channel = channel_key,
+                    conversation_id = %conversation_id,
+                    error = %err,
+                    "Failed to persist channel-session binding for legacy session"
+                );
+            }
             debug!(
                 "Found existing session {} for {:?} conversation {}",
                 session.id, channel_type, conversation_id
@@ -258,20 +269,22 @@ impl ChatSessionManager {
         }
 
         // Handle potential duplicate from race condition (defensive)
-        if let Err(e) = self.storage.chat_sessions.create(&session) {
-            if let Some(channel_key) = binding_channel
-                && let Some(existing) =
-                    self.lookup_session_from_binding(channel_key, conversation_id)?
-            {
-                debug!(
-                    "Session {} was created by another request (binding), using existing",
-                    existing.id
-                );
-                return Ok(existing);
+        let session = match self.session_service.create_external_session(session) {
+            Ok(session) => session,
+            Err(e) => {
+                if let Some(channel_key) = binding_channel
+                    && let Some(existing) =
+                        self.lookup_session_from_binding(channel_key, conversation_id)?
+                {
+                    debug!(
+                        "Session {} was created by another request (binding), using existing",
+                        existing.id
+                    );
+                    return Ok(existing);
+                }
+                return Err(e);
             }
-            // It's a real error, propagate it
-            return Err(e);
-        }
+        };
 
         if let Some(channel_key) = binding_channel
             && let Err(err) = self.upsert_channel_binding(channel_key, conversation_id, &session.id)
@@ -335,7 +348,7 @@ impl ChatSessionManager {
             return Ok(None);
         };
 
-        if let Some(mut session) = self.storage.chat_sessions.get(&binding.session_id)? {
+        if let Some(mut session) = self.session_service.get_session_view(&binding.session_id)? {
             session.hydrate_provider_from_model();
             return Ok(Some(session));
         }
@@ -422,9 +435,8 @@ impl ChatSessionManager {
     /// Get message history for a session (for context).
     pub fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
         let session = self
-            .storage
-            .chat_sessions
-            .get(session_id)?
+            .session_service
+            .get_session_view(session_id)?
             .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
         Ok(session.messages)
@@ -433,16 +445,15 @@ impl ChatSessionManager {
     /// Rebind an existing session to another agent.
     pub fn rebind_session_agent(&self, session_id: &str, agent_id: &str) -> Result<ChatSession> {
         let mut session = self
-            .storage
-            .chat_sessions
-            .get(session_id)?
+            .session_service
+            .get_session_view(session_id)?
             .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
         let model = self.get_agent_model(agent_id)?;
         session.agent_id = agent_id.to_string();
         session.set_model_identity_from_raw(&model);
 
-        self.storage.chat_sessions.save(&session)?;
+        self.session_service.save_session_metadata(&session)?;
         Ok(session)
     }
 
@@ -482,7 +493,7 @@ impl ChatSessionManager {
         session.agent_id = default_agent_id.clone();
         session.set_model_identity_from_raw(&model);
 
-        if let Err(err) = self.storage.chat_sessions.save(session) {
+        if let Err(err) = self.session_service.save_session_metadata(session) {
             warn!(
                 "Failed to persist forced default-agent rebind for session {}: {}",
                 session.id, err
@@ -766,7 +777,7 @@ impl ChatDispatcher {
                     .await?;
                 return Ok(());
             }
-            match self.storage.chat_sessions.get(&session.id) {
+            match self.sessions.session_service.get_session_view(&session.id) {
                 Ok(Some(mut updated)) => {
                     updated.hydrate_provider_from_model();
                     session = updated;
@@ -1026,20 +1037,32 @@ mod tests {
     use tokio::time::Duration;
 
     struct StorageEnvGuard {
+        _restflow_lock: std::sync::MutexGuard<'static, ()>,
+        _agents_lock: std::sync::MutexGuard<'static, ()>,
         previous_restflow_dir: Option<OsString>,
+        previous_agents_dir: Option<OsString>,
         previous_master_key: Option<OsString>,
     }
 
     impl StorageEnvGuard {
         fn new(state_dir: &Path) -> Self {
+            let restflow_lock = crate::paths::restflow_dir_env_lock();
+            let agents_lock = crate::prompt_files::agents_dir_env_lock();
             let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+            let previous_agents_dir = std::env::var_os("RESTFLOW_AGENTS_DIR");
             let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+            let agents_dir = state_dir.join("agents");
+            std::fs::create_dir_all(&agents_dir).unwrap();
             unsafe {
                 std::env::set_var("RESTFLOW_DIR", state_dir);
+                std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir);
                 std::env::set_var("RESTFLOW_MASTER_KEY", "11".repeat(32));
             }
             Self {
+                _restflow_lock: restflow_lock,
+                _agents_lock: agents_lock,
                 previous_restflow_dir,
+                previous_agents_dir,
                 previous_master_key,
             }
         }
@@ -1052,6 +1075,10 @@ mod tests {
                     Some(value) => std::env::set_var("RESTFLOW_DIR", value),
                     None => std::env::remove_var("RESTFLOW_DIR"),
                 }
+                match self.previous_agents_dir.as_ref() {
+                    Some(value) => std::env::set_var("RESTFLOW_AGENTS_DIR", value),
+                    None => std::env::remove_var("RESTFLOW_AGENTS_DIR"),
+                }
                 match self.previous_master_key.as_ref() {
                     Some(value) => std::env::set_var("RESTFLOW_MASTER_KEY", value),
                     None => std::env::remove_var("RESTFLOW_MASTER_KEY"),
@@ -1060,15 +1087,14 @@ mod tests {
         }
     }
 
-    fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
-        let _env_lock = crate::paths::restflow_dir_env_lock();
+    fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir, StorageEnvGuard) {
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
-        let _env_guard = StorageEnvGuard::new(&state_dir);
+        let env_guard = StorageEnvGuard::new(&state_dir);
         let db_path = temp_dir.path().join("test.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-        (Arc::new(storage), temp_dir)
+        (Arc::new(storage), temp_dir, env_guard)
     }
 
     #[allow(dead_code)]
@@ -1197,7 +1223,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_creates_session() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         // Create a test agent first
         use crate::models::AgentNode;
@@ -1234,7 +1260,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_recovers_from_stale_binding() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         use crate::models::{AgentNode, ChannelSessionBinding};
         storage
@@ -1264,11 +1290,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_forces_existing_channel_session_to_default_agent() {
-        let (storage, _temp_dir) = create_test_storage();
-        let _env_lock = crate::prompt_files::agents_dir_env_lock();
-        let agents_dir = _temp_dir.path().join("agents");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         use crate::models::AgentNode;
         let non_default = storage
@@ -1305,12 +1327,11 @@ mod tests {
         assert_eq!(session.agent_id, default_agent.id);
         assert_eq!(session.provider, "anthropic");
         assert_eq!(session.model, ModelId::ClaudeSonnet4_5.as_str());
-        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 
     #[tokio::test]
     async fn test_session_manager_appends_exchange() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         // Create a test agent first
         use crate::models::AgentNode;
@@ -1340,7 +1361,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_appends_multiple_exchanges_sequentially() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         use crate::models::AgentNode;
         storage
@@ -1383,7 +1404,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_updates_model_on_append() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         use crate::models::AgentNode;
         storage
@@ -1421,7 +1442,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_does_not_truncate_stored_history() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         use crate::models::AgentNode;
         storage
@@ -1455,7 +1476,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager_rebinds_agent() {
-        let (storage, _temp_dir) = create_test_storage();
+        let (storage, _temp_dir, _env_guard) = create_test_storage();
 
         use crate::models::AgentNode;
         let stale = storage

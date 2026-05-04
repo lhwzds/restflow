@@ -6,7 +6,6 @@
 //! client, and executes the agent with the configured tools.
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +16,7 @@ use crate::{
     auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
     models::{
         AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
-        DurabilityMode, MemoryConfig, RunArtifact, RunArtifactKind, Skill, SteerMessage,
+        DurabilityMode, MemoryConfig, Skill, SteerMessage, TaskStatus,
     },
     process::ProcessRegistry,
     prompt_files,
@@ -298,33 +297,6 @@ impl AgentRuntimeExecutor {
         .map_err(|error| anyhow!(error.to_string()))
     }
 
-    fn save_task_artifact(
-        &self,
-        task_id: &str,
-        run_id: &str,
-        agent_id: &str,
-        output: &str,
-    ) -> Result<()> {
-        let now = Utc::now().timestamp_millis();
-        let artifact = RunArtifact {
-            id: uuid::Uuid::new_v4().to_string(),
-            run_id: run_id.to_string(),
-            task_id: Some(task_id.to_string()),
-            kind: RunArtifactKind::FinalOutput,
-            title: "Task final output".to_string(),
-            content: Some(output.to_string()),
-            content_ref: None,
-            content_type: Some("text/plain".to_string()),
-            size_bytes: output.len(),
-            created_at: now,
-            metadata: Some(std::collections::BTreeMap::from([(
-                "agent_id".to_string(),
-                agent_id.to_string(),
-            )])),
-        };
-        self.storage.run_artifacts.save(&artifact)
-    }
-
     fn validate_prerequisites(&self, prerequisites: &[String]) -> Result<()> {
         if prerequisites.is_empty() {
             return Ok(());
@@ -332,12 +304,11 @@ impl AgentRuntimeExecutor {
 
         let mut failed = Vec::new();
         for task_id in prerequisites {
-            let artifacts = self.storage.run_artifacts.list_by_task(task_id)?;
-            if artifacts.iter().any(RunArtifact::has_payload) {
-                continue;
+            match self.storage.tasks.get_task(task_id)? {
+                Some(task) if task.status == TaskStatus::Completed => {}
+                Some(task) => failed.push(format!("{} ({})", task.id, task.status.as_str())),
+                None => failed.push(format!("{task_id} (not found)")),
             }
-
-            failed.push(format!("{task_id} (not found)"));
         }
 
         if failed.is_empty() {
@@ -352,11 +323,9 @@ impl AgentRuntimeExecutor {
         task_id: Option<&str>,
         run_id: &str,
         agent_id: &str,
-        output: &str,
+        _output: &str,
     ) -> Result<()> {
-        if let Some(task_id) = task_id {
-            self.save_task_artifact(task_id, run_id, agent_id, output)?;
-        }
+        let _ = (task_id, run_id, agent_id);
         Ok(())
     }
 

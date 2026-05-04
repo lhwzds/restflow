@@ -15,9 +15,11 @@ use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
 #[cfg(test)]
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
+use crate::storage::ConfigStorage;
+#[cfg(test)]
 use crate::storage::{
-    AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ConfigStorage,
-    ExecutionTraceStorage, MemoryStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
+    AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage,
+    MemoryStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
 };
 #[cfg(test)]
 use restflow_ai::AgentState;

@@ -17,10 +17,7 @@ pub use mapping::{
     build_execution_steps, build_log_record_event, build_metric_sample_event,
     build_provider_health_event, execution_event_to_trace_event,
 };
-pub use projector::{
-    ExecutionTraceProjector, MetricsProjector, ProviderHealthProjector, SessionProjectionProjector,
-    StructuredLogProjector, TelemetryProjector,
-};
+pub use projector::{ExecutionTraceProjector, TelemetryProjector};
 pub use query::{
     execution_trace_stats_for_events, get_execution_metrics, get_execution_timeline,
     get_provider_health, query_execution_logs,
@@ -57,13 +54,7 @@ mod tests {
             .create(&session)
             .expect("create session");
 
-        let sink = CoreTelemetrySink::new(
-            storage.execution_traces.clone(),
-            storage.chat_sessions.clone(),
-            storage.telemetry_metric_samples.clone(),
-            storage.provider_health_snapshots.clone(),
-            storage.structured_execution_logs.clone(),
-        );
+        let sink = CoreTelemetrySink::new(storage.execution_traces.clone());
         let trace = restflow_ai::telemetry::RestflowTrace::new(
             "run-1",
             "session-1",
@@ -141,7 +132,7 @@ mod tests {
         assert_eq!(persisted.cost, 0.0);
 
         let metrics = get_execution_metrics(
-            &storage.telemetry_metric_samples,
+            &storage.execution_traces,
             &ExecutionMetricQuery {
                 task_id: Some("session-1".to_string()),
                 ..ExecutionMetricQuery::default()
@@ -156,7 +147,7 @@ mod tests {
         }));
 
         let provider_health = get_provider_health(
-            &storage.provider_health_snapshots,
+            &storage.execution_traces,
             &ProviderHealthQuery {
                 provider: Some("minimax-coding-plan".to_string()),
                 model: Some("minimax-coding-plan-m2-5-highspeed".to_string()),
@@ -174,7 +165,7 @@ mod tests {
         );
 
         let logs = query_execution_logs(
-            &storage.structured_execution_logs,
+            &storage.execution_traces,
             &ExecutionLogQuery {
                 task_id: Some("session-1".to_string()),
                 level: Some("warn".to_string()),

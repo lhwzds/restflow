@@ -5,10 +5,7 @@ use crate::models::{
     ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
     ExecutionTraceStats, ProviderHealthQuery, ProviderHealthResponse,
 };
-use crate::storage::{
-    ExecutionTraceStorage, ProviderHealthSnapshotStorage, StructuredExecutionLogStorage,
-    TelemetryMetricSampleStorage,
-};
+use crate::storage::ExecutionTraceStorage;
 
 pub fn get_execution_timeline(
     execution_traces: &ExecutionTraceStorage,
@@ -21,28 +18,25 @@ pub fn get_execution_timeline(
 }
 
 pub fn get_execution_metrics(
-    storage: &TelemetryMetricSampleStorage,
+    storage: &ExecutionTraceStorage,
     query: &ExecutionMetricQuery,
 ) -> Result<ExecutionMetricsResponse> {
-    let mut samples = storage.list_all()?;
+    let mut samples = storage.query(&ExecutionTraceQuery {
+        task_id: query.task_id.clone(),
+        run_id: query.run_id.clone(),
+        parent_run_id: None,
+        session_id: query.session_id.clone(),
+        turn_id: None,
+        agent_id: query.agent_id.clone(),
+        category: Some(ExecutionTraceCategory::MetricSample),
+        source: None,
+        from_timestamp: None,
+        to_timestamp: None,
+        limit: Some(usize::MAX),
+        offset: Some(0),
+    })?;
     samples.retain(|event| {
         event.category == ExecutionTraceCategory::MetricSample
-            && query
-                .task_id
-                .as_ref()
-                .is_none_or(|value| event.task_id == *value)
-            && query
-                .run_id
-                .as_ref()
-                .is_none_or(|value| event.run_id.as_ref() == Some(value))
-            && query
-                .session_id
-                .as_ref()
-                .is_none_or(|value| event.session_id.as_ref() == Some(value))
-            && query
-                .agent_id
-                .as_ref()
-                .is_none_or(|value| event.agent_id == *value)
             && query.metric_name.as_ref().is_none_or(|value| {
                 event.metric_sample.as_ref().map(|sample| &sample.name) == Some(value)
             })
@@ -55,10 +49,23 @@ pub fn get_execution_metrics(
 }
 
 pub fn get_provider_health(
-    storage: &ProviderHealthSnapshotStorage,
+    storage: &ExecutionTraceStorage,
     query: &ProviderHealthQuery,
 ) -> Result<ProviderHealthResponse> {
-    let mut events = storage.list_all()?;
+    let mut events = storage.query(&ExecutionTraceQuery {
+        task_id: None,
+        run_id: None,
+        parent_run_id: None,
+        session_id: None,
+        turn_id: None,
+        agent_id: None,
+        category: Some(ExecutionTraceCategory::ProviderHealth),
+        source: None,
+        from_timestamp: None,
+        to_timestamp: None,
+        limit: Some(usize::MAX),
+        offset: Some(0),
+    })?;
     events.retain(|event| {
         event.category == ExecutionTraceCategory::ProviderHealth
             && query.provider.as_ref().is_none_or(|value| {
@@ -84,28 +91,25 @@ pub fn get_provider_health(
 }
 
 pub fn query_execution_logs(
-    storage: &StructuredExecutionLogStorage,
+    storage: &ExecutionTraceStorage,
     query: &ExecutionLogQuery,
 ) -> Result<ExecutionLogResponse> {
-    let mut events = storage.list_all()?;
+    let mut events = storage.query(&ExecutionTraceQuery {
+        task_id: query.task_id.clone(),
+        run_id: query.run_id.clone(),
+        parent_run_id: None,
+        session_id: query.session_id.clone(),
+        turn_id: None,
+        agent_id: query.agent_id.clone(),
+        category: Some(ExecutionTraceCategory::LogRecord),
+        source: None,
+        from_timestamp: None,
+        to_timestamp: None,
+        limit: Some(usize::MAX),
+        offset: Some(0),
+    })?;
     events.retain(|event| {
         event.category == ExecutionTraceCategory::LogRecord
-            && query
-                .task_id
-                .as_ref()
-                .is_none_or(|value| event.task_id == *value)
-            && query
-                .run_id
-                .as_ref()
-                .is_none_or(|value| event.run_id.as_ref() == Some(value))
-            && query
-                .session_id
-                .as_ref()
-                .is_none_or(|value| event.session_id.as_ref() == Some(value))
-            && query
-                .agent_id
-                .as_ref()
-                .is_none_or(|value| event.agent_id == *value)
             && query
                 .level
                 .as_ref()

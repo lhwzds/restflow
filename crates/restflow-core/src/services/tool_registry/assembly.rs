@@ -11,51 +11,15 @@ use restflow_traits::AgentOperationAssessor;
 /// - Optional security gate wiring for execution tools; `None` keeps default permissive behavior
 #[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry(
-    memory_storage: MemoryStorage,
-    chat_storage: ChatSessionStorage,
-    channel_session_binding_storage: ChannelSessionBindingStorage,
-    execution_trace_storage: ExecutionTraceStorage,
-    secret_storage: SecretStorage,
     config_storage: ConfigStorage,
-    agent_storage: AgentStorage,
-    task_storage: TaskStorage,
-    terminal_storage: TerminalSessionStorage,
-    run_artifact_storage: crate::storage::RunArtifactStorage,
-    _accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
-    create_tool_registry_with_assessor(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        _accessor_id,
-        agent_id,
-        security_gate,
-        None,
-    )
+    create_tool_registry_with_assessor(config_storage, agent_id, security_gate, None)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry_with_assessor(
-    _memory_storage: MemoryStorage,
-    _chat_storage: ChatSessionStorage,
-    _channel_session_binding_storage: ChannelSessionBindingStorage,
-    _execution_trace_storage: ExecutionTraceStorage,
-    _secret_storage: SecretStorage,
     config_storage: ConfigStorage,
-    _agent_storage: AgentStorage,
-    _task_storage: TaskStorage,
-    _terminal_storage: TerminalSessionStorage,
-    _run_artifact_storage: crate::storage::RunArtifactStorage,
-    _accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
     _assessor: Option<Arc<dyn AgentOperationAssessor>>,

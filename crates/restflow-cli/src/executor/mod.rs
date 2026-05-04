@@ -60,12 +60,6 @@ pub trait CommandExecutor: Send + Sync {
         tags: Vec<String>,
     ) -> Result<String>;
 
-    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>>;
-    async fn get_session(&self, id: &str) -> Result<ChatSession>;
-    async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession>;
-    async fn delete_session(&self, id: &str) -> Result<bool>;
-    async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>>;
-
     async fn list_secrets(&self) -> Result<Vec<Secret>>;
     async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
     #[allow(dead_code)]
@@ -106,6 +100,19 @@ pub trait CommandExecutor: Send + Sync {
     async fn unbind_route(&self, id: &str) -> Result<bool>;
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse>;
+
+    // Session operations
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>>;
+    async fn list_full_sessions(&self) -> Result<Vec<ChatSession>>;
+    async fn get_session(&self, id: &str) -> Result<ChatSession>;
+    async fn create_session(
+        &self,
+        agent_id: Option<String>,
+        model: Option<String>,
+        name: Option<String>,
+        skill_id: Option<String>,
+    ) -> Result<ChatSession>;
+    async fn delete_session(&self, id: &str) -> Result<bool>;
 
     // Task operations
     async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>>;

@@ -103,8 +103,9 @@ impl IpcServer {
     }
 
     pub(super) async fn handle_count_sessions(core: &Arc<AppCore>) -> IpcResponse {
-        match core.storage.chat_sessions.count() {
-            Ok(count) => IpcResponse::success(count),
+        let session_service = SessionService::from_storage(&core.storage);
+        match session_service.list_session_views(None, None, false) {
+            Ok(sessions) => IpcResponse::success(sessions.len()),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -251,7 +252,8 @@ impl IpcServer {
         role: ChatRole,
         content: String,
     ) -> IpcResponse {
-        let mut session = match core.storage.chat_sessions.get(&session_id) {
+        let session_service = SessionService::from_storage(&core.storage);
+        let mut session = match session_service.get_session_view(&session_id) {
             Ok(Some(session)) => session,
             Ok(None) => return IpcResponse::not_found("Session"),
             Err(err) => return IpcResponse::error(500, err.to_string()),
@@ -265,7 +267,8 @@ impl IpcServer {
         session_id: String,
         message: ChatMessage,
     ) -> IpcResponse {
-        let mut session = match core.storage.chat_sessions.get(&session_id) {
+        let session_service = SessionService::from_storage(&core.storage);
+        let mut session = match session_service.get_session_view(&session_id) {
             Ok(Some(session)) => session,
             Ok(None) => return IpcResponse::not_found("Session"),
             Err(err) => return IpcResponse::error(500, err.to_string()),
@@ -312,7 +315,8 @@ impl IpcServer {
         session_id: String,
         limit: Option<usize>,
     ) -> IpcResponse {
-        let session = match core.storage.chat_sessions.get(&session_id) {
+        let session_service = SessionService::from_storage(&core.storage);
+        let session = match session_service.get_session_view(&session_id) {
             Ok(Some(session)) => session,
             Ok(None) => return IpcResponse::not_found("Session"),
             Err(err) => return IpcResponse::error(500, err.to_string()),
@@ -380,7 +384,7 @@ impl IpcServer {
             return IpcResponse::error(400, "run_id is required");
         }
         match get_execution_metrics(
-            &core.storage.telemetry_metric_samples,
+            &core.storage.execution_traces,
             &crate::models::ExecutionMetricQuery {
                 task_id: None,
                 run_id: Some(run_id.to_string()),
@@ -399,7 +403,7 @@ impl IpcServer {
         core: &Arc<AppCore>,
         query: crate::models::ProviderHealthQuery,
     ) -> IpcResponse {
-        match get_provider_health(&core.storage.provider_health_snapshots, &query) {
+        match get_provider_health(&core.storage.execution_traces, &query) {
             Ok(response) => IpcResponse::success(response),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -414,7 +418,7 @@ impl IpcServer {
             return IpcResponse::error(400, "run_id is required");
         }
         match query_execution_logs(
-            &core.storage.structured_execution_logs,
+            &core.storage.execution_traces,
             &crate::models::ExecutionLogQuery {
                 task_id: None,
                 run_id: Some(run_id.to_string()),

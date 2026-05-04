@@ -475,17 +475,7 @@ impl AgentNode {
         let mut errors = Vec::new();
 
         let tool_registry = match crate::services::tool_registry::create_tool_registry(
-            core.storage.memory.clone(),
-            core.storage.chat_sessions.clone(),
-            core.storage.channel_session_bindings.clone(),
-            core.storage.execution_traces.clone(),
-            core.storage.secrets.clone(),
             core.storage.config.clone(),
-            core.storage.agents.clone(),
-            core.storage.tasks.clone(),
-            core.storage.terminal_sessions.clone(),
-            core.storage.run_artifacts.clone(),
-            None,
             None,
             None,
         ) {

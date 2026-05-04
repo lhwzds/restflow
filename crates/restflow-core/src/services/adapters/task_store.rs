@@ -7,7 +7,7 @@ use crate::models::{
 };
 use crate::services::session::SessionService;
 use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
-use crate::storage::{AgentStorage, RunArtifactStorage, TaskStorage};
+use crate::storage::{AgentStorage, TaskStorage};
 use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
 use restflow_traits::AgentOperationAssessor;
@@ -29,7 +29,6 @@ pub struct TaskStoreAdapter {
     storage: TaskStorage,
     #[allow(dead_code)]
     agent_storage: AgentStorage,
-    run_artifact_storage: RunArtifactStorage,
     command_service: TaskCommandService,
 }
 
@@ -37,7 +36,6 @@ impl TaskStoreAdapter {
     pub fn new(
         storage: TaskStorage,
         agent_storage: AgentStorage,
-        run_artifact_storage: RunArtifactStorage,
         session_service: SessionService,
     ) -> Self {
         let command_service = TaskCommandService::new(
@@ -49,7 +47,6 @@ impl TaskStoreAdapter {
         Self {
             storage,
             agent_storage,
-            run_artifact_storage,
             command_service,
         }
     }
@@ -374,9 +371,8 @@ impl TaskStore for TaskStoreAdapter {
         &self,
         request: TaskArtifactListRequest,
     ) -> restflow_tools::Result<Value> {
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let items = self.run_artifact_storage.list_by_task(&resolved_id)?;
-        Ok(serde_json::to_value(items)?)
+        self.resolve_task_id(&request.id)?;
+        Ok(json!([]))
     }
 
     fn list_task_traces(&self, request: TaskTraceListRequest) -> restflow_tools::Result<Value> {
@@ -750,8 +746,6 @@ mod tests {
             bg_storage.clone(),
             Some(memory_storage),
         );
-        let run_artifact_storage = crate::storage::RunArtifactStorage::new(db).unwrap();
-
         let prompts_dir = temp_dir.path().join("state").join("agents");
         std::fs::create_dir_all(&prompts_dir).unwrap();
         let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
@@ -772,13 +766,8 @@ mod tests {
         }
 
         (
-            TaskStoreAdapter::new(
-                bg_storage,
-                agent_storage,
-                run_artifact_storage,
-                session_service,
-            )
-            .with_assessor(assessor),
+            TaskStoreAdapter::new(bg_storage, agent_storage, session_service)
+                .with_assessor(assessor),
             temp_dir,
             guard,
         )
@@ -861,7 +850,10 @@ mod tests {
         session.add_message(crate::models::ChatMessage::user(
             "Please continue this task.",
         ));
-        adapter.storage.chat_sessions().create(&session).unwrap();
+        let session = adapter
+            .command_service
+            .create_session_for_test(session)
+            .unwrap();
 
         let converted = adapter
             .convert_session_to_task(TaskConvertSessionRequest {
@@ -933,7 +925,10 @@ mod tests {
             crate::models::ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("Empty Session");
-        adapter.storage.chat_sessions().create(&session).unwrap();
+        let session = adapter
+            .command_service
+            .create_session_for_test(session)
+            .unwrap();
 
         let error = adapter
             .convert_session_to_task(TaskConvertSessionRequest {
@@ -969,7 +964,10 @@ mod tests {
             crate::models::ModelId::Gpt5.as_serialized_str().to_string(),
         );
         session.add_message(crate::models::ChatMessage::user("Continue guarded task"));
-        adapter.storage.chat_sessions().create(&session).unwrap();
+        let session = adapter
+            .command_service
+            .create_session_for_test(session)
+            .unwrap();
 
         let converted = adapter
             .convert_session_to_task(TaskConvertSessionRequest {

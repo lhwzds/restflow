@@ -196,7 +196,6 @@ fn setup_storage() -> (
     AgentStorage,
     TaskStorage,
     TerminalSessionStorage,
-    crate::storage::RunArtifactStorage,
     tempfile::TempDir,
 ) {
     let temp_dir = tempdir().unwrap();
@@ -220,7 +219,6 @@ fn setup_storage() -> (
     let agent_storage = AgentStorage::new(db.clone()).unwrap();
     let task_storage = TaskStorage::new(db.clone()).unwrap();
     let terminal_storage = TerminalSessionStorage::new(db.clone()).unwrap();
-    let run_artifact_storage = crate::storage::RunArtifactStorage::new(db.clone()).unwrap();
 
     unsafe {
         std::env::remove_var("RESTFLOW_DIR");
@@ -235,7 +233,6 @@ fn setup_storage() -> (
         agent_storage,
         task_storage,
         terminal_storage,
-        run_artifact_storage,
         temp_dir,
     )
 }
@@ -330,34 +327,18 @@ impl LlmClientFactory for TestLlmFactory {
 #[test]
 fn test_create_tool_registry() {
     let (
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
+        _memory_storage,
+        _chat_storage,
+        _channel_session_binding_storage,
+        _execution_trace_storage,
+        _secret_storage,
         config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+        _agent_storage,
+        _task_storage,
+        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
-    let registry = create_tool_registry(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let registry = create_tool_registry(config_storage, None, None).unwrap();
 
     for tool_name in [
         "bash",
@@ -407,34 +388,18 @@ fn test_create_tool_registry() {
 #[test]
 fn test_create_tool_registry_excludes_subagent_tools_by_default() {
     let (
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
+        _memory_storage,
+        _chat_storage,
+        _channel_session_binding_storage,
+        _execution_trace_storage,
+        _secret_storage,
         config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+        _agent_storage,
+        _task_storage,
+        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
-    let registry = create_tool_registry(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let registry = create_tool_registry(config_storage, None, None).unwrap();
 
     assert!(!registry.has("spawn_subagent"));
     assert!(!registry.has("spawn_subagent_batch"));
@@ -667,7 +632,6 @@ fn test_agent_store_adapter_crud_flow() {
         agent_storage,
         task_storage,
         _terminal_storage,
-        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -780,7 +744,6 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         agent_storage,
         task_storage,
         _terminal_storage,
-        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -829,7 +792,6 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         agent_storage,
         task_storage,
         _terminal_storage,
-        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -903,7 +865,6 @@ fn test_task_store_adapter_task_flow() {
         agent_storage,
         task_storage,
         _terminal_storage,
-        run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -916,7 +877,6 @@ fn test_task_store_adapter_task_flow() {
     let adapter = TaskStoreAdapter::new(
         task_storage.clone(),
         agent_storage.clone(),
-        run_artifact_storage,
         SessionService::new(
             crate::storage::SessionStorage::new(
                 chat_storage,
@@ -1288,7 +1248,6 @@ async fn test_db_memory_store_adapter_crud() {
         _agent_storage,
         _task_storage,
         _terminal_storage,
-        _run_artifact_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1368,35 +1327,19 @@ async fn test_db_memory_store_adapter_crud() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     let (
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
+        _memory_storage,
+        _chat_storage,
+        _channel_session_binding_storage,
+        _execution_trace_storage,
+        _secret_storage,
         config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+        _agent_storage,
+        _task_storage,
+        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
-    let registry = create_tool_registry(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let registry = create_tool_registry(config_storage, None, None).unwrap();
 
     for tool_name in [
         "bash",
@@ -1432,22 +1375,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
     let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
         .expect("storage should be created");
 
-    let service_registry = create_tool_registry(
-        storage.memory.clone(),
-        storage.chat_sessions.clone(),
-        storage.channel_session_bindings.clone(),
-        storage.execution_traces.clone(),
-        storage.secrets.clone(),
-        storage.config.clone(),
-        storage.agents.clone(),
-        storage.tasks.clone(),
-        storage.terminal_sessions.clone(),
-        storage.run_artifacts.clone(),
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let service_registry = create_tool_registry(storage.config.clone(), None, None).unwrap();
 
     let subagent_manager = create_subagent_manager(
         storage.agents.clone(),
@@ -1554,38 +1482,23 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_subagent_manager_persists_execution_traces() {
     let (
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
+        _memory_storage,
+        _chat_storage,
+        _channel_session_binding_storage,
         execution_trace_storage,
-        secret_storage,
+        _secret_storage,
         config_storage,
         agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+        _task_storage,
+        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
     let execution_trace_storage =
         ExecutionTraceStorage::new(execution_trace_storage.db()).expect("execution trace storage");
 
-    let service_registry = create_tool_registry(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage.clone(),
-        secret_storage,
-        config_storage.clone(),
-        agent_storage.clone(),
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .expect("service registry");
+    let service_registry =
+        create_tool_registry(config_storage.clone(), None, None).expect("service registry");
 
     let mock_llm: Arc<dyn LlmClient> = Arc::new(TestLlmClient {
         model: "mock-model".to_string(),
@@ -1701,35 +1614,20 @@ async fn test_create_subagent_manager_persists_execution_traces() {
 #[tokio::test]
 async fn test_service_subagent_manager_supports_temporary_model_provider_only() {
     let (
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
+        _memory_storage,
+        _chat_storage,
+        _channel_session_binding_storage,
         execution_trace_storage,
-        secret_storage,
+        _secret_storage,
         config_storage,
         agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+        _task_storage,
+        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
-    let service_registry = create_tool_registry(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage.clone(),
-        secret_storage,
-        config_storage.clone(),
-        agent_storage.clone(),
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .expect("service registry");
+    let service_registry =
+        create_tool_registry(config_storage.clone(), None, None).expect("service registry");
 
     let mock_llm: Arc<dyn LlmClient> = Arc::new(TestLlmClient {
         model: "mock-model".to_string(),
@@ -1780,35 +1678,20 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
 #[test]
 fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     let (
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
+        _memory_storage,
+        _chat_storage,
+        _channel_session_binding_storage,
         execution_trace_storage,
         secret_storage,
         config_storage,
         agent_storage,
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
+        _task_storage,
+        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
-    let service_registry = create_tool_registry(
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage.clone(),
-        secret_storage.clone(),
-        config_storage.clone(),
-        agent_storage.clone(),
-        task_storage,
-        terminal_storage,
-        run_artifact_storage,
-        None,
-        None,
-        None,
-    )
-    .expect("service registry");
+    let service_registry =
+        create_tool_registry(config_storage.clone(), None, None).expect("service registry");
 
     let bundle = build_service_subagent_runtime_bundle(
         agent_storage,

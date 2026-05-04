@@ -4,6 +4,7 @@ pub mod codex_mcp;
 pub mod config;
 pub mod daemon;
 pub mod daemon_state;
+pub mod import;
 pub mod info;
 pub mod key;
 pub mod maintenance;

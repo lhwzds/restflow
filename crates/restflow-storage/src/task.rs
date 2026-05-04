@@ -47,35 +47,6 @@ pub struct TaskStorage {
 }
 
 impl TaskStorage {
-    fn parse_chat_session_id(data: &[u8]) -> Result<Option<String>> {
-        let value: serde_json::Value =
-            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
-        let Some(raw_session_id) = value.get("chat_session_id") else {
-            return Ok(None);
-        };
-        let session_id = raw_session_id
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("chat_session_id is not a string"))?
-            .trim();
-        if session_id.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(session_id.to_string()))
-        }
-    }
-
-    fn extract_chat_session_id(data: &[u8]) -> Option<String> {
-        Self::parse_chat_session_id(data).ok().flatten()
-    }
-
-    fn extract_task_name(data: &[u8]) -> Option<String> {
-        let value: serde_json::Value = serde_json::from_slice(data).ok()?;
-        value
-            .get("name")
-            .and_then(|name| name.as_str())
-            .map(str::to_string)
-    }
-
     fn parse_task_status(data: &[u8]) -> Result<String> {
         let value: serde_json::Value =
             serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
@@ -189,48 +160,6 @@ impl TaskStorage {
         Ok(())
     }
 
-    fn ensure_unique_chat_session_binding(
-        table: &redb::Table<&str, &[u8]>,
-        task_id: &str,
-        target_chat_session_id: Option<&str>,
-    ) -> Result<()> {
-        let Some(target_chat_session_id) = target_chat_session_id else {
-            return Ok(());
-        };
-
-        for item in table.iter()? {
-            let (key, value) = item?;
-            let existing_task_id = key.value();
-            if existing_task_id == task_id {
-                continue;
-            }
-
-            let existing_chat_session_id = Self::parse_chat_session_id(value.value()).map_err(
-                |error| {
-                    anyhow::anyhow!(
-                        "failed to parse existing task '{}' while validating chat_session_id uniqueness: {}",
-                        existing_task_id,
-                        error
-                    )
-                },
-            )?;
-            if existing_chat_session_id.as_deref() != Some(target_chat_session_id) {
-                continue;
-            }
-
-            let existing_task_name =
-                Self::extract_task_name(value.value()).unwrap_or_else(|| "unknown".to_string());
-            return Err(anyhow::anyhow!(
-                "chat_session_id '{}' is already bound to task '{}' ({})",
-                target_chat_session_id,
-                existing_task_id,
-                existing_task_name
-            ));
-        }
-
-        Ok(())
-    }
-
     /// Create a new TaskStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
@@ -270,8 +199,6 @@ impl TaskStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(TASK_TABLE)?;
-            let chat_session_id = Self::extract_chat_session_id(data);
-            Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
             table.insert(id, data)?;
 
             let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
@@ -299,8 +226,6 @@ impl TaskStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(TASK_TABLE)?;
-            let chat_session_id = Self::extract_chat_session_id(data);
-            Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
             table.insert(id, data)?;
 
             let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
@@ -350,8 +275,6 @@ impl TaskStorage {
             return Ok(false);
         }
 
-        let chat_session_id = Self::extract_chat_session_id(data);
-        Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
         table.insert(id, data)?;
         drop(table);
 
@@ -1699,7 +1622,7 @@ mod tests {
     }
 
     #[test]
-    fn test_put_task_with_status_rejects_duplicate_chat_session_binding() {
+    fn test_put_task_with_status_accepts_duplicate_chat_session_binding() {
         let storage = create_test_storage();
 
         let first_task = task_payload("task-1", "Task One", "session-1");
@@ -1708,19 +1631,21 @@ mod tests {
         storage
             .put_task_raw_with_status("task-1", "active", &first_task)
             .unwrap();
-        let result = storage.put_task_raw_with_status("task-2", "active", &second_task);
+        storage
+            .put_task_raw_with_status("task-2", "active", &second_task)
+            .unwrap();
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("already bound to task")
+        assert_eq!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .len(),
+            2
         );
     }
 
     #[test]
-    fn test_update_task_with_status_rejects_duplicate_chat_session_binding() {
+    fn test_update_task_with_status_accepts_duplicate_chat_session_binding() {
         let storage = create_test_storage();
 
         let task_one = task_payload("task-1", "Task One", "session-1");
@@ -1734,38 +1659,38 @@ mod tests {
             .put_task_raw_with_status("task-2", "active", &task_two)
             .unwrap();
 
-        let result =
-            storage.update_task_raw_with_status("task-2", "active", "active", &task_two_rebind);
+        storage
+            .update_task_raw_with_status("task-2", "active", "active", &task_two_rebind)
+            .unwrap();
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("already bound to task")
+        assert_eq!(
+            storage.get_task_raw("task-2").unwrap().unwrap(),
+            task_two_rebind
         );
     }
 
     #[test]
-    fn test_put_task_with_status_rejects_when_existing_record_is_malformed() {
+    fn test_put_task_with_status_ignores_malformed_existing_payload() {
         let storage = create_test_storage();
 
         storage
             .put_task_raw_with_status("task-malformed", "active", b"{not-json")
             .unwrap();
 
-        let result = storage.put_task_raw_with_status(
-            "task-2",
-            "active",
-            &task_payload("task-2", "Task Two", "session-1"),
-        );
+        storage
+            .put_task_raw_with_status(
+                "task-2",
+                "active",
+                &task_payload("task-2", "Task Two", "session-1"),
+            )
+            .unwrap();
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("failed to parse existing task")
+        assert_eq!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .len(),
+            2
         );
     }
 

@@ -130,6 +130,11 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Commands::Import(args)) = &cli.command {
+        commands::import::run(args.clone(), cli.format)?;
+        return Ok(());
+    }
+
     if let Some(Commands::Restart(args)) = &cli.command {
         commands::restart::run(*args).await?;
         return Ok(());
@@ -216,6 +221,7 @@ async fn run() -> Result<()> {
             Some(Commands::Status) => Ok(()),
             Some(Commands::Upgrade(_)) => Ok(()),
             Some(Commands::Restart(_)) => Ok(()),
+            Some(Commands::Import(_)) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())

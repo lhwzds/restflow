@@ -102,7 +102,8 @@ fn build_chat_stream_trace(
 }
 
 fn resolve_chat_stream_trace(core: &AppCore, session_id: &str, stream_id: &str) -> RestflowTrace {
-    let actor_id = match core.storage.chat_sessions.get(session_id) {
+    let session_service = SessionService::from_storage(&core.storage);
+    let actor_id = match session_service.get_session_view(session_id) {
         Ok(Some(session)) => session.agent_id,
         Ok(None) => {
             warn!(

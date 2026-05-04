@@ -4,9 +4,9 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{
-    AgentCheckpoint, ChatSession, ChatSessionSource, ModelId, Task, TaskControlAction, TaskEvent,
-    TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress,
-    TaskSchedule, TaskSpec, TaskStatus,
+    AgentCheckpoint, Task, TaskControlAction, TaskEvent, TaskEventType, TaskMessage,
+    TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress, TaskSchedule, TaskSpec,
+    TaskStatus,
 };
 use anyhow::Result;
 use redb::Database;
@@ -15,22 +15,20 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::{AgentStorage, ChatSessionStorage, CheckpointStorage, ExecutionTraceStorage};
+use super::{CheckpointStorage, ExecutionTraceStorage};
 
 /// Typed agent task storage wrapper around restflow-storage::TaskStorage.
 #[derive(Clone)]
 pub struct TaskStorage {
     inner: restflow_storage::TaskStorage,
     checkpoints: CheckpointStorage,
-    agents: AgentStorage,
-    chat_sessions: ChatSessionStorage,
     execution_traces: ExecutionTraceStorage,
 }
 
 #[derive(Debug, Clone)]
-struct SessionBindingResolution {
-    session_id: String,
-    owns_session: bool,
+pub struct TaskSessionBinding {
+    pub session_id: String,
+    pub owns_session: bool,
 }
 
 impl TaskStorage {
@@ -97,129 +95,6 @@ impl TaskStorage {
         crate::template::render_template_single_pass(template, &replacements)
     }
 
-    fn resolve_agent_model_for_session(&self, agent_id: &str) -> Result<String> {
-        let fallback_model = ModelId::Gpt5_4.as_serialized_str().to_string();
-        let Some(agent) = self.agents.get_agent(agent_id.to_string())? else {
-            return Ok(fallback_model);
-        };
-
-        Ok(agent
-            .agent
-            .resolved_model_ref()
-            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
-            .unwrap_or(fallback_model))
-    }
-
-    fn create_bound_chat_session(&self, agent_id: &str, task_name: &str) -> Result<String> {
-        let model = self.resolve_agent_model_for_session(agent_id)?;
-        let session_name = format!("Background: {}", task_name);
-        let session = ChatSession::new(agent_id.to_string(), model)
-            .with_name(session_name)
-            .with_source(ChatSessionSource::Background, task_name.to_string());
-        let session_id = session.id.clone();
-        self.chat_sessions.create(&session)?;
-        Ok(session_id)
-    }
-
-    fn ensure_chat_session_binding(&self, chat_session_id: &str, agent_id: &str) -> Result<()> {
-        let session = self
-            .chat_sessions
-            .get(chat_session_id)?
-            .ok_or_else(|| anyhow::anyhow!("chat_session_id '{}' not found", chat_session_id))?;
-
-        if session.agent_id != agent_id {
-            return Err(anyhow::anyhow!(
-                "chat_session_id '{}' is bound to agent '{}', expected '{}'",
-                chat_session_id,
-                session.agent_id,
-                agent_id
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn ensure_unique_chat_session_binding(
-        &self,
-        chat_session_id: &str,
-        current_task_id: Option<&str>,
-    ) -> Result<()> {
-        let target = chat_session_id.trim();
-        if target.is_empty() {
-            return Ok(());
-        }
-
-        if let Some(conflict) = self.list_tasks()?.into_iter().find(|task| {
-            let same_session = task.chat_session_id.trim() == target;
-            let same_task = current_task_id.is_some_and(|task_id| task.id == task_id);
-            same_session && !same_task
-        }) {
-            return Err(anyhow::anyhow!(
-                "chat_session_id '{}' is already bound to task '{}' ({})",
-                target,
-                conflict.id,
-                conflict.name
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn resolve_chat_session_id_for_create(
-        &self,
-        requested_chat_session_id: Option<String>,
-        agent_id: &str,
-        task_name: &str,
-    ) -> Result<SessionBindingResolution> {
-        if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
-            self.ensure_chat_session_binding(&chat_session_id, agent_id)?;
-            self.ensure_unique_chat_session_binding(&chat_session_id, None)?;
-            return Ok(SessionBindingResolution {
-                session_id: chat_session_id,
-                owns_session: false,
-            });
-        }
-
-        Ok(SessionBindingResolution {
-            session_id: self.create_bound_chat_session(agent_id, task_name)?,
-            owns_session: true,
-        })
-    }
-
-    fn resolve_chat_session_id_for_update(
-        &self,
-        task: &Task,
-        requested_chat_session_id: Option<String>,
-        next_agent_id: &str,
-    ) -> Result<SessionBindingResolution> {
-        if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
-            self.ensure_chat_session_binding(&chat_session_id, next_agent_id)?;
-            self.ensure_unique_chat_session_binding(&chat_session_id, Some(&task.id))?;
-            return Ok(SessionBindingResolution {
-                session_id: chat_session_id,
-                owns_session: false,
-            });
-        }
-
-        let current_chat_session_id = task.chat_session_id.trim();
-        if !current_chat_session_id.is_empty()
-            && self
-                .ensure_chat_session_binding(current_chat_session_id, next_agent_id)
-                .is_ok()
-        {
-            self.ensure_unique_chat_session_binding(current_chat_session_id, Some(&task.id))?;
-            return Ok(SessionBindingResolution {
-                session_id: current_chat_session_id.to_string(),
-                owns_session: task.owns_chat_session,
-            });
-        }
-
-        Ok(SessionBindingResolution {
-            session_id: self.create_bound_chat_session(next_agent_id, &task.name)?,
-            owns_session: true,
-        })
-    }
-
     /// Create a new TaskStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         let checkpoints = CheckpointStorage::new(db.clone())?;
@@ -227,15 +102,8 @@ impl TaskStorage {
         Ok(Self {
             inner: restflow_storage::TaskStorage::new(db.clone())?,
             checkpoints,
-            agents: AgentStorage::new(db.clone())?,
-            chat_sessions: ChatSessionStorage::new(db)?,
             execution_traces,
         })
-    }
-
-    /// Access the underlying chat session storage.
-    pub fn chat_sessions(&self) -> &ChatSessionStorage {
-        &self.chat_sessions
     }
 
     /// Access the execution trace storage.

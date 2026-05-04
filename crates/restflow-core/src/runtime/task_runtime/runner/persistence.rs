@@ -94,7 +94,7 @@ impl TaskRunner {
         is_error: bool,
         duration_ms: i64,
     ) {
-        use crate::models::{ChatExecutionStatus, ChatMessage, MessageExecution};
+        use crate::models::{ChatExecutionStatus, MessageExecution};
 
         let session_id = task.chat_session_id.trim();
         if session_id.is_empty() {
@@ -105,29 +105,6 @@ impl TaskRunner {
             return;
         }
 
-        let mut session = match self.storage.chat_sessions().get(session_id) {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                warn!(
-                    "Bound chat session '{}' not found for task '{}'",
-                    session_id, task.name
-                );
-                return;
-            }
-            Err(e) => {
-                warn!("Failed to load chat session '{}': {}", session_id, e);
-                return;
-            }
-        };
-
-        // Add user message (the input prompt)
-        if let Some(input_text) = input
-            && !input_text.trim().is_empty()
-        {
-            session.add_message(ChatMessage::user(input_text));
-        }
-
-        // Add assistant message (the output) with execution metadata
         let execution = MessageExecution {
             steps: Vec::new(),
             duration_ms: duration_ms as u64,
@@ -141,14 +118,27 @@ impl TaskRunner {
                 ChatExecutionStatus::Completed
             },
         };
-        session.add_message(ChatMessage::assistant(output).with_execution(execution));
 
-        // Update timestamp
-        session.updated_at = chrono::Utc::now().timestamp_millis();
-
-        if let Err(e) = self.storage.chat_sessions().save(&session) {
-            warn!("Failed to save chat session '{}': {}", session_id, e);
+        if let Some(session_service) = &self.session_service {
+            if let Err(e) = session_service.append_task_result(
+                session_id,
+                input,
+                output,
+                execution,
+                "task_runtime",
+            ) {
+                warn!(
+                    "Failed to persist task result to session '{}': {}",
+                    session_id, e
+                );
+            }
+            return;
         }
+
+        warn!(
+            "Task runner has no SessionService; skipping transcript persistence for task '{}' session '{}'",
+            task.name, session_id
+        );
     }
 
     /// Persist conversation messages to long-term memory.

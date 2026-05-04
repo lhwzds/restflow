@@ -33,17 +33,7 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
     crate::services::tool_registry::create_tool_registry_with_assessor(
-        core.storage.memory.clone(),
-        core.storage.chat_sessions.clone(),
-        core.storage.channel_session_bindings.clone(),
-        core.storage.execution_traces.clone(),
-        core.storage.secrets.clone(),
         core.storage.config.clone(),
-        core.storage.agents.clone(),
-        core.storage.tasks.clone(),
-        core.storage.terminal_sessions.clone(),
-        core.storage.run_artifacts.clone(),
-        None,
         None,
         None,
         Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
@@ -242,11 +232,7 @@ pub(super) async fn execute_chat_session(
     emitter: Option<Box<dyn StreamEmitter>>,
     steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 ) -> std::result::Result<ChatSession, ExecuteChatSessionError> {
-    let mut session = core
-        .storage
-        .chat_sessions
-        .get(&session_id)?
-        .ok_or(ExecuteChatSessionError::SessionNotFound)?;
+    let mut session = load_chat_session_for_execution(core, &session_id)?;
 
     let explicit_user_input = user_input.as_deref();
     let input = match explicit_user_input {
@@ -429,6 +415,18 @@ pub(super) async fn execute_chat_session(
             },
         )?;
     }
+    Ok(session)
+}
+
+fn load_chat_session_for_execution(
+    core: &Arc<AppCore>,
+    session_id: &str,
+) -> std::result::Result<ChatSession, ExecuteChatSessionError> {
+    let Some(session) =
+        SessionService::from_storage(&core.storage).materialize_session_for_runtime(session_id)?
+    else {
+        return Err(ExecuteChatSessionError::SessionNotFound);
+    };
     Ok(session)
 }
 

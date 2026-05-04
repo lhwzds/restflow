@@ -109,13 +109,10 @@ fn store_run_telemetry(storage: &Arc<Storage>, task_id: &str, session_id: &str, 
         &trace,
     );
     storage
-        .telemetry_metric_samples
+        .execution_traces
         .store(&metric)
         .expect("store metric");
-    storage
-        .structured_execution_logs
-        .store(&log)
-        .expect("store log");
+    storage.execution_traces.store(&log).expect("store log");
 }
 
 #[tokio::test]
@@ -387,7 +384,7 @@ async fn get_execution_run_telemetry_requests_filter_by_run_id() {
         IpcResponse::Success(value) => {
             let timeline: crate::ExecutionTimeline =
                 serde_json::from_value(value).expect("execution timeline");
-            assert_eq!(timeline.events.len(), 2);
+            assert_eq!(timeline.events.len(), 4);
             assert!(
                 timeline
                     .events

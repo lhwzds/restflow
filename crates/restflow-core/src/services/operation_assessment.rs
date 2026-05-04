@@ -15,12 +15,10 @@ use crate::auth::{
 };
 use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDefinitionLookup;
+use crate::services::session::SessionService;
 use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
-use crate::storage::{
-    AgentStorage, ChannelSessionBindingStorage, ConfigStorage, ExecutionTraceStorage,
-    MemoryStorage, RunArtifactStorage, SecretStorage, Storage, TaskStorage, TerminalSessionStorage,
-};
+use crate::storage::{AgentStorage, ConfigStorage, SecretStorage, Storage, TaskStorage};
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
@@ -44,15 +42,10 @@ pub struct OperationAssessorAdapter {
 struct AssessmentContext {
     db: Arc<redb::Database>,
     secrets: SecretStorage,
-    memory: MemoryStorage,
-    chat_sessions: crate::storage::ChatSessionStorage,
-    channel_session_bindings: ChannelSessionBindingStorage,
-    execution_traces: ExecutionTraceStorage,
+    session_service: SessionService,
     config: ConfigStorage,
     agents: AgentStorage,
     tasks: TaskStorage,
-    terminal_sessions: TerminalSessionStorage,
-    run_artifacts: RunArtifactStorage,
 }
 
 impl AssessmentContext {
@@ -64,15 +57,10 @@ impl AssessmentContext {
         Self {
             db: storage.get_db(),
             secrets: storage.secrets.clone(),
-            memory: storage.memory.clone(),
-            chat_sessions: storage.chat_sessions.clone(),
-            channel_session_bindings: storage.channel_session_bindings.clone(),
-            execution_traces: storage.execution_traces.clone(),
+            session_service: SessionService::from_storage(storage),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
             tasks: storage.tasks.clone(),
-            terminal_sessions: storage.terminal_sessions.clone(),
-            run_artifacts: storage.run_artifacts.clone(),
         }
     }
 }
@@ -396,17 +384,7 @@ async fn validate_agent_async(
     let mut errors = Vec::new();
 
     let tool_registry = match crate::services::tool_registry::create_tool_registry(
-        context.memory.clone(),
-        context.chat_sessions.clone(),
-        context.channel_session_bindings.clone(),
-        context.execution_traces.clone(),
-        context.secrets.clone(),
         context.config.clone(),
-        context.agents.clone(),
-        context.tasks.clone(),
-        context.terminal_sessions.clone(),
-        context.run_artifacts.clone(),
-        None,
         None,
         None,
     ) {
@@ -682,8 +660,8 @@ async fn assess_task_convert_session_with_context(
 ) -> Result<OperationAssessment> {
     let auth_manager = build_auth(context).await?;
     let session = context
-        .chat_sessions
-        .get(&request.session_id)?
+        .session_service
+        .get_session_view(&request.session_id)?
         .ok_or_else(|| anyhow!("Session not found: {}", request.session_id))?;
     let intent = if request.run_now.unwrap_or(false) {
         OperationAssessmentIntent::Run

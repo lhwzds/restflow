@@ -1,14 +1,14 @@
 //! Message mirroring for real-time conversation persistence.
 //!
 //! This module provides a simple interface to persist chat messages to
-//! ChatSession storage as they are produced.
+//! the session service as they are produced.
 
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::models::chat_session::{ChatMessage, ChatSession, MessageExecution};
-use crate::storage::ChatSessionStorage;
+use crate::services::session::SessionService;
 
 /// Trait for mirroring messages to persistent storage.
 #[async_trait]
@@ -28,24 +28,24 @@ pub trait MessageMirror: Send + Sync {
     async fn ensure_session(&self, agent_id: &str, model: &str) -> Result<String>;
 }
 
-/// ChatSession-backed message mirror implementation.
+/// SessionService-backed message mirror implementation.
 pub struct ChatSessionMirror {
-    storage: Arc<ChatSessionStorage>,
+    service: Arc<SessionService>,
 }
 
 impl ChatSessionMirror {
-    pub fn new(storage: Arc<ChatSessionStorage>) -> Self {
-        Self { storage }
+    pub fn new(service: Arc<SessionService>) -> Self {
+        Self { service }
     }
 
     fn load_session(&self, session_id: &str) -> Result<ChatSession> {
-        self.storage
-            .get(session_id)?
+        self.service
+            .get_session_view(session_id)?
             .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))
     }
 
     fn save_session(&self, session: &ChatSession) -> Result<()> {
-        self.storage.save(session)
+        self.service.save_existing_session(session, "mirror")
     }
 }
 
@@ -92,9 +92,14 @@ impl MessageMirror for ChatSessionMirror {
     }
 
     async fn ensure_session(&self, agent_id: &str, model: &str) -> Result<String> {
-        let session = ChatSession::new(agent_id.to_string(), model.to_string());
+        let session = self.service.create_workspace_session(
+            agent_id.to_string(),
+            model.to_string(),
+            None,
+            None,
+            None,
+        )?;
         let session_id = session.id.clone();
-        self.storage.create(&session)?;
         Ok(session_id)
     }
 }
@@ -125,15 +130,24 @@ impl MessageMirror for NoopMirror {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use crate::storage::Storage;
     use tempfile::tempdir;
+
+    fn setup_mirror() -> (ChatSessionMirror, Storage, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let storage = Storage::new(temp_dir.path().join("test.db").to_str().unwrap()).unwrap();
+        let service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+            Some(storage.memory.clone()),
+        );
+        (ChatSessionMirror::new(Arc::new(service)), storage, temp_dir)
+    }
 
     #[tokio::test]
     async fn test_mirror_creates_messages() {
-        let temp_dir = tempdir().unwrap();
-        let db = Arc::new(redb::Database::create(temp_dir.path().join("test.db")).unwrap());
-        let storage = Arc::new(ChatSessionStorage::new(db).unwrap());
-        let mirror = ChatSessionMirror::new(storage.clone());
+        let (mirror, storage, _temp_dir) = setup_mirror();
 
         let session_id = mirror
             .ensure_session("agent-1", "claude-sonnet")
@@ -146,7 +160,7 @@ mod tests {
             .await
             .unwrap();
 
-        let session = storage.get(&session_id).unwrap().unwrap();
+        let session = storage.chat_sessions.get(&session_id).unwrap().unwrap();
         assert_eq!(session.messages.len(), 2);
         assert_eq!(session.messages[0].content, "Hello!");
         assert_eq!(session.messages[1].content, "Hi there!");
@@ -154,10 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mirror_updates_metadata() {
-        let temp_dir = tempdir().unwrap();
-        let db = Arc::new(redb::Database::create(temp_dir.path().join("test.db")).unwrap());
-        let storage = Arc::new(ChatSessionStorage::new(db).unwrap());
-        let mirror = ChatSessionMirror::new(storage.clone());
+        let (mirror, storage, _temp_dir) = setup_mirror();
 
         let session_id = mirror
             .ensure_session("agent-1", "claude-sonnet")
@@ -169,7 +180,7 @@ mod tests {
             .await
             .unwrap();
 
-        let session = storage.get(&session_id).unwrap().unwrap();
+        let session = storage.chat_sessions.get(&session_id).unwrap().unwrap();
         assert_eq!(session.metadata.total_tokens, 100);
         assert_eq!(session.metadata.message_count, 1);
     }

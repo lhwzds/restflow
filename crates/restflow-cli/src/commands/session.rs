@@ -68,7 +68,7 @@ async fn show_session(
     id: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let resolved_id = resolve_session_id(&executor, id).await?;
+    let resolved_id = resolve_session_id(executor.clone(), id).await?;
     let session = executor.get_session(&resolved_id).await?;
 
     if format.is_json() {
@@ -104,7 +104,12 @@ async fn create_session(
     format: OutputFormat,
 ) -> Result<()> {
     let session = executor
-        .create_session(agent.to_string(), model.to_string())
+        .create_session(
+            Some(agent.to_string()),
+            Some(model.to_string()),
+            Some("New Chat".to_string()),
+            None,
+        )
         .await?;
 
     if format.is_json() {
@@ -120,7 +125,7 @@ async fn delete_session(
     id: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let resolved = match resolve_session_id_optional(&executor, id).await? {
+    let resolved = match resolve_session_id_optional(executor.clone(), id).await? {
         Some(id) => id,
         None => {
             if format.is_json() {
@@ -160,38 +165,30 @@ async fn search_sessions(
         bail!("Search query cannot be empty");
     }
 
-    // Get session summaries from executor
-    let summaries = executor.search_sessions(query.to_string()).await?;
+    let sessions = executor.list_full_sessions().await?;
 
-    // Filter by agent if specified
-    let summaries: Vec<_> = if let Some(agent_id) = agent {
-        summaries
+    let sessions: Vec<_> = if let Some(agent_id) = agent {
+        sessions
             .into_iter()
-            .filter(|s| s.agent_id == agent_id)
+            .filter(|session| session.agent_id == agent_id)
             .collect()
     } else {
-        summaries
+        sessions
     };
 
-    // For detailed results with match counts, we need to fetch full sessions
     let mut results = Vec::new();
-    for summary in summaries {
-        match executor.get_session(&summary.id).await {
-            Ok(session) => {
-                let (match_count, preview) = count_matches(&session, &normalized);
-                if match_count > 0 {
-                    results.push(SessionSearchResult {
-                        id: session.id,
-                        name: session.name,
-                        agent_id: session.agent_id,
-                        model: session.model,
-                        updated_at: session.updated_at,
-                        match_count,
-                        preview,
-                    });
-                }
-            }
-            Err(_) => continue,
+    for session in sessions {
+        let (match_count, preview) = count_matches(&session, &normalized);
+        if match_count > 0 {
+            results.push(SessionSearchResult {
+                id: session.id,
+                name: session.name,
+                agent_id: session.agent_id,
+                model: session.model,
+                updated_at: session.updated_at,
+                match_count,
+                preview,
+            });
         }
     }
 
@@ -244,16 +241,13 @@ fn count_matches(session: &ChatSession, query: &str) -> (usize, Option<String>) 
 }
 
 async fn resolve_session_id_optional(
-    executor: &Arc<dyn CommandExecutor>,
+    executor: Arc<dyn CommandExecutor>,
     id: &str,
 ) -> Result<Option<String>> {
-    // Try exact match first
-    if executor.get_session(id).await.is_ok() {
+    let sessions = executor.list_sessions().await?;
+    if sessions.iter().any(|session| session.id == id) {
         return Ok(Some(id.to_string()));
     }
-
-    // Try prefix match
-    let sessions = executor.list_sessions().await?;
     let mut matches: Vec<_> = sessions
         .iter()
         .filter(|session| session.id.starts_with(id))
@@ -266,7 +260,7 @@ async fn resolve_session_id_optional(
     }
 }
 
-async fn resolve_session_id(executor: &Arc<dyn CommandExecutor>, id: &str) -> Result<String> {
+async fn resolve_session_id(executor: Arc<dyn CommandExecutor>, id: &str) -> Result<String> {
     resolve_session_id_optional(executor, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))

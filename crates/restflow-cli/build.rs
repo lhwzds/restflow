@@ -8,6 +8,8 @@ mod cli {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=src/cli.rs");
+
     let out_dir = PathBuf::from("man");
     fs::create_dir_all(&out_dir).unwrap();
 

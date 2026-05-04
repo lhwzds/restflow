@@ -126,18 +126,10 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
-        let mut sessions = self
-            .core
-            .storage
-            .chat_sessions
-            .list()
-            .map_err(|e| e.to_string())?;
         let session_service = self.session_service();
-        for session in &mut sessions {
-            session_service
-                .apply_effective_source(session)
-                .map_err(|e| e.to_string())?;
-        }
+        let sessions = session_service
+            .list_session_views(None, None, false)
+            .map_err(|e| e.to_string())?;
         Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
 
@@ -145,34 +137,18 @@ impl McpBackend for CoreBackend {
         &self,
         agent_id: &str,
     ) -> Result<Vec<ChatSessionSummary>, String> {
-        let sessions = self
-            .core
-            .storage
-            .chat_sessions
-            .list_by_agent(agent_id)
-            .map_err(|e| e.to_string())?;
-        let mut sessions = sessions;
         let session_service = self.session_service();
-        for session in &mut sessions {
-            session_service
-                .apply_effective_source(session)
-                .map_err(|e| e.to_string())?;
-        }
+        let sessions = session_service
+            .list_session_views(Some(agent_id), None, false)
+            .map_err(|e| e.to_string())?;
         Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
 
     async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
-        let mut session = self
-            .core
-            .storage
-            .chat_sessions
-            .get(id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Session not found: {}", id))?;
         self.session_service()
-            .apply_effective_source(&mut session)
-            .map_err(|e| e.to_string())?;
-        Ok(session)
+            .get_session_view(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Session not found: {}", id))
     }
 
     async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
@@ -275,12 +251,8 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
-        let resolved_id = resolve_task_id(&self.core.storage.tasks, task_id)?;
-        self.core
-            .storage
-            .run_artifacts
-            .list_by_task(&resolved_id)
-            .map_err(|e| e.to_string())
+        resolve_task_id(&self.core.storage.tasks, task_id)?;
+        Ok(Vec::new())
     }
 
     async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String> {
