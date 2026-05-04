@@ -27,7 +27,7 @@ use restflow_ai::agent::{
     CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig, PromptFlags,
     SharedStreamEmitter, StreamEmitter,
 };
-use restflow_ai::llm::{CompletionRequest, Message};
+use restflow_ai::llm::Message;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, ResourceLimits as AgentResourceLimits,
@@ -147,24 +147,6 @@ const TOOL_RESULT_CONTEXT_RATIO: f64 = 0.08;
 const TOOL_RESULT_MIN_CHARS: usize = 512;
 const TOOL_RESULT_MAX_CHARS: usize = 24_000;
 const TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE: usize = 4;
-const ACK_PHASE_MAX_HISTORY: usize = 6;
-const ACK_PHASE_MAX_TOKENS: u32 = 96;
-const ACK_PHASE_TIMEOUT_SECS: u64 = 4;
-const ACK_PHASE_MAX_CHARS: usize = 280;
-const ACK_PHASE_SYSTEM_DIRECTIVE: &str = r#"You are in a temporary acknowledgement phase.
-
-Reply with exactly one short assistant message that:
-1. Confirms you received the user's latest message.
-2. States you are starting the task.
-
-Rules:
-- Do not solve the task yet.
-- Do not mention tools or internal reasoning.
-- Keep it concise and concrete.
-- Match the user's language.
-- Output plain text only.
-"#;
-
 /// Controls whether the latest user input has already been persisted
 /// to the chat session before execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

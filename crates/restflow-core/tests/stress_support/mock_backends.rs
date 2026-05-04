@@ -501,31 +501,21 @@ async fn openai_chat_completions(
 ) -> Response {
     let _guard = state.metrics.begin_request();
     let user_input = last_user_message(&request.messages);
-    let is_ack = request.messages.iter().any(|message| {
-        message
-            .content
-            .as_deref()
-            .is_some_and(|content| content.contains("Temporary Acknowledgement Phase"))
-    });
     let tool_url = extract_tool_url(&user_input);
     let tool_results_seen = openai_tool_results_seen(&request.messages);
     let tool_steps = extract_usize_param(&user_input, "tool_steps", 1);
     let payload_words = extract_usize_param(&user_input, "payload_words", 64);
-    let content = if is_ack {
-        format!("Starting {}", user_input)
-    } else {
-        build_large_content(
-            &format!("openai:{} {}", request.model, user_input),
-            payload_words,
-        )
-    };
+    let content = build_large_content(
+        &format!("openai:{} {}", request.model, user_input),
+        payload_words,
+    );
     let usage = json!({
         "prompt_tokens": 8,
         "completion_tokens": content.len(),
         "total_tokens": content.len() + 8
     });
 
-    let should_emit_tool_call = tool_url.is_some() && tool_results_seen < tool_steps && !is_ack;
+    let should_emit_tool_call = tool_url.is_some() && tool_results_seen < tool_steps;
 
     if request.stream {
         state
@@ -636,25 +626,15 @@ async fn anthropic_messages(
 ) -> Response {
     let _guard = state.metrics.begin_request();
     let user_input = last_anthropic_user_message(&request.messages);
-    let is_ack = request.messages.iter().any(|message| {
-        matches!(
-            &message.content,
-            StubAnthropicContent::Text(text) if text.contains("Temporary Acknowledgement Phase")
-        )
-    });
     let tool_url = extract_tool_url(&user_input);
     let tool_results_seen = anthropic_tool_results_seen(&request.messages);
     let tool_steps = extract_usize_param(&user_input, "tool_steps", 1);
     let payload_words = extract_usize_param(&user_input, "payload_words", 64);
-    let content = if is_ack {
-        format!("Starting {}", user_input)
-    } else {
-        build_large_content(
-            &format!("anthropic:{} {}", request.model, user_input),
-            payload_words,
-        )
-    };
-    let should_emit_tool_call = tool_url.is_some() && tool_results_seen < tool_steps && !is_ack;
+    let content = build_large_content(
+        &format!("anthropic:{} {}", request.model, user_input),
+        payload_words,
+    );
+    let should_emit_tool_call = tool_url.is_some() && tool_results_seen < tool_steps;
 
     if request.stream {
         state

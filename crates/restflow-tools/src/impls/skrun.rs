@@ -127,8 +127,7 @@ impl Tool for RunSkillTool {
                 Some(root) => root,
                 None => skrun::default_skills_dir()?,
             };
-            let mut options = skrun::RunOptions::default();
-            options.timeout = timeout;
+            let options = skrun::RunOptions { timeout, ..Default::default() };
             skrun::run_skill(skills_root.join(&skill_id), skill_input, &options)
         })
         .await

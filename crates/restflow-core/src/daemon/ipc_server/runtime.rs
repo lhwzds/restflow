@@ -298,44 +298,6 @@ pub(super) async fn execute_chat_session(
     let executor = create_chat_executor(core, auth_manager).with_reply_sender(reply_sender);
     let chat_max_session_history = load_chat_max_session_history_from_core(core);
 
-    match executor
-        .generate_session_acknowledgement(
-            &mut session,
-            &agent_input,
-            SessionInputMode::PersistedInSession,
-        )
-        .await
-    {
-        Ok(Some(ack_content)) => {
-            session.add_message(ChatMessage::assistant(&ack_content));
-            match SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")
-            {
-                Ok(()) => {
-                    if let Some(tx) = ack_frame_tx.as_ref() {
-                        let _ = tx.send(StreamFrame::Ack {
-                            content: ack_content,
-                        });
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        session_id = %session.id,
-                        error = %err,
-                        "Failed to persist acknowledgement message"
-                    );
-                }
-            }
-        }
-        Ok(None) => {}
-        Err(err) => {
-            warn!(
-                session_id = %session.id,
-                error = %err,
-                "Failed to generate acknowledgement message"
-            );
-        }
-    }
-
     let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
     let traced_execution = orchestrator
         .run_traced_interactive_session_turn(InteractiveSessionRequest {

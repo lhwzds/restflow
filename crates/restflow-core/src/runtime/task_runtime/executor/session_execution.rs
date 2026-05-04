@@ -92,32 +92,6 @@ impl AgentRuntimeExecutor {
         system_prompt
     }
 
-    pub(super) fn truncate_ack_message(content: &str) -> String {
-        let trimmed = content.trim();
-        if trimmed.is_empty() {
-            return String::new();
-        }
-
-        let chars = trimmed.chars().count();
-        if chars <= ACK_PHASE_MAX_CHARS {
-            return trimmed.to_string();
-        }
-
-        let truncated: String = trimmed.chars().take(ACK_PHASE_MAX_CHARS).collect();
-        format!("{truncated}...")
-    }
-
-    pub(super) fn build_ack_system_prompt(
-        &self,
-        agent_node: &AgentNode,
-        agent_id: Option<&str>,
-    ) -> Result<String> {
-        let base_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
-        Ok(format!(
-            "{base_prompt}\n\n## Temporary Acknowledgement Phase\n{ACK_PHASE_SYSTEM_DIRECTIVE}"
-        ))
-    }
-
     fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
         if session.messages.is_empty() {
             return Vec::new();
@@ -159,77 +133,6 @@ impl AgentRuntimeExecutor {
             .iter()
             .map(Self::chat_message_to_llm_message)
             .collect()
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn generate_ack_with_model(
-        &self,
-        agent_node: &AgentNode,
-        model: ModelId,
-        session: &ChatSession,
-        user_input: &str,
-        primary_provider: Provider,
-        input_mode: SessionInputMode,
-        agent_id: Option<&str>,
-    ) -> Result<Option<String>> {
-        let model_specs = ModelId::build_model_specs();
-        let api_keys = self
-            .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
-            .await;
-        let factory = Self::build_llm_factory(api_keys, model_specs);
-
-        let api_key = if Self::should_skip_api_key_resolution() || model.is_codex_cli() {
-            None
-        } else if model.is_gemini_cli() {
-            self.resolve_api_key_for_model(
-                model.provider(),
-                agent_node.api_key_config.as_ref(),
-                primary_provider,
-            )
-            .await
-            .ok()
-        } else {
-            Some(
-                self.resolve_api_key_for_model(
-                    model.provider(),
-                    agent_node.api_key_config.as_ref(),
-                    primary_provider,
-                )
-                .await?,
-            )
-        };
-
-        let llm_client =
-            Self::create_llm_client(factory.as_ref(), model, api_key.as_deref(), agent_node)?;
-
-        let mut messages = Vec::new();
-        messages.push(Message::system(
-            self.build_ack_system_prompt(agent_node, agent_id)?,
-        ));
-        messages.extend(Self::session_history_messages(
-            session,
-            ACK_PHASE_MAX_HISTORY,
-            input_mode,
-        ));
-        messages.push(Message::user(user_input.to_string()));
-
-        let mut request = CompletionRequest::new(messages).with_max_tokens(ACK_PHASE_MAX_TOKENS);
-        if model.supports_temperature() {
-            request = request.with_temperature(0.2);
-        }
-
-        let response = tokio::time::timeout(
-            Duration::from_secs(ACK_PHASE_TIMEOUT_SECS),
-            llm_client.complete(request),
-        )
-        .await
-        .map_err(|_| anyhow!("Acknowledgement phase timed out"))??;
-
-        let content = Self::truncate_ack_message(response.content.unwrap_or_default().as_str());
-        if content.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(content))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -637,49 +540,6 @@ impl AgentRuntimeExecutor {
         Err(last_error.unwrap_or_else(|| {
             anyhow!("All profiles exhausted for provider {:?}", model.provider())
         }))
-    }
-
-    /// Generate a short assistant acknowledgement for the latest user message.
-    ///
-    /// This phase runs before the main tool-enabled execution to provide fast
-    /// user feedback. It uses a temporary system prompt and a direct LLM
-    /// completion request with strict limits.
-    pub async fn generate_session_acknowledgement(
-        &self,
-        session: &mut ChatSession,
-        user_input: &str,
-        input_mode: SessionInputMode,
-    ) -> Result<Option<String>> {
-        let input = user_input.trim();
-        if input.is_empty() {
-            return Ok(None);
-        }
-
-        let stored_agent = self.resolve_stored_agent_for_session(session)?;
-        let agent_node = stored_agent.agent.clone();
-
-        // Prefer the session's model (user override) over the agent's default.
-        let primary_model = if !session.model.is_empty() {
-            match ModelId::from_api_name(&session.model)
-                .or_else(|| ModelId::from_canonical_id(&session.model))
-            {
-                Some(model) => model,
-                None => self.resolve_primary_model(&agent_node).await?,
-            }
-        } else {
-            self.resolve_primary_model(&agent_node).await?
-        };
-
-        self.generate_ack_with_model(
-            &agent_node,
-            primary_model,
-            session,
-            input,
-            primary_model.provider(),
-            input_mode,
-            Some(session.agent_id.as_str()),
-        )
-        .await
     }
 
     /// Execute a chat turn for an existing chat session.

@@ -287,32 +287,6 @@ fn test_non_main_agent_prompt_flags_disable_workspace_injection() {
     assert!(flags.include_tools);
 }
 
-#[test]
-fn test_truncate_ack_message_limits_length() {
-    let short = AgentRuntimeExecutor::truncate_ack_message("  ok  ");
-    assert_eq!(short, "ok");
-
-    let long_input = "a".repeat(ACK_PHASE_MAX_CHARS + 20);
-    let truncated = AgentRuntimeExecutor::truncate_ack_message(&long_input);
-    assert_eq!(truncated.chars().count(), ACK_PHASE_MAX_CHARS + 3);
-    assert!(truncated.ends_with("..."));
-}
-
-#[test]
-fn test_build_ack_system_prompt_appends_phase_directive() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage);
-    let node = AgentNode {
-        prompt: Some("Base prompt".to_string()),
-        ..AgentNode::new()
-    };
-
-    let prompt = executor.build_ack_system_prompt(&node, None).unwrap();
-    assert!(prompt.contains("Base prompt"));
-    assert!(prompt.contains("Temporary Acknowledgement Phase"));
-    assert!(prompt.contains("Reply with exactly one short assistant message"));
-}
-
 /// Skills are now registered as callable tools, not injected into the prompt.
 /// Triggered skills are resolved but do not appear in the system prompt.
 #[test]
