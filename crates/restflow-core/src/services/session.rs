@@ -11,7 +11,7 @@ use crate::services::session_policy::{
 use crate::session_log::{FileSession, FileSessionStore};
 use crate::storage::{AgentStorage, MemoryStorage, SessionStorage, Storage, TaskStorage};
 use anyhow::{Result, anyhow};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use tracing::{debug, warn};
 
@@ -162,7 +162,6 @@ impl SessionService {
             self.apply_effective_source(session)?;
         }
 
-        self.merge_file_session_views(&mut sessions, agent_id, skill_id, include_archived)?;
         sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
 
         Ok(sessions)
@@ -801,41 +800,6 @@ impl SessionService {
             } else {
                 return Err(error);
             }
-        }
-        Ok(())
-    }
-
-    fn merge_file_session_views(
-        &self,
-        sessions: &mut Vec<ChatSession>,
-        agent_id: Option<&str>,
-        skill_id: Option<&str>,
-        include_archived: bool,
-    ) -> Result<()> {
-        let Some(store) = &self.file_sessions else {
-            return Ok(());
-        };
-        let mut seen = sessions
-            .iter()
-            .map(|session| session.id.clone())
-            .collect::<HashSet<_>>();
-        for file_session in store.list()? {
-            if !seen.insert(file_session.meta.id.clone()) {
-                continue;
-            }
-            let mut session = file_session.to_chat_session();
-            if !include_archived && session.archived_at.is_some() {
-                continue;
-            }
-            if agent_id.is_some_and(|agent_id| session.agent_id != agent_id) {
-                continue;
-            }
-            if skill_id.is_some_and(|skill_id| session.skill_id.as_deref() != Some(skill_id)) {
-                continue;
-            }
-            session.hydrate_provider_from_model();
-            self.apply_effective_source(&mut session)?;
-            sessions.push(session);
         }
         Ok(())
     }
