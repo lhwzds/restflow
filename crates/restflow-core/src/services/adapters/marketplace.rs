@@ -198,22 +198,12 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn test_reserved_skrun_skill_detection_with_provider() {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("skrun");
-        std::fs::write(
-            &bin,
-            "#!/bin/sh\nprintf '%s' '[{\"id\":\"team\",\"name\":\"Team\",\"version\":\"0.1.0\",\"kind\":\"markdown\",\"content\":\"# Team\",\"executable\":false}]'\n",
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&bin, permissions).unwrap();
-        let provider = SkrunSkillProvider::new(bin);
+        let artifact = skrun::SkillArtifact::markdown("team", "Team", "0.1.0", "# Team");
+        skrun::save_artifact(dir.path().join("team"), &artifact).unwrap();
+        let provider = SkrunSkillProvider::new(dir.path());
 
         assert!(
             MarketplaceStoreAdapter::is_reserved_skrun_skill_id_with_provider("team", &provider)

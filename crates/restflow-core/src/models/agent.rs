@@ -582,20 +582,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn validate_async_accepts_team_skill() {
         let env = RestflowTestEnv::new();
-        let previous_skrun_bin = std::env::var_os("RESTFLOW_SKRUN_BIN");
-        let bin = env.root().join("skrun");
-        std::fs::write(
-            &bin,
-            "#!/bin/sh\nprintf '%s' '[{\"id\":\"team\",\"name\":\"Team\",\"version\":\"0.1.0\",\"kind\":\"markdown\",\"content\":\"# Team\",\"executable\":false}]'\n",
-        )
-        .unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(&bin, permissions).unwrap();
-        }
-        unsafe { std::env::set_var("RESTFLOW_SKRUN_BIN", &bin) };
+        let previous_skrun_root = std::env::var_os("SKRUN_SKILLS_DIR");
+        let skills_root = env.root().join("skrun-skills");
+        let artifact = skrun::SkillArtifact::markdown("team", "Team", "0.1.0", "# Team");
+        skrun::save_artifact(skills_root.join("team"), &artifact).unwrap();
+        unsafe { std::env::set_var("SKRUN_SKILLS_DIR", &skills_root) };
         let core = Arc::new(
             AppCore::new(env.db_path("agent-skill.db").to_str().unwrap())
                 .await
@@ -608,10 +599,10 @@ mod tests {
 
         let result = node.validate_async(&core).await;
         unsafe {
-            if let Some(value) = previous_skrun_bin {
-                std::env::set_var("RESTFLOW_SKRUN_BIN", value);
+            if let Some(value) = previous_skrun_root {
+                std::env::set_var("SKRUN_SKILLS_DIR", value);
             } else {
-                std::env::remove_var("RESTFLOW_SKRUN_BIN");
+                std::env::remove_var("SKRUN_SKILLS_DIR");
             }
         }
 

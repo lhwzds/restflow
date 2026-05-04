@@ -10,6 +10,7 @@ description = "Unified tool and skill system for RestFlow"
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
+skrun = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = "2.0"

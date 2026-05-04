@@ -15,9 +15,9 @@ The expected invocation shape is:
 python run.py '{"key":"value"}'
 ```
 
-`run_skill` calls the external `skrun` binary. A concrete `skrun` installation
-may use a different packaging format; these examples document the boundary and
-provide portable implementations that can be adapted to that format.
+`run_skill` calls the `skrun` Rust crate embedded in RestFlow. A concrete
+standalone `skrun` CLI may use the same artifact format for local installation,
+but RestFlow runtime execution does not require a separate `skrun` executable.
 
 ## Example Skills
 

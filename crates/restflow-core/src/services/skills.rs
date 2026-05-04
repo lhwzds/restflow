@@ -224,14 +224,14 @@ mod tests {
 
     const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
-    const RESTFLOW_SKRUN_BIN_ENV: &str = "RESTFLOW_SKRUN_BIN";
+    const SKRUN_SKILLS_DIR_ENV: &str = "SKRUN_SKILLS_DIR";
 
     struct SkillsTestEnv {
         _lock: MutexGuard<'static, ()>,
         temp_dir: TempDir,
         previous_master_key: Option<OsString>,
         previous_restflow_dir: Option<OsString>,
-        previous_skrun_bin: Option<OsString>,
+        previous_skrun_skills_dir: Option<OsString>,
     }
 
     impl Drop for SkillsTestEnv {
@@ -247,34 +247,22 @@ mod tests {
                 } else {
                     std::env::remove_var(MASTER_KEY_ENV);
                 }
-                if let Some(value) = self.previous_skrun_bin.as_ref() {
-                    std::env::set_var(RESTFLOW_SKRUN_BIN_ENV, value);
+                if let Some(value) = self.previous_skrun_skills_dir.as_ref() {
+                    std::env::set_var(SKRUN_SKILLS_DIR_ENV, value);
                 } else {
-                    std::env::remove_var(RESTFLOW_SKRUN_BIN_ENV);
+                    std::env::remove_var(SKRUN_SKILLS_DIR_ENV);
                 }
             }
         }
     }
 
     impl SkillsTestEnv {
-        #[cfg(unix)]
-        fn set_skrun_response(&self, response: &str) {
-            use std::os::unix::fs::PermissionsExt;
-
-            let bin = self.temp_dir.path().join("skrun");
-            std::fs::write(
-                &bin,
-                format!(
-                    "#!/bin/sh\nprintf '%s' '{}'\n",
-                    response.replace('\'', "'\\''")
-                ),
-            )
-            .unwrap();
-            let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(&bin, permissions).unwrap();
+        fn install_markdown_skill(&self, mut artifact: skrun::SkillArtifact) {
+            let root = self.temp_dir.path().join("skrun-skills");
+            artifact.executable = false;
+            skrun::save_artifact(root.join(&artifact.id), &artifact).unwrap();
             unsafe {
-                std::env::set_var(RESTFLOW_SKRUN_BIN_ENV, bin);
+                std::env::set_var(SKRUN_SKILLS_DIR_ENV, root);
             }
         }
     }
@@ -289,11 +277,14 @@ mod tests {
 
         let previous_master_key = std::env::var_os(MASTER_KEY_ENV);
         let previous_restflow_dir = std::env::var_os(RESTFLOW_DIR_ENV);
-        let previous_skrun_bin = std::env::var_os(RESTFLOW_SKRUN_BIN_ENV);
+        let previous_skrun_skills_dir = std::env::var_os(SKRUN_SKILLS_DIR_ENV);
         unsafe {
             std::env::set_var(RESTFLOW_DIR_ENV, &state_dir);
             std::env::set_var(MASTER_KEY_ENV, "11".repeat(32));
-            std::env::remove_var(RESTFLOW_SKRUN_BIN_ENV);
+            std::env::set_var(
+                SKRUN_SKILLS_DIR_ENV,
+                temp_dir.path().join("empty-skrun-skills"),
+            );
         }
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (
@@ -303,7 +294,7 @@ mod tests {
                 temp_dir,
                 previous_master_key,
                 previous_restflow_dir,
-                previous_skrun_bin,
+                previous_skrun_skills_dir,
             },
         )
     }
@@ -325,21 +316,17 @@ mod tests {
         assert!(skills.is_empty());
     }
 
-    #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_and_get_team_skrun_skill() {
         let (core, env) = create_test_core().await;
-        env.set_skrun_response(
-            r##"[{
-              "id": "team",
-              "name": "Team",
-              "version": "0.1.0",
-              "kind": "markdown",
-              "content": "# Team\n\nUse spawn_subagent_batch.",
-              "suggested_tools": ["spawn_subagent_batch"],
-              "executable": false
-            }]"##,
+        let mut artifact = skrun::SkillArtifact::markdown(
+            "team",
+            "Team",
+            "0.1.0",
+            "# Team\n\nUse spawn_subagent_batch.",
         );
+        artifact.suggested_tools = vec!["spawn_subagent_batch".to_string()];
+        env.install_markdown_skill(artifact);
 
         let skills = list_skills(&core).await.unwrap();
         let team = skills

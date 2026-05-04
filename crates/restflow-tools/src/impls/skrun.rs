@@ -6,13 +6,10 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::process::Command;
-use tokio::time::timeout;
+use tokio::task;
 
 use crate::security::{SecurityGate, ToolAction};
 use crate::{Result, Tool, ToolOutput, check_security};
-
-const RESTFLOW_SKRUN_BIN_ENV: &str = "RESTFLOW_SKRUN_BIN";
 
 #[derive(Debug, Deserialize)]
 struct RunSkillInput {
@@ -23,7 +20,7 @@ struct RunSkillInput {
 
 #[derive(Clone)]
 pub struct RunSkillTool {
-    bin: PathBuf,
+    root: Option<PathBuf>,
     timeout: Duration,
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: Option<String>,
@@ -39,9 +36,7 @@ impl Default for RunSkillTool {
 impl RunSkillTool {
     pub fn new() -> Self {
         Self {
-            bin: std::env::var_os(RESTFLOW_SKRUN_BIN_ENV)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("skrun")),
+            root: None,
             timeout: Duration::from_secs(60),
             security_gate: None,
             agent_id: None,
@@ -49,8 +44,8 @@ impl RunSkillTool {
         }
     }
 
-    pub fn with_bin(mut self, bin: impl Into<PathBuf>) -> Self {
-        self.bin = bin.into();
+    pub fn with_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.root = Some(root.into());
         self
     }
 
@@ -124,46 +119,40 @@ impl Tool for RunSkillTool {
             return Ok(ToolOutput::error(message));
         }
 
-        let mut command = Command::new(&self.bin);
-        command
-            .arg("skill")
-            .arg("run")
-            .arg("--id")
-            .arg(&params.id)
-            .arg("--input")
-            .arg(serde_json::to_string(&skill_input)?);
-
-        let output = match timeout(self.timeout, command.output()).await {
+        let skill_id = params.id.clone();
+        let root = self.root.clone();
+        let timeout = self.timeout;
+        let output = match task::spawn_blocking(move || {
+            let skills_root = match root {
+                Some(root) => root,
+                None => skrun::default_skills_dir()?,
+            };
+            let mut options = skrun::RunOptions::default();
+            options.timeout = timeout;
+            skrun::run_skill(skills_root.join(&skill_id), skill_input, &options)
+        })
+        .await
+        {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => {
                 return Ok(ToolOutput::error(format!(
-                    "failed to launch skrun: {error}"
+                    "skrun skill '{}' failed: {error:#}",
+                    params.id
                 )));
             }
-            Err(_) => {
+            Err(error) => {
                 return Ok(ToolOutput::error(format!(
-                    "skrun skill '{}' timed out after {}s",
-                    params.id,
-                    self.timeout.as_secs()
+                    "skrun skill '{}' task failed: {error}",
+                    params.id
                 )));
             }
         };
 
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if !output.status.success() {
-            let message = if stderr.is_empty() { stdout } else { stderr };
-            return Ok(ToolOutput::error(format!(
-                "skrun skill '{}' failed: {}",
-                params.id, message
-            )));
-        }
-
-        let value = serde_json::from_str::<Value>(&stdout).unwrap_or_else(|_| json!(stdout));
         Ok(ToolOutput::success(json!({
             "skill_id": params.id,
-            "output": value,
-            "stderr": stderr,
+            "output": output.value,
+            "stderr": output.stderr,
+            "exit_code": output.exit_code,
         })))
     }
 }
@@ -181,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_skill_returns_tool_error() {
-        let tool = RunSkillTool::new().with_bin("/path/to/missing/skrun");
+        let tool = RunSkillTool::new().with_root("/path/to/missing/skills");
 
         let output = tool
             .execute(json!({
@@ -192,6 +181,6 @@ mod tests {
             .unwrap();
 
         assert!(!output.success);
-        assert!(output.error.unwrap().contains("failed to launch skrun"));
+        assert!(output.error.unwrap().contains("failed"));
     }
 }

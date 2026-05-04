@@ -4,32 +4,10 @@ use crate::models::Skill;
 use restflow_traits::skill::{
     SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource, SkillUpdate,
 };
+use skrun::{ArtifactKind, SkillArtifact};
 use std::path::PathBuf;
-use std::process::Command;
 
-const RESTFLOW_SKRUN_BIN_ENV: &str = "RESTFLOW_SKRUN_BIN";
 const SKRUN_TOOL_NAME: &str = "run_skill";
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct SkrunCliSkill {
-    id: String,
-    name: String,
-    version: String,
-    #[serde(default)]
-    kind: String,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    tags: Option<Vec<String>>,
-    #[serde(default)]
-    suggested_tools: Vec<String>,
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    executable: bool,
-    #[serde(default, rename = "source_ref", alias = "ref")]
-    source_ref: Option<String>,
-}
 
 fn skill_info(skill: Skill) -> SkillInfo {
     SkillInfo {
@@ -54,47 +32,22 @@ fn skill_content(skill: Skill) -> SkillContent {
     }
 }
 
-fn default_skrun_bin() -> PathBuf {
-    std::env::var_os(RESTFLOW_SKRUN_BIN_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("skrun"))
+fn artifact_kind_label(kind: &ArtifactKind) -> &'static str {
+    match kind {
+        ArtifactKind::Markdown => "markdown",
+        ArtifactKind::RustBinary => "rust_binary",
+        ArtifactKind::PythonUv => "python_uv",
+    }
 }
 
-fn parse_skrun_json_list(stdout: &str) -> Result<Vec<SkrunCliSkill>, serde_json::Error> {
-    serde_json::from_str::<Vec<SkrunCliSkill>>(stdout)
-}
-
-fn parse_skrun_tsv_list(stdout: &str) -> Vec<SkrunCliSkill> {
-    stdout
-        .lines()
-        .filter_map(|line| {
-            let fields = line.split('\t').collect::<Vec<_>>();
-            if fields.len() < 4 {
-                return None;
-            }
-            Some(SkrunCliSkill {
-                id: fields[0].to_string(),
-                kind: fields[1].to_string(),
-                version: fields[2].to_string(),
-                name: fields[3].to_string(),
-                description: None,
-                tags: None,
-                suggested_tools: Vec::new(),
-                content: None,
-                executable: fields[1] != "markdown",
-                source_ref: None,
-            })
-        })
-        .collect()
-}
-
-fn skrun_cli_skill_to_model(record: SkrunCliSkill) -> Skill {
-    let executable = record.executable || record.kind != "markdown";
+fn skrun_artifact_to_model(record: SkillArtifact) -> Skill {
+    let kind = artifact_kind_label(&record.kind);
+    let executable = record.executable || record.kind != ArtifactKind::Markdown;
     let description = record.description.clone().or_else(|| {
         Some(if executable {
-            format!("Executable skrun {} skill.", record.kind)
+            format!("Executable skrun {kind} skill.")
         } else {
-            format!("Guidance-only skrun {} skill.", record.kind)
+            format!("Guidance-only skrun {kind} skill.")
         })
     });
     let content = record.content.unwrap_or_else(|| {
@@ -107,7 +60,7 @@ fn skrun_cli_skill_to_model(record: SkrunCliSkill) -> Skill {
                 "Guidance-only"
             },
             record.id,
-            record.kind,
+            kind,
             record.version
         )
     });
@@ -138,64 +91,33 @@ fn skrun_cli_skill_to_model(record: SkrunCliSkill) -> Skill {
 
 /// Read-only provider for skills exposed by the skrun public CLI contract.
 pub struct SkrunSkillProvider {
-    bin: PathBuf,
+    root: Option<PathBuf>,
 }
 
 impl SkrunSkillProvider {
-    pub fn new(bin: impl Into<PathBuf>) -> Self {
-        Self { bin: bin.into() }
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: Some(root.into()),
+        }
     }
 
-    pub fn from_default_bin() -> Self {
-        Self::new(default_skrun_bin())
+    pub fn from_default_root() -> Self {
+        Self { root: None }
     }
 
-    #[cfg(test)]
-    fn uses_test_empty_default_catalog(&self) -> bool {
-        self.bin.as_path() == std::path::Path::new("skrun")
-            && std::env::var_os(RESTFLOW_SKRUN_BIN_ENV).is_none()
-    }
-
-    #[cfg(not(test))]
-    fn uses_test_empty_default_catalog(&self) -> bool {
-        false
+    fn root(&self) -> Result<PathBuf, String> {
+        match &self.root {
+            Some(root) => Ok(root.clone()),
+            None => skrun::default_skills_dir().map_err(|error| error.to_string()),
+        }
     }
 
     pub fn try_list_skill_models(&self) -> Result<Vec<Skill>, String> {
-        if self.uses_test_empty_default_catalog() {
-            return Ok(Vec::new());
-        }
-
-        let output = match Command::new(&self.bin)
-            .arg("skill")
-            .arg("list")
-            .arg("--format")
-            .arg("json")
-            .output()
-        {
-            Ok(output) if output.status.success() => output,
-            _ => match Command::new(&self.bin).arg("skill").arg("list").output() {
-                Ok(output) if output.status.success() => output,
-                Ok(output) => {
-                    return Err(format!(
-                        "skrun skill list failed: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ));
-                }
-                Err(error) => {
-                    return Err(format!("skrun executable is not available: {error}"));
-                }
-            },
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let records =
-            parse_skrun_json_list(&stdout).unwrap_or_else(|_| parse_skrun_tsv_list(&stdout));
-        if records.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut skills = records
+        let root = self.root()?;
+        let mut skills = skrun::list_installed_skills(root)
+            .map_err(|error| error.to_string())?
             .into_iter()
-            .map(skrun_cli_skill_to_model)
+            .map(skrun_artifact_to_model)
             .collect::<Vec<_>>();
         skills.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(skills)
@@ -212,29 +134,16 @@ impl SkrunSkillProvider {
     }
 
     pub fn try_get_skill_model(&self, id: &str) -> Result<Option<Skill>, String> {
-        if self.uses_test_empty_default_catalog() {
+        let root = self.root()?;
+        let skill_root = root.join(id);
+        if !skill_root.exists() {
             return Ok(None);
         }
 
-        let show_output = Command::new(&self.bin)
-            .arg("skill")
-            .arg("show")
-            .arg(id)
-            .arg("--format")
-            .arg("json")
-            .output();
-        if let Ok(output) = show_output
-            && output.status.success()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Ok(record) = serde_json::from_str::<SkrunCliSkill>(&stdout) {
-                return Ok(Some(skrun_cli_skill_to_model(record)));
-            }
-        }
-        Ok(self
-            .try_list_skill_models()?
-            .into_iter()
-            .find(|skill| skill.id == id))
+        skrun::load_artifact(skill_root)
+            .map(skrun_artifact_to_model)
+            .map(Some)
+            .map_err(|error| error.to_string())
     }
 
     pub fn get_skill_model(&self, id: &str) -> Option<Skill> {
@@ -250,7 +159,7 @@ impl SkrunSkillProvider {
 
 impl Default for SkrunSkillProvider {
     fn default() -> Self {
-        Self::from_default_bin()
+        Self::from_default_root()
     }
 }
 
@@ -302,80 +211,20 @@ impl SkillProvider for SkrunSkillProvider {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-
-    #[cfg(unix)]
-    fn fake_skrun_bin(dir: &tempfile::TempDir, response: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
-
-        let bin = dir.path().join("skrun");
-        std::fs::write(
-            &bin,
-            format!(
-                "#!/bin/sh\nprintf '%s' '{}'\n",
-                response.replace('\'', "'\\''")
-            ),
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&bin, permissions).unwrap();
-        bin
+    fn save_test_artifact(root: &std::path::Path, artifact: &SkillArtifact) {
+        let skill_root = root.join(&artifact.id);
+        skrun::save_artifact(skill_root, artifact).unwrap();
     }
 
-    #[test]
-    fn test_skrun_json_list_parser() {
-        let records = parse_skrun_json_list(
-            r##"[{
-              "id": "regex-finder",
-              "name": "Regex Finder",
-              "version": "0.1.0",
-              "kind": "rust_binary",
-              "description": "Find text with regex.",
-              "tags": ["search"],
-              "suggested_tools": ["custom_tool"],
-              "content": "# Regex Finder\n\nFind text with regex.",
-              "executable": true,
-              "source_ref": "crate:regex-finder@0.1.0"
-            }]"##,
-        )
-        .unwrap();
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id, "regex-finder");
-        assert_eq!(
-            records[0].source_ref.as_deref(),
-            Some("crate:regex-finder@0.1.0")
-        );
-        assert_eq!(records[0].tags, Some(vec!["search".to_string()]));
-        assert_eq!(records[0].suggested_tools, vec!["custom_tool"]);
-    }
-
-    #[test]
-    fn test_skrun_tsv_list_parser() {
-        let records = parse_skrun_tsv_list("regex-finder\trust_binary\t0.1.0\tRegex Finder\n");
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id, "regex-finder");
-        assert_eq!(records[0].name, "Regex Finder");
-    }
-
-    #[cfg(unix)]
     #[test]
     fn test_skrun_provider_lists_installed_artifacts() {
         let dir = tempdir().unwrap();
-        let bin = fake_skrun_bin(
-            &dir,
-            r##"[{
-              "id": "regex-finder",
-              "name": "Regex Finder",
-              "version": "0.1.0",
-              "kind": "rust_binary",
-              "description": "Find text with regex.",
-              "content": "# Regex Finder\n\nFind text with regex."
-            }]"##,
-        );
+        let mut artifact = SkillArtifact::rust_binary("regex-finder", "Regex Finder", "0.1.0");
+        artifact.description = Some("Find text with regex.".to_string());
+        artifact.content = Some("# Regex Finder\n\nFind text with regex.".to_string());
+        save_test_artifact(dir.path(), &artifact);
 
-        let provider = SkrunSkillProvider::new(bin);
+        let provider = SkrunSkillProvider::new(dir.path());
         let skills = provider.list_skill_models();
 
         assert_eq!(skills.len(), 1);
@@ -385,26 +234,17 @@ mod tests {
         assert_eq!(skills[0].suggested_tools, vec![SKRUN_TOOL_NAME]);
     }
 
-    #[cfg(unix)]
     #[test]
     fn test_skrun_provider_lists_markdown_skills_without_run_tool() {
         let dir = tempdir().unwrap();
-        let bin = fake_skrun_bin(
-            &dir,
-            r##"[{
-              "id": "team",
-              "name": "Team",
-              "version": "0.1.0",
-              "kind": "markdown",
-              "description": "Coordinate workers.",
-              "tags": ["team"],
-              "suggested_tools": ["spawn_subagent_batch"],
-              "content": "# Team\n\nUse workers.",
-              "executable": false
-            }]"##,
-        );
+        let mut artifact =
+            SkillArtifact::markdown("team", "Team", "0.1.0", "# Team\n\nUse workers.");
+        artifact.description = Some("Coordinate workers.".to_string());
+        artifact.tags = Some(vec!["team".to_string()]);
+        artifact.suggested_tools = vec!["spawn_subagent_batch".to_string()];
+        save_test_artifact(dir.path(), &artifact);
 
-        let provider = SkrunSkillProvider::new(bin);
+        let provider = SkrunSkillProvider::new(dir.path());
         let skills = provider.list_skill_models();
 
         assert_eq!(skills.len(), 1);
@@ -416,7 +256,8 @@ mod tests {
 
     #[test]
     fn test_default_test_catalog_is_empty_without_skrun_override() {
-        let provider = SkrunSkillProvider::default();
+        let dir = tempdir().unwrap();
+        let provider = SkrunSkillProvider::new(dir.path().join("missing"));
         assert!(provider.try_list_skill_models().unwrap().is_empty());
         assert!(provider.try_get_skill_model("team").unwrap().is_none());
     }

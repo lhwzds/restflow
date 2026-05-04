@@ -45,5 +45,6 @@ Through RestFlow, the agent should call:
 }
 ```
 
-The concrete installation format is owned by skrun. RestFlow only requires
-`skrun skill list`, `skrun skill show`, and `skrun skill run`.
+The concrete installation format is owned by skrun. RestFlow embeds the `skrun`
+crate and reads installed artifacts from the skrun skills directory, so runtime
+execution does not require a separate `skrun` executable on `PATH`.

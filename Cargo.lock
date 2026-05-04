@@ -3510,6 +3510,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "shell-words",
+ "skrun",
  "specta",
  "tempfile",
  "thiserror 2.0.18",
@@ -3596,6 +3597,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "skrun",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -4182,6 +4184,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c6f73aeb92d671e0cc4dca167e59b2deb6387c375391bc99ee743f326994a2b"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "skrun"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "011516befd4b938ba166134973787397fc2c3a557a555efe0356dd2b5c8b2652"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

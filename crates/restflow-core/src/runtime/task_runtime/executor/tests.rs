@@ -67,22 +67,46 @@ impl Drop for EnvVarGuard {
 }
 
 #[cfg(unix)]
-fn fake_skrun_bin(env: &RestflowTestEnv, response: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
+#[derive(serde::Deserialize)]
+struct TestSkrunSkill {
+    id: String,
+    name: String,
+    version: String,
+    kind: String,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    suggested_tools: Vec<String>,
+    #[serde(default)]
+    source_ref: Option<String>,
+}
 
-    let bin = env.root().join("skrun");
-    std::fs::write(
-        &bin,
-        format!(
-            "#!/bin/sh\nprintf '%s' '{}'\n",
-            response.replace('\'', "'\\''")
-        ),
-    )
-    .unwrap();
-    let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&bin, permissions).unwrap();
-    bin
+#[cfg(unix)]
+fn install_skrun_skills(env: &RestflowTestEnv, response: &str) -> PathBuf {
+    let root = env.root().join("skrun-skills");
+    std::fs::create_dir_all(&root).unwrap();
+    let records: Vec<TestSkrunSkill> = serde_json::from_str(response).unwrap();
+    for record in records {
+        let content = record
+            .content
+            .unwrap_or_else(|| format!("# {}", record.name));
+        let mut artifact = match record.kind.as_str() {
+            "markdown" => {
+                skrun::SkillArtifact::markdown(record.id, record.name, record.version, content)
+            }
+            "rust_binary" => {
+                let mut artifact =
+                    skrun::SkillArtifact::rust_binary(record.id, record.name, record.version);
+                artifact.content = Some(content);
+                artifact
+            }
+            other => panic!("unsupported test skrun skill kind: {other}"),
+        };
+        artifact.suggested_tools = record.suggested_tools;
+        artifact.source_ref = record.source_ref;
+        skrun::save_artifact(root.join(&artifact.id), &artifact).unwrap();
+    }
+    root
 }
 
 #[test]
@@ -376,7 +400,7 @@ fn test_build_task_system_prompt_does_not_inject_authorized_triggered_skill() {
 #[test]
 fn test_resolve_preflight_skills_includes_team_skrun_skill() {
     let (storage, temp_dir) = create_test_storage();
-    let bin = fake_skrun_bin(
+    let bin = install_skrun_skills(
         &temp_dir,
         r##"[{
           "id": "team",
@@ -389,7 +413,7 @@ fn test_resolve_preflight_skills_includes_team_skrun_skill() {
           "source_ref": "skrun:team@0.1.0"
         }]"##,
     );
-    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
     let executor = create_test_executor(storage);
 
     let node = AgentNode {
@@ -410,7 +434,7 @@ fn test_resolve_preflight_skills_includes_team_skrun_skill() {
 #[test]
 fn test_resolve_effective_tool_names_activates_assigned_skrun_skill_tools() {
     let (storage, temp_dir) = create_test_storage();
-    let bin = fake_skrun_bin(
+    let bin = install_skrun_skills(
         &temp_dir,
         r##"[{
           "id": "manage-task",
@@ -422,7 +446,7 @@ fn test_resolve_effective_tool_names_activates_assigned_skrun_skill_tools() {
           "executable": false
         }]"##,
     );
-    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
     let executor = create_test_executor(storage);
     let node = AgentNode {
         skills: Some(vec!["manage-task".to_string()]),
@@ -441,7 +465,7 @@ fn test_resolve_effective_tool_names_activates_assigned_skrun_skill_tools() {
 #[test]
 fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
     let (storage, temp_dir) = create_test_storage();
-    let bin = fake_skrun_bin(
+    let bin = install_skrun_skills(
         &temp_dir,
         r##"[{
           "id": "manage-task",
@@ -453,7 +477,7 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
           "executable": false
         }]"##,
     );
-    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
     let executor = create_test_executor(storage);
     let node = AgentNode {
         skills: Some(vec!["manage-task".to_string()]),
@@ -473,7 +497,7 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
 #[test]
 fn test_resolve_effective_tool_names_activates_known_unassigned_skill_mention() {
     let (storage, temp_dir) = create_test_storage();
-    let bin = fake_skrun_bin(
+    let bin = install_skrun_skills(
         &temp_dir,
         r##"[{
           "id": "manage-task",
@@ -485,7 +509,7 @@ fn test_resolve_effective_tool_names_activates_known_unassigned_skill_mention() 
           "executable": false
         }]"##,
     );
-    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
     let executor = create_test_executor(storage);
     let node = AgentNode::new();
 
@@ -604,7 +628,7 @@ async fn test_executor_no_api_key() {
 async fn test_execute_session_turn_enforces_skill_preflight_policy() {
     let (storage, temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    let bin = fake_skrun_bin(
+    let bin = install_skrun_skills(
         &temp_dir,
         r##"[{
           "id": "preflight-session-skill",
@@ -616,7 +640,7 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
           "executable": false
         }]"##,
     );
-    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
 
     let agent = AgentNode::with_model(ModelId::CodexCli)
         .with_skills(vec!["preflight-session-skill".to_string()])
@@ -654,7 +678,7 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
 async fn test_execute_from_state_enforces_skill_preflight_policy() {
     let (storage, temp_dir) = create_test_storage();
     let executor = create_test_executor(storage.clone());
-    let bin = fake_skrun_bin(
+    let bin = install_skrun_skills(
         &temp_dir,
         r##"[{
           "id": "preflight-resume-skill",
@@ -666,7 +690,7 @@ async fn test_execute_from_state_enforces_skill_preflight_policy() {
           "executable": false
         }]"##,
     );
-    let _skrun_bin = EnvVarGuard::set_path("RESTFLOW_SKRUN_BIN", &bin);
+    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
 
     let agent = AgentNode::with_model(ModelId::CodexCli)
         .with_skills(vec!["preflight-resume-skill".to_string()])
