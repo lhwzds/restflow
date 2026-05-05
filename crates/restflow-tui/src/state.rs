@@ -148,15 +148,15 @@ fn model_display_name(model: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingUserCell {
+pub struct AnchoredRuntimeCell {
     pub base_cell_index: usize,
     pub cell: TranscriptCell,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnchoredRuntimeCell {
-    pub base_cell_index: usize,
-    pub cell: TranscriptCell,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ActiveTurn {
+    pub cells: Vec<TranscriptCell>,
+    active_assistant_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -263,14 +263,12 @@ pub struct AppState {
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
     pub runtime_cells: Vec<AnchoredRuntimeCell>,
-    // Active cell is the single in-flight assistant response while streaming.
-    pub active_cell: Option<TranscriptCell>,
-    pub active_turn_cells: Vec<TranscriptCell>,
-    active_typing_started_at_ms: Option<i64>,
+    // Active turn is the latest live viewport. Stable history comes from session projection only.
+    pub active_turn: Option<ActiveTurn>,
+    active_progress_started_at_ms: Option<i64>,
     active_assistant_stream_body: String,
     active_tool_call_ids: HashSet<String>,
     active_tool_result_ids: HashSet<String>,
-    pub pending_user_cells: Vec<PendingUserCell>,
     pub overlay: Option<OverlayState>,
     pub composer: ComposerState,
     pub message_scroll_from_bottom: usize,
@@ -300,13 +298,11 @@ impl AppState {
             pending_session: None,
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
-            active_cell: None,
-            active_turn_cells: Vec::new(),
-            active_typing_started_at_ms: None,
+            active_turn: None,
+            active_progress_started_at_ms: None,
             active_assistant_stream_body: String::new(),
             active_tool_call_ids: HashSet::new(),
             active_tool_result_ids: HashSet::new(),
-            pending_user_cells: Vec::new(),
             overlay: None,
             composer: ComposerState::default(),
             message_scroll_from_bottom: 0,
@@ -429,15 +425,19 @@ impl AppState {
         self.runtime_cells.clear();
         self.clear_active_response();
         self.reset_message_scroll();
-        self.pending_user_cells.clear();
         self.conversation_cells =
             transcript_cells(&messages_from_session(&session), self.assistant_name());
     }
 
     pub fn refresh_current_session(&mut self, session: ChatSession) {
+        let old_cells = std::mem::take(&mut self.conversation_cells);
         self.thread.session = Some(session.clone());
         self.replace_session_projection(messages_from_session(&session));
-        self.reconcile_pending_user_cells();
+        self.reanchor_runtime_cells(&old_cells);
+        self.reconcile_runtime_conversation_cells();
+        if !self.is_streaming {
+            self.flush_active_turn_to_runtime();
+        }
     }
 
     pub fn clear_current_session(&mut self, notice: impl Into<String>) {
@@ -446,7 +446,6 @@ impl AppState {
         self.runtime_cells.clear();
         self.clear_active_response();
         self.reset_message_scroll();
-        self.pending_user_cells.clear();
         self.push_info(notice);
     }
 
@@ -482,7 +481,6 @@ impl AppState {
         self.runtime_cells.clear();
         self.clear_active_response();
         self.reset_message_scroll();
-        self.pending_user_cells.clear();
         self.pending_session = pending_session;
         self.clear_overlay();
         self.composer.clear();
@@ -847,96 +845,88 @@ impl AppState {
         }
     }
 
-    fn finalize_active_cell(&mut self) {
-        self.finish_active_assistant_segment();
-        let live_cells = std::mem::take(&mut self.active_turn_cells);
-        self.active_assistant_stream_body.clear();
-        self.active_tool_call_ids.clear();
-        self.active_tool_result_ids.clear();
-        self.current_stream_id = None;
-        let mut base_cell_index = self.conversation_cells.len();
-        for mut cell in live_cells {
-            match cell.kind {
-                TranscriptCellKind::Assistant if !cell.body.trim().is_empty() => {
-                    let _ = cell.finalize();
-                    self.conversation_cells.push(cell);
-                    base_cell_index = self.conversation_cells.len();
-                }
-                TranscriptCellKind::Tool => {
-                    self.runtime_cells.push(AnchoredRuntimeCell {
-                        base_cell_index,
-                        cell,
-                    });
-                }
-                _ => {}
-            }
-        }
-    }
-
     fn clear_active_response(&mut self) {
-        self.active_cell = None;
-        self.active_turn_cells.clear();
-        self.active_typing_started_at_ms = None;
+        self.active_turn = None;
+        self.active_progress_started_at_ms = None;
         self.active_assistant_stream_body.clear();
         self.active_tool_call_ids.clear();
         self.active_tool_result_ids.clear();
     }
 
     fn finish_active_assistant_segment(&mut self) {
-        let Some(mut active_cell) = self.active_cell.take() else {
+        let Some(active_turn) = self.active_turn.as_mut() else {
             return;
         };
-        self.active_typing_started_at_ms = None;
-        self.active_assistant_stream_body.clear();
+        let Some(index) = active_turn.active_assistant_index.take() else {
+            return;
+        };
+        let Some(active_cell) = active_turn.cells.get_mut(index) else {
+            return;
+        };
         active_cell.body = active_cell.body.trim_end().to_string();
-        if !active_cell.body.trim().is_empty() {
+        if active_cell.body.trim().is_empty() {
+            active_turn.cells.remove(index);
+        } else {
             let _ = active_cell.finalize();
-            self.active_turn_cells.push(active_cell);
         }
+        if active_turn.cells.is_empty() {
+            self.active_turn = None;
+        }
+        self.active_progress_started_at_ms = None;
+        self.active_assistant_stream_body.clear();
     }
 
     pub fn start_assistant_typing(&mut self) {
-        if self.active_cell.is_none() {
-            self.active_cell = Some(cell_from_message(
-                &ShellMessage::AssistantStream {
-                    content: String::new(),
-                },
-                self.assistant_name(),
-            ));
+        self.ensure_active_assistant_cell();
+        if self.active_progress_started_at_ms.is_none() {
+            self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
         }
-        if self.active_typing_started_at_ms.is_none() {
-            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
-        }
-        let _ = self.update_active_typing_indicator();
+        let _ = self.update_active_progress_indicator();
     }
 
     pub fn cancel_active_response(&mut self) {
-        self.finalize_active_cell();
+        self.finish_active_assistant_segment();
         self.is_streaming = false;
         self.current_stream_id = None;
     }
 
     pub fn update_active_typing_indicator(&mut self) -> bool {
-        self.update_active_typing_indicator_at(Utc::now().timestamp_millis())
+        self.update_active_progress_indicator()
     }
 
-    fn update_active_typing_indicator_at(&mut self, now_ms: i64) -> bool {
-        let Some(active_cell) = self.active_cell.as_mut() else {
+    pub fn update_active_progress_indicator(&mut self) -> bool {
+        self.update_active_progress_indicator_at(Utc::now().timestamp_millis())
+    }
+
+    fn update_active_progress_indicator_at(&mut self, now_ms: i64) -> bool {
+        let started_at = *self.active_progress_started_at_ms.get_or_insert(now_ms);
+        let Some(active_cell) = self.active_cell_mut() else {
             return false;
         };
         if !active_cell.is_active {
             return false;
         }
-        let started_at = *self.active_typing_started_at_ms.get_or_insert(now_ms);
         let elapsed_ms = now_ms.saturating_sub(started_at);
         let elapsed_secs = elapsed_ms / 1000;
-        let frame = match (elapsed_ms / 250) % 4 {
-            0 => "typing",
-            1 => "typing.",
-            2 => "typing..",
-            _ => "typing...",
+        let label = match active_cell.kind {
+            TranscriptCellKind::Tool => "running",
+            _ => "typing",
         };
-        let next = format!("{frame:<9} {elapsed_secs}s");
+        let frame = match (elapsed_ms / 250) % 4 {
+            0 => label.to_string(),
+            1 => format!("{label}."),
+            2 => format!("{label}.."),
+            _ => format!("{label}..."),
+        };
+        let progress = format!("{frame:<10} {elapsed_secs}s");
+        let next = if active_cell.kind == TranscriptCellKind::Tool {
+            active_cell
+                .tool_call_id()
+                .map(|call_id| format!("#{call_id} · {progress}"))
+                .unwrap_or(progress)
+        } else {
+            progress
+        };
         if active_cell.subtitle.as_deref() == Some(next.as_str()) {
             return false;
         }
@@ -945,7 +935,7 @@ impl AppState {
     }
 
     fn push_tool_message(&mut self, message: ShellMessage) {
-        if self.active_cell.is_some() || self.is_streaming || !self.pending_user_cells.is_empty() {
+        if self.active_turn.is_some() || self.is_streaming {
             match &message {
                 ShellMessage::ToolCall {
                     call_id,
@@ -1001,19 +991,48 @@ impl AppState {
         });
     }
 
+    fn ensure_active_turn(&mut self) -> &mut ActiveTurn {
+        self.active_turn.get_or_insert_with(ActiveTurn::default)
+    }
+
+    fn active_cell_mut(&mut self) -> Option<&mut TranscriptCell> {
+        let active_turn = self.active_turn.as_mut()?;
+        active_turn
+            .cells
+            .iter_mut()
+            .rev()
+            .find(|cell| cell.is_active)
+    }
+
+    fn active_assistant_cell_mut(&mut self) -> Option<&mut TranscriptCell> {
+        let active_turn = self.active_turn.as_mut()?;
+        let index = active_turn.active_assistant_index?;
+        active_turn.cells.get_mut(index)
+    }
+
     fn ensure_active_assistant_cell(&mut self) {
-        if self.active_cell.is_none() {
-            self.active_cell = Some(cell_from_message(
+        let needs_cell = self
+            .active_turn
+            .as_ref()
+            .and_then(|turn| turn.active_assistant_index)
+            .is_none();
+        if needs_cell {
+            let assistant_name = self.assistant_name().to_string();
+            let cell = cell_from_message(
                 &ShellMessage::AssistantStream {
                     content: String::new(),
                 },
-                self.assistant_name(),
-            ));
+                &assistant_name,
+            );
+            let active_turn = self.ensure_active_turn();
+            let index = active_turn.cells.len();
+            active_turn.cells.push(cell);
+            active_turn.active_assistant_index = Some(index);
         }
-        if self.active_typing_started_at_ms.is_none() {
-            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        if self.active_progress_started_at_ms.is_none() {
+            self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
         }
-        let _ = self.update_active_typing_indicator();
+        let _ = self.update_active_progress_indicator();
     }
 
     fn append_tool_call_to_active(&mut self, call_id: &str, name: &str, arguments: &str) {
@@ -1021,48 +1040,58 @@ impl AppState {
             return;
         }
         self.finish_active_assistant_segment();
-        self.active_turn_cells.push(cell_from_message(
+        let assistant_name = self.assistant_name().to_string();
+        let mut cell = cell_from_message(
             &ShellMessage::ToolCall {
                 call_id: call_id.to_string(),
                 name: name.to_string(),
                 arguments: arguments.to_string(),
             },
-            self.assistant_name(),
-        ));
+            &assistant_name,
+        );
+        cell.is_active = true;
+        self.ensure_active_turn().cells.push(cell);
+        self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
+        let _ = self.update_active_progress_indicator();
     }
 
     fn append_tool_result_to_active(&mut self, call_id: &str, success: bool, result: &str) {
         if !self.active_tool_result_ids.insert(call_id.to_string()) {
             return;
         }
-        if let Some(cell) = self
-            .active_turn_cells
-            .iter_mut()
-            .find(|cell| cell.tool_call_id() == Some(call_id))
-        {
-            let _ = cell.merge_tool_result(success, result);
-            return;
+        if let Some(active_turn) = self.active_turn.as_mut() {
+            if let Some(cell) = active_turn
+                .cells
+                .iter_mut()
+                .find(|cell| cell.tool_call_id() == Some(call_id))
+            {
+                let _ = cell.merge_tool_result(success, result);
+                self.active_progress_started_at_ms = None;
+                return;
+            }
         }
-        self.active_turn_cells.push(cell_from_message(
+        let assistant_name = self.assistant_name().to_string();
+        let cell = cell_from_message(
             &ShellMessage::ToolResult {
                 call_id: call_id.to_string(),
                 success,
                 result: result.to_string(),
             },
-            self.assistant_name(),
-        ));
+            &assistant_name,
+        );
+        self.ensure_active_turn().cells.push(cell);
     }
 
     pub fn push_local_user_message(&mut self, content: String) {
         self.reset_message_scroll();
-        let base_cell_index = self.conversation_cells.len();
+        self.flush_active_turn_to_runtime();
         let cell = cell_from_message(
             &ShellMessage::UserMessage { content },
             self.assistant_name(),
         );
-        self.pending_user_cells.push(PendingUserCell {
-            base_cell_index,
-            cell,
+        self.active_turn = Some(ActiveTurn {
+            cells: vec![cell],
+            active_assistant_index: None,
         });
     }
 
@@ -1099,8 +1128,8 @@ impl AppState {
             return;
         }
 
-        if self.active_typing_started_at_ms.is_none() {
-            self.active_typing_started_at_ms = Some(Utc::now().timestamp_millis());
+        if self.active_progress_started_at_ms.is_none() {
+            self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
         }
 
         let Some(delta) = assistant_stream_delta(&mut self.active_assistant_stream_body, chunk)
@@ -1113,10 +1142,10 @@ impl AppState {
         }
 
         self.ensure_active_assistant_cell();
-        if let Some(active_cell) = self.active_cell.as_mut() {
+        if let Some(active_cell) = self.active_assistant_cell_mut() {
             append_active_text(&mut active_cell.body, &delta);
         }
-        let _ = self.update_active_typing_indicator();
+        let _ = self.update_active_progress_indicator();
     }
 
     pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
@@ -1137,7 +1166,7 @@ impl AppState {
             StreamFrame::Done { total_tokens } => {
                 self.is_streaming = false;
                 self.current_stream_id = None;
-                self.finalize_active_cell();
+                self.finish_active_assistant_segment();
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
                     None => "Stream finished".to_string(),
@@ -1170,24 +1199,16 @@ impl AppState {
     pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
         let mut cells = Vec::with_capacity(
             self.conversation_cells.len()
-                + self.pending_user_cells.len()
                 + self.runtime_cells.len()
-                + self.active_turn_cells.len()
-                + usize::from(self.active_cell.is_some()),
+                + self
+                    .active_turn
+                    .as_ref()
+                    .map(|turn| turn.cells.len())
+                    .unwrap_or_default(),
         );
 
-        let mut pending = self.pending_user_cells.iter().peekable();
         let mut runtime = self.runtime_cells.iter().peekable();
         for (index, cell) in self.conversation_cells.iter().enumerate() {
-            while let Some(entry) = pending.peek() {
-                if entry.base_cell_index <= index {
-                    cells.push(entry.cell.clone());
-                    pending.next();
-                } else {
-                    break;
-                }
-            }
-
             if runtime
                 .peek()
                 .is_some_and(|entry| entry.base_cell_index == index)
@@ -1217,28 +1238,72 @@ impl AppState {
             cells.push(cell.clone());
         }
 
-        for entry in pending {
-            cells.push(entry.cell.clone());
-        }
-
         for entry in runtime {
             cells.push(entry.cell.clone());
         }
-        cells.extend(self.active_turn_cells.iter().cloned());
-        if let Some(active_cell) = self.active_cell.clone() {
-            cells.push(active_cell);
+        if let Some(active_turn) = self.active_turn.as_ref() {
+            cells.extend(active_turn.cells.iter().cloned());
         }
         cells
     }
 
-    fn reconcile_pending_user_cells(&mut self) {
-        self.pending_user_cells.retain(|entry| {
-            !self
-                .conversation_cells
-                .iter()
-                .skip(entry.base_cell_index)
-                .any(|cell| cell.kind == TranscriptCellKind::User && cell.body == entry.cell.body)
+    fn flush_active_turn_to_runtime(&mut self) {
+        let Some(mut active_turn) = self.active_turn.take() else {
+            self.clear_active_response();
+            return;
+        };
+        let base_cell_index = self.conversation_cells.len();
+        for mut cell in active_turn.cells.drain(..) {
+            if cell.is_active {
+                let _ = cell.finalize();
+            }
+            if matches!(
+                cell.kind,
+                TranscriptCellKind::Assistant | TranscriptCellKind::User
+            ) && cell.body.trim().is_empty()
+            {
+                continue;
+            }
+            if cell.is_conversation_cell()
+                && self
+                    .conversation_cells
+                    .iter()
+                    .any(|persisted| persisted.kind == cell.kind && persisted.body == cell.body)
+            {
+                continue;
+            }
+            self.runtime_cells.push(AnchoredRuntimeCell {
+                base_cell_index,
+                cell,
+            });
+        }
+        self.clear_active_response();
+    }
+
+    fn reconcile_runtime_conversation_cells(&mut self) {
+        self.runtime_cells.retain(|entry| {
+            !entry.cell.is_conversation_cell()
+                || !self
+                    .conversation_cells
+                    .iter()
+                    .any(|cell| cell.kind == entry.cell.kind && cell.body == entry.cell.body)
         });
+    }
+
+    fn reanchor_runtime_cells(&mut self, old_cells: &[TranscriptCell]) {
+        for entry in self.runtime_cells.iter_mut() {
+            // base_cell_index == old_cells.len() means the runtime cell was anchored
+            // past the end (after the last conversation cell).  Keep it at the new
+            // end as well.
+            if entry.base_cell_index == old_cells.len() {
+                entry.base_cell_index = self.conversation_cells.len();
+            } else if let Some(old_cell) = old_cells.get(entry.base_cell_index) {
+                if let Some(new_index) = self.conversation_cells.iter().position(|c| c == old_cell)
+                {
+                    entry.base_cell_index = new_index;
+                }
+            }
+        }
     }
 
     fn assistant_name(&self) -> &str {
@@ -1288,7 +1353,7 @@ fn append_active_text(body: &mut String, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::{AppState, OverlayState};
-    use crate::transcript::{TranscriptCellKind, transcript_cells};
+    use crate::transcript::TranscriptCellKind;
     use restflow_contracts::{ChatSessionEvent, StreamFrame};
 
     #[test]
@@ -1310,50 +1375,51 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Data {
             content: "lo".to_string(),
         });
-        assert!(state.active_cell.is_some());
+        assert!(state.active_turn.is_some());
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        assert_eq!(state.conversation_cells.len(), 1);
+        assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert!(state.active_cell.is_none());
-        assert_eq!(
-            state.conversation_cells[0].kind,
-            TranscriptCellKind::Assistant
-        );
-        assert_eq!(state.conversation_cells[0].body, "hello");
+        let active = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active.cells.len(), 1);
+        assert_eq!(active.cells[0].kind, TranscriptCellKind::Assistant);
+        assert_eq!(active.cells[0].body, "hello");
     }
 
     #[test]
-    fn assistant_typing_indicator_animates_with_elapsed_time() {
+    fn active_progress_indicator_animates_with_elapsed_time() {
         let mut state = AppState::empty();
         state.start_assistant_typing();
-        let started_at = state.active_typing_started_at_ms.expect("typing start");
+        let started_at = state.active_progress_started_at_ms.expect("typing start");
 
-        state.update_active_typing_indicator_at(started_at);
+        state.update_active_progress_indicator_at(started_at);
         let initial = state
-            .active_cell
+            .active_turn
             .as_ref()
+            .and_then(|turn| turn.cells.last())
             .and_then(|cell| cell.subtitle.as_deref())
             .expect("subtitle")
             .to_string();
-        assert_eq!(initial, "typing    0s");
+        assert_eq!(initial, "typing     0s");
 
-        state.update_active_typing_indicator_at(started_at + 500);
+        state.update_active_progress_indicator_at(started_at + 500);
         let animated = state
-            .active_cell
+            .active_turn
             .as_ref()
+            .and_then(|turn| turn.cells.last())
             .and_then(|cell| cell.subtitle.as_deref())
             .expect("subtitle")
             .to_string();
-        assert_eq!(animated, "typing..  0s");
+        assert_eq!(animated, "typing..   0s");
 
-        state.update_active_typing_indicator_at(started_at + 1_250);
+        state.update_active_progress_indicator_at(started_at + 1_250);
         let elapsed = state
-            .active_cell
+            .active_turn
             .as_ref()
+            .and_then(|turn| turn.cells.last())
             .and_then(|cell| cell.subtitle.as_deref())
             .expect("subtitle");
-        assert_eq!(elapsed, "typing.   1s");
+        assert_eq!(elapsed, "typing.    1s");
     }
 
     #[test]
@@ -1367,6 +1433,14 @@ mod tests {
             name: "bash".to_string(),
             arguments: serde_json::json!({"cmd": "pwd"}),
         });
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        let tool = active_turn.cells.last().expect("active tool");
+        assert!(tool.is_active);
+        assert!(
+            tool.subtitle
+                .as_deref()
+                .is_some_and(|subtitle| subtitle.contains("running"))
+        );
         state.apply_stream_frame(StreamFrame::ToolResult {
             id: "call-1".to_string(),
             result: "{\"cwd\":\"/tmp\"}".to_string(),
@@ -1376,17 +1450,18 @@ mod tests {
             content: "Done.".to_string(),
         });
 
-        assert!(state.active_cell.is_some());
+        assert!(state.active_turn.is_some());
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert_eq!(state.active_turn_cells.len(), 2);
-        let active = state.active_cell.as_ref().expect("active assistant");
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active_turn.cells.len(), 3);
+        let active = active_turn.cells.last().expect("active assistant");
         assert_eq!(active.kind, TranscriptCellKind::Assistant);
-        assert!(state.active_turn_cells[0].body.contains("Checking..."));
+        assert!(active_turn.cells[0].body.contains("Checking..."));
         assert!(active.body.contains("Done."));
-        assert_eq!(state.active_turn_cells[1].title, "Tool · bash");
-        assert!(state.active_turn_cells[1].body.contains("Input:"));
-        assert!(state.active_turn_cells[1].body.contains("Output:"));
+        assert_eq!(active_turn.cells[1].title, "Tool · bash");
+        assert!(active_turn.cells[1].body.contains("Input:"));
+        assert!(active_turn.cells[1].body.contains("Output:"));
 
         let cells = state.transcript_cells_for_render();
         let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
@@ -1401,12 +1476,11 @@ mod tests {
 
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        assert_eq!(state.conversation_cells.len(), 2);
-        assert!(state.active_cell.is_none());
-        assert!(state.active_turn_cells.is_empty());
-        assert_eq!(state.runtime_cells.len(), 1);
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.active_turn.is_some());
+        assert!(state.runtime_cells.is_empty());
         assert!(
-            !state.conversation_cells[0]
+            !state.active_turn.as_ref().unwrap().cells[0]
                 .body
                 .contains("Tool · bash #call-1")
         );
@@ -1431,15 +1505,15 @@ mod tests {
 
         state.apply_stream_frame(StreamFrame::error(500, "stream failed"));
 
-        assert!(state.active_cell.is_none());
-        assert!(state.active_turn_cells.is_empty());
+        assert!(state.active_turn.is_some());
         assert!(!state.is_streaming);
-        assert_eq!(state.conversation_cells.len(), 1);
-        assert!(state.conversation_cells[0].body.contains("Partial answer"));
-        assert_eq!(state.runtime_cells.len(), 2);
-        assert_eq!(state.runtime_cells[0].cell.kind, TranscriptCellKind::Tool);
-        assert_eq!(state.runtime_cells[1].cell.title, "Error");
-        assert!(state.runtime_cells[1].cell.body.contains("stream failed"));
+        assert!(state.conversation_cells.is_empty());
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert!(active_turn.cells[0].body.contains("Partial answer"));
+        assert_eq!(active_turn.cells[1].kind, TranscriptCellKind::Tool);
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert_eq!(state.runtime_cells[0].cell.title, "Error");
+        assert!(state.runtime_cells[0].cell.body.contains("stream failed"));
     }
 
     #[test]
@@ -1454,7 +1528,13 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
         assert!(state.conversation_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        assert!(
+            state
+                .active_turn
+                .as_ref()
+                .map(|turn| turn.cells.is_empty())
+                .unwrap_or(true)
+        );
     }
 
     #[test]
@@ -1511,22 +1591,24 @@ mod tests {
     }
 
     #[test]
-    fn refresh_current_session_keeps_pending_user_message_until_persisted() {
+    fn refresh_current_session_keeps_active_turn_until_stream_finishes() {
         let mut state = AppState::empty();
         let session =
             restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_local_user_message("hello".to_string());
 
+        state.is_streaming = true;
         state.refresh_current_session(session.clone());
-        assert_eq!(state.pending_user_cells.len(), 1);
+        assert_eq!(state.active_turn.as_ref().unwrap().cells.len(), 1);
 
         let mut updated = session;
         updated
             .messages
             .push(restflow_core::models::ChatMessage::user("hello"));
+        state.is_streaming = false;
         state.refresh_current_session(updated);
-        assert!(state.pending_user_cells.is_empty());
+        assert!(state.active_turn.is_none());
         assert_eq!(state.conversation_cells.len(), 1);
         assert_eq!(state.conversation_cells[0].body, "hello");
     }
@@ -1549,6 +1631,56 @@ mod tests {
         assert_eq!(rendered[0].body, "123");
         assert_eq!(rendered[1].kind, TranscriptCellKind::Assistant);
         assert_eq!(rendered[1].body, "hello");
+    }
+
+    #[test]
+    fn refresh_after_interrupted_stream_preserves_partial_turn_after_user() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.push_local_user_message("first".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "partial answer".to_string(),
+        });
+        state.cancel_active_response();
+
+        let mut updated = session;
+        updated
+            .messages
+            .push(restflow_core::models::ChatMessage::user("first"));
+        state.refresh_current_session(updated);
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 2);
+        assert_eq!(rendered[0].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[0].body, "first");
+        assert_eq!(rendered[1].kind, TranscriptCellKind::Assistant);
+        assert_eq!(rendered[1].body, "partial answer");
+        assert!(state.active_turn.is_none());
+    }
+
+    #[test]
+    fn next_submit_preserves_interrupted_turn_before_new_user() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("first".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "partial answer".to_string(),
+        });
+        state.cancel_active_response();
+        state.push_local_user_message("second".to_string());
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 3);
+        assert_eq!(rendered[0].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[0].body, "first");
+        assert_eq!(rendered[1].kind, TranscriptCellKind::Assistant);
+        assert_eq!(rendered[1].body, "partial answer");
+        assert_eq!(rendered[2].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[2].body, "second");
     }
 
     #[test]
@@ -1578,7 +1710,7 @@ mod tests {
         });
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        assert!(state.active_turn.is_none());
     }
 
     #[test]
@@ -1599,7 +1731,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_current_session_preserves_runtime_cells_and_active_cell() {
+    fn refresh_current_session_preserves_runtime_cells_and_streaming_active_turn() {
         let mut state = AppState::empty();
         let mut session =
             restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
@@ -1608,14 +1740,10 @@ mod tests {
             .push(restflow_core::models::ChatMessage::user("hello"));
         state.set_current_session(session.clone());
         state.push_info("notice");
-        state.active_cell = transcript_cells(
-            &[crate::transcript::ShellMessage::AssistantStream {
-                content: "chunk".to_string(),
-            }],
-            "Agent",
-        )
-        .into_iter()
-        .next();
+        state.is_streaming = true;
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "chunk".to_string(),
+        });
 
         let mut updated = session.clone();
         updated
@@ -1626,7 +1754,7 @@ mod tests {
         assert_eq!(state.conversation_cells.len(), 2);
         assert_eq!(state.runtime_cells.len(), 1);
         assert_eq!(state.runtime_cells[0].cell.title, "Info");
-        assert!(state.active_cell.is_some());
+        assert!(state.active_turn.is_some());
     }
 
     #[test]

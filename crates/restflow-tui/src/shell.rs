@@ -368,25 +368,9 @@ fn message_layout_line_count(state: &AppState, size: (u16, u16)) -> usize {
 }
 
 fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
-    let mut cells = Vec::with_capacity(
-        state.conversation_cells.len() + state.pending_user_cells.len() + state.runtime_cells.len(),
-    );
-    let include_pending = state.active_cell.is_none() && state.active_turn_cells.is_empty();
-
-    let mut pending = state.pending_user_cells.iter().peekable();
+    let mut cells = Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
     let mut runtime = state.runtime_cells.iter().peekable();
     for (index, cell) in state.conversation_cells.iter().enumerate() {
-        if include_pending {
-            while let Some(entry) = pending.peek() {
-                if entry.base_cell_index <= index {
-                    cells.push(entry.cell.clone());
-                    pending.next();
-                } else {
-                    break;
-                }
-            }
-        }
-
         if runtime
             .peek()
             .is_some_and(|entry| entry.base_cell_index == index)
@@ -416,11 +400,6 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
         cells.push(cell.clone());
     }
 
-    if include_pending {
-        for entry in pending {
-            cells.push(entry.cell.clone());
-        }
-    }
     for entry in runtime {
         cells.push(entry.cell.clone());
     }
@@ -445,24 +424,11 @@ fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<
 }
 
 fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-    let mut cells = Vec::with_capacity(
-        state.pending_user_cells.len()
-            + state.active_turn_cells.len()
-            + usize::from(state.active_cell.is_some()),
-    );
-    if state.active_cell.is_some() || !state.active_turn_cells.is_empty() {
-        cells.extend(
-            state
-                .pending_user_cells
-                .iter()
-                .map(|entry| entry.cell.clone()),
-        );
-        cells.extend(state.active_turn_cells.iter().cloned());
-        if let Some(active_cell) = state.active_cell.as_ref() {
-            cells.push(active_cell.clone());
-        }
-    }
-    cells
+    state
+        .active_turn
+        .as_ref()
+        .map(|turn| turn.cells.clone())
+        .unwrap_or_default()
 }
 
 fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Vec<Line<'static>>> {
@@ -523,24 +489,18 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Lin
         return lines;
     }
 
-    if state.active_cell.is_none() && state.active_turn_cells.is_empty() {
+    let Some(active_turn) = state.active_turn.as_ref() else {
         return Vec::new();
+    };
+    let pending_lines = Vec::new();
+    let live_cells = active_turn.cells.clone();
+    let mut active_lines = build_cell_lines(&live_cells, width);
+    if live_cells.len() > 1 && active_lines.len() >= max_rows as usize {
+        active_lines = live_cells
+            .last()
+            .map(|cell| build_cell_lines(std::slice::from_ref(cell), width))
+            .unwrap_or_default();
     }
-
-    let pending_cells = state
-        .pending_user_cells
-        .iter()
-        .map(|entry| entry.cell.clone())
-        .collect::<Vec<_>>();
-    let pending_lines = build_cell_lines(&pending_cells, width);
-    let mut live_cells = Vec::with_capacity(
-        state.active_turn_cells.len() + usize::from(state.active_cell.is_some()),
-    );
-    live_cells.extend(state.active_turn_cells.iter().cloned());
-    if let Some(active_cell) = state.active_cell.as_ref() {
-        live_cells.push(active_cell.clone());
-    }
-    let active_lines = build_cell_lines(&live_cells, width);
     preserve_live_turn_lines(
         pending_lines,
         active_lines,
@@ -1952,9 +1912,10 @@ mod tests {
     use crate::slash_command::SLASH_COMMAND_SPECS;
     use crate::state::{
         AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem, PendingSessionState,
-        PendingUserCell, ProviderPickerItem, SkillPickerItem, TaskPickerItem,
+        ProviderPickerItem, SkillPickerItem, TaskPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
+    use restflow_contracts::StreamFrame;
     use restflow_core::models::{ChatSessionSummary, Skill, SkillSource};
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
@@ -2194,13 +2155,8 @@ mod tests {
     #[test]
     fn latest_message_stays_above_composer_rows() {
         let mut state = AppState::empty();
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "first\nlatest visible message".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "first\nlatest visible message".to_string(),
         });
 
         let viewport = build_viewport_snapshot(&state, (60, 10));
@@ -2226,13 +2182,8 @@ mod tests {
     #[test]
     fn overlay_renders_between_message_and_composer() {
         let mut state = AppState::empty();
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "live still visible".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "live still visible".to_string(),
         });
         state.open_command_picker();
 
@@ -2312,8 +2263,16 @@ mod tests {
     }
 
     #[test]
-    fn stable_history_inserts_pending_user_in_order() {
+    fn stable_history_uses_persisted_conversation_order() {
         let mut state = AppState::empty();
+        state.conversation_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::User,
+            title: "You".to_string(),
+            subtitle: None,
+            body: "hello".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
+        });
         state.conversation_cells.push(TranscriptCell {
             kind: TranscriptCellKind::Assistant,
             title: "Agent".to_string(),
@@ -2321,17 +2280,6 @@ mod tests {
             body: "hi".to_string(),
             group: MessageGroup::Conversation,
             is_active: false,
-        });
-        state.pending_user_cells.push(PendingUserCell {
-            base_cell_index: 0,
-            cell: TranscriptCell {
-                kind: TranscriptCellKind::User,
-                title: "You".to_string(),
-                subtitle: None,
-                body: "hello".to_string(),
-                group: MessageGroup::Conversation,
-                is_active: false,
-            },
         });
 
         let cells = build_stable_history_cells(&state);
@@ -2375,16 +2323,13 @@ mod tests {
     #[test]
     fn stable_history_keeps_runtime_cells_between_user_and_final_assistant() {
         let mut state = AppState::empty();
-        state.pending_user_cells.push(PendingUserCell {
-            base_cell_index: 0,
-            cell: TranscriptCell {
-                kind: TranscriptCellKind::User,
-                title: "You".to_string(),
-                subtitle: None,
-                body: "run a tool".to_string(),
-                group: MessageGroup::Conversation,
-                is_active: false,
-            },
+        state.conversation_cells.push(TranscriptCell {
+            kind: TranscriptCellKind::User,
+            title: "You".to_string(),
+            subtitle: None,
+            body: "run a tool".to_string(),
+            group: MessageGroup::Conversation,
+            is_active: false,
         });
         state.runtime_cells.push(AnchoredRuntimeCell {
             base_cell_index: 0,
@@ -2475,13 +2420,8 @@ mod tests {
                 is_active: false,
             },
         });
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "streaming".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "streaming".to_string(),
         });
 
         let lines = build_transient_lines(&state, 80, 8);
@@ -2932,24 +2872,9 @@ mod tests {
     #[test]
     fn transient_view_separates_active_assistant_from_prior_history() {
         let mut state = AppState::empty();
-        state.pending_user_cells.push(PendingUserCell {
-            base_cell_index: 0,
-            cell: TranscriptCell {
-                kind: TranscriptCellKind::User,
-                title: "You".to_string(),
-                subtitle: None,
-                body: "hello".to_string(),
-                group: MessageGroup::Conversation,
-                is_active: false,
-            },
-        });
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "streaming".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "streaming".to_string(),
         });
 
         let lines = build_transient_lines(&state, 80, 8);
@@ -2964,24 +2889,9 @@ mod tests {
     #[test]
     fn transient_view_prioritizes_title_when_separator_would_exhaust_space() {
         let mut state = AppState::empty();
-        state.pending_user_cells.push(PendingUserCell {
-            base_cell_index: 0,
-            cell: TranscriptCell {
-                kind: TranscriptCellKind::User,
-                title: "You".to_string(),
-                subtitle: None,
-                body: "hello".to_string(),
-                group: MessageGroup::Conversation,
-                is_active: false,
-            },
-        });
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "streaming".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "streaming".to_string(),
         });
 
         let lines = build_transient_lines(&state, 80, 1);
@@ -2995,13 +2905,8 @@ mod tests {
     #[test]
     fn transient_view_preserves_active_assistant_title_when_tail_clipped() {
         let mut state = AppState::empty();
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "line one\nline two\nline three\nline four".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "line one\nline two\nline three\nline four".to_string(),
         });
 
         let lines = build_transient_lines(&state, 80, 3);
@@ -3017,29 +2922,21 @@ mod tests {
     #[test]
     fn live_turn_renders_tool_as_a_separate_cell() {
         let mut state = AppState::empty();
-        state.active_turn_cells.push(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: None,
-            body: "Checking first".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: false,
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Checking first".to_string(),
         });
-        state.active_turn_cells.push(TranscriptCell {
-            kind: TranscriptCellKind::Tool,
-            title: "Tool · web_search".to_string(),
-            subtitle: Some("#call-1".to_string()),
-            body: "Input: {\"query\":\"离骚全文 屈原\"}\nOutput: {\"ok\":true}".to_string(),
-            group: MessageGroup::ToolActivity,
-            is_active: false,
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "web_search".to_string(),
+            arguments: serde_json::json!({"query": "离骚全文 屈原"}),
         });
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: "Final answer".to_string(),
-            group: MessageGroup::Conversation,
-            is_active: true,
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"ok\":true}".to_string(),
+            success: true,
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "Final answer".to_string(),
         });
 
         let lines = build_transient_lines(&state, 100, 12);
@@ -3058,16 +2955,11 @@ mod tests {
     #[test]
     fn live_turn_can_fill_the_full_message_viewport() {
         let mut state = AppState::empty();
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: (1..=30)
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: (1..=30)
                 .map(|index| format!("line {index}"))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            group: MessageGroup::Conversation,
-            is_active: true,
         });
 
         let viewport = build_viewport_snapshot(&state, (80, 24));
@@ -3093,16 +2985,11 @@ mod tests {
             group: MessageGroup::Conversation,
             is_active: false,
         });
-        state.active_cell = Some(TranscriptCell {
-            kind: TranscriptCellKind::Assistant,
-            title: "Agent".to_string(),
-            subtitle: Some("typing…".to_string()),
-            body: (1..=20)
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: (1..=20)
                 .map(|index| format!("live {index}"))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            group: MessageGroup::Conversation,
-            is_active: true,
         });
 
         let bottom = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);

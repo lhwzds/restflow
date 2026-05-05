@@ -102,9 +102,13 @@ impl TranscriptCell {
 
     pub fn finalize(&mut self) -> bool {
         match self.kind {
-            TranscriptCellKind::Assistant if self.is_active => {
+            TranscriptCellKind::Assistant | TranscriptCellKind::Tool if self.is_active => {
                 self.is_active = false;
-                self.subtitle = None;
+                if self.kind == TranscriptCellKind::Assistant {
+                    self.subtitle = None;
+                } else if let Some(call_id) = self.tool_call_id().map(ToOwned::to_owned) {
+                    self.subtitle = Some(format!("#{call_id}"));
+                }
                 true
             }
             _ => false,
@@ -115,15 +119,15 @@ impl TranscriptCell {
         if self.kind != TranscriptCellKind::Tool {
             return None;
         }
-        self.subtitle
-            .as_deref()
-            .and_then(|subtitle| subtitle.strip_prefix('#'))
+        let subtitle = self.subtitle.as_deref()?.strip_prefix('#')?;
+        Some(subtitle.split(" · ").next().unwrap_or(subtitle).trim())
     }
 
     pub fn merge_tool_result(&mut self, success: bool, result: &str) -> bool {
         if self.kind != TranscriptCellKind::Tool {
             return false;
         }
+        let call_id = self.tool_call_id().map(ToOwned::to_owned);
         let label = if success { "Output" } else { "Error" };
         let marker = format!("\n{label}:");
         let base = self
@@ -137,6 +141,10 @@ impl TranscriptCell {
         } else {
             format!("{base}{marker} {}", result.trim())
         };
+        self.is_active = false;
+        if let Some(call_id) = call_id {
+            self.subtitle = Some(format!("#{call_id}"));
+        }
         true
     }
 }

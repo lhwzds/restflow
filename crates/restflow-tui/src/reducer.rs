@@ -788,7 +788,7 @@ mod tests {
 
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        assert!(state.active_turn.is_none());
         assert!(matches!(
             output.actions.as_slice(),
             [ShellAction::SubmitText { text }] if text == "hi"
@@ -1235,7 +1235,7 @@ mod tests {
         assert!(output.effects.is_empty());
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        assert!(state.active_turn.is_none());
     }
 
     #[test]
@@ -1299,10 +1299,10 @@ mod tests {
         );
 
         assert!(state.conversation_cells.is_empty());
-        assert_eq!(state.pending_user_cells.len(), 1);
-        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
         assert!(state.runtime_cells.is_empty());
-        let active = state.active_cell.as_ref().expect("active assistant");
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active_turn.cells[0].body, "hi");
+        let active = active_turn.cells.last().expect("active assistant");
         assert!(active.is_active);
         assert!(
             active
@@ -1328,9 +1328,9 @@ mod tests {
             },
         );
 
-        assert_eq!(state.pending_user_cells.len(), 1);
-        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
-        assert!(state.active_cell.is_some());
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active_turn.cells[0].body, "hi");
+        assert!(active_turn.cells.last().is_some_and(|cell| cell.is_active));
         assert_eq!(state.status, "Creating session...");
         assert!(matches!(
             output.effects.as_slice(),
@@ -1354,9 +1354,9 @@ mod tests {
         );
 
         assert_eq!(state.current_session_id(), Some(session_id.as_str()));
-        assert_eq!(state.pending_user_cells.len(), 1);
-        assert_eq!(state.pending_user_cells[0].cell.body, "hi");
-        assert!(state.active_cell.is_some());
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active_turn.cells[0].body, "hi");
+        assert!(active_turn.cells.last().is_some_and(|cell| cell.is_active));
         assert_eq!(state.status, "Sending message...");
         assert!(matches!(
             output.effects.as_slice(),
@@ -1458,8 +1458,7 @@ mod tests {
         assert!(state.current_session_id().is_none());
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert!(state.pending_user_cells.is_empty());
-        assert!(state.active_cell.is_none());
+        assert!(state.active_turn.is_none());
         assert!(state.overlay.is_none());
         assert!(state.composer.draft().is_empty());
         let pending = state.pending_session.as_ref().expect("pending session");
@@ -1511,21 +1510,21 @@ mod tests {
         let mut state = AppState::empty();
         state.is_streaming = true;
         state.current_stream_id = Some("stream-1".to_string());
-        state.start_assistant_typing();
-        state
-            .active_cell
-            .as_mut()
-            .expect("active cell")
-            .body
-            .push_str("Partial");
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Partial".to_string(),
+        });
 
         let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
 
         assert!(!output.should_quit);
         assert!(!state.is_streaming);
         assert!(state.current_stream_id.is_none());
-        assert!(state.active_cell.is_none());
-        assert!(state.conversation_cells[0].body.contains("Partial"));
+        assert!(
+            state
+                .active_turn
+                .as_ref()
+                .is_some_and(|turn| turn.cells[0].body.contains("Partial"))
+        );
         assert!(state.runtime_cells.iter().any(|entry| {
             entry.cell.title == "Info" && entry.cell.body.contains("Canceled current response")
         }));
@@ -1692,7 +1691,7 @@ mod tests {
     fn error_clears_active_typing_cell() {
         let mut state = AppState::empty();
         state.start_assistant_typing();
-        assert!(state.active_cell.is_some());
+        assert!(state.active_turn.is_some());
 
         let output = reduce(
             &mut state,
@@ -1700,7 +1699,7 @@ mod tests {
         );
 
         assert!(output.effects.is_empty());
-        assert!(state.active_cell.is_none());
+        assert!(state.active_turn.is_none());
         assert!(!state.is_streaming);
         assert_eq!(state.status, "Failed to connect to daemon. Is it running?");
         assert!(

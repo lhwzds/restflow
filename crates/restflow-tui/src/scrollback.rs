@@ -37,13 +37,17 @@ impl ScrollbackWriter {
     {
         if !self.is_prefix_of(cells) {
             self.reset();
+        } else {
+            // Clear stale pending lines when content changed but prefix still matches.
+            // This prevents ghost lines accumulating when runtime_cells are updated
+            // (e.g. tool results replaced, model switched) between sync cycles.
+            self.pending_lines.clear();
         }
 
-        let has_existing_history =
-            !self.committed_cells.is_empty() || !self.pending_lines.is_empty();
+        let has_existing_history = !self.committed_cells.is_empty();
         let new_cells = &cells[self.committed_cells.len()..];
-        let mut lines = render_lines(new_cells, width, has_existing_history);
-        self.pending_lines.append(&mut lines);
+        let lines = render_lines(new_cells, width, has_existing_history);
+        self.pending_lines = lines;
         self.committed_cells = cells.to_vec();
     }
 
@@ -275,7 +279,9 @@ mod tests {
                 .map(|cell| Line::from(cell.body.clone()))
                 .collect()
         });
-        assert_eq!(scrollback.pending_lines.len(), 1);
+        // Re-syncing the same cells produces no new pending lines since
+        // the committed cells already cover the full content.
+        assert_eq!(scrollback.pending_lines.len(), 0);
 
         let cells = vec![user_cell("one"), user_cell("two")];
         scrollback.sync_history(&cells, 80, |new_cells, _, _| {
@@ -284,7 +290,8 @@ mod tests {
                 .map(|cell| Line::from(cell.body.clone()))
                 .collect()
         });
-        assert_eq!(scrollback.pending_lines.len(), 2);
+        // Only the new cell ("two") produces pending lines since "one" is already committed.
+        assert_eq!(scrollback.pending_lines.len(), 1);
     }
 
     #[test]
