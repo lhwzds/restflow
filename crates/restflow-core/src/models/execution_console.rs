@@ -11,7 +11,6 @@ use crate::models::{ChatSessionSource, ExecutionTimeline};
 pub enum ExecutionContainerKind {
     Workspace,
     Task,
-    ExternalChannel,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
@@ -21,7 +20,6 @@ pub enum ExecutionContainerKind {
 pub enum RunKind {
     WorkspaceRun,
     TaskRun,
-    ExternalRun,
     SubagentRun,
 }
 

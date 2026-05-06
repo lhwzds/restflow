@@ -44,27 +44,14 @@ pub(super) fn parameters_schema() -> Value {
                 "type": "object",
                 "description": "Task schedule object (required for create, optional for update/convert_session/promote_to_background)"
             },
-            "notification": {
-                "type": "object",
-                "description": "Notification configuration (for update)"
-            },
             "execution_mode": {
                 "type": "object",
                 "description": "Execution mode payload (for update)"
-            },
-            "memory": {
-                "type": "object",
-                "description": "Memory configuration payload (for create/update)"
             },
             "timeout_secs": {
                 "type": "integer",
                 "minimum": 1,
                 "description": "Optional per-task timeout in seconds for API execution mode (for create/update)"
-            },
-            "durability_mode": {
-                "type": "string",
-                "enum": ["sync", "async", "exit"],
-                "description": "Checkpoint durability mode (for create/update)"
             },
             "input": {
                 "type": "string",
@@ -78,11 +65,6 @@ pub(super) fn parameters_schema() -> Value {
             "input_template": {
                 "type": "string",
                 "description": "Optional runtime template for task input (for create/update)"
-            },
-            "memory_scope": {
-                "type": "string",
-                "enum": ["shared_agent", "per_task"],
-                "description": "Memory namespace scope (for create/update)"
             },
             "resource_limits": {
                 "type": "object",

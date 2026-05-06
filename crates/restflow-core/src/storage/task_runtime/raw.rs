@@ -4,7 +4,7 @@
 //! durable conversation surface is the file-backed session log; background task
 //! state remains process-local until it is promoted to a file format.
 
-use crate::simple_storage::namespace_for_db;
+use crate::storage::simple_storage::namespace_for_db;
 use anyhow::Result;
 use redb::Database;
 use std::collections::{BTreeMap, HashMap};
@@ -35,6 +35,7 @@ pub struct TaskStorage {
     namespace: usize,
 }
 
+#[allow(dead_code)]
 impl TaskStorage {
     fn parse_field(data: &[u8], field: &str) -> Result<String> {
         let value: serde_json::Value = serde_json::from_slice(data)?;

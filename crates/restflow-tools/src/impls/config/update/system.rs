@@ -17,8 +17,6 @@ pub(crate) fn supports_key(key: &str) -> bool {
             | "system.max_retries"
             | "system.chat_session_retention_days"
             | "system.task_retention_days"
-            | "system.checkpoint_retention_days"
-            | "system.memory_chunk_retention_days"
             | "system.log_file_retention_days"
             | "system.experimental_features"
     )
@@ -49,12 +47,6 @@ pub(crate) fn apply(key: &str, value: &Value, config: &mut ConfigDocument) -> Re
         }
         "system.task_retention_days" => {
             config.system.task_retention_days = parse_u32(value, key)?;
-        }
-        "system.checkpoint_retention_days" => {
-            config.system.checkpoint_retention_days = parse_u32(value, key)?;
-        }
-        "system.memory_chunk_retention_days" => {
-            config.system.memory_chunk_retention_days = parse_u32(value, key)?;
         }
         "system.log_file_retention_days" => {
             config.system.log_file_retention_days = parse_u32(value, key)?;

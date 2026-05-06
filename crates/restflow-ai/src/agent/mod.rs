@@ -8,7 +8,6 @@
 //! 4. Observe - Record the result
 //! 5. Repeat until goal is achieved or max iterations
 
-mod checkpoint;
 mod context;
 pub mod context_manager;
 mod deferred;
@@ -27,13 +26,12 @@ mod sub_agent;
 /// Default base prompt used when no agent-specific prompt is configured.
 pub const DEFAULT_AGENT_PROMPT: &str = "You are a helpful AI assistant.";
 
-pub use checkpoint::{AgentCheckpoint, checkpoint_restore, checkpoint_save};
 pub use context::{
     AgentContext, ContextDiscoveryConfig, ContextLoader, DiscoveredContext, MemoryContext,
     SkillSummary, WorkspaceContextCache,
 };
 pub use deferred::{DeferredExecutionManager, DeferredStatus, DeferredToolCall};
-pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability};
+pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use model_router::{ModelRoutingConfig, TaskTier, classify_task, select_model};
 pub use prompt_flags::PromptFlags;
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};

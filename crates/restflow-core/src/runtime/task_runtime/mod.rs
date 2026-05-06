@@ -1,7 +1,7 @@
 //! Agent Task module - Scheduled agent execution system.
 //!
 //! This module provides the infrastructure for scheduling and executing agent
-//! tasks on a recurring or one-time basis, with optional notification support.
+//! tasks on a recurring or one-time basis.
 //! It is the durable task runtime owner in `restflow-core`, while delegated
 //! sub-agent execution remains an `restflow-ai` capability injected into this
 //! runtime when needed.
@@ -11,14 +11,11 @@
 //! - `runner`: The task runner that polls for and executes tasks
 //! - `executor`: Real agent executor that bridges to restflow_ai
 //! - `cli_executor`: CLI agent executor for external tools (Claude Code, Aider)
-//! - `notifier`: Telegram notification sender for task results
 //! - `events`: Real-time streaming events for runtime clients
 //! - `heartbeat`: Status types and emitters (integrated into runner)
 //! - `retry`: Retry mechanism for transient failures
 //! - `failover`: Model failover system for automatic fallback
-//! - `transactional_checkpoint`: Prepare-then-execute-then-commit checkpoint pattern
 //! - `AgentExecutor`: Trait for executing agents (allows dependency injection)
-//! - `NotificationSender`: Trait for sending notifications (allows DI)
 //! - `TaskEventEmitter`: Trait for emitting real-time events (allows DI)
 //!
 //! # Execution Modes
@@ -31,8 +28,8 @@
 //! ```ignore
 //! use restflow_core::runtime::task_runtime::{
 //!     TaskRunner, AgentRuntimeExecutor, TaskRunnerConfig,
-//!     TelegramNotifier, TaskStreamEvent, NoopHeartbeatEmitter,
-//!     RetryConfig, FailoverConfig, FailoverManager
+//!     TaskStreamEvent, NoopHeartbeatEmitter, RetryConfig, FailoverConfig,
+//!     FailoverManager
 //! };
 //!
 //! // For API-based execution:
@@ -44,13 +41,11 @@
 //!     subagent_definitions.clone(),
 //!     subagent_config.clone(),
 //! ));
-//! let notifier = Arc::new(TelegramNotifier::new(storage.secrets.clone()));
 //! let heartbeat_emitter = Arc::new(NoopHeartbeatEmitter);
 //!
 //! let runner = Arc::new(TaskRunner::with_heartbeat_emitter(
 //!     task_storage,
 //!     executor,
-//!     notifier,
 //!     TaskRunnerConfig::default(),
 //!     heartbeat_emitter,
 //! ));
@@ -122,24 +117,6 @@
 //! }
 //! ```
 //!
-//! # Transactional Checkpoint Example
-//!
-//! ```ignore
-//! use restflow_core::runtime::task_runtime::{
-//!     prepare, commit_if_success, UncommittedCheckpoint,
-//! };
-//!
-//! // Before tool execution, prepare checkpoint in memory
-//! let checkpoint = prepare(&agent_state, task_id.to_string(), "tool execution".to_string());
-//!
-//! // Execute the tool
-//! let result = execute_tool(...).await;
-//!
-//! // Only persist checkpoint if tool succeeded
-//! commit_if_success(&storage, Some(checkpoint), &result)?;
-//! ```
-
-pub mod broadcast_emitter;
 pub mod cli_executor;
 pub mod error_classification;
 pub mod events;
@@ -147,9 +124,7 @@ pub mod executor;
 pub mod failover;
 pub mod heartbeat;
 pub mod model_catalog;
-pub mod notifier;
 pub mod outcome;
-pub mod persist;
 pub mod preflight;
 pub mod reply_sender;
 pub mod retry;
@@ -157,7 +132,6 @@ pub mod runner;
 pub mod skill_snapshot;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testkit;
-pub mod transactional_checkpoint;
 
 pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
@@ -173,18 +147,10 @@ pub use heartbeat::{
     ChannelHeartbeatEmitter, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse,
     HeartbeatWarning, NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats,
 };
-pub use notifier::TelegramNotifier;
 pub use outcome::{
     CompactionMetrics, ExecutionErrorClassification, ExecutionErrorKind, ExecutionFailure,
     ExecutionMetrics, ExecutionOutcome, RetryClass, SessionExecutionResult,
 };
-pub use persist::{MemoryPersister, PersistConfig, PersistResult};
 pub use reply_sender::TaskReplySenderFactory;
 pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
-pub use runner::{
-    AgentExecutor, ExecutionResult, NoopNotificationSender, NotificationSender, TaskRunner,
-    TaskRunnerConfig, TaskRunnerHandle,
-};
-pub use transactional_checkpoint::{
-    CheckpointMeta, UncommittedCheckpoint, commit_if_success, prepare,
-};
+pub use runner::{AgentExecutor, ExecutionResult, TaskRunner, TaskRunnerConfig, TaskRunnerHandle};

@@ -1,1 +1,1 @@
-pub use restflow_storage::CliConfig;
+pub use restflow_core::storage::CliConfig;

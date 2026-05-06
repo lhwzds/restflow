@@ -88,28 +88,11 @@ impl IpcClient {
     }
 
     unsupported_result_methods! {
-        fn search_memory(&mut self, _query: String, _agent_id: Option<String>, _limit: Option<u32>) -> MemorySearchResult;
         fn list_skills(&mut self) -> Vec<Skill>;
         fn get_skill(&mut self, _id: String) -> Option<Skill>;
         fn get_skill_reference(&mut self, _skill_id: String, _ref_id: String) -> Option<String>;
         fn list_agents(&mut self) -> Vec<StoredAgent>;
         fn get_agent(&mut self, _id: String) -> StoredAgent;
-        fn search_memory_ranked(&mut self, _query: crate::models::memory::MemorySearchQuery, _min_score: Option<f64>, _scoring_preset: Option<String>) -> crate::memory::RankedSearchResult;
-        fn get_memory_chunk(&mut self, _id: String) -> Option<MemoryChunk>;
-        fn list_memory(&mut self, _agent_id: Option<String>, _tag: Option<String>) -> Vec<MemoryChunk>;
-        fn add_memory(&mut self, _content: String, _agent_id: Option<String>, _tags: Vec<String>) -> String;
-        fn create_memory_chunk(&mut self, _chunk: MemoryChunk) -> MemoryChunk;
-        fn list_memory_by_session(&mut self, _session_id: String) -> Vec<MemoryChunk>;
-        fn delete_memory(&mut self, _id: String) -> bool;
-        fn clear_memory(&mut self, _agent_id: Option<String>) -> u32;
-        fn get_memory_stats(&mut self, _agent_id: Option<String>) -> MemoryStats;
-        fn export_memory(&mut self, _agent_id: Option<String>) -> ExportResult;
-        fn export_memory_session(&mut self, _session_id: String) -> ExportResult;
-        fn export_memory_advanced(&mut self, _agent_id: String, _session_id: Option<String>, _preset: Option<String>, _include_metadata: Option<bool>, _include_timestamps: Option<bool>, _include_source: Option<bool>, _include_tags: Option<bool>) -> ExportResult;
-        fn get_memory_session(&mut self, _session_id: String) -> Option<MemorySession>;
-        fn list_memory_sessions(&mut self, _agent_id: String) -> Vec<MemorySession>;
-        fn create_memory_session(&mut self, _session: MemorySession) -> MemorySession;
-        fn delete_memory_session(&mut self, _session_id: String, _delete_chunks: bool) -> bool;
         fn list_sessions(&mut self) -> Vec<ChatSessionSummary>;
         fn list_full_sessions(&mut self) -> Vec<ChatSession>;
         fn list_sessions_by_agent(&mut self, _agent_id: String) -> Vec<ChatSession>;
@@ -126,7 +109,6 @@ impl IpcClient {
         fn add_message(&mut self, _session_id: String, _role: ChatRole, _content: String) -> ChatSession;
         fn append_message(&mut self, _session_id: String, _message: ChatMessage) -> ChatSession;
         fn execute_chat_session(&mut self, _session_id: String, _user_input: Option<String>) -> ChatSession;
-        fn rebuild_external_session(&mut self, _id: String) -> ChatSession;
         fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
         fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;

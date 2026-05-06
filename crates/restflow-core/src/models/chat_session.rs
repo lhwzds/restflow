@@ -456,12 +456,6 @@ pub enum ChatSessionSource {
     Workspace,
     /// Created for durable task execution.
     Background,
-    /// Created from Telegram inbound messages.
-    Telegram,
-    /// Created from Discord inbound messages.
-    Discord,
-    /// Created from Slack inbound messages.
-    Slack,
 }
 
 /// A chat session containing conversation history with an agent.
@@ -634,7 +628,7 @@ impl ChatSession {
         self
     }
 
-    /// Associate this session with an external channel source.
+    /// Associate this session with a managed source.
     pub fn with_source(
         mut self,
         source_channel: ChatSessionSource,
@@ -659,7 +653,7 @@ impl ChatSession {
 
         self.messages.push(message);
 
-        // Prevent unbounded growth in long-running sessions (e.g. Telegram).
+        // Prevent unbounded growth in long-running sessions.
         if self.messages.len() > Self::MAX_STORED_MESSAGES {
             let excess = self.messages.len() - Self::MAX_STORED_MESSAGES;
             self.messages.drain(..excess);

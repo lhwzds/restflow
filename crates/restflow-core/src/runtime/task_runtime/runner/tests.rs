@@ -1,23 +1,14 @@
 use super::*;
-use crate::channel::{Channel, ChannelType, InboundMessage, OutboundMessage};
 use crate::models::{
-    AgentCheckpoint, ChatSession, MemoryScope, ResumePayload, Task, TaskControlAction,
-    TaskEventType, TaskSchedule, TaskStatus,
+    ChatSession, Task, TaskControlAction, TaskEventType, TaskSchedule, TaskStatus,
 };
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use crate::services::session::SessionService;
 use crate::session_log::FileSessionStore;
-use crate::storage::{
-    ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage, MemoryStorage,
-    SessionStorage,
-};
-use async_trait::async_trait;
-use futures::Stream;
-use std::pin::Pin;
+use crate::storage::{ChatSessionStorage, ExecutionTraceStorage, SessionStorage};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 use tempfile::tempdir;
-use tokio::sync::Mutex;
 
 /// Mock executor for testing
 struct MockExecutor {
@@ -62,14 +53,6 @@ impl MockExecutor {
     fn call_count(&self) -> u32 {
         self.call_count.load(Ordering::SeqCst)
     }
-
-    fn resume_call_count(&self) -> u32 {
-        self.resume_call_count.load(Ordering::SeqCst)
-    }
-
-    fn saw_emitter(&self) -> bool {
-        self.saw_emitter.load(Ordering::SeqCst)
-    }
 }
 
 struct FailsOnceExecutor {
@@ -97,7 +80,6 @@ impl AgentExecutor for MockExecutor {
         agent_id: &str,
         _task_id: Option<&str>,
         input: Option<&str>,
-        _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
@@ -120,15 +102,13 @@ impl AgentExecutor for MockExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         if emitter.is_some() {
             self.saw_emitter.store(true, Ordering::SeqCst);
         }
-        self.execute(agent_id, task_id, input, memory_config, steer_rx)
-            .await
+        self.execute(agent_id, task_id, input, steer_rx).await
     }
 
     async fn execute_from_state(
@@ -136,7 +116,6 @@ impl AgentExecutor for MockExecutor {
         _agent_id: &str,
         _task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         _emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
@@ -155,7 +134,6 @@ impl AgentExecutor for FailsOnceExecutor {
         agent_id: &str,
         _task_id: Option<&str>,
         input: Option<&str>,
-        _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         let call = self.call_count.fetch_add(1, Ordering::SeqCst);
@@ -174,15 +152,13 @@ impl AgentExecutor for FailsOnceExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         if emitter.is_some() {
             self.saw_emitter.store(true, Ordering::SeqCst);
         }
-        self.execute(agent_id, task_id, input, memory_config, steer_rx)
-            .await
+        self.execute(agent_id, task_id, input, steer_rx).await
     }
 
     async fn execute_from_state(
@@ -190,7 +166,6 @@ impl AgentExecutor for FailsOnceExecutor {
         _agent_id: &str,
         _task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         _emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
@@ -212,29 +187,11 @@ impl MockNotifier {
             notifications: Arc::new(RwLock::new(Vec::new())),
         }
     }
-
-    async fn notification_count(&self) -> usize {
-        self.notifications.read().await.len()
-    }
-
-    async fn last_message(&self) -> Option<String> {
-        self.notifications
-            .read()
-            .await
-            .last()
-            .map(|(_, _, message)| message.clone())
-    }
 }
 
 #[async_trait::async_trait]
 impl NotificationSender for MockNotifier {
-    async fn send(
-        &self,
-        _config: &NotificationConfig,
-        task: &Task,
-        success: bool,
-        message: &str,
-    ) -> Result<()> {
+    async fn send(&self, task: &Task, success: bool, message: &str) -> Result<()> {
         self.notifications
             .write()
             .await
@@ -262,39 +219,10 @@ impl AgentExecutor for DefaultDelegatingExecutor {
         _agent_id: &str,
         _task_id: Option<&str>,
         _input: Option<&str>,
-        _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(ExecutionResult::success("ok".to_string(), Vec::new()))
-    }
-}
-
-struct CaptureChannel {
-    sent: Arc<Mutex<Vec<OutboundMessage>>>,
-}
-
-#[async_trait]
-impl Channel for CaptureChannel {
-    fn channel_type(&self) -> ChannelType {
-        ChannelType::Telegram
-    }
-
-    fn is_configured(&self) -> bool {
-        true
-    }
-
-    async fn send(&self, message: OutboundMessage) -> Result<()> {
-        self.sent.lock().await.push(message);
-        Ok(())
-    }
-
-    async fn send_typing(&self, _conversation_id: &str) -> Result<()> {
-        Ok(())
-    }
-
-    fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>> {
-        None
     }
 }
 
@@ -317,17 +245,11 @@ fn persist_to_chat_session_uses_session_service_when_available() {
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
     let session_storage = SessionStorage::new(
         chat_storage.clone(),
-        ChannelSessionBindingStorage::new(db.clone()).unwrap(),
         ExecutionTraceStorage::new(db.clone()).unwrap(),
     );
     let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
-    let session_service = SessionService::new(
-        session_storage,
-        None,
-        task_storage.as_ref().clone(),
-        Some(MemoryStorage::new(db).unwrap()),
-    )
-    .with_file_sessions(file_store.clone());
+    let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
+        .with_file_sessions(file_store.clone());
 
     let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     let session = session_service
@@ -416,7 +338,7 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
     task.updated_at = past_time;
     storage.update_task(&task).unwrap();
     storage
-        .start_task_run(&task.id, "run-stalled", "exec-stalled", past_time, None)
+        .start_task_run(&task.id, "run-stalled", "exec-stalled", past_time)
         .unwrap();
 
     let runner = TaskRunner::new(
@@ -1115,379 +1037,6 @@ async fn test_runner_run_task_now_respects_concurrency_guard() {
     // Task B is intentionally dropped by run-now guard when max concurrency is reached.
     assert_eq!(executor.call_count(), 1);
 }
-
-#[tokio::test]
-async fn test_resume_from_checkpoint_reject_keeps_task_paused() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-
-    let runner = TaskRunner::new(
-        storage.clone(),
-        executor.clone(),
-        Arc::new(NoopNotificationSender),
-        TaskRunnerConfig::default(),
-        Arc::new(SteerRegistry::new()),
-    );
-
-    let mut task = storage
-        .create_task(
-            "Checkpoint Task".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    task.input = Some("Checkpoint task input".to_string());
-    storage.update_task(&task).unwrap();
-
-    let checkpoint = AgentCheckpoint::new(
-        "exec-1".to_string(),
-        Some(task.id.clone()),
-        1,
-        0,
-        b"{}".to_vec(),
-        "approval required".to_string(),
-    );
-    let checkpoint_id = checkpoint.id.clone();
-    storage.save_checkpoint(&checkpoint).unwrap();
-
-    let payload = ResumePayload {
-        checkpoint_id: checkpoint_id.clone(),
-        approved: false,
-        user_message: Some("denied".to_string()),
-        metadata: serde_json::json!({}),
-    };
-
-    runner.resume_from_checkpoint(&task.id, payload).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-    assert_eq!(updated_task.status, TaskStatus::Paused);
-    assert_eq!(executor.call_count(), 0);
-
-    let updated_checkpoint = storage
-        .load_checkpoint_by_task_id(&task.id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(updated_checkpoint.id, checkpoint_id);
-    assert!(updated_checkpoint.resumed_at.is_some());
-}
-
-#[tokio::test]
-async fn test_resume_from_checkpoint_approved_uses_restored_state() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-
-    let runner = Arc::new(TaskRunner::new(
-        storage.clone(),
-        executor.clone(),
-        Arc::new(NoopNotificationSender),
-        TaskRunnerConfig::default(),
-        Arc::new(SteerRegistry::new()),
-    ));
-
-    let mut task = storage
-        .create_task(
-            "Checkpoint Resume Task".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    task.input = Some("Checkpoint task input".to_string());
-    storage.update_task(&task).unwrap();
-
-    let mut state = restflow_ai::AgentState::new("resume-exec-1".to_string(), 10);
-    state.iteration = 2;
-    state.add_message(restflow_ai::Message::user("resume me"));
-
-    let checkpoint = AgentCheckpoint::new(
-        state.execution_id.clone(),
-        Some(task.id.clone()),
-        state.version,
-        state.iteration,
-        serde_json::to_vec(&state).unwrap(),
-        "approval required".to_string(),
-    );
-    let checkpoint_id = checkpoint.id.clone();
-    storage.save_checkpoint(&checkpoint).unwrap();
-
-    let payload = ResumePayload {
-        checkpoint_id,
-        approved: true,
-        user_message: Some("approved".to_string()),
-        metadata: serde_json::json!({}),
-    };
-
-    let handle = runner.clone().start();
-    runner.resume_from_checkpoint(&task.id, payload).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    handle.stop().await.unwrap();
-
-    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-    assert_eq!(updated_task.success_count, 1);
-    assert_eq!(executor.resume_call_count(), 1);
-}
-
-#[tokio::test]
-async fn test_resume_from_checkpoint_approved_does_not_consume_checkpoint_before_admission() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-
-    let runner = TaskRunner::new(
-        storage.clone(),
-        executor.clone(),
-        Arc::new(NoopNotificationSender),
-        TaskRunnerConfig {
-            max_concurrent_tasks: 0,
-            ..Default::default()
-        },
-        Arc::new(SteerRegistry::new()),
-    );
-
-    let mut task = storage
-        .create_task(
-            "Checkpoint Admission Gate".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    task.input = Some("Checkpoint task input".to_string());
-    storage.update_task(&task).unwrap();
-    storage.pause_task(&task.id).unwrap();
-
-    let mut state = restflow_ai::AgentState::new("resume-exec-gated".to_string(), 10);
-    state.iteration = 1;
-    state.add_message(restflow_ai::Message::user("resume me later"));
-
-    let checkpoint = AgentCheckpoint::new(
-        state.execution_id.clone(),
-        Some(task.id.clone()),
-        state.version,
-        state.iteration,
-        serde_json::to_vec(&state).unwrap(),
-        "approval required".to_string(),
-    );
-    let checkpoint_id = checkpoint.id.clone();
-    storage.save_checkpoint(&checkpoint).unwrap();
-
-    runner
-        .resume_from_checkpoint(
-            &task.id,
-            ResumePayload {
-                checkpoint_id: checkpoint_id.clone(),
-                approved: true,
-                user_message: Some("approved".to_string()),
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-    assert_eq!(updated_task.status, TaskStatus::Paused);
-    assert_eq!(executor.resume_call_count(), 0);
-    assert!(runner.has_resume_intent(&task.id).await);
-    assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
-
-    let updated_checkpoint = storage.load_checkpoint(&checkpoint_id).unwrap().unwrap();
-    assert!(updated_checkpoint.resumed_at.is_none());
-}
-
-#[tokio::test]
-async fn test_resume_from_checkpoint_rejects_mismatched_checkpoint_id() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-
-    let runner = TaskRunner::new(
-        storage.clone(),
-        executor.clone(),
-        Arc::new(NoopNotificationSender),
-        TaskRunnerConfig::default(),
-        Arc::new(SteerRegistry::new()),
-    );
-
-    let mut task = storage
-        .create_task(
-            "Checkpoint Mismatch".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    task.input = Some("Checkpoint task input".to_string());
-    storage.update_task(&task).unwrap();
-
-    let other_checkpoint = AgentCheckpoint::new(
-        "exec-other".to_string(),
-        Some("another-task".to_string()),
-        1,
-        0,
-        b"{}".to_vec(),
-        "approval required".to_string(),
-    );
-    let other_checkpoint_id = other_checkpoint.id.clone();
-    storage.save_checkpoint(&other_checkpoint).unwrap();
-
-    runner
-        .resume_from_checkpoint(
-            &task.id,
-            ResumePayload {
-                checkpoint_id: other_checkpoint_id.clone(),
-                approved: true,
-                user_message: None,
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-    assert_eq!(updated_task.status, TaskStatus::Active);
-    assert_eq!(executor.resume_call_count(), 0);
-
-    let checkpoint = storage
-        .load_checkpoint(&other_checkpoint_id)
-        .unwrap()
-        .unwrap();
-    assert!(checkpoint.resumed_at.is_none());
-}
-
-#[tokio::test]
-async fn test_resume_from_checkpoint_records_run_checkpoint_binding() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-
-    let runner = Arc::new(TaskRunner::new(
-        storage.clone(),
-        executor.clone(),
-        Arc::new(NoopNotificationSender),
-        TaskRunnerConfig::default(),
-        Arc::new(SteerRegistry::new()),
-    ));
-
-    let mut task = storage
-        .create_task(
-            "Checkpoint Binding".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    task.input = Some("Checkpoint task input".to_string());
-    storage.update_task(&task).unwrap();
-
-    let mut state = restflow_ai::AgentState::new("resume-exec-bind".to_string(), 10);
-    state.iteration = 1;
-    state.add_message(restflow_ai::Message::user("resume me"));
-
-    let checkpoint = AgentCheckpoint::new(
-        state.execution_id.clone(),
-        Some(task.id.clone()),
-        state.version,
-        state.iteration,
-        serde_json::to_vec(&state).unwrap(),
-        "resume binding".to_string(),
-    );
-    let checkpoint_id = checkpoint.id.clone();
-    storage.save_checkpoint(&checkpoint).unwrap();
-
-    let handle = runner.clone().start();
-    runner
-        .resume_from_checkpoint(
-            &task.id,
-            ResumePayload {
-                checkpoint_id: checkpoint_id.clone(),
-                approved: true,
-                user_message: None,
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    handle.stop().await.unwrap();
-
-    let runs = storage.list_task_runs(&task.id).unwrap();
-    assert_eq!(runs.len(), 1);
-    let run = &runs[0];
-    assert_eq!(run.execution_id, "resume-exec-bind");
-    assert_eq!(run.checkpoint_id.as_deref(), Some(checkpoint_id.as_str()));
-    assert_eq!(run.status, crate::models::TaskRunStatus::Completed);
-}
-
-#[tokio::test]
-async fn test_resume_from_checkpoint_start_task_run_failure_rolls_back_without_started_side_effects()
- {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
-
-    let runner = Arc::new(
-        TaskRunner::new(
-            storage.clone(),
-            executor.clone(),
-            Arc::new(NoopNotificationSender),
-            TaskRunnerConfig::default(),
-            Arc::new(SteerRegistry::new()),
-        )
-        .with_event_emitter(Arc::new(channel_emitter)),
-    );
-
-    let mut task = storage
-        .create_task(
-            "Checkpoint Run Creation Failure".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    task.input = Some("Checkpoint task input".to_string());
-    storage.update_task(&task).unwrap();
-    storage.pause_task(&task.id).unwrap();
-
-    let mut state = restflow_ai::AgentState::new("resume-exec-fail-start-run".to_string(), 10);
-    state.iteration = 1;
-    state.add_message(restflow_ai::Message::user("resume me"));
-
-    let checkpoint = AgentCheckpoint::new(
-        state.execution_id.clone(),
-        Some(task.id.clone()),
-        state.version,
-        state.iteration,
-        serde_json::to_vec(&state).unwrap(),
-        "approval required".to_string(),
-    );
-    let checkpoint_id = checkpoint.id.clone();
-    storage.save_checkpoint(&checkpoint).unwrap();
-
-    runner.inject_start_task_run_failure();
-    let handle = runner.clone().start();
-    runner
-        .resume_from_checkpoint(
-            &task.id,
-            ResumePayload {
-                checkpoint_id: checkpoint_id.clone(),
-                approved: true,
-                user_message: Some("approved".to_string()),
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    handle.stop().await.unwrap();
-
-    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-    assert_eq!(updated_task.status, TaskStatus::Paused);
-    assert!(runner.has_resume_intent(&task.id).await);
-    assert_eq!(executor.resume_call_count(), 0);
-    assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
-
-    let updated_checkpoint = storage.load_checkpoint(&checkpoint_id).unwrap().unwrap();
-    assert!(updated_checkpoint.resumed_at.is_none());
-    let mut started_seen = false;
-    while let Ok(event) = event_rx.try_recv() {
-        if matches!(event.kind, StreamEventKind::Started { .. }) {
-            started_seen = true;
-        }
-    }
-    assert!(!started_seen);
-}
-
 #[tokio::test]
 async fn test_execute_task_without_stop_receiver_fails_before_commit() {
     let (storage, _temp_dir) = create_test_storage();
@@ -1735,25 +1284,6 @@ fn test_render_input_template_no_double_substitution() {
 }
 
 #[test]
-fn test_resolve_memory_agent_id_respects_scope() {
-    let mut task = Task::new(
-        "task-123".to_string(),
-        "Memory Scope Test".to_string(),
-        "agent-456".to_string(),
-        TaskSchedule::default(),
-    );
-
-    task.memory.memory_scope = MemoryScope::SharedAgent;
-    assert_eq!(TaskRunner::resolve_memory_agent_id(&task), "agent-456");
-
-    task.memory.memory_scope = MemoryScope::PerTask;
-    assert_eq!(
-        TaskRunner::resolve_memory_agent_id(&task),
-        "agent-456::task::task-123"
-    );
-}
-
-#[test]
 fn test_resolve_task_input_keeps_plain_input_unchanged() {
     let (storage, _temp_dir) = create_test_storage();
     let mut task = Task::new(
@@ -1877,211 +1407,6 @@ fn test_resolve_task_input_returns_none_when_no_input_or_template() {
 }
 
 #[tokio::test]
-async fn test_runner_sends_notifications() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let notifier = Arc::new(MockNotifier::new());
-
-    // Create a task with notifications enabled
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Notified Task".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("Notified task input".to_string());
-    task.next_run_at = Some(past_time);
-    storage.update_task(&task).unwrap();
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor,
-        notifier.clone(),
-        config,
-        steer_registry,
-    ));
-
-    let handle = runner.clone().start();
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    handle.stop().await.unwrap();
-
-    // Should have sent notification
-    assert_eq!(notifier.notification_count().await, 1);
-}
-
-#[tokio::test]
-async fn test_channel_router_notification_prefers_task_bound_conversation() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let notifier = Arc::new(MockNotifier::new());
-    let sent = Arc::new(Mutex::new(Vec::new()));
-
-    let mut router = ChannelRouter::new();
-    router.register(CaptureChannel { sent: sent.clone() });
-    let router = Arc::new(router);
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor,
-        notifier.clone(),
-        config,
-        steer_registry,
-    ));
-    runner.set_channel_router(router.clone()).await;
-
-    let task = Task::new(
-        "task-route-1".to_string(),
-        "Route Task".to_string(),
-        "agent-001".to_string(),
-        TaskSchedule::default(),
-    );
-
-    let bound = InboundMessage::new(
-        "msg-1",
-        ChannelType::Telegram,
-        "user-1",
-        "chat-bound",
-        "Hello",
-    );
-    let other = InboundMessage::new(
-        "msg-2",
-        ChannelType::Telegram,
-        "user-2",
-        "chat-other",
-        "Hello",
-    );
-    router
-        .record_conversation(&bound, Some(task.id.clone()))
-        .await;
-    router.record_conversation(&other, None).await;
-
-    runner.send_notification(&task, true, "Done").await;
-
-    let sent_messages = sent.lock().await;
-    assert_eq!(sent_messages.len(), 1);
-    assert_eq!(sent_messages[0].conversation_id, "chat-bound");
-    assert_eq!(notifier.notification_count().await, 0);
-}
-
-#[tokio::test]
-async fn test_runner_clears_task_association_after_completion() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let notifier = Arc::new(NoopNotificationSender);
-    let sent = Arc::new(Mutex::new(Vec::new()));
-
-    let mut router = ChannelRouter::new();
-    router.register(CaptureChannel { sent });
-    let router = Arc::new(router);
-
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Clear Link Task".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("run".to_string());
-    task.next_run_at = Some(past_time);
-    storage.update_task(&task).unwrap();
-
-    let inbound = InboundMessage::new(
-        "msg-1",
-        ChannelType::Telegram,
-        "user-1",
-        "chat-task-link",
-        "/run clear-link-task",
-    );
-    router
-        .record_conversation(&inbound, Some(task.id.clone()))
-        .await;
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor,
-        notifier,
-        config,
-        steer_registry,
-    ));
-    runner.set_channel_router(router.clone()).await;
-
-    let handle = runner.clone().start();
-    tokio::time::sleep(Duration::from_millis(700)).await;
-    handle.stop().await.unwrap();
-
-    let context = router
-        .get_conversation("chat-task-link")
-        .await
-        .expect("conversation should exist");
-    assert_eq!(context.task_id, None);
-}
-
-#[tokio::test]
-async fn test_runner_notify_on_failure_only() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new()); // This succeeds
-    let notifier = Arc::new(MockNotifier::new());
-
-    // Create a task with notify_on_failure_only
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Success No Notify".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("Success no notify input".to_string());
-    task.next_run_at = Some(past_time);
-    task.notification.notify_on_failure_only = true;
-    storage.update_task(&task).unwrap();
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor,
-        notifier.clone(),
-        config,
-        steer_registry,
-    ));
-
-    let handle = runner.clone().start();
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    handle.stop().await.unwrap();
-
-    // Should NOT have sent notification (success with notify_on_failure_only)
-    assert_eq!(notifier.notification_count().await, 0);
-}
-
-#[tokio::test]
 async fn test_agent_executor_default_execute_with_emitter_delegates_to_execute() {
     let executor = DefaultDelegatingExecutor {
         call_count: AtomicU32::new(0),
@@ -2091,7 +1416,6 @@ async fn test_agent_executor_default_execute_with_emitter_delegates_to_execute()
             "agent-001",
             None,
             Some("hello"),
-            &MemoryConfig::default(),
             None,
             Some(Box::new(restflow_ai::agent::NullEmitter)),
         )
@@ -2100,136 +1424,6 @@ async fn test_agent_executor_default_execute_with_emitter_delegates_to_execute()
 
     assert!(result.success);
     assert_eq!(executor.call_count.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn test_runner_enables_step_emitter_when_broadcast_steps_is_true() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let notifier = Arc::new(NoopNotificationSender);
-
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Step Broadcast".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("Step broadcast input".to_string());
-    task.next_run_at = Some(past_time);
-    task.notification.broadcast_steps = true;
-    storage.update_task(&task).unwrap();
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor.clone(),
-        notifier,
-        config,
-        steer_registry,
-    ));
-    runner
-        .set_channel_router(Arc::new(ChannelRouter::new()))
-        .await;
-
-    let handle = runner.clone().start();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    handle.stop().await.unwrap();
-
-    assert_eq!(executor.call_count(), 1);
-    assert!(executor.saw_emitter());
-}
-
-#[tokio::test]
-async fn test_runner_success_notification_uses_agent_output_even_when_include_output_disabled() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::new());
-    let notifier = Arc::new(MockNotifier::new());
-
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Success Output".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("Success output input".to_string());
-    task.next_run_at = Some(past_time);
-    task.notification.include_output = false;
-    storage.update_task(&task).unwrap();
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor,
-        notifier.clone(),
-        config,
-        steer_registry,
-    ));
-
-    let handle = runner.clone().start();
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    handle.stop().await.unwrap();
-
-    assert_eq!(notifier.notification_count().await, 1);
-    let message = notifier.last_message().await.unwrap_or_default();
-    assert!(message.contains("Executed agent agent-001"));
-}
-
-#[tokio::test]
-async fn test_runner_failure_notification_includes_error_when_include_output_disabled() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = Arc::new(MockExecutor::with_failure());
-    let notifier = Arc::new(MockNotifier::new());
-
-    let past_time = chrono::Utc::now().timestamp_millis() - 1000;
-    let mut task = storage
-        .create_task(
-            "Failure Output".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::Once { run_at: past_time },
-        )
-        .unwrap();
-    task.input = Some("Failure output input".to_string());
-    task.next_run_at = Some(past_time);
-    task.notification.include_output = false;
-    storage.update_task(&task).unwrap();
-
-    let config = TaskRunnerConfig {
-        poll_interval_ms: 100,
-        ..Default::default()
-    };
-
-    let steer_registry = Arc::new(SteerRegistry::new());
-    let runner = Arc::new(TaskRunner::new(
-        storage,
-        executor,
-        notifier.clone(),
-        config,
-        steer_registry,
-    ));
-
-    let handle = runner.clone().start();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    handle.stop().await.unwrap();
-
-    assert_eq!(notifier.notification_count().await, 1);
-    let message = notifier.last_message().await.unwrap_or_default();
-    assert!(message.contains("Execution error: Mock execution failure"));
 }
 
 #[tokio::test]

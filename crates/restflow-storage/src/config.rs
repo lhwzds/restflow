@@ -16,8 +16,7 @@ use restflow_traits::{
     DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
     DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
     DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_TASK_TRACE_LINE_LIMIT,
-    DEFAULT_TASK_TRACE_LIST_LIMIT, DEFAULT_TELEGRAM_API_TIMEOUT_SECS,
-    DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS, MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_TASK_TRACE_LIST_LIMIT, MAX_API_WEB_SEARCH_RESULTS,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
@@ -42,11 +41,8 @@ const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
 const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
-const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
-const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_AUDIT_EVENT_RETENTION_DAYS: u32 = 7;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
-const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
 const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
@@ -94,8 +90,6 @@ pub struct SystemSection {
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
     pub task_retention_days: u32,
-    pub checkpoint_retention_days: u32,
-    pub memory_chunk_retention_days: u32,
     pub audit_event_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
@@ -112,8 +106,6 @@ impl Default for SystemSection {
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
             task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
-            checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
-            memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
@@ -132,8 +124,6 @@ impl From<&SystemConfig> for SystemSection {
             max_retries: config.max_retries,
             chat_session_retention_days: config.chat_session_retention_days,
             task_retention_days: config.task_retention_days,
-            checkpoint_retention_days: config.checkpoint_retention_days,
-            memory_chunk_retention_days: config.memory_chunk_retention_days,
             audit_event_retention_days: config.audit_event_retention_days,
             log_file_retention_days: config.log_file_retention_days,
             experimental_features: config.experimental_features.clone(),
@@ -148,7 +138,6 @@ pub struct ConfigDocument {
     pub agent: AgentSettings,
     pub api: ApiSettings,
     pub runtime: RuntimeSettings,
-    pub channel: ChannelSettings,
     pub registry: RegistrySettings,
     #[serde(default)]
     pub cli: CliConfig,
@@ -161,7 +150,6 @@ impl ConfigDocument {
             agent: system.agent,
             api: system.api_defaults,
             runtime: system.runtime_defaults,
-            channel: system.channel_defaults,
             registry: system.registry_defaults,
             cli,
         }
@@ -177,15 +165,12 @@ impl ConfigDocument {
             max_retries: self.system.max_retries,
             chat_session_retention_days: self.system.chat_session_retention_days,
             task_retention_days: self.system.task_retention_days,
-            checkpoint_retention_days: self.system.checkpoint_retention_days,
-            memory_chunk_retention_days: self.system.memory_chunk_retention_days,
             audit_event_retention_days: self.system.audit_event_retention_days,
             log_file_retention_days: self.system.log_file_retention_days,
             experimental_features: self.system.experimental_features.clone(),
             agent: self.agent.clone(),
             api_defaults: self.api.clone(),
             runtime_defaults: self.runtime.clone(),
-            channel_defaults: self.channel.clone(),
             registry_defaults: self.registry.clone(),
         }
     }
@@ -199,7 +184,6 @@ impl ConfigDocument {
         self.agent = system.agent;
         self.api = system.api_defaults;
         self.runtime = system.runtime_defaults;
-        self.channel = system.channel_defaults;
         self.registry = system.registry_defaults;
     }
 }
@@ -403,8 +387,6 @@ impl AgentDefaults {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct ApiDefaults {
-    /// Default `memory_search` result limit.
-    pub memory_search_limit: u32,
     /// Default `chat_session_list` result limit.
     pub session_list_limit: u32,
     /// Default event limit for task progress queries.
@@ -427,7 +409,6 @@ pub type ApiSettings = ApiDefaults;
 impl Default for ApiDefaults {
     fn default() -> Self {
         Self {
-            memory_search_limit: DEFAULT_MEMORY_SEARCH_LIMIT,
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
             task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
             task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
@@ -441,11 +422,6 @@ impl Default for ApiDefaults {
 
 impl ApiDefaults {
     fn validate(&self) -> Result<()> {
-        if self.memory_search_limit == 0 {
-            return Err(anyhow::anyhow!(
-                "api.memory_search_limit must be at least 1"
-            ));
-        }
         if self.session_list_limit == 0 {
             return Err(anyhow::anyhow!("api.session_list_limit must be at least 1"));
         }
@@ -535,45 +511,6 @@ impl RuntimeDefaults {
     }
 }
 
-/// Channel-specific defaults for external integrations.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(default)]
-pub struct ChannelDefaults {
-    /// Timeout for Telegram API HTTP calls in seconds.
-    pub telegram_api_timeout_secs: u64,
-    /// Telegram long-poll timeout in seconds.
-    pub telegram_polling_timeout_secs: u32,
-}
-
-/// Aligned alias that matches the on-disk `[channel]` section naming.
-pub type ChannelSettings = ChannelDefaults;
-
-impl Default for ChannelDefaults {
-    fn default() -> Self {
-        Self {
-            telegram_api_timeout_secs: DEFAULT_TELEGRAM_API_TIMEOUT_SECS,
-            telegram_polling_timeout_secs: DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS,
-        }
-    }
-}
-
-impl ChannelDefaults {
-    fn validate(&self) -> Result<()> {
-        if self.telegram_api_timeout_secs < MIN_TIMEOUT_SECONDS {
-            return Err(anyhow::anyhow!(
-                "channel.telegram_api_timeout_secs must be at least {} seconds",
-                MIN_TIMEOUT_SECONDS
-            ));
-        }
-        if self.telegram_polling_timeout_secs == 0 {
-            return Err(anyhow::anyhow!(
-                "channel.telegram_polling_timeout_secs must be at least 1"
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// Registry and marketplace integration defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
@@ -633,8 +570,6 @@ pub struct SystemConfig {
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
     pub task_retention_days: u32,
-    pub checkpoint_retention_days: u32,
-    pub memory_chunk_retention_days: u32,
     /// Retention period for execution audit events.
     /// 0 = keep forever, otherwise delete events older than N days.
     pub audit_event_retention_days: u32,
@@ -651,9 +586,6 @@ pub struct SystemConfig {
     /// Runtime execution settings for daemon/background/chat services.
     #[serde(default)]
     pub runtime_defaults: RuntimeSettings,
-    /// Channel integration settings.
-    #[serde(default)]
-    pub channel_defaults: ChannelSettings,
     /// Registry provider settings.
     #[serde(default)]
     pub registry_defaults: RegistrySettings,
@@ -670,15 +602,12 @@ impl Default for SystemConfig {
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
             task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
-            checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
-            memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
             agent: AgentSettings::default(),
             api_defaults: ApiSettings::default(),
             runtime_defaults: RuntimeSettings::default(),
-            channel_defaults: ChannelSettings::default(),
             registry_defaults: RegistrySettings::default(),
         }
     }
@@ -746,22 +675,6 @@ impl SystemConfig {
             ));
         }
 
-        if self.checkpoint_retention_days < MIN_RETENTION_DAYS {
-            return Err(anyhow::anyhow!(
-                "Checkpoint retention must be at least {} day",
-                MIN_RETENTION_DAYS
-            ));
-        }
-
-        if self.memory_chunk_retention_days != 0
-            && self.memory_chunk_retention_days < MIN_RETENTION_DAYS
-        {
-            return Err(anyhow::anyhow!(
-                "Memory chunk retention must be 0 (forever) or at least {} day",
-                MIN_RETENTION_DAYS
-            ));
-        }
-
         if self.audit_event_retention_days != 0
             && self.audit_event_retention_days < MIN_RETENTION_DAYS
         {
@@ -797,7 +710,6 @@ impl SystemConfig {
         self.agent.validate()?;
         self.api_defaults.validate()?;
         self.runtime_defaults.validate()?;
-        self.channel_defaults.validate()?;
         self.registry_defaults.validate()?;
 
         Ok(())
@@ -1014,7 +926,6 @@ impl AgentDefaultsOverride {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ApiDefaultsOverride {
-    pub memory_search_limit: Option<u32>,
     pub session_list_limit: Option<u32>,
     pub task_progress_event_limit: Option<usize>,
     pub task_message_list_limit: Option<usize>,
@@ -1030,9 +941,6 @@ struct ApiDefaultsOverride {
 
 impl ApiDefaultsOverride {
     fn apply_to(&self, api_defaults: &mut ApiDefaults) {
-        if let Some(value) = self.memory_search_limit {
-            api_defaults.memory_search_limit = value;
-        }
         if let Some(value) = self.session_list_limit {
             api_defaults.session_list_limit = value;
         }
@@ -1101,24 +1009,6 @@ impl RuntimeDefaultsOverride {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct ChannelDefaultsOverride {
-    pub telegram_api_timeout_secs: Option<u64>,
-    pub telegram_polling_timeout_secs: Option<u32>,
-}
-
-impl ChannelDefaultsOverride {
-    fn apply_to(&self, channel_defaults: &mut ChannelDefaults) {
-        if let Some(value) = self.telegram_api_timeout_secs {
-            channel_defaults.telegram_api_timeout_secs = value;
-        }
-        if let Some(value) = self.telegram_polling_timeout_secs {
-            channel_defaults.telegram_polling_timeout_secs = value;
-        }
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
 struct RegistryDefaultsOverride {
     pub github_cache_ttl_secs: Option<u64>,
     pub marketplace_cache_ttl_secs: Option<u64>,
@@ -1150,8 +1040,6 @@ struct SystemSectionOverride {
     pub chat_session_retention_days: Option<u32>,
     pub task_retention_days: Option<u32>,
     pub background_task_retention_days: Option<u32>,
-    pub checkpoint_retention_days: Option<u32>,
-    pub memory_chunk_retention_days: Option<u32>,
     pub audit_event_retention_days: Option<u32>,
     pub log_file_retention_days: Option<u32>,
     pub experimental_features: Option<Vec<String>>,
@@ -1189,12 +1077,6 @@ impl SystemSectionOverride {
         if let Some(value) = self.task_retention_days {
             config.task_retention_days = value;
         }
-        if let Some(value) = self.checkpoint_retention_days {
-            config.checkpoint_retention_days = value;
-        }
-        if let Some(value) = self.memory_chunk_retention_days {
-            config.memory_chunk_retention_days = value;
-        }
         if let Some(value) = self.audit_event_retention_days {
             config.audit_event_retention_days = value;
         }
@@ -1214,7 +1096,6 @@ struct UnifiedConfigOverride {
     pub agent: Option<AgentDefaultsOverride>,
     pub api: Option<ApiDefaultsOverride>,
     pub runtime: Option<RuntimeDefaultsOverride>,
-    pub channel: Option<ChannelDefaultsOverride>,
     pub registry: Option<RegistryDefaultsOverride>,
     pub cli: Option<CliConfigOverride>,
 }
@@ -1232,9 +1113,6 @@ impl UnifiedConfigOverride {
         }
         if let Some(runtime_override) = &self.runtime {
             runtime_override.apply_to(&mut config.runtime);
-        }
-        if let Some(channel_override) = &self.channel {
-            channel_override.apply_to(&mut config.channel);
         }
         if let Some(registry_override) = &self.registry {
             registry_override.apply_to(&mut config.registry);
@@ -1875,14 +1753,6 @@ mod tests {
             DEFAULT_CHAT_MAX_SESSION_HISTORY
         );
         assert_eq!(
-            config.channel_defaults.telegram_api_timeout_secs,
-            DEFAULT_TELEGRAM_API_TIMEOUT_SECS
-        );
-        assert_eq!(
-            config.channel_defaults.telegram_polling_timeout_secs,
-            DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS
-        );
-        assert_eq!(
             config.registry_defaults.github_cache_ttl_secs,
             DEFAULT_GITHUB_CACHE_TTL_SECS
         );
@@ -1905,8 +1775,6 @@ mod tests {
             max_retries: 5,
             chat_session_retention_days: 45,
             task_retention_days: 14,
-            checkpoint_retention_days: 5,
-            memory_chunk_retention_days: 120,
             experimental_features: vec!["plan_mode".to_string()],
             ..Default::default()
         };
@@ -1929,8 +1797,6 @@ mod tests {
             max_retries: 1,
             chat_session_retention_days: 30,
             task_retention_days: 7,
-            checkpoint_retention_days: 3,
-            memory_chunk_retention_days: 90,
             experimental_features: vec!["websocket_transport".to_string()],
             ..Default::default()
         };
@@ -2335,17 +2201,13 @@ diagnostics_timeout_ms = 9000
     }
 
     #[test]
-    fn test_partial_runtime_channel_and_registry_override() {
+    fn test_partial_runtime_and_registry_override() {
         let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[runtime]
 task_runner_poll_interval_ms = 15000
 task_runner_max_concurrent_tasks = 8
 chat_max_session_history = 42
-
-[channel]
-telegram_api_timeout_secs = 45
-telegram_polling_timeout_secs = 55
 
 [registry]
 github_cache_ttl_secs = 900
@@ -2364,8 +2226,6 @@ marketplace_cache_ttl_secs = 450
             8
         );
         assert_eq!(effective.runtime_defaults.chat_max_session_history, 42);
-        assert_eq!(effective.channel_defaults.telegram_api_timeout_secs, 45);
-        assert_eq!(effective.channel_defaults.telegram_polling_timeout_secs, 55);
         assert_eq!(effective.registry_defaults.github_cache_ttl_secs, 900);
         assert_eq!(effective.registry_defaults.marketplace_cache_ttl_secs, 450);
     }
@@ -2454,7 +2314,7 @@ unknown_limit = 1
         let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[api_defaults]
-memory_search_limit = 33
+session_list_limit = 33
 "#,
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
@@ -2468,19 +2328,16 @@ memory_search_limit = 33
     fn test_api_round_trip() {
         let ctx = setup_test_storage();
         let mut config = ctx.storage.get_config().unwrap().unwrap();
-        assert_eq!(config.api_defaults.memory_search_limit, 10);
         assert_eq!(config.api_defaults.task_progress_event_limit, 10);
         assert_eq!(config.api_defaults.task_message_list_limit, 50);
         assert_eq!(config.api_defaults.task_trace_line_limit, 200);
 
-        config.api_defaults.memory_search_limit = 25;
         config.api_defaults.task_progress_event_limit = 12;
         config.api_defaults.task_message_list_limit = 60;
         config.api_defaults.task_trace_line_limit = 300;
         ctx.storage.update_config(config).unwrap();
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
-        assert_eq!(retrieved.api_defaults.memory_search_limit, 25);
         assert_eq!(retrieved.api_defaults.task_progress_event_limit, 12);
         assert_eq!(retrieved.api_defaults.task_message_list_limit, 60);
         assert_eq!(retrieved.api_defaults.task_trace_line_limit, 300);
@@ -2520,14 +2377,6 @@ memory_search_limit = 33
         assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
-        config.channel_defaults.telegram_api_timeout_secs = 5;
-        assert!(config.validate().is_err());
-
-        let mut config = SystemConfig::default();
-        config.channel_defaults.telegram_polling_timeout_secs = 0;
-        assert!(config.validate().is_err());
-
-        let mut config = SystemConfig::default();
         config.registry_defaults.github_cache_ttl_secs = 0;
         assert!(config.validate().is_err());
 
@@ -2541,14 +2390,14 @@ memory_search_limit = 33
         let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[api]
-memory_search_limit = 33
+session_list_limit = 33
 task_trace_line_limit = 444
 "#,
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
-        assert_eq!(effective.api_defaults.memory_search_limit, 33);
+        assert_eq!(effective.api_defaults.session_list_limit, 33);
         assert_eq!(effective.api_defaults.task_trace_line_limit, 444);
     }
 

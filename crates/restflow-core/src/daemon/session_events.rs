@@ -31,7 +31,7 @@ mod tests {
         let mut receiver = subscribe_session_events();
         let event = ChatSessionEvent::MessageAdded {
             session_id: "session-1".to_string(),
-            source: "telegram".to_string(),
+            source: "background".to_string(),
         };
 
         publish_session_event(event);
@@ -40,7 +40,7 @@ mod tests {
         match received {
             ChatSessionEvent::MessageAdded { session_id, source } => {
                 assert_eq!(session_id, "session-1");
-                assert_eq!(source, "telegram");
+                assert_eq!(source, "background");
             }
             _ => panic!("Wrong variant"),
         }
@@ -51,13 +51,13 @@ mod tests {
     fn test_serialization_uses_type_tag() {
         let event = ChatSessionEvent::MessageAdded {
             session_id: "s1".to_string(),
-            source: "telegram".to_string(),
+            source: "background".to_string(),
         };
         let json: serde_json::Value = serde_json::to_value(&event).unwrap();
 
         assert_eq!(json["type"], "MessageAdded");
         assert_eq!(json["session_id"], "s1");
-        assert_eq!(json["source"], "telegram");
+        assert_eq!(json["source"], "background");
         // Must NOT have nested "data" or "kind" keys
         assert!(json.get("kind").is_none());
         assert!(json.get("data").is_none());

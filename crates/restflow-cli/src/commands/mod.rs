@@ -9,8 +9,6 @@ pub mod info;
 pub mod key;
 pub mod maintenance;
 pub mod mcp;
-pub mod memory;
-pub mod pairing;
 pub mod restart;
 pub mod secret;
 pub mod security;

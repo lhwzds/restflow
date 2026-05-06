@@ -83,30 +83,6 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
-        self.core
-            .storage
-            .memory
-            .search(&query)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String> {
-        self.core
-            .storage
-            .memory
-            .store_chunk(&chunk)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
-        self.core
-            .storage
-            .memory
-            .get_stats(agent_id)
-            .map_err(|e| e.to_string())
-    }
-
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
         let session_service = self.session_service();
         let sessions = session_service
@@ -388,32 +364,6 @@ impl McpBackend for IpcBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
-        let mut client = self.client.lock().await;
-        let text = query.query.unwrap_or_default();
-        client
-            .search_memory(text, Some(query.agent_id), Some(query.limit))
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String> {
-        let mut client = self.client.lock().await;
-        client
-            .create_memory_chunk(chunk)
-            .await
-            .map(|stored| stored.id)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
-        let mut client = self.client.lock().await;
-        client
-            .get_memory_stats(Some(agent_id.to_string()))
-            .await
-            .map_err(|e| e.to_string())
-    }
-
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
         let mut client = self.client.lock().await;
         client.list_sessions().await.map_err(|e| e.to_string())
@@ -643,11 +593,8 @@ mod tests {
                 input: Some("Run from MCP core backend".to_string()),
                 input_template: None,
                 schedule: TaskSchedule::default(),
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,

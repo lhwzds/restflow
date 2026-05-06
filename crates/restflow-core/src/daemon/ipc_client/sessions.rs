@@ -86,11 +86,6 @@ impl IpcClient {
         Ok(resp.deleted)
     }
 
-    pub async fn rebuild_external_session(&mut self, id: String) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::RebuildExternalSession { id })
-            .await
-    }
-
     pub async fn search_sessions(&mut self, query: String) -> Result<Vec<ChatSessionSummary>> {
         self.request_typed(IpcRequest::SearchSessions { query })
             .await

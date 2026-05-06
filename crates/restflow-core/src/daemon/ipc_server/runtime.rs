@@ -1,5 +1,6 @@
 use super::*;
 use crate::services::operation_assessment::OperationAssessorAdapter;
+use crate::storage::AuthProfileStorage;
 use restflow_ai::StreamDisplayMode;
 use thiserror::Error;
 

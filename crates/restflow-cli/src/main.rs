@@ -190,9 +190,6 @@ async fn run() -> Result<()> {
             Some(Commands::Skill { command }) => {
                 commands::skill::run(exec, command, cli.format).await
             }
-            Some(Commands::Memory { command }) => {
-                commands::memory::run(exec, command, cli.format).await
-            }
             Some(Commands::Secret { command }) => {
                 commands::secret::run(exec, command, cli.format).await
             }
@@ -201,12 +198,6 @@ async fn run() -> Result<()> {
             }
             Some(Commands::Session { command }) => {
                 commands::session::run(exec, command, cli.format).await
-            }
-            Some(Commands::Pairing { command }) => {
-                commands::pairing::run(exec, command, cli.format).await
-            }
-            Some(Commands::Route { command }) => {
-                commands::pairing::run_route(exec, command, cli.format).await
             }
             Some(Commands::Maintenance { command }) => {
                 commands::maintenance::run(exec, command, cli.format).await
@@ -234,7 +225,7 @@ async fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{command_needs_direct_core, executor_db_path_flag, should_launch_tui_by_default};
-    use crate::cli::{Commands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs};
+    use crate::cli::{Commands, MaintenanceCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -262,22 +253,6 @@ mod tests {
     fn maintenance_does_not_need_direct_core() {
         let command = Some(Commands::Maintenance {
             command: MaintenanceCommands::Cleanup,
-        });
-        assert!(!command_needs_direct_core(&command));
-    }
-
-    #[test]
-    fn pairing_does_not_need_direct_core() {
-        let command = Some(Commands::Pairing {
-            command: PairingCommands::List,
-        });
-        assert!(!command_needs_direct_core(&command));
-    }
-
-    #[test]
-    fn route_does_not_need_direct_core() {
-        let command = Some(Commands::Route {
-            command: RouteCommands::List,
         });
         assert!(!command_needs_direct_core(&command));
     }

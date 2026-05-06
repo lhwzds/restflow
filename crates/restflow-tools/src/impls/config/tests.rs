@@ -179,10 +179,7 @@ async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
     let message = err.to_string();
 
     assert!(message.contains("Unknown config field: 'invalid_field'"));
-    assert!(
-        message
-            .contains("Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*.")
-    );
+    assert!(message.contains("Valid fields: system.*, agent.*, api.*, runtime.*, registry.*."));
 }
 
 #[tokio::test]
@@ -282,8 +279,6 @@ async fn test_listed_retention_fields_are_settable() {
     let updates = [
         ("system.chat_session_retention_days", json!(0)),
         ("system.task_retention_days", json!(14)),
-        ("system.checkpoint_retention_days", json!(5)),
-        ("system.memory_chunk_retention_days", json!(120)),
         ("system.log_file_retention_days", json!(30)),
     ];
 
@@ -443,7 +438,7 @@ async fn test_get_includes_agent_defaults() {
 }
 
 #[tokio::test]
-async fn test_set_runtime_channel_and_registry_defaults() {
+async fn test_set_runtime_and_registry_defaults() {
     let ctx = setup_storage();
     let tool = ConfigTool::new(ctx.store).with_write(true);
 
@@ -451,8 +446,6 @@ async fn test_set_runtime_channel_and_registry_defaults() {
         ("runtime.task_runner_poll_interval_ms", json!(15000)),
         ("runtime.task_runner_max_concurrent_tasks", json!(8)),
         ("runtime.chat_max_session_history", json!(40)),
-        ("channel.telegram_api_timeout_secs", json!(45)),
-        ("channel.telegram_polling_timeout_secs", json!(55)),
         ("registry.github_cache_ttl_secs", json!(900)),
         ("registry.marketplace_cache_ttl_secs", json!(450)),
     ];
@@ -493,20 +486,6 @@ async fn test_set_runtime_channel_and_registry_defaults() {
             .pointer("/runtime/chat_max_session_history")
             .and_then(|value| value.as_u64()),
         Some(40)
-    );
-    assert_eq!(
-        output
-            .result
-            .pointer("/channel/telegram_api_timeout_secs")
-            .and_then(|value| value.as_u64()),
-        Some(45)
-    );
-    assert_eq!(
-        output
-            .result
-            .pointer("/channel/telegram_polling_timeout_secs")
-            .and_then(|value| value.as_u64()),
-        Some(55)
     );
     assert_eq!(
         output
@@ -634,7 +613,6 @@ async fn test_set_api_defaults() {
     let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let updates = [
-        ("api.memory_search_limit", json!(25)),
         ("api.session_list_limit", json!(30)),
         ("api.task_progress_event_limit", json!(12)),
         ("api.task_message_list_limit", json!(60)),

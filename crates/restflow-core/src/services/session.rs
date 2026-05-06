@@ -3,24 +3,20 @@ use crate::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate, MessageExecution,
     ModelId,
 };
-use crate::runtime::channel::hydrate_voice_message_metadata;
-use crate::runtime::task_runtime::persist::persist_chat_session_memory;
-use crate::services::session_policy::{
-    SessionPolicy, SessionPolicyCleanupStats, SessionPolicyError,
-};
+use crate::runtime::session_turn::hydrate_voice_message_metadata;
+use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
 use crate::session_log::{FileSession, FileSessionStore};
-use crate::storage::{AgentStorage, MemoryStorage, SessionStorage, Storage, TaskStorage};
+use crate::storage::{AgentStorage, SessionStorage, Storage, TaskStorage};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
-use tracing::{debug, warn};
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct SessionService {
     sessions: SessionStorage,
     agents: Option<AgentStorage>,
     policy: SessionPolicy,
-    memory: Option<MemoryStorage>,
     file_sessions: Option<FileSessionStore>,
     append_locks: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
 }
@@ -36,18 +32,12 @@ pub struct PersistInteractiveTurnRequest<'a> {
 }
 
 impl SessionService {
-    pub fn new(
-        sessions: SessionStorage,
-        agents: Option<AgentStorage>,
-        tasks: TaskStorage,
-        memory: Option<MemoryStorage>,
-    ) -> Self {
+    pub fn new(sessions: SessionStorage, agents: Option<AgentStorage>, tasks: TaskStorage) -> Self {
         let policy = SessionPolicy::new(sessions.clone(), tasks);
         Self {
             sessions,
             agents,
             policy,
-            memory,
             file_sessions: None,
             append_locks: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -58,7 +48,6 @@ impl SessionService {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         );
         service.with_default_file_sessions()
     }
@@ -296,7 +285,6 @@ impl SessionService {
             .expect("session append locks")
             .retain(|_, weak| weak.strong_count() > 0);
 
-        self.persist_memory(&session);
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session_id.to_string(),
             source: source.to_string(),
@@ -346,7 +334,6 @@ impl SessionService {
             .expect("session append locks")
             .retain(|_, weak| weak.strong_count() > 0);
 
-        self.persist_memory(&session);
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session_id.to_string(),
             source: source.to_string(),
@@ -391,7 +378,6 @@ impl SessionService {
             .expect("session append locks")
             .retain(|_, weak| weak.strong_count() > 0);
 
-        self.persist_memory(&session);
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session_id.to_string(),
             source: source.to_string(),
@@ -404,7 +390,6 @@ impl SessionService {
         let mut session = session.clone();
         session.hydrate_provider_from_model();
         self.persist_session_view(&session, "save")?;
-        self.persist_memory(&session);
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session.id.clone(),
             source: source.to_string(),
@@ -590,81 +575,6 @@ impl SessionService {
         Ok(deleted || file_deleted)
     }
 
-    pub fn rebuild_external_session(&self, session_id: &str) -> Result<Option<ChatSession>> {
-        let Some(source_session) = self.sessions.get_session(session_id)? else {
-            return Ok(None);
-        };
-        self.policy
-            .ensure_external_rebuild_allowed(&source_session)?;
-
-        let (source_channel, conversation_id) = self.effective_source(&source_session)?;
-        let conversation_id = conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                anyhow!(SessionPolicyError::MissingExternalRoute {
-                    session_id: source_session.id.clone(),
-                    operation: "rebuilt",
-                })
-            })?;
-
-        let mut rebuilt =
-            self.build_rebuilt_external_session(&source_session, source_channel, conversation_id)?;
-        self.sessions.create_session(&rebuilt)?;
-        self.mirror_file_session(&rebuilt, "rebuild_create");
-
-        let switched_bindings = match self
-            .sessions
-            .switch_bindings(&source_session.id, &rebuilt.id)
-        {
-            Ok(bindings) => bindings,
-            Err(error) => {
-                let _ = self.sessions.delete_session(&rebuilt.id);
-                return Err(error);
-            }
-        };
-
-        match self.sessions.delete_session(&source_session.id) {
-            Ok(true) => {}
-            Ok(false) => {
-                let _ = self.restore_bindings(&switched_bindings);
-                let _ = self.sessions.delete_session(&rebuilt.id);
-                return Err(anyhow!(
-                    "Failed to delete original session {} during rebuild",
-                    source_session.id
-                ));
-            }
-            Err(error) => {
-                let _ = self.restore_bindings(&switched_bindings);
-                let _ = self.sessions.delete_session(&rebuilt.id);
-                return Err(error);
-            }
-        }
-
-        if let Err(error) = self.sessions.cleanup_artifacts(&source_session.id) {
-            self.delete_file_session(&source_session.id);
-            publish_session_event(ChatSessionEvent::Deleted {
-                session_id: source_session.id.clone(),
-            });
-            publish_session_event(ChatSessionEvent::Created {
-                session_id: rebuilt.id.clone(),
-            });
-            return Err(error);
-        }
-
-        self.apply_effective_source(&mut rebuilt)?;
-        self.delete_file_session(&source_session.id);
-        self.mirror_file_session(&rebuilt, "rebuild");
-        publish_session_event(ChatSessionEvent::Deleted {
-            session_id: source_session.id.clone(),
-        });
-        publish_session_event(ChatSessionEvent::Created {
-            session_id: rebuilt.id.clone(),
-        });
-        Ok(Some(rebuilt))
-    }
-
     pub fn cleanup_session_artifacts(&self, session_id: &str) -> Result<()> {
         self.policy.cleanup_session_artifacts(session_id)
     }
@@ -719,68 +629,6 @@ impl SessionService {
 
     pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
         self.delete_session(session_id)
-    }
-
-    fn build_rebuilt_external_session(
-        &self,
-        source: &ChatSession,
-        source_channel: ChatSessionSource,
-        conversation_id: &str,
-    ) -> Result<ChatSession> {
-        let conversation_id = conversation_id.trim();
-        if conversation_id.is_empty() {
-            anyhow::bail!("External session is missing conversation_id");
-        }
-        if matches!(
-            source_channel,
-            ChatSessionSource::Workspace | ChatSessionSource::Background
-        ) {
-            anyhow::bail!("Session is not externally managed");
-        }
-
-        let mut rebuilt = ChatSession::new(source.agent_id.clone(), source.model.clone())
-            .with_name(format!("channel:{}", conversation_id))
-            .with_source(source_channel, conversation_id.to_string());
-
-        if let Some(skill_id) = source.skill_id.clone() {
-            rebuilt = rebuilt.with_skill(skill_id);
-        }
-        if let Some(retention) = source.retention.clone() {
-            rebuilt = rebuilt.with_retention(retention);
-        }
-
-        rebuilt.source_channel = Some(source_channel);
-        rebuilt.source_conversation_id = Some(conversation_id.to_string());
-        Ok(rebuilt)
-    }
-
-    fn restore_bindings(&self, bindings: &[crate::models::ChannelSessionBinding]) -> Result<()> {
-        for binding in bindings {
-            self.sessions.upsert_binding(binding)?;
-        }
-        Ok(())
-    }
-
-    fn persist_memory(&self, session: &ChatSession) {
-        let Some(memory) = &self.memory else {
-            return;
-        };
-        match persist_chat_session_memory(memory, session) {
-            Ok(Some(result)) if result.chunk_count > 0 => {
-                debug!(
-                    "Persisted {} memory chunks for chat session {}",
-                    result.chunk_count, session.id
-                );
-            }
-            Ok(Some(_)) | Ok(None) => {}
-            Err(error) => {
-                warn!(
-                    session_id = %session.id,
-                    error = %error,
-                    "Failed to persist chat session memory"
-                );
-            }
-        }
     }
 
     fn persist_session_view(&self, session: &ChatSession, operation: &'static str) -> Result<()> {
@@ -868,7 +716,7 @@ fn replace_latest_user_message_content(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChannelSessionBinding, MessageExecution};
+    use crate::models::MessageExecution;
     use crate::storage::Storage;
     use tempfile::tempdir;
 
@@ -993,7 +841,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(file_store);
 
@@ -1019,7 +866,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(FileSessionStore::new(file_root).unwrap());
 
@@ -1045,7 +891,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(file_store);
 
@@ -1068,7 +913,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(file_store.clone());
 
@@ -1087,35 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn create_external_session_prefers_file_store_when_available() {
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("session-service.db");
-        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
-        let service = SessionService::new(
-            storage.sessions.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-            Some(storage.memory.clone()),
-        )
-        .with_file_sessions(file_store.clone());
-        let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-            .with_source(ChatSessionSource::Telegram, "chat-1");
-
-        let created = service.create_external_session(session).unwrap();
-        let found = service
-            .find_session_by_source_fields(ChatSessionSource::Telegram, "chat-1")
-            .unwrap()
-            .expect("file-backed external session");
-
-        assert_eq!(found.id, created.id);
-        assert_eq!(found.source_channel, Some(ChatSessionSource::Telegram));
-        assert_eq!(found.source_conversation_id.as_deref(), Some("chat-1"));
-        assert!(storage.chat_sessions.get(&created.id).unwrap().is_none());
-        assert!(file_store.get(&created.id).unwrap().is_some());
-    }
-
-    #[test]
     fn rename_file_backed_session_without_materializing_redb_session() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("session-service.db");
@@ -1129,7 +944,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(file_store.clone());
 
@@ -1165,7 +979,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(file_store.clone());
 
@@ -1184,7 +997,6 @@ mod tests {
             storage.sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
-            Some(storage.memory.clone()),
         )
         .with_file_sessions(file_store.clone());
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
@@ -1229,29 +1041,6 @@ mod tests {
     }
 
     #[test]
-    fn management_owner_delegates_policy_rules() {
-        let (storage, service, mut session) = setup();
-        session.source_channel = Some(ChatSessionSource::Telegram);
-        session.source_conversation_id = Some("conv-1".to_string());
-        storage.chat_sessions.update(&session).unwrap();
-        storage
-            .channel_session_bindings
-            .upsert(&ChannelSessionBinding::new(
-                "telegram",
-                None,
-                "conv-1",
-                &session.id,
-            ))
-            .unwrap();
-
-        assert_eq!(
-            service.management_owner(&session).unwrap(),
-            Some(ChatSessionSource::Telegram)
-        );
-        assert!(!service.is_workspace_managed(&session).unwrap());
-    }
-
-    #[test]
     fn update_session_enforces_workspace_policy_and_persists_changes() {
         let (storage, service, session) = setup();
         let updated = service
@@ -1268,37 +1057,6 @@ mod tests {
         assert_eq!(updated.name, "Updated");
         let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
         assert_eq!(reloaded.name, "Updated");
-    }
-
-    #[test]
-    fn rebuild_external_session_switches_binding_and_deletes_old_session() {
-        let (storage, service, mut session) = setup();
-        session.source_channel = Some(ChatSessionSource::Telegram);
-        session.source_conversation_id = Some("chat-1".to_string());
-        storage.chat_sessions.update(&session).unwrap();
-        storage
-            .channel_session_bindings
-            .upsert(&ChannelSessionBinding::new(
-                "telegram",
-                None,
-                "chat-1",
-                &session.id,
-            ))
-            .unwrap();
-
-        let rebuilt = service
-            .rebuild_external_session(&session.id)
-            .unwrap()
-            .expect("rebuilt session");
-
-        assert_ne!(rebuilt.id, session.id);
-        assert!(storage.chat_sessions.get(&session.id).unwrap().is_none());
-        let binding = storage
-            .channel_session_bindings
-            .get_by_route("telegram", None, "chat-1")
-            .unwrap()
-            .unwrap();
-        assert_eq!(binding.session_id, rebuilt.id);
     }
 
     #[test]

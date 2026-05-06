@@ -5,7 +5,7 @@
 //! - SecurityGate, SecurityDecision, ToolAction
 //! - NetworkAllowlist, NetworkEcosystem, SSRF validation
 //! - SkillProvider and skill data types
-//! - 18+ store traits (MemoryStore, AgentStore, SessionStore, etc.)
+//! - store traits (AgentStore, SessionStore, SecretStore, etc.)
 //! - Sub-agent data types and lookup traits
 
 pub mod assessment;
@@ -70,12 +70,12 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
     AuthProfileTestRequest, ConfigStore, CredentialInput, DiagnosticsProvider, MarketplaceStore,
-    MemoryStore, OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo,
-    ReplySender, SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
+    OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
+    SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
     SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
     TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest, TerminalStore, UnifiedMemorySearch,
+    TaskUpdateRequest, TerminalStore,
 };
 
 // Shared orchestration contracts
@@ -118,8 +118,7 @@ pub use defaults::{
     DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MAX_TOOL_CALLS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
     DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
     DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_TASK_TRACE_LINE_LIMIT,
-    DEFAULT_TASK_TRACE_LIST_LIMIT, DEFAULT_TELEGRAM_API_TIMEOUT_SECS,
-    DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
+    DEFAULT_TASK_TRACE_LIST_LIMIT, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
     DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES, MAX_API_WEB_SEARCH_RESULTS,
 };
 

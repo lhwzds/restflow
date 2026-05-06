@@ -9,8 +9,7 @@ use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
-    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, ModelId,
-    RunArtifact, RunListQuery, RunSummary, SearchMode, Skill, SkillStatus, Task, TaskControlAction,
+    ModelId, RunArtifact, RunListQuery, RunSummary, Skill, SkillStatus, Task, TaskControlAction,
     TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec, TaskStatus, ValidationError,
 };
 use crate::services::{
@@ -52,8 +51,6 @@ use tokio::sync::Mutex;
 mod agents;
 #[path = "server/backends.rs"]
 mod backends;
-#[path = "server/memory.rs"]
-mod memory;
 #[path = "server/runtime_tools.rs"]
 mod runtime_tools;
 #[path = "server/sessions.rs"]
@@ -96,10 +93,6 @@ pub trait McpBackend: Send + Sync {
 
     async fn list_agents(&self) -> Result<Vec<StoredAgent>, String>;
     async fn get_agent(&self, id: &str) -> Result<StoredAgent, String>;
-
-    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String>;
-    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String>;
-    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String>;
 
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String>;
     async fn list_sessions_by_agent(
@@ -620,10 +613,10 @@ impl ServerHandler for RestFlowMcpServer {
         info.server_info = Implementation::new("restflow", env!("CARGO_PKG_VERSION"))
             .with_title("RestFlow MCP Server");
         info.instructions = Some(
-            "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and tasks. \
+            "RestFlow MCP Server - Manage skills, agents, chat sessions, and tasks. \
             Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
-            memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
-            and manage_tasks for task lifecycle, session conversion, progress, and messaging operations."
+            chat_session_list/chat_session_get for sessions, and manage_tasks for task lifecycle, \
+            session conversion, progress, and messaging operations."
                 .to_string(),
         );
         info
@@ -660,21 +653,6 @@ impl ServerHandler for RestFlowMcpServer {
                 "get_agent",
                 "Get the full configuration of an agent by its ID. Returns the complete agent including model, prompt, temperature, and tools.",
                 schema_for_type::<GetAgentParams>(),
-            ),
-            Tool::new(
-                "memory_search",
-                "Search memory chunks using keyword matching. Returns raw chunks. Use this for broad keyword searches across memory.",
-                schema_for_type::<MemorySearchParams>(),
-            ),
-            Tool::new(
-                "memory_store",
-                "Store a new memory chunk for an agent. Use this for raw memory storage without title/tags structure.",
-                schema_for_type::<MemoryStoreParams>(),
-            ),
-            Tool::new(
-                "memory_stats",
-                "Get memory statistics for an agent.",
-                schema_for_type::<MemoryStatsParams>(),
             ),
             // No CLI needed: AI execution context only, use `skill show` for viewing
             Tool::new(
@@ -778,30 +756,6 @@ impl ServerHandler for RestFlowMcpServer {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
                 self.handle_get_agent(params).await
-            }
-            "memory_search" => {
-                let params: MemorySearchParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_memory_search(params).await
-            }
-            "memory_store" => {
-                let params: MemoryStoreParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_memory_store(params).await
-            }
-            "memory_stats" => {
-                let params: MemoryStatsParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_memory_stats(params).await
             }
             "get_skill_context" => {
                 let params: GetSkillContextParams =

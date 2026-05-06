@@ -1,35 +1,28 @@
 //! Aggregated session-related storage wrappers.
 //!
-//! This groups the chat session, channel binding, and execution trace stores behind
-//! a single typed entrypoint so higher-level services do not have to wire each
-//! store independently.
+//! This groups the chat session and execution trace stores behind a single
+//! typed entrypoint so higher-level services do not have to wire each store
+//! independently.
 
-use crate::models::{ChannelSessionBinding, ChatSession};
-use crate::storage::{ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage};
+use crate::models::ChatSession;
+use crate::storage::{ChatSessionStorage, ExecutionTraceStorage};
 use anyhow::Result;
 
 #[derive(Clone)]
 pub struct SessionStorage {
     pub chat_sessions: ChatSessionStorage,
-    pub channel_session_bindings: ChannelSessionBindingStorage,
     pub execution_traces: ExecutionTraceStorage,
 }
 
 impl SessionStorage {
-    pub fn new(
-        chat_sessions: ChatSessionStorage,
-        channel_session_bindings: ChannelSessionBindingStorage,
-        execution_traces: ExecutionTraceStorage,
-    ) -> Self {
+    pub fn new(chat_sessions: ChatSessionStorage, execution_traces: ExecutionTraceStorage) -> Self {
         Self {
             chat_sessions,
-            channel_session_bindings,
             execution_traces,
         }
     }
 
     pub fn cleanup_artifacts(&self, session_id: &str) -> Result<()> {
-        self.remove_bindings_by_session(session_id)?;
         self.delete_traces_by_session(session_id)?;
         Ok(())
     }
@@ -70,74 +63,15 @@ impl SessionStorage {
         self.chat_sessions.unarchive(session_id)
     }
 
-    pub fn list_bindings_by_session(&self, session_id: &str) -> Result<Vec<ChannelSessionBinding>> {
-        self.channel_session_bindings.list_by_session(session_id)
-    }
-
-    pub fn upsert_binding(&self, binding: &ChannelSessionBinding) -> Result<()> {
-        self.channel_session_bindings.upsert(binding)
-    }
-
-    pub fn get_binding_by_route(
-        &self,
-        channel: &str,
-        account_id: Option<&str>,
-        conversation_id: &str,
-    ) -> Result<Option<ChannelSessionBinding>> {
-        self.channel_session_bindings
-            .get_by_route(channel, account_id, conversation_id)
-    }
-
-    pub fn remove_binding_by_route(
-        &self,
-        channel: &str,
-        account_id: Option<&str>,
-        conversation_id: &str,
-    ) -> Result<bool> {
-        self.channel_session_bindings
-            .remove_by_route(channel, account_id, conversation_id)
-    }
-
-    pub fn remove_bindings_by_session(&self, session_id: &str) -> Result<usize> {
-        let bindings = self.list_bindings_by_session(session_id)?;
-        let count = bindings.len();
-        for binding in bindings {
-            self.remove_binding_by_route(
-                &binding.channel,
-                binding.account_id.as_deref(),
-                &binding.conversation_id,
-            )?;
-        }
-        Ok(count)
-    }
-
     pub fn delete_traces_by_session(&self, session_id: &str) -> Result<usize> {
         self.execution_traces.delete_by_session(session_id)
-    }
-
-    pub fn switch_bindings(
-        &self,
-        from_session_id: &str,
-        to_session_id: &str,
-    ) -> Result<Vec<ChannelSessionBinding>> {
-        let bindings = self.list_bindings_by_session(from_session_id)?;
-        for binding in &bindings {
-            let rebound = ChannelSessionBinding::new(
-                binding.channel.clone(),
-                binding.account_id.clone(),
-                binding.conversation_id.clone(),
-                to_session_id,
-            );
-            self.upsert_binding(&rebound)?;
-        }
-        Ok(bindings)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChannelSessionBinding, LifecycleTrace};
+    use crate::models::LifecycleTrace;
     use redb::Database;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -148,26 +82,16 @@ mod tests {
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = SessionStorage::new(
             ChatSessionStorage::new(db.clone()).unwrap(),
-            ChannelSessionBindingStorage::new(db.clone()).unwrap(),
             ExecutionTraceStorage::new(db).unwrap(),
         );
         (storage, dir)
     }
 
     #[test]
-    fn cleanup_artifacts_removes_bindings_and_traces() {
+    fn cleanup_artifacts_removes_traces() {
         let (storage, _dir) = setup();
         let session = crate::models::ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         storage.chat_sessions.create(&session).unwrap();
-        storage
-            .channel_session_bindings
-            .upsert(&ChannelSessionBinding::new(
-                "telegram",
-                None,
-                "conversation-1",
-                &session.id,
-            ))
-            .unwrap();
         storage
             .execution_traces
             .store(
@@ -194,13 +118,6 @@ mod tests {
 
         storage.cleanup_artifacts(&session.id).unwrap();
 
-        assert!(
-            storage
-                .channel_session_bindings
-                .list_by_session(&session.id)
-                .unwrap()
-                .is_empty()
-        );
         assert!(
             storage
                 .execution_traces

@@ -4,24 +4,24 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use redb::Database;
-use restflow_storage::SimpleStorage;
 
 use crate::models::execution_trace::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceStats,
     ExecutionTraceTimeRange,
 };
+use crate::storage::simple_storage::{ExecutionTraceRawStorage, SimpleStorage};
 
-/// Typed execution trace storage wrapper around `restflow-storage`.
+/// Typed execution trace storage wrapper around process-local trace bytes.
 #[derive(Clone)]
 pub struct ExecutionTraceStorage {
-    inner: restflow_storage::ExecutionTraceStorageBackend,
+    inner: ExecutionTraceRawStorage,
 }
 
 impl ExecutionTraceStorage {
     /// Create an execution trace storage with an existing database.
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
-            inner: restflow_storage::ExecutionTraceStorageBackend::new(db)?,
+            inner: ExecutionTraceRawStorage::new(db)?,
         })
     }
 
@@ -34,7 +34,7 @@ impl ExecutionTraceStorage {
                 .context("Failed to create in-memory database")?,
         );
         Ok(Self {
-            inner: restflow_storage::ExecutionTraceStorageBackend::new(db)?,
+            inner: ExecutionTraceRawStorage::new(db)?,
         })
     }
 

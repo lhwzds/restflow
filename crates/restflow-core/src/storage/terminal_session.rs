@@ -1,21 +1,21 @@
 //! Typed terminal session storage wrapper.
 
 use crate::models::TerminalSession;
+use crate::storage::simple_storage::{SimpleStorage, TerminalSessionRawStorage};
 use anyhow::Result;
 use redb::Database;
-use restflow_storage::SimpleStorage;
 use std::sync::Arc;
 
-/// Typed terminal session storage wrapper around restflow-storage::TerminalSessionStorage.
+/// Typed terminal session storage wrapper around process-local terminal session bytes.
 #[derive(Debug, Clone)]
 pub struct TerminalSessionStorage {
-    inner: restflow_storage::TerminalSessionStorage,
+    inner: TerminalSessionRawStorage,
 }
 
 impl TerminalSessionStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
-            inner: restflow_storage::TerminalSessionStorage::new(db)?,
+            inner: TerminalSessionRawStorage::new(db)?,
         })
     }
 

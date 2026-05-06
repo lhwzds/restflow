@@ -37,15 +37,6 @@ struct SessionContext {
     bound_task: Option<Task>,
 }
 
-#[derive(Clone)]
-struct ExternalGroup {
-    id: String,
-    source_channel: ChatSessionSource,
-    conversation_id: String,
-    sessions: Vec<ChatSession>,
-    updated_at: i64,
-}
-
 #[derive(Clone, Default)]
 struct RunSummaryMeta {
     title: Option<String>,
@@ -96,7 +87,6 @@ impl ExecutionConsoleService {
                 )
             })
             .collect::<Vec<_>>();
-        let external_groups = self.group_external_sessions(&session_contexts);
         let tasks = self.storage.tasks.list_tasks()?;
 
         let mut containers = workspace_containers;
@@ -120,37 +110,6 @@ impl ExecutionConsoleService {
             });
         }
 
-        for group in external_groups.into_values() {
-            let latest_session = group
-                .sessions
-                .iter()
-                .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
-            let latest_run_id = group
-                .sessions
-                .iter()
-                .filter_map(|session| {
-                    latest_run_by_session_id
-                        .get(session.id.as_str())
-                        .map(|entry| (entry.updated_at, entry.run_id.clone()))
-                })
-                .max_by(|left, right| left.0.cmp(&right.0))
-                .map(|(_, run_id)| run_id);
-            containers.push(ExecutionContainerSummary {
-                id: group.id,
-                kind: ExecutionContainerKind::ExternalChannel,
-                title: group.conversation_id.clone(),
-                subtitle: latest_session.map(|session| session.name.clone()),
-                updated_at: group.updated_at,
-                status: Some("active".to_string()),
-                session_count: group.sessions.len() as u32,
-                latest_session_id: latest_session.map(|session| session.id.clone()),
-                latest_run_id,
-                agent_id: latest_session.map(|session| session.agent_id.clone()),
-                source_channel: Some(group.source_channel),
-                source_conversation_id: Some(group.conversation_id),
-            });
-        }
-
         containers.sort_by(|left, right| {
             execution_container_sort_key(left)
                 .cmp(&execution_container_sort_key(right))
@@ -165,9 +124,6 @@ impl ExecutionConsoleService {
         match query.container.kind {
             ExecutionContainerKind::Workspace => self.list_workspace_runs(&query.container.id),
             ExecutionContainerKind::Task => self.list_task_sessions(&query.container.id),
-            ExecutionContainerKind::ExternalChannel => {
-                self.list_external_channel_runs(&query.container.id)
-            }
         }
     }
 
@@ -416,43 +372,6 @@ impl ExecutionConsoleService {
         Ok(runs)
     }
 
-    fn list_external_channel_runs(&self, container_id: &str) -> Result<Vec<RunSummary>> {
-        let contexts = self.load_session_contexts()?;
-        let mut runs = contexts
-            .into_iter()
-            .filter(|ctx| {
-                is_external_channel_source(ctx.source.source)
-                    && external_container_id(
-                        ctx.source.source,
-                        ctx.source
-                            .conversation_id
-                            .as_deref()
-                            .unwrap_or(&ctx.session.id),
-                    ) == container_id
-            })
-            .map(|ctx| {
-                self.list_session_runs(
-                    &ctx.session,
-                    container_id,
-                    RunKind::ExternalRun,
-                    Some(ctx.source.source),
-                    ctx.source.conversation_id.clone(),
-                    Some(ctx.session.name.clone()),
-                )
-            })
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        runs.sort_by(|left, right| {
-            right
-                .updated_at
-                .cmp(&left.updated_at)
-                .then_with(|| left.id.cmp(&right.id))
-        });
-        Ok(runs)
-    }
-
     fn list_session_runs(
         &self,
         session: &ChatSession,
@@ -558,36 +477,6 @@ impl ExecutionConsoleService {
             provider,
             event_count: events.len() as u64,
         }
-    }
-
-    fn group_external_sessions(
-        &self,
-        contexts: &[SessionContext],
-    ) -> HashMap<String, ExternalGroup> {
-        let mut groups = HashMap::new();
-        for context in contexts {
-            if !is_external_channel_source(context.source.source) {
-                continue;
-            }
-            let conversation_id = context
-                .source
-                .conversation_id
-                .clone()
-                .unwrap_or_else(|| context.session.id.clone());
-            let container_id = external_container_id(context.source.source, &conversation_id);
-            let entry = groups
-                .entry(container_id.clone())
-                .or_insert_with(|| ExternalGroup {
-                    id: container_id.clone(),
-                    source_channel: context.source.source,
-                    conversation_id: conversation_id.clone(),
-                    sessions: Vec::new(),
-                    updated_at: context.session.updated_at,
-                });
-            entry.updated_at = entry.updated_at.max(context.session.updated_at);
-            entry.sessions.push(context.session.clone());
-        }
-        groups
     }
 
     fn get_run_thread(
@@ -750,24 +639,10 @@ impl ExecutionConsoleService {
                 ));
             }
 
-            let container_id = if source.source == ChatSessionSource::Workspace {
-                session.id.clone()
-            } else {
-                external_container_id(
-                    source.source,
-                    source.conversation_id.as_deref().unwrap_or(session_id),
-                )
-            };
-            let kind = if source.source == ChatSessionSource::Workspace {
-                RunKind::WorkspaceRun
-            } else {
-                RunKind::ExternalRun
-            };
-
             return Ok(self.build_run_summary(
                 run_id,
-                &container_id,
-                kind,
+                &session.id,
+                RunKind::WorkspaceRun,
                 events,
                 RunSummaryMeta {
                     title: Some(format_run_title(
@@ -857,32 +732,10 @@ fn format_run_title(timestamp: i64) -> String {
         .unwrap_or_else(|| "Run".to_string())
 }
 
-fn external_container_id(source: ChatSessionSource, conversation_id: &str) -> String {
-    format!("{}:{}", external_channel_key(source), conversation_id)
-}
-
-fn external_channel_key(source: ChatSessionSource) -> &'static str {
-    match source {
-        ChatSessionSource::Telegram => "telegram",
-        ChatSessionSource::Discord => "discord",
-        ChatSessionSource::Slack => "slack",
-        ChatSessionSource::Workspace => "workspace",
-        ChatSessionSource::Background => "background",
-    }
-}
-
-fn is_external_channel_source(source: ChatSessionSource) -> bool {
-    matches!(
-        source,
-        ChatSessionSource::Telegram | ChatSessionSource::Discord | ChatSessionSource::Slack
-    )
-}
-
 fn execution_container_sort_key(container: &ExecutionContainerSummary) -> u8 {
     match container.kind {
         ExecutionContainerKind::Workspace => 0,
         ExecutionContainerKind::Task => 1,
-        ExecutionContainerKind::ExternalChannel => 2,
     }
 }
 
@@ -930,7 +783,7 @@ mod tests {
     use super::*;
     use crate::models::{
         ChatMessage, ChatSession, ExecutionContainerRef, ExecutionMode, LifecycleTrace,
-        NotificationConfig, TaskSchedule, TaskSpec, execution_trace_builders,
+        TaskSchedule, TaskSpec, execution_trace_builders,
     };
     use crate::storage::Storage;
     use crate::{ExecutionTraceCategory, ExecutionTraceSource};
@@ -1005,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_workspace_and_external_containers() {
+    fn lists_workspace_containers() {
         let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
@@ -1017,24 +870,6 @@ mod tests {
             .create(&workspace)
             .expect("workspace session");
 
-        let mut telegram = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-        telegram.name = "Telegram Thread".to_string();
-        telegram.source_channel = Some(ChatSessionSource::Telegram);
-        telegram.source_conversation_id = Some("chat-42".to_string());
-        storage
-            .chat_sessions
-            .create(&telegram)
-            .expect("telegram session");
-        storage
-            .channel_session_bindings
-            .upsert(&crate::models::ChannelSessionBinding::new(
-                "telegram",
-                None,
-                "chat-42",
-                &telegram.id,
-            ))
-            .expect("telegram binding");
-
         store_run_events(
             &storage,
             &workspace.id,
@@ -1042,7 +877,6 @@ mod tests {
             "run-workspace",
             None,
         );
-        store_run_events(&storage, &telegram.id, &telegram.id, "run-telegram", None);
 
         let containers = service.list_execution_containers().expect("containers");
         let workspace_container = containers
@@ -1052,15 +886,6 @@ mod tests {
         assert_eq!(
             workspace_container.latest_run_id.as_deref(),
             Some("run-workspace")
-        );
-
-        let telegram_container = containers
-            .iter()
-            .find(|container| container.id == "telegram:chat-42")
-            .expect("telegram container");
-        assert_eq!(
-            telegram_container.latest_run_id.as_deref(),
-            Some("run-telegram")
         );
     }
 
@@ -1086,11 +911,8 @@ mod tests {
                 input: Some("digest".to_string()),
                 input_template: None,
                 schedule: TaskSchedule::default(),
-                notification: Some(NotificationConfig::default()),
                 execution_mode: Some(ExecutionMode::default()),
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,
@@ -1126,11 +948,8 @@ mod tests {
                 input: Some("digest".to_string()),
                 input_template: None,
                 schedule: TaskSchedule::default(),
-                notification: Some(NotificationConfig::default()),
                 execution_mode: Some(ExecutionMode::default()),
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,

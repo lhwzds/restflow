@@ -1,8 +1,7 @@
 pub mod agent;
-pub mod channel;
 pub mod execution_context;
 pub mod orchestrator;
-mod output;
+pub(crate) mod session_turn;
 pub mod subagent;
 pub mod task_runtime;
 
@@ -17,11 +16,6 @@ pub use agent::{
     effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     secret_resolver_from_storage,
 };
-pub use channel::{
-    ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision, SystemStatus,
-    TaskTrigger, start_message_handler, start_message_handler_with_chat,
-};
 pub use execution_context::{ExecutionContext, ExecutionRole};
 pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
 pub use restflow_ai::telemetry::RestflowTrace;
@@ -30,7 +24,6 @@ pub use subagent::{
 };
 pub use task_runtime::{
     AgentExecutor, AgentRuntimeExecutor, ExecutionResult, NoopHeartbeatEmitter,
-    NoopNotificationSender, NotificationSender, SessionExecutionResult, SessionInputMode,
-    TaskEventEmitter, TaskRunner, TaskRunnerConfig, TaskRunnerHandle, TaskStreamEvent,
-    TelegramNotifier,
+    SessionExecutionResult, SessionInputMode, TaskEventEmitter, TaskRunner, TaskRunnerConfig,
+    TaskRunnerHandle, TaskStreamEvent,
 };

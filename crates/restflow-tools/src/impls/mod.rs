@@ -19,7 +19,6 @@ pub mod auth_profile;
 pub mod config;
 pub mod diagnostics;
 pub mod file_tracker;
-pub mod memory_store;
 pub mod patch;
 pub mod process;
 pub mod reply;
@@ -34,7 +33,6 @@ pub mod manage_ops;
 pub mod marketplace;
 pub mod security_query;
 pub mod terminal;
-pub mod unified_memory_search;
 
 // Search tools
 pub mod glob_tool;
@@ -66,7 +64,6 @@ pub use agent_crud::AgentCrudTool;
 pub use auth_profile::AuthProfileTool;
 pub use config::ConfigTool;
 pub use diagnostics::DiagnosticsTool;
-pub use memory_store::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 pub use patch::PatchTool;
 pub use process::ProcessTool;
 pub use reply::ReplyTool;
@@ -81,7 +78,6 @@ pub use manage_ops::ManageOpsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
 pub use terminal::TerminalTool;
-pub use unified_memory_search::UnifiedMemorySearchTool;
 
 // Re-export search tools
 pub use glob_tool::GlobTool;

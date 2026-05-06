@@ -1,6 +1,4 @@
-use super::{AgentConfig, AgentExecutor, CheckpointDurability};
-use crate::agent::state::AgentState;
-use crate::error::Result;
+use super::{AgentConfig, AgentExecutor};
 
 impl AgentExecutor {
     pub(crate) async fn build_system_prompt(&self, config: &AgentConfig) -> String {
@@ -47,35 +45,5 @@ impl AgentExecutor {
         // from the security module based on flags.include_security_policy
 
         sections.join("\n\n")
-    }
-
-    pub(crate) async fn maybe_checkpoint(
-        &self,
-        config: &AgentConfig,
-        state: &AgentState,
-        terminal: bool,
-    ) -> Result<()> {
-        let Some(callback) = &config.checkpoint_callback else {
-            return Ok(());
-        };
-        let should_checkpoint = if terminal {
-            matches!(
-                config.checkpoint_durability,
-                CheckpointDurability::OnComplete
-            )
-        } else {
-            match config.checkpoint_durability {
-                CheckpointDurability::PerTurn => true,
-                CheckpointDurability::Periodic { interval } => {
-                    let interval = interval.max(1);
-                    state.iteration > 0 && state.iteration.is_multiple_of(interval)
-                }
-                CheckpointDurability::OnComplete => false,
-            }
-        };
-        if should_checkpoint {
-            callback(state).await?;
-        }
-        Ok(())
     }
 }

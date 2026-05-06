@@ -2,9 +2,9 @@
 
 use crate::models::AgentNode;
 use crate::prompt_files;
+use crate::storage::simple_storage::{AgentRawStorage, SimpleStorage};
 use anyhow::Result;
 use redb::Database;
-use restflow_storage::SimpleStorage;
 use restflow_storage::time_utils;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -53,17 +53,17 @@ struct AgentFileFrontmatter {
     pub updated_at: Option<i64>,
 }
 
-/// Typed agent storage wrapper around restflow-storage::AgentStorage.
+/// Typed agent storage wrapper around process-local agent bytes.
 #[derive(Clone)]
 pub struct AgentStorage {
-    inner: restflow_storage::AgentStorage,
+    inner: AgentRawStorage,
     delete_lock: Arc<Mutex<()>>,
 }
 
 impl AgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
-            inner: restflow_storage::AgentStorage::new(db)?,
+            inner: AgentRawStorage::new(db)?,
             delete_lock: Arc::new(Mutex::new(())),
         })
     }

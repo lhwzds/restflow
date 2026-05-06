@@ -1,8 +1,9 @@
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use crate::models::{AgentNode, MemoryConfig, SkillPreflightPolicyMode, SkillSource, TaskSchedule};
+use crate::models::{AgentNode, SkillPreflightPolicyMode, SkillSource, TaskSchedule};
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use crate::test_support::RestflowTestEnv;
+use restflow_ai::AiError;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_traits::store::ReplySender;
 use std::future::Future;
@@ -564,13 +565,7 @@ async fn test_executor_agent_not_found() {
     let executor = create_test_executor(storage);
 
     let result = executor
-        .execute(
-            "nonexistent-agent",
-            None,
-            None,
-            &MemoryConfig::default(),
-            None,
-        )
+        .execute("nonexistent-agent", None, None, None)
         .await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("not found"));
@@ -680,14 +675,7 @@ async fn test_execute_from_state_enforces_skill_preflight_policy() {
 
     let state = restflow_ai::agent::AgentState::new("resume-state-test".to_string(), 8);
     let result = executor
-        .execute_from_state(
-            &stored_agent.id,
-            None,
-            state,
-            &MemoryConfig::default(),
-            None,
-            None,
-        )
+        .execute_from_state(&stored_agent.id, None, state, None, None)
         .await;
 
     assert!(result.is_err());

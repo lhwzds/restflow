@@ -1,13 +1,10 @@
 pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
-pub mod channel_session_binding;
 pub mod chat_session;
-pub mod checkpoint;
 pub mod execution_console;
 pub mod execution_trace;
 pub(crate) mod execution_trace_builders;
-pub mod memory;
 pub mod model_ref;
 mod provider_policy;
 pub mod run_artifact;
@@ -30,15 +27,9 @@ pub use agent::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub use channel_session_binding::ChannelSessionBinding;
-pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use execution_console::{
     ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
     ExecutionThread, RunKind, RunListQuery, RunSummary,
-};
-pub use memory::{
-    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
-    SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
 pub use model_ref::ModelRef;
 pub(crate) use provider_policy::{
@@ -50,10 +41,10 @@ pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 pub use run_artifact::{RunArtifact, RunArtifactKind};
 pub use steer::{SteerMessage, SteerSource};
 pub use task_runtime::{
-    CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
-    MemoryScope, NotificationConfig, ResourceLimits, Task, TaskControlAction, TaskConversionResult,
-    TaskEvent, TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch,
-    TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus,
+    CliExecutionConfig, ContinuationConfig, ExecutionMode, ResourceLimits, Task, TaskControlAction,
+    TaskConversionResult, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
+    TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus,
+    TaskSchedule, TaskSpec, TaskStatus,
 };
 // Export execution trace types (new naming)
 pub use execution_trace::{

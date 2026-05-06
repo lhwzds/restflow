@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,31 +20,10 @@ use crate::agent::reviewer::ToolCallReviewer;
 use crate::agent::state::AgentState;
 use crate::agent::streaming_buffer::StreamDisplayMode;
 use crate::agent::stuck::StuckDetectorConfig;
-use crate::error::Result;
 
 pub const MAX_TOOL_RETRIES: usize = 2;
 #[cfg(test)]
 pub const DEFAULT_MAX_TOOL_CONCURRENCY: usize = DEFAULT_AGENT_MAX_TOOL_CONCURRENCY;
-
-/// Persistence frequency for execution checkpoints.
-#[derive(Debug, Clone)]
-pub enum CheckpointDurability {
-    /// Persist state after each ReAct turn.
-    PerTurn,
-    /// Persist state every N turns.
-    Periodic { interval: usize },
-    /// Persist state only on terminal completion/failure.
-    OnComplete,
-}
-
-impl Default for CheckpointDurability {
-    fn default() -> Self {
-        Self::Periodic { interval: 5 }
-    }
-}
-
-pub type CheckpointFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
-pub type CheckpointCallback = Arc<dyn Fn(&AgentState) -> CheckpointFuture + Send + Sync>;
 
 /// Configuration for agent execution
 #[derive(Clone)]
@@ -101,10 +78,6 @@ pub struct AgentConfig {
     pub yolo_mode: bool,
     /// Optional auxiliary reviewer invoked before each tool call.
     pub tool_call_reviewer: Option<Arc<dyn ToolCallReviewer>>,
-    /// Checkpoint persistence policy.
-    pub checkpoint_durability: CheckpointDurability,
-    /// Optional callback to persist agent state checkpoints.
-    pub checkpoint_callback: Option<CheckpointCallback>,
     /// Feature flags for conditional prompt section inclusion.
     pub prompt_flags: PromptFlags,
     /// Maximum number of tool calls that can execute concurrently (default: 100).
@@ -140,8 +113,6 @@ impl AgentConfig {
             telemetry_context: None,
             yolo_mode: false,
             tool_call_reviewer: None,
-            checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
-            checkpoint_callback: None,
             prompt_flags: PromptFlags::default(),
             max_tool_concurrency: DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
             stream_display_mode: StreamDisplayMode::Buffered,
@@ -309,22 +280,6 @@ impl AgentConfig {
 
     pub fn with_yolo_mode(mut self, yolo_mode: bool) -> Self {
         self.yolo_mode = yolo_mode;
-        self
-    }
-
-    /// Set checkpoint durability policy.
-    pub fn with_checkpoint_durability(mut self, durability: CheckpointDurability) -> Self {
-        self.checkpoint_durability = durability;
-        self
-    }
-
-    /// Set asynchronous checkpoint callback.
-    pub fn with_checkpoint_callback<F, Fut>(mut self, callback: F) -> Self
-    where
-        F: Fn(&AgentState) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<()>> + Send + 'static,
-    {
-        self.checkpoint_callback = Some(Arc::new(move |state| Box::pin(callback(state))));
         self
     }
 }

@@ -1,13 +1,10 @@
 use crate::boundary::codec::{from_contract, to_contract};
 use crate::models::{
-    DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits,
-    TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
+    ExecutionMode, ResourceLimits, TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
 };
 use crate::services::task_conversion::default_conversion_schedule;
 use restflow_contracts::request::{
-    DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
-    MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,
-    ResourceLimits as ContractResourceLimits,
+    ExecutionMode as ContractExecutionMode, ResourceLimits as ContractResourceLimits,
     TaskFromSessionRequest as ContractTaskFromSessionRequest, TaskPatch as ContractTaskPatch,
     TaskSchedule as ContractTaskSchedule, TaskSpec as ContractTaskSpec,
 };
@@ -26,8 +23,6 @@ pub(crate) struct ConvertSessionToTaskOptions {
     pub(crate) schedule: CoreTaskSchedule,
     pub(crate) input: Option<String>,
     pub(crate) timeout_secs: Option<u64>,
-    pub(crate) memory: Option<MemoryConfig>,
-    pub(crate) durability_mode: Option<DurabilityMode>,
     pub(crate) resource_limits: Option<ResourceLimits>,
     pub(crate) run_now: bool,
 }
@@ -111,9 +106,6 @@ pub(crate) fn core_task_spec_to_store_create_request(
         input: spec.input.clone(),
         input_template: spec.input_template.clone(),
         timeout_secs: spec.timeout_secs,
-        durability_mode: spec.durability_mode.clone().map(to_contract).transpose()?,
-        memory: spec.memory.clone().map(to_contract).transpose()?,
-        memory_scope: None,
         resource_limits: spec.resource_limits.clone().map(to_contract).transpose()?,
         preview: false,
         approval_id: None,
@@ -139,12 +131,8 @@ pub(crate) fn core_patch_to_update_request(
         input: patch.input.clone(),
         input_template: patch.input_template.clone(),
         schedule: patch.schedule.clone().map(to_contract).transpose()?,
-        notification: patch.notification.clone().map(to_contract).transpose()?,
         execution_mode: patch.execution_mode.clone().map(to_contract).transpose()?,
         timeout_secs: patch.timeout_secs,
-        durability_mode: patch.durability_mode.clone().map(to_contract).transpose()?,
-        memory: patch.memory.clone().map(to_contract).transpose()?,
-        memory_scope: None,
         resource_limits: patch.resource_limits.clone().map(to_contract).transpose()?,
         preview: false,
         approval_id: None,
@@ -165,20 +153,8 @@ pub(crate) fn store_create_request_to_core_task_spec(
         input: request.input,
         input_template: request.input_template,
         schedule,
-        notification: None,
         execution_mode: None,
         timeout_secs: request.timeout_secs,
-        memory: merge_memory_scope(
-            decode_optional_contract::<ContractMemoryConfig, MemoryConfig>(
-                "memory",
-                request.memory,
-            )?,
-            request.memory_scope,
-        )?,
-        durability_mode: decode_optional_contract::<ContractDurabilityMode, DurabilityMode>(
-            "durability_mode",
-            request.durability_mode,
-        )?,
         resource_limits: decode_optional_contract::<ContractResourceLimits, ResourceLimits>(
             "resource_limits",
             request.resource_limits,
@@ -208,26 +184,11 @@ pub(crate) fn update_request_to_patch(
             "schedule",
             request.schedule,
         )?,
-        notification: decode_optional_contract::<ContractNotificationConfig, NotificationConfig>(
-            "notification",
-            request.notification,
-        )?,
         execution_mode: decode_optional_contract::<ContractExecutionMode, ExecutionMode>(
             "execution_mode",
             request.execution_mode,
         )?,
         timeout_secs: request.timeout_secs,
-        memory: merge_memory_scope(
-            decode_optional_contract::<ContractMemoryConfig, MemoryConfig>(
-                "memory",
-                request.memory,
-            )?,
-            request.memory_scope,
-        )?,
-        durability_mode: decode_optional_contract::<ContractDurabilityMode, DurabilityMode>(
-            "durability_mode",
-            request.durability_mode,
-        )?,
         resource_limits: decode_optional_contract::<ContractResourceLimits, ResourceLimits>(
             "resource_limits",
             request.resource_limits,
@@ -267,17 +228,6 @@ pub(crate) fn task_from_session_request_to_options(
         .unwrap_or_else(default_conversion_schedule),
         input: request.input,
         timeout_secs: request.timeout_secs,
-        memory: merge_memory_scope(
-            decode_optional_contract::<ContractMemoryConfig, MemoryConfig>(
-                "memory",
-                request.memory,
-            )?,
-            request.memory_scope,
-        )?,
-        durability_mode: decode_optional_contract::<ContractDurabilityMode, DurabilityMode>(
-            "durability_mode",
-            request.durability_mode,
-        )?,
         resource_limits: decode_optional_contract::<ContractResourceLimits, ResourceLimits>(
             "resource_limits",
             request.resource_limits,
@@ -301,9 +251,6 @@ pub(crate) fn contract_task_from_session_request_to_store(
         schedule: request.schedule,
         input: request.input,
         timeout_secs: request.timeout_secs,
-        durability_mode: request.durability_mode,
-        memory: request.memory,
-        memory_scope: request.memory_scope,
         resource_limits: request.resource_limits,
         run_now: request.run_now,
         preview: false,
@@ -332,35 +279,6 @@ fn decode_optional_contract<T: Serialize, U: DeserializeOwned>(
     value: Option<T>,
 ) -> Result<Option<U>, ToolError> {
     value.map(|value| decode_contract(field, value)).transpose()
-}
-
-fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, ToolError> {
-    match value.map(|scope| scope.trim().to_lowercase()) {
-        None => Ok(None),
-        Some(scope) if scope.is_empty() => Ok(None),
-        Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-        Some(scope) if scope == "per_task" => Ok(Some(MemoryScope::PerTask)),
-        Some(scope) => Err(ToolError::Tool(format!("Unknown memory_scope: {}", scope))),
-    }
-}
-
-fn merge_memory_scope(
-    memory: Option<MemoryConfig>,
-    memory_scope: Option<String>,
-) -> Result<Option<MemoryConfig>, ToolError> {
-    let parsed_scope = parse_memory_scope(memory_scope.as_deref())?;
-    match (memory, parsed_scope) {
-        (Some(mut memory), Some(scope)) => {
-            memory.memory_scope = scope;
-            Ok(Some(memory))
-        }
-        (Some(memory), None) => Ok(Some(memory)),
-        (None, Some(scope)) => Ok(Some(MemoryConfig {
-            memory_scope: scope,
-            ..MemoryConfig::default()
-        })),
-        (None, None) => Ok(None),
-    }
 }
 
 #[cfg(test)]
@@ -400,7 +318,6 @@ mod tests {
             other => panic!("expected cli execution mode, got {other:?}"),
         }
 
-        assert_eq!(core.memory.expect("memory"), MemoryConfig::default());
         assert_eq!(
             core.resource_limits.expect("resource limits"),
             ResourceLimits::default()
@@ -408,34 +325,6 @@ mod tests {
         assert_eq!(
             core.continuation.expect("continuation"),
             ContinuationConfig::default()
-        );
-    }
-
-    #[test]
-    fn create_request_to_spec_merges_memory_scope() {
-        let spec = create_request_to_spec(TaskCreateRequest {
-            name: "nightly".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: None,
-            schedule: ContractTaskSchedule::Interval {
-                interval_ms: 60_000,
-                start_at: None,
-            },
-            input: None,
-            input_template: None,
-            timeout_secs: None,
-            durability_mode: None,
-            memory: None,
-            memory_scope: Some("per_task".to_string()),
-            resource_limits: None,
-            preview: false,
-            approval_id: None,
-        })
-        .expect("spec should decode");
-
-        assert_eq!(
-            spec.memory.expect("memory").memory_scope,
-            MemoryScope::PerTask
         );
     }
 

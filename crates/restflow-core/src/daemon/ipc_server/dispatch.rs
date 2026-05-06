@@ -8,10 +8,6 @@ mod config;
 mod execution;
 #[path = "dispatch/maintenance.rs"]
 mod maintenance;
-#[path = "dispatch/memory.rs"]
-mod memory;
-#[path = "dispatch/pairing.rs"]
-mod pairing;
 #[path = "dispatch/runtime_tools.rs"]
 mod runtime_tools;
 #[path = "dispatch/secrets.rs"]
@@ -70,23 +66,6 @@ impl IpcServer {
                 Self::handle_list_runnable_tasks(core, current_time).await
             }
             IpcRequest::GetTask { id } => Self::handle_get_task(core, id).await,
-            IpcRequest::ListPairingState => Self::handle_list_pairing_state(core).await,
-            IpcRequest::ApprovePairing { code } => Self::handle_approve_pairing(core, code).await,
-            IpcRequest::DenyPairing { code } => Self::handle_deny_pairing(core, code).await,
-            IpcRequest::RevokePairedPeer { peer_id } => {
-                Self::handle_revoke_paired_peer(core, peer_id).await
-            }
-            IpcRequest::GetPairingOwner => Self::handle_get_pairing_owner(core).await,
-            IpcRequest::SetPairingOwner { chat_id } => {
-                Self::handle_set_pairing_owner(core, chat_id).await
-            }
-            IpcRequest::ListRouteBindings => Self::handle_list_route_bindings(core).await,
-            IpcRequest::BindRoute {
-                binding_type,
-                target_id,
-                agent_id,
-            } => Self::handle_bind_route(core, binding_type, target_id, agent_id).await,
-            IpcRequest::UnbindRoute { id } => Self::handle_unbind_route(core, id).await,
             IpcRequest::RunCleanup => Self::handle_run_cleanup(core).await,
             IpcRequest::ListSecrets => Self::handle_list_secrets(core).await,
             IpcRequest::GetSecret { key } => Self::handle_get_secret(core, key).await,
@@ -112,83 +91,6 @@ impl IpcServer {
                 Ok(config) => Self::handle_set_config(core, config).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::SearchMemory {
-                query,
-                agent_id,
-                limit,
-            } => Self::handle_search_memory(core, query, agent_id, limit).await,
-            IpcRequest::SearchMemoryRanked {
-                query,
-                min_score,
-                scoring_preset,
-            } => match from_contract(query) {
-                Ok(query) => {
-                    Self::handle_search_memory_ranked(core, query, min_score, scoring_preset).await
-                }
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::GetMemoryChunk { id } => Self::handle_get_memory_chunk(core, id).await,
-            IpcRequest::ListMemory { agent_id, tag } => {
-                Self::handle_list_memory(core, agent_id, tag).await
-            }
-            IpcRequest::ListMemoryBySession { session_id } => {
-                Self::handle_list_memory_by_session(core, session_id).await
-            }
-            IpcRequest::AddMemory {
-                content,
-                agent_id,
-                tags,
-            } => Self::handle_add_memory(core, content, agent_id, tags).await,
-            IpcRequest::CreateMemoryChunk { chunk } => match from_contract(chunk) {
-                Ok(chunk) => Self::handle_create_memory_chunk(core, chunk).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::DeleteMemory { id } => Self::handle_delete_memory(core, id).await,
-            IpcRequest::ClearMemory { agent_id } => Self::handle_clear_memory(core, agent_id).await,
-            IpcRequest::GetMemoryStats { agent_id } => {
-                Self::handle_get_memory_stats(core, agent_id).await
-            }
-            IpcRequest::ExportMemory { agent_id } => {
-                Self::handle_export_memory(core, agent_id).await
-            }
-            IpcRequest::ExportMemorySession { session_id } => {
-                Self::handle_export_memory_session(core, session_id).await
-            }
-            IpcRequest::ExportMemoryAdvanced {
-                agent_id,
-                session_id,
-                preset,
-                include_metadata,
-                include_timestamps,
-                include_source,
-                include_tags,
-            } => {
-                Self::handle_export_memory_advanced(
-                    core,
-                    agent_id,
-                    session_id,
-                    preset,
-                    include_metadata,
-                    include_timestamps,
-                    include_source,
-                    include_tags,
-                )
-                .await
-            }
-            IpcRequest::GetMemorySession { session_id } => {
-                Self::handle_get_memory_session(core, session_id).await
-            }
-            IpcRequest::ListMemorySessions { agent_id } => {
-                Self::handle_list_memory_sessions(core, agent_id).await
-            }
-            IpcRequest::CreateMemorySession { session } => match from_contract(session) {
-                Ok(session) => Self::handle_create_memory_session(core, session).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::DeleteMemorySession {
-                session_id,
-                delete_chunks,
-            } => Self::handle_delete_memory_session(core, session_id, delete_chunks).await,
             IpcRequest::ListSessions => Self::handle_list_sessions(core).await,
             IpcRequest::ListFullSessions => Self::handle_list_full_sessions(core).await,
             IpcRequest::ListSessionsByAgent { agent_id } => {
@@ -217,9 +119,6 @@ impl IpcServer {
             }
             IpcRequest::ArchiveSession { id } => Self::handle_archive_session(core, id).await,
             IpcRequest::DeleteSession { id } => Self::handle_delete_session(core, id).await,
-            IpcRequest::RebuildExternalSession { id } => {
-                Self::handle_rebuild_external_session(core, id).await
-            }
             IpcRequest::SearchSessions { query } => Self::handle_search_sessions(core, query).await,
             IpcRequest::AddMessage {
                 session_id,

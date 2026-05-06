@@ -14,7 +14,7 @@ use crate::models::security::{ApprovalStatus, PendingApproval};
 /// Callback trait for approval notifications.
 ///
 /// Implement this trait to receive notifications when approval is needed
-/// (e.g., send a Telegram message asking for approval).
+/// (e.g., surface a prompt in the active chat session).
 #[async_trait]
 pub trait ApprovalCallback: Send + Sync {
     /// Called when a new approval request is created.

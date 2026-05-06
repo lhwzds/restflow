@@ -44,18 +44,4 @@ impl TaskStorage {
         let events = self.list_events_for_task(task_id)?;
         Ok(events.into_iter().take(limit).collect())
     }
-
-    /// Record a notification event
-    pub fn record_notification_sent(&self, task_id: &str, message: String) -> Result<()> {
-        let event = TaskEvent::new(task_id.to_string(), TaskEventType::NotificationSent)
-            .with_message(message);
-        self.add_event(&event)
-    }
-
-    /// Record a notification failure event
-    pub fn record_notification_failed(&self, task_id: &str, error: String) -> Result<()> {
-        let event = TaskEvent::new(task_id.to_string(), TaskEventType::NotificationFailed)
-            .with_message(error);
-        self.add_event(&event)
-    }
 }

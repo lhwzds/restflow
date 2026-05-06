@@ -1,9 +1,9 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    AgentNode, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId,
-    RunKind, RunListQuery, RunSummary, Skill, SkillReference, Task, TaskControlAction, TaskMessage,
-    TaskMessageSource, TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
+    AgentNode, ApiKeyConfig, ChatSession, ModelId, RunKind, RunListQuery, RunSummary, Skill,
+    SkillReference, Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch,
+    TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -80,57 +80,6 @@ fn create_test_agent_node(prompt: &str) -> AgentNode {
         skill_preflight_policy_mode: None,
         model_routing: None,
     }
-}
-
-#[tokio::test]
-async fn test_core_backend_session_source_is_resolved_from_binding() {
-    let (server, core, _db, _agents, _guard) = create_test_server().await;
-
-    let default_agent = core.storage.agents.resolve_default_agent().unwrap();
-    let mut session = ChatSession::new(
-        default_agent.id.clone(),
-        ModelId::Gpt5.as_serialized_str().to_string(),
-    )
-    .with_name("binding-source-test");
-    session.source_channel = Some(ChatSessionSource::Workspace);
-    core.storage.chat_sessions.create(&session).unwrap();
-    core.storage
-        .channel_session_bindings
-        .upsert(&ChannelSessionBinding::new(
-            "telegram",
-            None,
-            "chat-777",
-            &session.id,
-        ))
-        .unwrap();
-
-    let get_json = server
-        .handle_chat_session_get(ChatSessionGetParams {
-            session_id: session.id.clone(),
-        })
-        .await
-        .unwrap();
-    let fetched: ChatSession = serde_json::from_str(&get_json).unwrap();
-    assert_eq!(fetched.source_channel, Some(ChatSessionSource::Telegram));
-    assert_eq!(fetched.source_conversation_id.as_deref(), Some("chat-777"));
-
-    let list_json = server
-        .handle_chat_session_list(ChatSessionListParams {
-            agent_id: None,
-            limit: Some(20),
-        })
-        .await
-        .unwrap();
-    let listed: Vec<ChatSessionSummary> = serde_json::from_str(&list_json).unwrap();
-    let listed_one = listed
-        .iter()
-        .find(|item| item.id == session.id)
-        .expect("session should appear in list");
-    assert_eq!(listed_one.source_channel, Some(ChatSessionSource::Telegram));
-    assert_eq!(
-        listed_one.source_conversation_id.as_deref(),
-        Some("chat-777")
-    );
 }
 
 // =========================================================================
@@ -421,9 +370,6 @@ fn test_tool_definitions() {
         "get_skill_reference",
         "list_agents",
         "get_agent",
-        "memory_search",
-        "memory_store",
-        "memory_stats",
         "get_skill_context",
         "chat_session_list",
         "chat_session_get",
@@ -713,25 +659,6 @@ impl McpBackend for MockBackend {
         Ok(self.agent_summary())
     }
 
-    async fn search_memory(&self, _query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
-        Ok(MemorySearchResult {
-            chunks: Vec::new(),
-            total_count: 0,
-            has_more: false,
-        })
-    }
-
-    async fn store_memory(&self, _chunk: MemoryChunk) -> Result<String, String> {
-        Ok("mock-chunk".to_string())
-    }
-
-    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
-        Ok(MemoryStats {
-            agent_id: agent_id.to_string(),
-            ..MemoryStats::default()
-        })
-    }
-
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
         Ok(vec![ChatSessionSummary::from(&self.session)])
     }
@@ -782,19 +709,10 @@ impl McpBackend for MockBackend {
         task.description = spec.description;
         task.input = spec.input;
         task.input_template = spec.input_template;
-        if let Some(notification) = spec.notification {
-            task.notification = notification;
-        }
         if let Some(execution_mode) = spec.execution_mode {
             task.execution_mode = execution_mode;
         }
         task.timeout_secs = spec.timeout_secs;
-        if let Some(memory) = spec.memory {
-            task.memory = memory;
-        }
-        if let Some(durability_mode) = spec.durability_mode {
-            task.durability_mode = durability_mode;
-        }
         if let Some(resource_limits) = spec.resource_limits {
             task.resource_limits = resource_limits;
         }
@@ -1094,12 +1012,8 @@ async fn test_manage_tasks_list_operation() {
         workers: None,
         input_template: None,
         schedule: None,
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        durability_mode: None,
-        memory: None,
-        memory_scope: None,
         resource_limits: None,
         prerequisites: None,
         status: None,
@@ -1979,12 +1893,8 @@ fn base_manage_tasks_params(operation: &str) -> ManageTasksParams {
         workers: None,
         input_template: None,
         schedule: None,
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        memory_scope: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: None,
         status: None,

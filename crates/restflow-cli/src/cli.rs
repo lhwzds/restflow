@@ -83,12 +83,6 @@ pub enum Commands {
         command: SkillCommands,
     },
 
-    /// Memory operations
-    Memory {
-        #[command(subcommand)]
-        command: MemoryCommands,
-    },
-
     /// Secret management
     Secret {
         #[command(subcommand)]
@@ -142,18 +136,6 @@ pub enum Commands {
 
     /// Import local coding-agent history into RestFlow sessions
     Import(ImportArgs),
-
-    /// Telegram pairing / access control
-    Pairing {
-        #[command(subcommand)]
-        command: PairingCommands,
-    },
-
-    /// Route binding (agent routing)
-    Route {
-        #[command(subcommand)]
-        command: RouteCommands,
-    },
 
     /// Task management
     Task {
@@ -475,53 +457,6 @@ pub enum SkillCommands {
 }
 
 #[derive(Subcommand)]
-pub enum MemoryCommands {
-    /// Search memory
-    Search { query: String },
-
-    /// List memory chunks
-    List {
-        #[arg(long)]
-        agent: Option<String>,
-
-        #[arg(long)]
-        tag: Option<String>,
-    },
-
-    /// Export memory
-    Export {
-        #[arg(long)]
-        agent: Option<String>,
-
-        #[arg(short, long)]
-        output: Option<String>,
-    },
-
-    /// Show memory stats
-    Stats,
-
-    /// Clear memory
-    Clear {
-        #[arg(long)]
-        agent: Option<String>,
-    },
-
-    /// Store a memory chunk
-    Store {
-        /// Memory content to store
-        content: String,
-
-        /// Agent ID to store memory under
-        #[arg(long)]
-        agent: Option<String>,
-
-        /// Tags for categorization (comma-separated)
-        #[arg(long)]
-        tags: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum SecretCommands {
     /// List secrets
     List,
@@ -762,83 +697,6 @@ pub struct ImportArgs {
 }
 
 #[derive(Subcommand)]
-pub enum PairingCommands {
-    /// List pending requests and allowed peers
-    List,
-
-    /// Approve a pairing request by code
-    Approve {
-        /// The 8-character pairing code
-        code: String,
-    },
-
-    /// Deny a pairing request by code
-    Deny {
-        /// The 8-character pairing code
-        code: String,
-    },
-
-    /// Revoke an allowed peer
-    Revoke {
-        /// The peer ID to revoke
-        peer_id: String,
-    },
-
-    /// Manage Telegram notification owner chat ID
-    Owner {
-        #[command(subcommand)]
-        command: PairingOwnerCommands,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PairingOwnerCommands {
-    /// Show current Telegram notification owner
-    Show,
-
-    /// Set Telegram notification owner chat ID
-    Set {
-        /// Telegram chat ID
-        chat_id: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum RouteCommands {
-    /// List all route bindings
-    List,
-
-    /// Bind a target to an agent
-    Bind {
-        /// Peer ID
-        #[arg(long)]
-        peer: Option<String>,
-
-        /// Bot account ID
-        #[arg(long)]
-        account: Option<String>,
-
-        /// Channel ID, for example telegram, discord, or slack
-        #[arg(long)]
-        channel: Option<String>,
-
-        /// Set as default agent
-        #[arg(long)]
-        default: bool,
-
-        /// Agent ID to route to
-        #[arg(long)]
-        agent: String,
-    },
-
-    /// Remove a route binding
-    Unbind {
-        /// Binding ID
-        id: String,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum TaskCommands {
     /// List tasks
     List {
@@ -882,10 +740,6 @@ pub enum TaskCommands {
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
-
-        /// Enable Telegram notification
-        #[arg(long)]
-        notify: bool,
     },
 
     /// Convert an existing chat session into a task

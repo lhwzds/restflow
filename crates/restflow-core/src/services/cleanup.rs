@@ -1,10 +1,9 @@
+use crate::AppCore;
+use crate::services::session::SessionService;
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
-
-use crate::AppCore;
-use crate::services::session::SessionService;
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const DAY_SECS: u64 = 24 * 60 * 60;
@@ -13,11 +12,7 @@ const DAY_SECS: u64 = 24 * 60 * 60;
 pub struct CleanupReport {
     pub chat_sessions: usize,
     pub tasks: usize,
-    pub checkpoints: usize,
-    pub memory_chunks: usize,
     pub audit_events: usize,
-    pub memory_sessions: usize,
-    pub vector_orphans: usize,
     pub daemon_log_files: usize,
 }
 
@@ -42,27 +37,12 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         0
     };
 
-    let checkpoints = core.storage.tasks.cleanup_expired_checkpoints()?;
-
-    let memory_chunks =
-        if let Some(cutoff) = retention_cutoff(now_ms, config.memory_chunk_retention_days) {
-            core.storage.memory.cleanup_old_chunks(cutoff)?
-        } else {
-            0
-        };
-
     let audit_events =
         if let Some(cutoff) = retention_cutoff(now_ms, config.audit_event_retention_days) {
             core.storage.execution_traces.cleanup_older_than(cutoff)?
         } else {
             0
         };
-
-    // M2: Clean up empty memory sessions
-    let memory_sessions = cleanup_empty_memory_sessions(core)?;
-
-    // M3: Clean up vector orphans if threshold exceeded
-    let vector_orphans = cleanup_vectors_if_needed(core)?;
 
     // L1: Clean up old log files (blocking I/O, offload to spawn_blocking)
     let retention_days = config.log_file_retention_days;
@@ -73,61 +53,9 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
     Ok(CleanupReport {
         chat_sessions,
         tasks,
-        checkpoints,
-        memory_chunks,
         audit_events,
-        memory_sessions,
-        vector_orphans,
         daemon_log_files,
     })
-}
-
-/// M2: Delete memory sessions that have zero chunks.
-fn cleanup_empty_memory_sessions(core: &Arc<AppCore>) -> Result<usize> {
-    let agents = core.storage.agents.list_agents()?;
-    let agent_ids: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
-    cleanup_empty_sessions_for_agents(&core.storage.memory, &agent_ids)
-}
-
-/// Inner helper: delete empty sessions for the given agent IDs.
-///
-/// Separated from `cleanup_empty_memory_sessions` for testability
-/// (avoids needing a full `AppCore` in unit tests).
-fn cleanup_empty_sessions_for_agents(
-    memory: &crate::storage::MemoryStorage,
-    agent_ids: &[String],
-) -> Result<usize> {
-    let mut deleted = 0;
-
-    for agent_id in agent_ids {
-        let sessions = memory.list_sessions(agent_id)?;
-        for session in sessions {
-            if !memory.has_chunks_for_session(&session.id)? {
-                memory.delete_session(&session.id, false)?;
-                deleted += 1;
-                debug!(session_id = %session.id, "Deleted empty memory session");
-            }
-        }
-    }
-
-    Ok(deleted)
-}
-
-/// M3: Clean up vector orphans when the count exceeds a threshold.
-fn cleanup_vectors_if_needed(core: &Arc<AppCore>) -> Result<usize> {
-    if let Some(stats) = core.storage.memory.vector_stats()? {
-        let threshold = std::cmp::max(stats.active_count / 10, 100);
-        if stats.orphan_count > threshold {
-            debug!(
-                orphans = stats.orphan_count,
-                threshold, "Vector orphan threshold exceeded, running cleanup"
-            );
-            if let Some(cleaned) = core.storage.memory.cleanup_vector_orphans()? {
-                return Ok(cleaned);
-            }
-        }
-    }
-    Ok(0)
 }
 
 /// L1: Delete daemon log files older than retention_days.
@@ -232,8 +160,6 @@ mod tests {
     #[test]
     fn test_cleanup_report_default_includes_new_fields() {
         let report = CleanupReport::default();
-        assert_eq!(report.memory_sessions, 0);
-        assert_eq!(report.vector_orphans, 0);
         assert_eq!(report.daemon_log_files, 0);
     }
 
@@ -284,112 +210,5 @@ mod tests {
         fs::write(temp_dir.path().join("test.log"), "data").unwrap();
         let deleted = cleanup_old_files_in_dir(temp_dir.path(), 0, |_| true).unwrap();
         assert_eq!(deleted, 0);
-    }
-
-    // --- M2 integration tests ---
-
-    fn create_test_memory_storage() -> (crate::storage::MemoryStorage, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = std::sync::Arc::new(redb::Database::create(db_path).unwrap());
-        (crate::storage::MemoryStorage::new(db).unwrap(), temp_dir)
-    }
-
-    #[test]
-    fn test_cleanup_empty_sessions_deletes_empty_keeps_non_empty() {
-        use crate::models::memory::{MemoryChunk, MemorySession};
-
-        let (storage, _tmp) = create_test_memory_storage();
-        let agent_id = "test-agent";
-
-        // Create an empty session (no chunks)
-        let empty_session = MemorySession::new(agent_id.to_string(), "Empty Session".to_string());
-        storage.create_session(&empty_session).unwrap();
-
-        // Create a session with one chunk
-        let non_empty_session =
-            MemorySession::new(agent_id.to_string(), "Non-empty Session".to_string());
-        storage.create_session(&non_empty_session).unwrap();
-        let chunk = MemoryChunk::new(agent_id.to_string(), "Some content".to_string())
-            .with_session(non_empty_session.id.clone());
-        storage.store_chunk(&chunk).unwrap();
-
-        // Verify both sessions exist
-        let sessions = storage.list_sessions(agent_id).unwrap();
-        assert_eq!(sessions.len(), 2);
-
-        // Run cleanup
-        let deleted = cleanup_empty_sessions_for_agents(&storage, &[agent_id.to_string()]).unwrap();
-
-        assert_eq!(deleted, 1, "should delete exactly one empty session");
-
-        // Verify only the non-empty session remains
-        let remaining = storage.list_sessions(agent_id).unwrap();
-        assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].id, non_empty_session.id);
-    }
-
-    #[test]
-    fn test_cleanup_empty_sessions_no_agents_returns_zero() {
-        let (storage, _tmp) = create_test_memory_storage();
-        let deleted = cleanup_empty_sessions_for_agents(&storage, &[]).unwrap();
-        assert_eq!(deleted, 0);
-    }
-
-    #[test]
-    fn test_cleanup_empty_sessions_all_have_chunks() {
-        use crate::models::memory::{MemoryChunk, MemorySession};
-
-        let (storage, _tmp) = create_test_memory_storage();
-        let agent_id = "agent-1";
-
-        // Create two sessions, each with a chunk
-        for i in 0..2 {
-            let session = MemorySession::new(agent_id.to_string(), format!("Session {}", i));
-            storage.create_session(&session).unwrap();
-            let chunk = MemoryChunk::new(agent_id.to_string(), format!("Content {}", i))
-                .with_session(session.id.clone());
-            storage.store_chunk(&chunk).unwrap();
-        }
-
-        let deleted = cleanup_empty_sessions_for_agents(&storage, &[agent_id.to_string()]).unwrap();
-
-        assert_eq!(deleted, 0, "no sessions should be deleted");
-        assert_eq!(storage.list_sessions(agent_id).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_cleanup_empty_sessions_multiple_agents() {
-        use crate::models::memory::{MemoryChunk, MemorySession};
-
-        let (storage, _tmp) = create_test_memory_storage();
-
-        // Agent A: 1 empty session
-        let sess_a = MemorySession::new("agent-a".to_string(), "A session".to_string());
-        storage.create_session(&sess_a).unwrap();
-
-        // Agent B: 1 session with chunk
-        let sess_b = MemorySession::new("agent-b".to_string(), "B session".to_string());
-        storage.create_session(&sess_b).unwrap();
-        let chunk = MemoryChunk::new("agent-b".to_string(), "B content".to_string())
-            .with_session(sess_b.id.clone());
-        storage.store_chunk(&chunk).unwrap();
-
-        let deleted = cleanup_empty_sessions_for_agents(
-            &storage,
-            &["agent-a".to_string(), "agent-b".to_string()],
-        )
-        .unwrap();
-
-        assert_eq!(deleted, 1);
-        assert!(
-            storage.list_sessions("agent-a").unwrap().is_empty(),
-            "agent-a empty session deleted"
-        );
-        assert_eq!(
-            storage.list_sessions("agent-b").unwrap().len(),
-            1,
-            "agent-b session with chunk preserved"
-        );
     }
 }

@@ -7,7 +7,7 @@ use serde_json::Value;
 pub enum SteerCommand {
     /// Inject a text message into the running conversation.
     Message { instruction: String },
-    /// Interrupt execution and create a checkpoint.
+    /// Interrupt execution with a reason visible to the runtime.
     Interrupt {
         reason: String,
         #[serde(default)]
@@ -75,8 +75,6 @@ impl SteerMessage {
 pub enum SteerSource {
     /// Direct from UI or CLI.
     User,
-    /// From Telegram channel.
-    Telegram,
     /// From internal system automation.
     System,
     /// From REST/WebSocket API.

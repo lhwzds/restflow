@@ -4,12 +4,10 @@ use super::ipc_protocol::{
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::daemon::session_events::ChatSessionEvent;
-use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
-    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceStats, MemoryChunk, MemorySearchResult,
-    MemorySession, MemoryStats, RunListQuery, RunSummary, Skill, Task, TaskControlAction,
-    TaskEvent, TaskPatch, TaskSpec, TerminalSession,
+    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceStats, RunListQuery, RunSummary, Skill,
+    Task, TaskControlAction, TaskEvent, TaskPatch, TaskSpec, TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
@@ -23,7 +21,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 mod auth;
-mod memory;
 mod sessions;
 mod skills;
 mod streams;

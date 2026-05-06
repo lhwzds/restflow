@@ -48,29 +48,6 @@ pub enum IpcRequest {
     GetTask {
         id: String,
     },
-    ListPairingState,
-    ApprovePairing {
-        code: String,
-    },
-    DenyPairing {
-        code: String,
-    },
-    RevokePairedPeer {
-        peer_id: String,
-    },
-    GetPairingOwner,
-    SetPairingOwner {
-        chat_id: String,
-    },
-    ListRouteBindings,
-    BindRoute {
-        binding_type: String,
-        target_id: String,
-        agent_id: String,
-    },
-    UnbindRoute {
-        id: String,
-    },
     RunCleanup,
 
     ListSecrets,
@@ -100,72 +77,6 @@ pub enum IpcRequest {
     GetGlobalConfig,
     SetConfig {
         config: SystemConfig,
-    },
-
-    SearchMemory {
-        query: String,
-        agent_id: Option<String>,
-        limit: Option<u32>,
-    },
-    SearchMemoryRanked {
-        query: MemorySearchQuery,
-        min_score: Option<f64>,
-        scoring_preset: Option<String>,
-    },
-    GetMemoryChunk {
-        id: String,
-    },
-    ListMemory {
-        agent_id: Option<String>,
-        tag: Option<String>,
-    },
-    ListMemoryBySession {
-        session_id: String,
-    },
-    AddMemory {
-        content: String,
-        agent_id: Option<String>,
-        tags: Vec<String>,
-    },
-    CreateMemoryChunk {
-        chunk: MemoryChunk,
-    },
-    DeleteMemory {
-        id: String,
-    },
-    ClearMemory {
-        agent_id: Option<String>,
-    },
-    GetMemoryStats {
-        agent_id: Option<String>,
-    },
-    ExportMemory {
-        agent_id: Option<String>,
-    },
-    ExportMemorySession {
-        session_id: String,
-    },
-    ExportMemoryAdvanced {
-        agent_id: String,
-        session_id: Option<String>,
-        preset: Option<String>,
-        include_metadata: Option<bool>,
-        include_timestamps: Option<bool>,
-        include_source: Option<bool>,
-        include_tags: Option<bool>,
-    },
-    GetMemorySession {
-        session_id: String,
-    },
-    ListMemorySessions {
-        agent_id: String,
-    },
-    CreateMemorySession {
-        session: MemorySession,
-    },
-    DeleteMemorySession {
-        session_id: String,
-        delete_chunks: bool,
     },
 
     ListSessions,
@@ -201,9 +112,6 @@ pub enum IpcRequest {
         id: String,
     },
     DeleteSession {
-        id: String,
-    },
-    RebuildExternalSession {
         id: String,
     },
     SearchSessions {
@@ -564,15 +472,6 @@ pub enum ExecutionMode {
     Cli(CliExecutionConfig),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum DurabilityMode {
-    Sync,
-    #[default]
-    Async,
-    Exit,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CliExecutionConfig {
     pub binary: String,
@@ -608,67 +507,6 @@ impl Default for TaskSchedule {
         Self::Interval {
             interval_ms: 3_600_000,
             start_at: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct NotificationConfig {
-    #[serde(default)]
-    pub notify_on_failure_only: bool,
-    #[serde(default = "defaults::default_true")]
-    pub include_output: bool,
-    #[serde(default)]
-    pub broadcast_steps: bool,
-}
-
-impl Default for NotificationConfig {
-    fn default() -> Self {
-        Self {
-            notify_on_failure_only: false,
-            include_output: true,
-            broadcast_steps: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum MemoryScope {
-    #[default]
-    SharedAgent,
-    #[serde(rename = "per_task")]
-    PerTask,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MemoryConfig {
-    #[serde(default = "defaults::default_memory_max_messages")]
-    pub max_messages: usize,
-    #[serde(default = "defaults::default_true")]
-    pub enable_file_memory: bool,
-    #[serde(default)]
-    pub persist_on_complete: bool,
-    #[serde(default = "defaults::default_memory_scope")]
-    pub memory_scope: MemoryScope,
-    #[serde(default = "defaults::default_memory_compaction_enabled")]
-    pub enable_compaction: bool,
-    #[serde(default = "defaults::default_memory_compaction_threshold_ratio")]
-    pub compaction_threshold_ratio: f32,
-    #[serde(default = "defaults::default_memory_max_summary_tokens")]
-    pub max_summary_tokens: usize,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            max_messages: defaults::default_memory_max_messages(),
-            enable_file_memory: true,
-            persist_on_complete: false,
-            memory_scope: defaults::default_memory_scope(),
-            enable_compaction: defaults::default_memory_compaction_enabled(),
-            compaction_threshold_ratio: defaults::default_memory_compaction_threshold_ratio(),
-            max_summary_tokens: defaults::default_memory_max_summary_tokens(),
         }
     }
 }
@@ -736,15 +574,9 @@ pub struct TaskSpec {
     pub input_template: Option<String>,
     pub schedule: TaskSchedule,
     #[serde(default)]
-    pub notification: Option<NotificationConfig>,
-    #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub memory: Option<MemoryConfig>,
-    #[serde(default)]
-    pub durability_mode: Option<DurabilityMode>,
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
     #[serde(default)]
@@ -770,15 +602,9 @@ pub struct TaskPatch {
     #[serde(default)]
     pub schedule: Option<TaskSchedule>,
     #[serde(default)]
-    pub notification: Option<NotificationConfig>,
-    #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub memory: Option<MemoryConfig>,
-    #[serde(default)]
-    pub durability_mode: Option<DurabilityMode>,
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
     #[serde(default)]
@@ -798,13 +624,6 @@ pub struct TaskFromSessionRequest {
     pub input: Option<String>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub durability_mode: Option<DurabilityMode>,
-    #[serde(default)]
-    pub memory: Option<MemoryConfig>,
-    #[serde(default)]
-    pub memory_scope: Option<String>,
-    #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
     #[serde(default)]
     pub run_now: Option<bool>,
@@ -885,103 +704,6 @@ pub struct ChatSessionUpdate {
     pub agent_id: Option<String>,
     pub model: Option<String>,
     pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum MemorySource {
-    TaskExecution {
-        task_id: String,
-    },
-    Conversation {
-        session_id: String,
-    },
-    #[default]
-    ManualNote,
-    AgentGenerated {
-        tool_name: String,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MemoryChunk {
-    pub id: String,
-    pub agent_id: String,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    pub content: String,
-    pub content_hash: String,
-    #[serde(default)]
-    pub source: MemorySource,
-    pub created_at: i64,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub token_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedding: Option<Vec<f32>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedding_model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedding_dim: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MemorySession {
-    pub id: String,
-    pub agent_id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub chunk_count: u32,
-    #[serde(default)]
-    pub total_tokens: u32,
-    pub created_at: i64,
-    pub updated_at: i64,
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SearchMode {
-    #[default]
-    Keyword,
-    Phrase,
-    Regex,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceTypeFilter {
-    TaskExecution,
-    Conversation,
-    ManualNote,
-    AgentGenerated,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MemorySearchQuery {
-    pub agent_id: String,
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub search_mode: SearchMode,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub source_type: Option<SourceTypeFilter>,
-    #[serde(default)]
-    pub from_time: Option<i64>,
-    #[serde(default)]
-    pub to_time: Option<i64>,
-    #[serde(default = "defaults::default_memory_limit")]
-    pub limit: u32,
-    #[serde(default)]
-    pub offset: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1345,7 +1067,6 @@ pub struct ExecutionTraceQuery {
 pub enum ExecutionContainerKind {
     Workspace,
     Task,
-    ExternalChannel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1449,7 +1170,6 @@ pub struct AgentSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ApiSettings {
-    pub memory_search_limit: u32,
     pub session_list_limit: u32,
     pub task_progress_event_limit: usize,
     pub task_message_list_limit: usize,
@@ -1464,12 +1184,6 @@ pub struct RuntimeSettings {
     pub task_runner_poll_interval_ms: u64,
     pub task_runner_max_concurrent_tasks: usize,
     pub chat_max_session_history: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct ChannelSettings {
-    pub telegram_api_timeout_secs: u64,
-    pub telegram_polling_timeout_secs: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -1490,8 +1204,6 @@ pub struct SystemConfig {
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
     pub task_retention_days: u32,
-    pub checkpoint_retention_days: u32,
-    pub memory_chunk_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
     #[serde(default)]
@@ -1500,8 +1212,6 @@ pub struct SystemConfig {
     pub api_defaults: ApiSettings,
     #[serde(default)]
     pub runtime_defaults: RuntimeSettings,
-    #[serde(default)]
-    pub channel_defaults: ChannelSettings,
     #[serde(default)]
     pub registry_defaults: RegistrySettings,
 }
@@ -1597,11 +1307,8 @@ mod tests {
                     expression: "0 9 * * *".to_string(),
                     timezone: Some("America/Los_Angeles".to_string()),
                 },
-                notification: Some(NotificationConfig::default()),
                 execution_mode: Some(ExecutionMode::Api),
                 timeout_secs: Some(300),
-                memory: Some(MemoryConfig::default()),
-                durability_mode: Some(DurabilityMode::Async),
                 resource_limits: Some(ResourceLimits {
                     max_tool_calls: 10,
                     max_duration_secs: 60,
@@ -1633,9 +1340,6 @@ mod tests {
                 }),
                 input: Some("execute".to_string()),
                 timeout_secs: Some(300),
-                durability_mode: Some(DurabilityMode::Async),
-                memory: Some(MemoryConfig::default()),
-                memory_scope: Some("shared_agent".to_string()),
                 resource_limits: Some(ResourceLimits {
                     max_tool_calls: 10,
                     max_duration_secs: 60,
@@ -1684,20 +1388,6 @@ mod tests {
         };
         assert_eq!(cli.timeout_secs, defaults::default_cli_timeout_secs());
 
-        let memory = contract.memory.expect("memory config");
-        assert_eq!(memory.max_messages, defaults::default_memory_max_messages());
-        assert!(memory.enable_file_memory);
-        assert_eq!(memory.memory_scope, MemoryScope::SharedAgent);
-        assert!(memory.enable_compaction);
-        assert_eq!(
-            memory.compaction_threshold_ratio,
-            defaults::default_memory_compaction_threshold_ratio()
-        );
-        assert_eq!(
-            memory.max_summary_tokens,
-            defaults::default_memory_max_summary_tokens()
-        );
-
         let limits = contract.resource_limits.expect("resource limits");
         assert_eq!(limits.max_tool_calls, defaults::default_max_tool_calls());
         assert_eq!(
@@ -1725,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn list_runs_and_task_memory_scope_use_canonical_names() {
+    fn list_runs_and_child_runs_round_trip() {
         let request = IpcRequest::ListRuns {
             query: RunListQuery {
                 container: ExecutionContainerRef {
@@ -1742,14 +1432,6 @@ mod tests {
             },
         };
         assert_roundtrip(&child_request);
-
-        let scope: MemoryScope =
-            serde_json::from_value(serde_json::json!("per_task")).expect("task memory scope");
-        assert_eq!(scope, MemoryScope::PerTask);
-        assert_eq!(
-            serde_json::to_value(scope).expect("serialize task scope"),
-            serde_json::json!("per_task")
-        );
     }
 
     #[test]
@@ -1786,27 +1468,6 @@ mod tests {
                     updated_at: Some(1),
                 }),
             },
-        };
-        assert_roundtrip(&request);
-    }
-
-    #[test]
-    fn ipc_request_memory_round_trips() {
-        let request = IpcRequest::SearchMemoryRanked {
-            query: MemorySearchQuery {
-                agent_id: "agent-1".to_string(),
-                query: Some("rust".to_string()),
-                search_mode: SearchMode::Phrase,
-                session_id: Some("session-1".to_string()),
-                tags: vec!["lang".to_string()],
-                source_type: Some(SourceTypeFilter::Conversation),
-                from_time: Some(1),
-                to_time: Some(2),
-                limit: 10,
-                offset: 5,
-            },
-            min_score: Some(0.8),
-            scoring_preset: Some("balanced".to_string()),
         };
         assert_roundtrip(&request);
     }

@@ -21,9 +21,9 @@ pub mod tools;
 // Re-export commonly used types
 pub use agent::context_manager::{CompactStats, ContextManagerConfig, PruneStats, TokenEstimator};
 pub use agent::{
-    AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
-    ExecutionStep, ResourceLimits, ResourceUsage, StreamDisplayMode, SubagentDeps,
-    SubagentExecutionBridge, SubagentManagerImpl, SubagentSpawner,
+    AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, ExecutionStep,
+    ResourceLimits, ResourceUsage, StreamDisplayMode, SubagentDeps, SubagentExecutionBridge,
+    SubagentManagerImpl, SubagentSpawner,
 };
 pub use error::{AiError, Result};
 pub use llm::{

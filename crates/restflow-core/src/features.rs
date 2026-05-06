@@ -77,7 +77,7 @@ impl Feature {
             Feature::WebSocketTransport => "Use websocket transport for live client streams.",
             Feature::StuckDetection => "Detect and recover tasks that stop making progress.",
             Feature::ResourceTracker => "Track CPU and memory usage for running tasks.",
-            Feature::PlanMode => "Allow explicit user-plan checkpoints in agent execution.",
+            Feature::PlanMode => "Allow explicit user-plan pauses in agent execution.",
         }
     }
 

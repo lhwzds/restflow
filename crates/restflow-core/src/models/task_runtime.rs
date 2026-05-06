@@ -1,7 +1,6 @@
 //! Agent Task model for scheduled agent execution.
 //!
-//! Agent tasks represent recurring or one-time scheduled executions of agents
-//! with optional notification configurations for reporting results.
+//! Agent tasks represent recurring or one-time scheduled executions of agents.
 
 use restflow_traits::{
     DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS, DEFAULT_TASK_MAX_TOOL_CALLS,
@@ -21,21 +20,6 @@ pub enum ExecutionMode {
     Api,
     /// Use external CLI tool (e.g., claude, aider)
     Cli(CliExecutionConfig),
-}
-
-/// Durability mode for checkpoint persistence.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum DurabilityMode {
-    /// Persist checkpoints before each tool execution.
-    Sync,
-    /// Persist checkpoints in a task while execution continues.
-    #[default]
-    Async,
-    /// Persist checkpoints only at execution exit.
-    Exit,
 }
 
 /// Configuration for CLI-based execution
@@ -92,7 +76,7 @@ pub enum TaskStatus {
     Completed,
     /// Task failed on last execution
     Failed,
-    /// Task execution interrupted by an explicit stop or checkpoint flow.
+    /// Task execution interrupted by an explicit stop flow.
     Interrupted,
 }
 
@@ -153,42 +137,6 @@ impl Default for TaskSchedule {
     }
 }
 
-/// Notification configuration for task results
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct NotificationConfig {
-    /// Only notify on failure
-    #[serde(default)]
-    pub notify_on_failure_only: bool,
-    /// Include full output in notification
-    #[serde(default = "default_true")]
-    pub include_output: bool,
-    /// Broadcast per-step tool execution updates to configured channels
-    #[serde(default)]
-    pub broadcast_steps: bool,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_max_messages() -> usize {
-    100
-}
-
-fn default_compaction_enabled() -> bool {
-    true
-}
-
-fn default_compaction_threshold_ratio() -> f32 {
-    0.80
-}
-
-fn default_max_summary_tokens() -> usize {
-    2_000
-}
-
 fn default_max_tool_calls() -> usize {
     DEFAULT_TASK_MAX_TOOL_CALLS
 }
@@ -211,110 +159,6 @@ fn default_max_total_iterations() -> usize {
 
 fn default_inter_segment_pause_ms() -> u64 {
     1_000
-}
-
-/// Scope for task memory persistence.
-///
-/// Controls whether long-term memory is shared across all tasks of an
-/// agent or isolated per task.
-#[derive(Debug, Clone, Default, Serialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum MemoryScope {
-    /// Share long-term memory across tasks using the same agent_id.
-    #[default]
-    SharedAgent,
-    /// Isolate long-term memory by task.
-    #[serde(rename = "per_task")]
-    PerTask,
-}
-
-impl<'de> Deserialize<'de> for MemoryScope {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        match value.as_str() {
-            "shared_agent" => Ok(Self::SharedAgent),
-            "per_task" => Ok(Self::PerTask),
-            other => Err(serde::de::Error::unknown_variant(
-                other,
-                &["shared_agent", "per_task"],
-            )),
-        }
-    }
-}
-
-fn default_memory_scope() -> MemoryScope {
-    MemoryScope::SharedAgent
-}
-
-/// Memory configuration for agent task execution
-///
-/// Controls working memory behavior and persistence settings.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct MemoryConfig {
-    /// Maximum number of messages to keep in working memory
-    /// Older messages are discarded (no summarization)
-    #[serde(default = "default_max_messages")]
-    pub max_messages: usize,
-
-    /// Enable file memory tools (save_memory, read_memory, etc.)
-    /// Allows agents to persist important information to disk
-    #[serde(default = "default_true")]
-    pub enable_file_memory: bool,
-
-    /// Persist conversation to long-term memory on task completion.
-    /// Working memory is chunked and stored for future retrieval.
-    /// Defaults to false — agents should use save_to_memory tool for selective persistence.
-    #[serde(default)]
-    pub persist_on_complete: bool,
-
-    /// Scope for long-term memory persistence.
-    /// Shared scope stores memory under the agent ID, while isolated scope
-    /// stores memory under a task-specific namespace.
-    #[serde(default = "default_memory_scope")]
-    pub memory_scope: MemoryScope,
-
-    /// Enable working memory compaction for long-running tasks.
-    #[serde(default = "default_compaction_enabled")]
-    pub enable_compaction: bool,
-
-    /// Token ratio threshold to trigger compaction against model context window.
-    #[serde(default = "default_compaction_threshold_ratio")]
-    pub compaction_threshold_ratio: f32,
-
-    /// Upper bound for generated summary tokens during compaction.
-    #[serde(default = "default_max_summary_tokens")]
-    pub max_summary_tokens: usize,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            max_messages: default_max_messages(),
-            enable_file_memory: true,
-            persist_on_complete: false,
-            memory_scope: MemoryScope::SharedAgent,
-            enable_compaction: default_compaction_enabled(),
-            compaction_threshold_ratio: default_compaction_threshold_ratio(),
-            max_summary_tokens: default_max_summary_tokens(),
-        }
-    }
-}
-
-impl Default for NotificationConfig {
-    fn default() -> Self {
-        Self {
-            notify_on_failure_only: false,
-            include_output: true, // Default to true for include_output
-            broadcast_steps: false,
-        }
-    }
 }
 
 /// Resource guardrails for task executions.
@@ -365,7 +209,7 @@ pub struct ContinuationConfig {
     /// Hard cap for cumulative LLM cost across all segments.
     #[serde(default)]
     pub max_total_cost_usd: Option<f64>,
-    /// Delay between segments in milliseconds to allow checkpoint persistence.
+    /// Delay between segments in milliseconds before starting the next run slice.
     #[serde(default = "default_inter_segment_pause_ms")]
     pub inter_segment_pause_ms: u64,
 }
@@ -407,21 +251,12 @@ pub struct TaskSpec {
     pub input_template: Option<String>,
     /// Schedule configuration
     pub schedule: TaskSchedule,
-    /// Optional notification configuration
-    #[serde(default)]
-    pub notification: Option<NotificationConfig>,
     /// Optional execution mode
     #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
     /// Optional per-task timeout (seconds) for API execution mode
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    /// Optional memory configuration
-    #[serde(default)]
-    pub memory: Option<MemoryConfig>,
-    /// Optional durability mode for checkpoint persistence
-    #[serde(default)]
-    pub durability_mode: Option<DurabilityMode>,
     /// Optional resource limits for this task
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
@@ -459,21 +294,12 @@ pub struct TaskPatch {
     /// New schedule configuration
     #[serde(default)]
     pub schedule: Option<TaskSchedule>,
-    /// New notification configuration
-    #[serde(default)]
-    pub notification: Option<NotificationConfig>,
     /// New execution mode
     #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
     /// New per-task timeout (seconds) for API execution mode
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    /// New memory configuration
-    #[serde(default)]
-    pub memory: Option<MemoryConfig>,
-    /// New durability mode for checkpoint persistence
-    #[serde(default)]
-    pub durability_mode: Option<DurabilityMode>,
     /// New resource limits
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
@@ -894,8 +720,6 @@ pub struct TaskRun {
     #[serde(default)]
     pub ended_at: Option<i64>,
     #[serde(default)]
-    pub checkpoint_id: Option<String>,
-    #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
     pub metrics: TaskRunMetrics,
@@ -907,7 +731,6 @@ impl TaskRun {
         task_id: impl Into<String>,
         execution_id: impl Into<String>,
         started_at: i64,
-        checkpoint_id: Option<String>,
     ) -> Self {
         Self {
             run_id: run_id.into(),
@@ -917,15 +740,9 @@ impl TaskRun {
             started_at,
             updated_at: started_at,
             ended_at: None,
-            checkpoint_id,
             error: None,
             metrics: TaskRunMetrics::default(),
         }
-    }
-
-    pub fn set_checkpoint_id(&mut self, checkpoint_id: Option<String>) {
-        self.checkpoint_id = checkpoint_id;
-        self.updated_at = chrono::Utc::now().timestamp_millis();
     }
 
     pub fn mark_terminal(
@@ -1022,13 +839,9 @@ pub enum TaskEventType {
     Paused,
     /// Task was resumed
     Resumed,
-    /// Notification was sent
-    NotificationSent,
-    /// Notification failed to send
-    NotificationFailed,
     /// Context compaction occurred during execution
     Compaction,
-    /// Execution was interrupted (checkpoint created)
+    /// Execution was interrupted.
     Interrupted,
 }
 
@@ -1068,15 +881,6 @@ pub struct Task {
     /// Optional per-task timeout (seconds) for API execution mode
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    /// Notification configuration
-    #[serde(default)]
-    pub notification: NotificationConfig,
-    /// Memory configuration
-    #[serde(default)]
-    pub memory: MemoryConfig,
-    /// Durability mode for checkpoint persistence
-    #[serde(default)]
-    pub durability_mode: DurabilityMode,
     /// Resource limits configuration
     #[serde(default)]
     pub resource_limits: ResourceLimits,
@@ -1147,9 +951,6 @@ impl Task {
             schedule,
             execution_mode: ExecutionMode::default(),
             timeout_secs: None,
-            notification: NotificationConfig::default(),
-            memory: MemoryConfig::default(),
-            durability_mode: DurabilityMode::Async,
             resource_limits: ResourceLimits::default(),
             prerequisites: Vec::new(),
             continuation: ContinuationConfig::default(),
@@ -1689,27 +1490,6 @@ mod tests {
     }
 
     #[test]
-    fn test_notification_config_defaults() {
-        let config = NotificationConfig::default();
-
-        assert!(!config.notify_on_failure_only);
-        assert!(config.include_output);
-        assert!(!config.broadcast_steps);
-    }
-
-    #[test]
-    fn test_notification_config_deserialization_defaults_broadcast_steps_to_false() {
-        let json = serde_json::json!({
-            "notify_on_failure_only": true,
-            "include_output": false
-        });
-
-        let config: NotificationConfig =
-            serde_json::from_value(json).expect("config should deserialize");
-        assert!(!config.broadcast_steps);
-    }
-
-    #[test]
     fn test_schedule_default() {
         let schedule = TaskSchedule::default();
 
@@ -1828,59 +1608,6 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_config_defaults() {
-        let config = MemoryConfig::default();
-
-        assert_eq!(config.max_messages, 100);
-        assert!(config.enable_file_memory);
-        assert!(!config.persist_on_complete);
-        assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
-        assert!(config.enable_compaction);
-        assert_eq!(config.compaction_threshold_ratio, 0.80);
-        assert_eq!(config.max_summary_tokens, 2_000);
-    }
-
-    #[test]
-    fn test_memory_config_custom() {
-        let config = MemoryConfig {
-            max_messages: 50,
-            enable_file_memory: false,
-            persist_on_complete: true,
-            memory_scope: MemoryScope::PerTask,
-            enable_compaction: true,
-            compaction_threshold_ratio: 0.75,
-            max_summary_tokens: 1_024,
-        };
-
-        assert_eq!(config.max_messages, 50);
-        assert!(!config.enable_file_memory);
-        assert!(config.persist_on_complete);
-        assert_eq!(config.memory_scope, MemoryScope::PerTask);
-        assert!(config.enable_compaction);
-        assert_eq!(config.compaction_threshold_ratio, 0.75);
-        assert_eq!(config.max_summary_tokens, 1_024);
-    }
-
-    #[test]
-    fn test_task_with_memory_config() {
-        let task = Task::new(
-            "task-123".to_string(),
-            "Test Task".to_string(),
-            "agent-456".to_string(),
-            TaskSchedule::default(),
-        );
-
-        // Default memory config should be applied
-        assert_eq!(task.memory.max_messages, 100);
-        assert!(task.memory.enable_file_memory);
-        assert!(!task.memory.persist_on_complete);
-        assert_eq!(task.memory.memory_scope, MemoryScope::SharedAgent);
-        assert!(task.memory.enable_compaction);
-        assert_eq!(task.memory.compaction_threshold_ratio, 0.80);
-        assert_eq!(task.memory.max_summary_tokens, 2_000);
-    }
-
-    #[test]
     fn test_task_with_resource_limits_defaults() {
         let task = Task::new(
             "task-123".to_string(),
@@ -1917,70 +1644,6 @@ mod tests {
         assert_eq!(task.continuation, ContinuationConfig::default());
         assert_eq!(task.continuation_total_iterations, 0);
         assert_eq!(task.continuation_segments_completed, 0);
-    }
-
-    #[test]
-    fn test_memory_config_serialization() {
-        let config = MemoryConfig {
-            max_messages: 75,
-            enable_file_memory: true,
-            persist_on_complete: false,
-            memory_scope: MemoryScope::PerTask,
-            enable_compaction: false,
-            compaction_threshold_ratio: 0.65,
-            max_summary_tokens: 1_500,
-        };
-
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: MemoryConfig = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(deserialized.max_messages, 75);
-        assert!(deserialized.enable_file_memory);
-        assert!(!deserialized.persist_on_complete);
-        assert_eq!(deserialized.memory_scope, MemoryScope::PerTask);
-        assert!(!deserialized.enable_compaction);
-        assert_eq!(deserialized.compaction_threshold_ratio, 0.65);
-        assert_eq!(deserialized.max_summary_tokens, 1_500);
-    }
-
-    #[test]
-    fn test_memory_config_deserialization_with_defaults() {
-        // Test deserializing with missing fields uses defaults
-        let json = r#"{}"#;
-        let config: MemoryConfig = serde_json::from_str(json).unwrap();
-
-        assert_eq!(config.max_messages, 100);
-        assert!(config.enable_file_memory);
-        assert!(!config.persist_on_complete);
-        assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
-        assert!(config.enable_compaction);
-        assert_eq!(config.compaction_threshold_ratio, 0.80);
-        assert_eq!(config.max_summary_tokens, 2_000);
-    }
-
-    #[test]
-    fn test_memory_scope_serialization() {
-        let scope = MemoryScope::PerTask;
-        let serialized = serde_json::to_string(&scope).unwrap();
-        assert_eq!(serialized, r#""per_task""#);
-    }
-
-    #[test]
-    fn test_task_serialization_with_memory() {
-        let task = Task::new(
-            "task-123".to_string(),
-            "Test Task".to_string(),
-            "agent-456".to_string(),
-            TaskSchedule::default(),
-        );
-
-        let json = serde_json::to_string(&task).unwrap();
-        assert!(json.contains("memory"));
-        assert!(json.contains("max_messages"));
-
-        let deserialized: Task = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.memory.max_messages, 100);
-        assert_eq!(deserialized.memory.memory_scope, MemoryScope::SharedAgent);
     }
 
     #[test]

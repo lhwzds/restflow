@@ -222,18 +222,6 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_rebuild_external_session(
-        core: &Arc<AppCore>,
-        id: String,
-    ) -> IpcResponse {
-        let session_service = SessionService::from_storage(&core.storage);
-        match session_service.rebuild_external_session(&id) {
-            Ok(Some(rebuilt)) => IpcResponse::success(rebuilt),
-            Ok(None) => IpcResponse::not_found("Session"),
-            Err(err) => ipc_session_lifecycle_error(err),
-        }
-    }
-
     pub(super) async fn handle_search_sessions(core: &Arc<AppCore>, query: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
         match session_service.search_session_views(&query, None, None, false, usize::MAX) {

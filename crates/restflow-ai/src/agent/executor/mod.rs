@@ -6,7 +6,7 @@
 //!
 //! ```ignore
 //! executor/
-//! ├── mod.rs              # AgentExecutor + entry methods + maybe_checkpoint
+//! ├── mod.rs              # AgentExecutor + entry methods
 //! ├── builder.rs          # new(), with_workspace_root(), with_steer_channel(), with_subagent_tracker()
 //! ├── llm.rs              # execute_llm_completion(), build_system_prompt(), workspace instructions
 //! ├── loop.rs             # execute_with_mode() — the ~450 line main ReAct loop
@@ -829,7 +829,6 @@ impl AgentExecutor {
             }
 
             state.increment_iteration();
-            self.maybe_checkpoint(&config, &state, false).await?;
 
             for (_id, content) in streaming_buffer.flush_all() {
                 emitter.emit_text_delta(&content).await;
@@ -840,7 +839,7 @@ impl AgentExecutor {
             emitter.emit_text_delta(&content).await;
         }
 
-        // Context management: prune old tool results for checkpoint/resume
+        // Context management: prune old tool results after the loop.
         let prune_stats = context_manager::prune(&mut state.messages, &context_config);
         if prune_stats.applied {
             tracing::info!(
@@ -852,7 +851,6 @@ impl AgentExecutor {
 
         // Build result
         let resource_usage = tracker.usage_snapshot();
-        self.maybe_checkpoint(&config, &state, true).await?;
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),
             answer: state.final_answer.clone(),

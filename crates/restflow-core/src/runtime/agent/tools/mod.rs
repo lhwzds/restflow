@@ -19,7 +19,6 @@ use self::assembly::{
     register_management_tools, register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
-use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
 use restflow_storage::ApiSettings;
@@ -367,15 +366,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     builder.with_skill_tool(provider)
                 };
             }
-            "memory_search" => {
-                with_storage!(storage, "memory_search", builder, |s| {
-                    let engine = UnifiedSearchEngine::new(
-                        s.memory.clone(),
-                        crate::services::session::SessionService::from_storage(s),
-                    );
-                    builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(engine)))
-                });
-            }
             "manage_secrets" | "secrets" => {
                 with_storage!(storage, "manage_secrets", builder, |s| {
                     builder.with_secrets(Arc::new(SecretStoreAdapter::new(Arc::new(
@@ -405,16 +395,6 @@ pub fn registry_from_allowlist_with_security_gate(
                         s.secrets.clone(),
                     )))
                 });
-            }
-            "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
-                // Register all 4 memory CRUD tools at once (idempotent via has() check)
-                if !builder.registry.has("save_to_memory") {
-                    with_storage!(storage, raw_name.as_str(), builder, |s| {
-                        builder.with_memory_store(Arc::new(DbMemoryStoreAdapter::new(
-                            s.memory.clone(),
-                        )))
-                    });
-                }
             }
             // --- Search tools ---
             "glob" => {

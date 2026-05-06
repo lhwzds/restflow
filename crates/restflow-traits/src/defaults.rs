@@ -96,12 +96,6 @@ pub const MAX_API_WEB_SEARCH_RESULTS: usize = 10;
 /// Default timeout (milliseconds) for diagnostics collection.
 pub const DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS: u64 = 5_000;
 
-/// Default timeout (seconds) for Telegram Bot API HTTP requests.
-pub const DEFAULT_TELEGRAM_API_TIMEOUT_SECS: u64 = 30;
-
-/// Default timeout (seconds) for Telegram long polling requests.
-pub const DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS: u32 = 30;
-
 /// Default cache TTL (seconds) for GitHub registry results.
 pub const DEFAULT_GITHUB_CACHE_TTL_SECS: u64 = 600;
 

@@ -3,17 +3,6 @@ use crate::models::{TaskRun, TaskRunMetrics, TaskRunStatus};
 use std::collections::BTreeMap;
 
 impl TaskStorage {
-    fn normalize_checkpoint_id(checkpoint_id: Option<String>) -> Option<String> {
-        checkpoint_id.and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        })
-    }
-
     pub fn create_task_run(&self, run: TaskRun) -> Result<TaskRun> {
         let json_bytes = serde_json::to_vec(&run)?;
         self.inner.put_run_raw_with_status(
@@ -81,42 +70,12 @@ impl TaskStorage {
         run_id: impl Into<String>,
         execution_id: impl Into<String>,
         started_at: i64,
-        checkpoint_id: Option<String>,
     ) -> Result<TaskRun> {
         let run_id = run_id.into();
         let execution_id = execution_id.into();
-        let checkpoint_id = Self::normalize_checkpoint_id(checkpoint_id);
-        self.validate_checkpoint_ownership(task_id, &execution_id, checkpoint_id.as_deref())?;
 
-        let run = TaskRun::new(
-            run_id,
-            task_id.to_string(),
-            execution_id,
-            started_at,
-            checkpoint_id,
-        );
+        let run = TaskRun::new(run_id, task_id.to_string(), execution_id, started_at);
         self.create_task_run(run)
-    }
-
-    pub fn set_task_run_checkpoint(
-        &self,
-        run_id: &str,
-        checkpoint_id: Option<String>,
-    ) -> Result<Option<TaskRun>> {
-        let Some(mut run) = self.get_task_run(run_id)? else {
-            return Ok(None);
-        };
-
-        let checkpoint_id = Self::normalize_checkpoint_id(checkpoint_id);
-        self.validate_checkpoint_ownership(
-            &run.task_id,
-            &run.execution_id,
-            checkpoint_id.as_deref(),
-        )?;
-        let previous_status = run.status.clone();
-        run.set_checkpoint_id(checkpoint_id);
-        self.update_task_run(&run, previous_status)?;
-        Ok(Some(run))
     }
 
     pub fn mark_task_run_terminal(

@@ -14,11 +14,9 @@ pub use events::{
     TASK_STREAM_EVENT, TaskStreamEvent,
 };
 pub use operation::{
-    AllowedPeerResponse, ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse,
+    ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse,
     CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, IdResponse,
-    IpcDaemonStatus, OkResponse, PairingApprovalResponse, PairingOwnerResponse,
-    PairingRequestResponse, PairingStateResponse, PromptResponse, RouteBindingResponse,
-    SecretResponse, SteerResponse,
+    IpcDaemonStatus, OkResponse, PromptResponse, SecretResponse, SteerResponse,
 };
 pub use request::IpcRequest;
 pub use response::ResponseEnvelope;

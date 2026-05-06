@@ -4,7 +4,6 @@ use anyhow::{Result, anyhow};
 use restflow_contracts::request::{
     AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest,
 };
-use restflow_storage::AuthProfileStorage;
 use restflow_traits::ModelProvider as SharedModelProvider;
 use sha2::{Digest, Sha256};
 
@@ -18,7 +17,9 @@ use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDef
 use crate::services::session::SessionService;
 use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
-use crate::storage::{AgentStorage, ConfigStorage, SecretStorage, Storage, TaskStorage};
+use crate::storage::{
+    AgentStorage, AuthProfileStorage, ConfigStorage, SecretStorage, Storage, TaskStorage,
+};
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
@@ -1254,9 +1255,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: None,
                 preview: false,
@@ -1297,9 +1295,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: None,
                 preview: false,
@@ -1357,9 +1352,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: None,
                 preview: false,
@@ -1376,9 +1368,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: None,
                 preview: false,
@@ -1424,9 +1413,6 @@ mod tests {
             schedule: None,
             input: None,
             timeout_secs: None,
-            durability_mode: None,
-            memory: None,
-            memory_scope: None,
             resource_limits: None,
             run_now: None,
             preview: false,
@@ -1467,11 +1453,8 @@ mod tests {
                 input: Some("run".to_string()),
                 input_template: None,
                 schedule: crate::models::TaskSchedule::default(),
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,
@@ -1524,9 +1507,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: None,
                 preview: false,

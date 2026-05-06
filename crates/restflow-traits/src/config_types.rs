@@ -15,10 +15,7 @@ const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
 const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
-const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
-const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
-const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
 
 // ── CLI types ────────────────────────────────────────────────────────
@@ -58,8 +55,6 @@ pub struct SystemSection {
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
     pub task_retention_days: u32,
-    pub checkpoint_retention_days: u32,
-    pub memory_chunk_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
 }
@@ -75,8 +70,6 @@ impl Default for SystemSection {
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
             task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
-            checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
-            memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
         }
@@ -94,8 +87,6 @@ impl From<&SystemConfig> for SystemSection {
             max_retries: config.max_retries,
             chat_session_retention_days: config.chat_session_retention_days,
             task_retention_days: config.task_retention_days,
-            checkpoint_retention_days: config.checkpoint_retention_days,
-            memory_chunk_retention_days: config.memory_chunk_retention_days,
             log_file_retention_days: config.log_file_retention_days,
             experimental_features: config.experimental_features.clone(),
         }
@@ -166,7 +157,6 @@ impl Default for AgentDefaults {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(default)]
 pub struct ApiDefaults {
-    pub memory_search_limit: u32,
     pub session_list_limit: u32,
     pub task_progress_event_limit: usize,
     pub task_message_list_limit: usize,
@@ -181,7 +171,6 @@ pub type ApiSettings = ApiDefaults;
 impl Default for ApiDefaults {
     fn default() -> Self {
         Self {
-            memory_search_limit: DEFAULT_MEMORY_SEARCH_LIMIT,
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
             task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
             task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
@@ -212,27 +201,6 @@ impl Default for RuntimeDefaults {
             task_runner_poll_interval_ms: DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
             task_runner_max_concurrent_tasks: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
             chat_max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
-        }
-    }
-}
-
-// ── ChannelDefaults ──────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(default)]
-pub struct ChannelDefaults {
-    pub telegram_api_timeout_secs: u64,
-    pub telegram_polling_timeout_secs: u32,
-}
-
-pub type ChannelSettings = ChannelDefaults;
-
-impl Default for ChannelDefaults {
-    fn default() -> Self {
-        Self {
-            telegram_api_timeout_secs: DEFAULT_TELEGRAM_API_TIMEOUT_SECS,
-            telegram_polling_timeout_secs: DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS,
         }
     }
 }
@@ -274,8 +242,6 @@ pub struct SystemConfig {
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
     pub task_retention_days: u32,
-    pub checkpoint_retention_days: u32,
-    pub memory_chunk_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
     #[serde(default)]
@@ -284,8 +250,6 @@ pub struct SystemConfig {
     pub api_defaults: ApiSettings,
     #[serde(default)]
     pub runtime_defaults: RuntimeSettings,
-    #[serde(default)]
-    pub channel_defaults: ChannelSettings,
     #[serde(default)]
     pub registry_defaults: RegistrySettings,
 }
@@ -301,14 +265,11 @@ impl Default for SystemConfig {
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
             task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
-            checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
-            memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
             agent: AgentSettings::default(),
             api_defaults: ApiSettings::default(),
             runtime_defaults: RuntimeSettings::default(),
-            channel_defaults: ChannelSettings::default(),
             registry_defaults: RegistrySettings::default(),
         }
     }
@@ -324,7 +285,6 @@ pub struct ConfigDocument {
     pub agent: AgentSettings,
     pub api: ApiSettings,
     pub runtime: RuntimeSettings,
-    pub channel: ChannelSettings,
     pub registry: RegistrySettings,
     #[serde(default)]
     pub cli: CliConfig,
@@ -337,7 +297,6 @@ impl ConfigDocument {
             agent: system.agent,
             api: system.api_defaults,
             runtime: system.runtime_defaults,
-            channel: system.channel_defaults,
             registry: system.registry_defaults,
             cli,
         }
@@ -353,14 +312,11 @@ impl ConfigDocument {
             max_retries: self.system.max_retries,
             chat_session_retention_days: self.system.chat_session_retention_days,
             task_retention_days: self.system.task_retention_days,
-            checkpoint_retention_days: self.system.checkpoint_retention_days,
-            memory_chunk_retention_days: self.system.memory_chunk_retention_days,
             log_file_retention_days: self.system.log_file_retention_days,
             experimental_features: self.system.experimental_features.clone(),
             agent: self.agent.clone(),
             api_defaults: self.api.clone(),
             runtime_defaults: self.runtime.clone(),
-            channel_defaults: self.channel.clone(),
             registry_defaults: self.registry.clone(),
         }
     }
@@ -370,7 +326,6 @@ impl ConfigDocument {
         self.agent = system.agent;
         self.api = system.api_defaults;
         self.runtime = system.runtime_defaults;
-        self.channel = system.channel_defaults;
         self.registry = system.registry_defaults;
     }
 }

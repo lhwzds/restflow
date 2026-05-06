@@ -9,34 +9,6 @@ fn create_test_storage() -> TaskStorage {
     TaskStorage::new(db).unwrap()
 }
 
-fn persist_checkpoint(
-    storage: &TaskStorage,
-    task_id: &str,
-    execution_id: &str,
-    with_savepoint: bool,
-) -> AgentCheckpoint {
-    let mut checkpoint = AgentCheckpoint::new(
-        execution_id.to_string(),
-        Some(task_id.to_string()),
-        1,
-        0,
-        b"{}".to_vec(),
-        "test checkpoint".to_string(),
-    );
-
-    if with_savepoint {
-        let savepoint_id = storage.save_checkpoint_with_savepoint(&checkpoint).unwrap();
-        checkpoint.savepoint_id = Some(savepoint_id);
-        storage
-            .save_checkpoint_with_savepoint_id(&checkpoint)
-            .unwrap();
-    } else {
-        storage.save_checkpoint(&checkpoint).unwrap();
-    }
-
-    checkpoint
-}
-
 // ============== Short ID Resolution Tests ==============
 
 #[test]
@@ -52,11 +24,8 @@ fn test_resolve_existing_task_id_exact_match() {
             input: Some("test input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -97,11 +66,8 @@ fn test_resolve_existing_task_id_unique_prefix() {
             input: Some("test input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -165,11 +131,8 @@ fn test_resolve_existing_task_id_ambiguous_prefix() {
             input: Some("test input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -185,11 +148,8 @@ fn test_resolve_existing_task_id_ambiguous_prefix() {
             input: Some("test input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -257,7 +217,7 @@ fn test_resolve_existing_task_id_typed_returns_internal_for_malformed_task_scan(
 }
 
 #[test]
-fn test_task_runs_round_trip_and_track_checkpoint() {
+fn test_task_runs_round_trip() {
     let storage = create_test_storage();
     let task = storage
         .create_task(
@@ -266,10 +226,9 @@ fn test_task_runs_round_trip_and_track_checkpoint() {
             TaskSchedule::default(),
         )
         .unwrap();
-    let checkpoint = persist_checkpoint(&storage, &task.id, "exec-1", false);
 
     let run = storage
-        .start_task_run(&task.id, "run-1", "exec-1", 100, None)
+        .start_task_run(&task.id, "run-1", "exec-1", 100)
         .unwrap();
     assert_eq!(run.run_id, "run-1");
 
@@ -278,15 +237,6 @@ fn test_task_runs_round_trip_and_track_checkpoint() {
         .unwrap()
         .expect("active run");
     assert_eq!(active_run.execution_id, "exec-1");
-
-    let updated = storage
-        .set_task_run_checkpoint("run-1", Some(checkpoint.id.clone()))
-        .unwrap()
-        .expect("updated run");
-    assert_eq!(
-        updated.checkpoint_id.as_deref(),
-        Some(checkpoint.id.as_str())
-    );
 
     let completed = storage
         .mark_task_run_terminal(
@@ -317,9 +267,9 @@ fn test_start_task_run_rejects_second_active_run_for_task() {
         .unwrap();
 
     storage
-        .start_task_run(&task.id, "run-1", "exec-1", 100, None)
+        .start_task_run(&task.id, "run-1", "exec-1", 100)
         .unwrap();
-    let result = storage.start_task_run(&task.id, "run-2", "exec-2", 200, None);
+    let result = storage.start_task_run(&task.id, "run-2", "exec-2", 200);
 
     assert!(result.is_err());
     assert!(
@@ -327,63 +277,6 @@ fn test_start_task_run_rejects_second_active_run_for_task() {
             .unwrap_err()
             .to_string()
             .contains("already has active run")
-    );
-}
-
-#[test]
-fn test_start_task_run_rejects_foreign_checkpoint() {
-    let storage = create_test_storage();
-    let task = storage
-        .create_task(
-            "Checkpoint Owner".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    let other_task = storage
-        .create_task(
-            "Foreign Owner".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    let foreign_checkpoint = persist_checkpoint(&storage, &other_task.id, "exec-1", false);
-
-    let result = storage.start_task_run(
-        &task.id,
-        "run-1",
-        "exec-1",
-        100,
-        Some(foreign_checkpoint.id.clone()),
-    );
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("belongs to task"));
-}
-
-#[test]
-fn test_set_task_run_checkpoint_rejects_mismatched_execution() {
-    let storage = create_test_storage();
-    let task = storage
-        .create_task(
-            "Checkpoint Execution".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    let wrong_execution_checkpoint = persist_checkpoint(&storage, &task.id, "exec-2", false);
-
-    storage
-        .start_task_run(&task.id, "run-1", "exec-1", 100, None)
-        .unwrap();
-    let result = storage.set_task_run_checkpoint("run-1", Some(wrong_execution_checkpoint.id));
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("belongs to execution")
     );
 }
 
@@ -398,8 +291,8 @@ fn test_get_active_task_run_recovers_duplicate_legacy_active_runs() {
         )
         .unwrap();
 
-    let run_one = TaskRun::new("run-1", task.id.clone(), "exec-1", 100, None);
-    let run_two = TaskRun::new("run-2", task.id.clone(), "exec-2", 200, None);
+    let run_one = TaskRun::new("run-1", task.id.clone(), "exec-1", 100);
+    let run_two = TaskRun::new("run-2", task.id.clone(), "exec-2", 200);
     let run_one_raw = serde_json::to_vec(&run_one).unwrap();
     let run_two_raw = serde_json::to_vec(&run_two).unwrap();
     storage
@@ -450,11 +343,8 @@ fn test_resolve_existing_task_id_exact_priority_over_prefix() {
             input: Some("test input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -930,52 +820,6 @@ fn test_delete_task() {
 }
 
 #[test]
-fn test_delete_task_removes_checkpoints_and_savepoints() {
-    let storage = create_test_storage();
-    let task = storage
-        .create_task(
-            "Delete Checkpoints".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-    let checkpoint_one = persist_checkpoint(&storage, &task.id, "exec-1", true);
-    let checkpoint_two = persist_checkpoint(&storage, &task.id, "exec-2", true);
-
-    let deleted = storage.delete_task(&task.id).unwrap();
-    assert!(deleted);
-
-    assert!(
-        storage
-            .load_checkpoint_by_task_id(&task.id)
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        storage
-            .load_checkpoint(&checkpoint_one.id)
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        storage
-            .load_checkpoint(&checkpoint_two.id)
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        !storage
-            .delete_checkpoint_savepoint(checkpoint_one.savepoint_id.unwrap())
-            .unwrap()
-    );
-    assert!(
-        !storage
-            .delete_checkpoint_savepoint(checkpoint_two.savepoint_id.unwrap())
-            .unwrap()
-    );
-}
-
-#[test]
 fn test_delete_task_does_not_archive_owned_chat_session() {
     let storage = create_test_storage();
     let task = storage
@@ -988,11 +832,8 @@ fn test_delete_task_does_not_archive_owned_chat_session() {
                 input: Some("archive me".to_string()),
                 input_template: None,
                 schedule: TaskSchedule::default(),
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,
@@ -1024,11 +865,8 @@ fn test_delete_task_does_not_archive_non_owned_chat_session() {
             input: Some("keep session".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1054,11 +892,8 @@ fn test_create_task_accepts_raw_reused_chat_session_binding() {
             input: Some("owner".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1073,11 +908,8 @@ fn test_create_task_accepts_raw_reused_chat_session_binding() {
         input: Some("reuse".to_string()),
         input_template: None,
         schedule: TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,
@@ -1259,40 +1091,6 @@ fn test_list_recent_events() {
 }
 
 #[test]
-fn test_notification_events() {
-    let storage = create_test_storage();
-
-    let task = storage
-        .create_task(
-            "Test Task".to_string(),
-            "agent-001".to_string(),
-            TaskSchedule::default(),
-        )
-        .unwrap();
-
-    // Record notification sent
-    storage
-        .record_notification_sent(&task.id, "Notification delivered".to_string())
-        .unwrap();
-
-    // Record notification failure
-    storage
-        .record_notification_failed(&task.id, "Network error".to_string())
-        .unwrap();
-
-    let events = storage.list_events_for_task(&task.id).unwrap();
-    let notification_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
-            e.event_type == TaskEventType::NotificationSent
-                || e.event_type == TaskEventType::NotificationFailed
-        })
-        .collect();
-
-    assert_eq!(notification_events.len(), 2);
-}
-
-#[test]
 fn test_list_runnable_tasks() {
     let storage = create_test_storage();
 
@@ -1346,11 +1144,8 @@ fn test_list_runnable_tasks_repairs_missing_next_run_for_cron() {
                 expression: "* * * * *".to_string(),
                 timezone: None,
             },
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1385,11 +1180,8 @@ fn test_list_runnable_tasks_repairs_stale_next_run() {
                 interval_ms: 900_000,
                 start_at: None,
             },
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1435,11 +1227,8 @@ fn test_repair_runnable_task_does_not_overwrite_paused_status_from_stale_snapsho
                 interval_ms: 900_000,
                 start_at: None,
             },
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1484,11 +1273,8 @@ fn test_list_runnable_tasks_repairs_stale_task_with_duplicate_session_binding() 
                 interval_ms: 3_600_000,
                 start_at: None,
             },
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1589,11 +1375,8 @@ fn test_task_lifecycle() {
                 interval_ms: 60_000,
                 start_at: None,
             },
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1702,9 +1485,7 @@ fn test_log_task_reply_is_not_queued() {
 }
 
 #[test]
-fn test_create_task_with_template_and_memory_scope() {
-    use crate::models::{MemoryConfig, MemoryScope};
-
+fn test_create_task_with_template() {
     let storage = create_test_storage();
     let created = storage
         .create_task_from_spec(TaskSpec {
@@ -1715,19 +1496,8 @@ fn test_create_task_with_template_and_memory_scope() {
             input: Some("fallback".to_string()),
             input_template: Some("Run task {{task.id}}".to_string()),
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: Some(MemoryConfig {
-                max_messages: 120,
-                enable_file_memory: true,
-                persist_on_complete: true,
-                memory_scope: MemoryScope::PerTask,
-                enable_compaction: true,
-                compaction_threshold_ratio: 0.80,
-                max_summary_tokens: 2_000,
-            }),
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1738,7 +1508,6 @@ fn test_create_task_with_template_and_memory_scope() {
         created.input_template.as_deref(),
         Some("Run task {{task.id}}")
     );
-    assert_eq!(created.memory.memory_scope, MemoryScope::PerTask);
 }
 
 #[test]
@@ -1753,11 +1522,8 @@ fn test_create_task_does_not_auto_create_bound_chat_session() {
             input: Some("Run with auto session".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1782,11 +1548,8 @@ fn test_create_task_accepts_raw_chat_session_binding() {
             input: Some("Run".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1809,11 +1572,8 @@ fn test_update_task_agent_change_preserves_chat_session_binding() {
             input: Some("Run".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1848,11 +1608,8 @@ fn test_update_task_accepts_raw_reused_chat_session_binding() {
             input: Some("Owner input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1868,11 +1625,8 @@ fn test_update_task_accepts_raw_reused_chat_session_binding() {
             input: Some("Other input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1893,9 +1647,7 @@ fn test_update_task_accepts_raw_reused_chat_session_binding() {
 }
 
 #[test]
-fn test_update_task_updates_template_and_memory_scope() {
-    use crate::models::{MemoryConfig, MemoryScope};
-
+fn test_update_task_updates_template() {
     let storage = create_test_storage();
     let created = storage
         .create_task_from_spec(TaskSpec {
@@ -1906,11 +1658,8 @@ fn test_update_task_updates_template_and_memory_scope() {
             input: Some("Fallback task input".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -1922,15 +1671,6 @@ fn test_update_task_updates_template_and_memory_scope() {
             &created.id,
             TaskPatch {
                 input_template: Some("Template {{task.name}}".to_string()),
-                memory: Some(MemoryConfig {
-                    max_messages: 80,
-                    enable_file_memory: false,
-                    persist_on_complete: true,
-                    memory_scope: MemoryScope::PerTask,
-                    enable_compaction: true,
-                    compaction_threshold_ratio: 0.80,
-                    max_summary_tokens: 2_000,
-                }),
                 ..Default::default()
             },
         )
@@ -1940,7 +1680,6 @@ fn test_update_task_updates_template_and_memory_scope() {
         updated.input_template.as_deref(),
         Some("Template {{task.name}}")
     );
-    assert_eq!(updated.memory.memory_scope, MemoryScope::PerTask);
 }
 
 #[test]
@@ -1954,11 +1693,8 @@ fn test_create_task_rejects_timeout_below_minimum() {
         input: Some("Run timeout validation".to_string()),
         input_template: None,
         schedule: TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: Some(5),
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,
@@ -1985,11 +1721,8 @@ fn test_update_task_updates_timeout_secs() {
             input: Some("Run timeout update".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -2023,11 +1756,8 @@ fn test_task_resource_limits_roundtrip() {
             input: Some("Run resource limit roundtrip".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: Some(ResourceLimits {
                 max_tool_calls: 12,
                 max_duration_secs: 90,
@@ -2079,11 +1809,8 @@ fn test_task_continuation_roundtrip() {
             input: Some("Run continuation roundtrip".to_string()),
             input_template: None,
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: Some(ContinuationConfig {
@@ -2144,11 +1871,8 @@ fn test_create_task_rejects_missing_input_and_template() {
         input: None,
         input_template: None,
         schedule: TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,
@@ -2175,11 +1899,8 @@ fn test_update_task_rejects_empty_input_and_template() {
             input: Some("Initial input".to_string()),
             input_template: Some("Template {{task.name}}".to_string()),
             schedule: TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -2215,11 +1936,8 @@ fn test_create_task_allows_task_input_template_when_input_exists() {
         input: Some("Use fallback".to_string()),
         input_template: Some("{{task.input}}".to_string()),
         schedule: TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,
@@ -2239,11 +1957,8 @@ fn test_create_task_rejects_template_that_renders_empty_without_fallback() {
         input: None,
         input_template: Some("{{task.input}}".to_string()),
         schedule: TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,
@@ -2269,11 +1984,8 @@ fn test_create_task_keeps_non_empty_template_compatibility() {
         input: None,
         input_template: Some("Task {{task.name}}".to_string()),
         schedule: TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,

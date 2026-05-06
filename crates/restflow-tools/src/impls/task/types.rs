@@ -1,7 +1,6 @@
 use restflow_contracts::request::{
-    DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
-    MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,
-    ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
+    ExecutionMode as ContractExecutionMode, ResourceLimits as ContractResourceLimits,
+    TaskSchedule as ContractTaskSchedule,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,13 +27,6 @@ pub(super) struct TaskBatchWorkerSpec {
     pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub durability_mode: Option<ContractDurabilityMode>,
-    #[serde(default)]
-    pub memory: Option<ContractMemoryConfig>,
-    #[serde(default)]
-    pub memory_scope: Option<String>,
-    #[serde(default)]
     pub resource_limits: Option<ContractResourceLimits>,
 }
 
@@ -57,9 +49,6 @@ pub(super) fn workers_schema() -> Value {
                 "chat_session_id": { "type": "string", "description": "Optional bound chat session ID for worker-created tasks." },
                 "schedule": { "type": "object", "description": "Optional per-worker schedule payload." },
                 "timeout_secs": { "type": "integer", "minimum": 1, "description": "Optional per-worker timeout override." },
-                "durability_mode": { "type": "string", "enum": ["sync", "async", "exit"], "description": "Optional per-worker durability mode." },
-                "memory": { "type": "object", "description": "Optional per-worker memory payload." },
-                "memory_scope": { "type": "string", "enum": ["shared_agent", "per_task"], "description": "Optional per-worker memory scope override." },
                 "resource_limits": { "type": "object", "description": "Optional per-worker resource limits payload." }
             }
         }
@@ -81,13 +70,6 @@ pub(super) enum TaskAction {
         input_template: Option<String>,
         #[serde(default)]
         timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<ContractDurabilityMode>,
-        #[serde(default)]
-        memory: Option<ContractMemoryConfig>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
         resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         preview: bool,
@@ -104,13 +86,6 @@ pub(super) enum TaskAction {
         input: Option<String>,
         #[serde(default)]
         timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<ContractDurabilityMode>,
-        #[serde(default)]
-        memory: Option<ContractMemoryConfig>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
         resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,
@@ -130,13 +105,6 @@ pub(super) enum TaskAction {
         input: Option<String>,
         #[serde(default)]
         timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<ContractDurabilityMode>,
-        #[serde(default)]
-        memory: Option<ContractMemoryConfig>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
         resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,
@@ -162,18 +130,9 @@ pub(super) enum TaskAction {
         #[serde(default)]
         schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
-        notification: Option<ContractNotificationConfig>,
-        #[serde(default)]
         execution_mode: Option<ContractExecutionMode>,
         #[serde(default)]
         timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<ContractDurabilityMode>,
-        #[serde(default)]
-        memory: Option<ContractMemoryConfig>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
         resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         preview: bool,
@@ -210,13 +169,6 @@ pub(super) enum TaskAction {
         schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
         timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<ContractDurabilityMode>,
-        #[serde(default)]
-        memory: Option<ContractMemoryConfig>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
         resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,

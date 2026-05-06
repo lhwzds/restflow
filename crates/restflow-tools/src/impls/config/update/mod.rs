@@ -1,6 +1,5 @@
 mod agent;
 mod api;
-mod channel;
 mod registry;
 mod runtime;
 mod system;
@@ -25,9 +24,6 @@ pub(crate) fn apply_update(key: &str, value: &Value, config: &mut ConfigDocument
     }
     if let Some(field) = key.strip_prefix("runtime.") {
         return runtime::apply(field, value, config);
-    }
-    if let Some(field) = key.strip_prefix("channel.") {
-        return channel::apply(field, value, config);
     }
     if let Some(field) = key.strip_prefix("registry.") {
         return registry::apply(field, value, config);

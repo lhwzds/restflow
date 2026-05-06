@@ -33,7 +33,6 @@ pub async fn run(
             input,
             input_template,
             timeout,
-            notify,
         } => {
             create_task(
                 executor,
@@ -44,7 +43,6 @@ pub async fn run(
                 input,
                 input_template,
                 timeout,
-                notify,
                 format,
             )
             .await
@@ -200,9 +198,6 @@ async fn convert_session_to_task(
                 .transpose()?,
             input,
             timeout_secs,
-            durability_mode: None,
-            memory: None,
-            memory_scope: None,
             resource_limits: None,
             run_now: Some(run_now),
         })
@@ -234,20 +229,9 @@ async fn create_task(
     input: Option<String>,
     input_template: Option<String>,
     timeout_secs: Option<u64>,
-    notify: bool,
     format: OutputFormat,
 ) -> Result<()> {
     let schedule = parse_schedule(&schedule_type, schedule_value)?;
-
-    let notification = if notify {
-        Some(restflow_core::models::NotificationConfig {
-            notify_on_failure_only: false,
-            include_output: true,
-            broadcast_steps: false,
-        })
-    } else {
-        None
-    };
 
     let spec = TaskSpec {
         name,
@@ -257,11 +241,8 @@ async fn create_task(
         input,
         input_template,
         schedule,
-        notification,
         execution_mode: None,
         timeout_secs,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: vec![],
         continuation: None,
@@ -306,11 +287,8 @@ async fn update_task(
         input,
         input_template: None,
         schedule,
-        notification: None,
         execution_mode: None,
         timeout_secs,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: None,
         continuation: None,

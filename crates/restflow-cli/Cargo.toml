@@ -14,7 +14,6 @@ restflow-contracts = { workspace = true }
 restflow-core = { workspace = true }
 restflow-tui = { workspace = true }
 restflow-ai = { workspace = true }
-restflow-storage = { workspace = true }
 restflow-traits = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
@@ -42,9 +41,6 @@ zip = "6.0.0"
 walkdir = "2"
 tempfile = "3.25"
 
-# Database
-redb = "3.1"
-
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -61,4 +57,3 @@ clap_mangen = "0.2"
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"
-redb = "3.1"

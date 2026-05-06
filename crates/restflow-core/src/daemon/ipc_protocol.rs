@@ -96,12 +96,8 @@ mod tests {
 
     #[test]
     fn test_task_stream_frame_serialization() {
-        let event = TaskStreamEvent::progress(
-            "agent-42",
-            "notification",
-            Some(100),
-            Some("done".to_string()),
-        );
+        let event =
+            TaskStreamEvent::progress("agent-42", "progress", Some(100), Some("done".to_string()));
         let frame = StreamFrame::Event {
             event: IpcStreamEvent::Task(event.clone()),
         };

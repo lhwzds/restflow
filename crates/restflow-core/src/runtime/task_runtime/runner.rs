@@ -4,21 +4,17 @@
 //! - Polling storage for runnable tasks
 //! - Executing agents on schedule
 //! - Handling task lifecycle (start, complete, fail)
-//! - Persisting conversation memory to long-term storage
-//! - Sending notifications on completion/failure
+//! - Persisting execution state and transcript updates
 
-use crate::channel::{ChannelRouter, MessageLevel, OutboundMessage};
 use crate::models::{
-    ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource, Task,
-    TaskMessageSource, TaskRun, TaskStatus,
+    ExecutionMode, SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus,
 };
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
-use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::services::session::SessionService;
 use crate::steer::SteerRegistry;
-use crate::storage::{MemoryStorage, TaskStorage};
+use crate::storage::TaskStorage;
 use anyhow::{Result, anyhow};
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::telemetry::{RunDescriptor, RunKind, RunLifecycleService};
@@ -32,9 +28,7 @@ use tokio::time::{Duration, Instant, interval};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
-use super::persist::MemoryPersister;
 use restflow_traits::{
     DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
 };
@@ -46,7 +40,6 @@ use super::heartbeat::{
 use super::outcome::ExecutionOutcome;
 use finalizer::TaskRunFinalizer;
 mod finalizer;
-mod notification;
 mod persistence;
 
 #[cfg(test)]
@@ -87,11 +80,6 @@ pub enum TaskRunnerCommand {
     RunTaskNow(String),
     /// Stop a running task
     StopTask(String),
-    /// Resume a task from a checkpoint
-    ResumeTask {
-        task_id: String,
-        payload: crate::models::ResumePayload,
-    },
 }
 
 /// Configuration for the task runner.
@@ -162,18 +150,6 @@ impl TaskRunnerHandle {
             .await
             .map_err(|e| anyhow!("Failed to send stop task command: {}", e))
     }
-
-    /// Resume a task from a checkpoint
-    pub async fn resume_task(
-        &self,
-        task_id: String,
-        payload: crate::models::ResumePayload,
-    ) -> Result<()> {
-        self.command_tx
-            .send(TaskRunnerCommand::ResumeTask { task_id, payload })
-            .await
-            .map_err(|e| anyhow!("Failed to send resume task command: {}", e))
-    }
 }
 
 /// Agent executor trait for dependency injection
@@ -188,7 +164,6 @@ pub trait AgentExecutor: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult>;
 
@@ -201,13 +176,11 @@ pub trait AgentExecutor: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         let _ = emitter;
-        self.execute(agent_id, task_id, input, memory_config, steer_rx)
-            .await
+        self.execute(agent_id, task_id, input, steer_rx).await
     }
 
     /// Execute an agent with an emitter and an explicit telemetry context.
@@ -221,13 +194,12 @@ pub trait AgentExecutor: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let _ = telemetry_context;
-        self.execute_with_emitter(agent_id, task_id, input, memory_config, steer_rx, emitter)
+        self.execute_with_emitter(agent_id, task_id, input, steer_rx, emitter)
             .await
     }
 
@@ -239,12 +211,11 @@ pub trait AgentExecutor: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         let _ = state;
-        self.execute_with_emitter(agent_id, task_id, None, memory_config, steer_rx, emitter)
+        self.execute_with_emitter(agent_id, task_id, None, steer_rx, emitter)
             .await
     }
 
@@ -256,165 +227,36 @@ pub trait AgentExecutor: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let _ = telemetry_context;
-        self.execute_from_state(agent_id, task_id, state, memory_config, steer_rx, emitter)
+        self.execute_from_state(agent_id, task_id, state, steer_rx, emitter)
             .await
     }
 }
 
-/// Notification sender trait for dependency injection
+#[cfg(test)]
 #[async_trait::async_trait]
 pub trait NotificationSender: Send + Sync {
-    /// Send a notification with the given configuration
-    async fn send(
-        &self,
-        config: &NotificationConfig,
-        task: &Task,
-        success: bool,
-        message: &str,
-    ) -> Result<()>;
+    async fn send(&self, task: &Task, success: bool, message: &str) -> Result<()>;
 
-    /// Send a notification message that is already fully formatted.
     async fn send_formatted(&self, message: &str) -> Result<()>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NotificationDispatchStatus {
-    Sent,
-    Skipped,
-}
+#[cfg(test)]
+pub struct NoopNotificationSender;
 
+#[cfg(test)]
 #[async_trait::async_trait]
-trait NotificationSink: Send + Sync {
-    fn name(&self) -> &'static str;
-
-    async fn send(
-        &self,
-        task: &Task,
-        level: MessageLevel,
-        message: &str,
-    ) -> Result<NotificationDispatchStatus>;
-}
-
-struct ChannelRouterNotificationSink {
-    router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
-}
-
-#[async_trait::async_trait]
-impl NotificationSink for ChannelRouterNotificationSink {
-    fn name(&self) -> &'static str {
-        "channel_router"
+impl NotificationSender for NoopNotificationSender {
+    async fn send(&self, _task: &Task, _success: bool, _message: &str) -> Result<()> {
+        Ok(())
     }
 
-    async fn send(
-        &self,
-        task: &Task,
-        level: MessageLevel,
-        message: &str,
-    ) -> Result<NotificationDispatchStatus> {
-        let Some(router) = self.router.read().await.as_ref().cloned() else {
-            return Ok(NotificationDispatchStatus::Skipped);
-        };
-
-        // Prefer task-bound conversations to avoid confusing global broadcasts.
-        let task_conversations = router.find_conversations_by_task(&task.id).await;
-        if !task_conversations.is_empty() {
-            let mut any_sent = false;
-            let mut failures: Vec<String> = Vec::new();
-
-            for context in task_conversations {
-                let mut outbound = OutboundMessage::new(&context.conversation_id, message);
-                outbound.level = level;
-                // Keep payload plain to avoid markdown parse failures in adapters.
-                outbound.parse_mode = None;
-
-                match router.send_to(context.channel_type, outbound).await {
-                    Ok(()) => {
-                        any_sent = true;
-                        info!(
-                            "Notification sent to task-bound conversation '{}' for task '{}'",
-                            context.conversation_id, task.name
-                        );
-                    }
-                    Err(err) => {
-                        warn!(
-                            "Failed sending notification to conversation '{}' for task '{}': {}",
-                            context.conversation_id, task.name, err
-                        );
-                        failures.push(format!("{}: {}", context.conversation_id, err));
-                    }
-                }
-            }
-
-            if any_sent {
-                return Ok(NotificationDispatchStatus::Sent);
-            }
-            if !failures.is_empty() {
-                return Err(anyhow!(
-                    "Task-bound notification delivery failed: {}",
-                    failures.join(" | ")
-                ));
-            }
-            return Ok(NotificationDispatchStatus::Skipped);
-        }
-
-        let mut any_sent = false;
-        let mut failures: Vec<String> = Vec::new();
-        for (channel_type, result) in router.broadcast(message, level).await {
-            match result {
-                Ok(()) => {
-                    any_sent = true;
-                    info!(
-                        "Notification sent via {:?} for task '{}'",
-                        channel_type, task.name
-                    );
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to send notification via {:?} for task '{}': {}",
-                        channel_type, task.name, err
-                    );
-                    failures.push(format!("{:?}: {}", channel_type, err));
-                }
-            }
-        }
-
-        if any_sent {
-            Ok(NotificationDispatchStatus::Sent)
-        } else if !failures.is_empty() {
-            Err(anyhow!(
-                "Channel router did not deliver notification: {}",
-                failures.join(" | ")
-            ))
-        } else {
-            Ok(NotificationDispatchStatus::Skipped)
-        }
-    }
-}
-
-struct TelegramNotificationSink {
-    notifier: Arc<dyn NotificationSender>,
-}
-
-#[async_trait::async_trait]
-impl NotificationSink for TelegramNotificationSink {
-    fn name(&self) -> &'static str {
-        "telegram"
-    }
-
-    async fn send(
-        &self,
-        _task: &Task,
-        _level: MessageLevel,
-        message: &str,
-    ) -> Result<NotificationDispatchStatus> {
-        self.notifier.send_formatted(message).await?;
-        Ok(NotificationDispatchStatus::Sent)
+    async fn send_formatted(&self, _message: &str) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -422,25 +264,19 @@ impl NotificationSink for TelegramNotificationSink {
 pub struct TaskRunner {
     storage: Arc<TaskStorage>,
     executor: Arc<dyn AgentExecutor>,
-    notifier: Arc<dyn NotificationSender>,
     config: TaskRunnerConfig,
     running_tasks: Arc<RwLock<HashSet<String>>>,
     stop_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
     pending_stop_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
     resume_states: Arc<RwLock<HashMap<String, restflow_ai::AgentState>>>,
-    resume_checkpoint_ids: Arc<RwLock<HashMap<String, String>>>,
     task_queue: Arc<TaskQueue>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     event_emitter: Arc<dyn TaskEventEmitter>,
     sequence: AtomicU64,
     start_time: Instant,
-    /// Optional memory persister for long-term memory storage
-    memory_persister: Option<MemoryPersister>,
     /// Optional JSONL-first session service for bound task transcript updates.
     session_service: Option<SessionService>,
     steer_registry: Arc<SteerRegistry>,
-    /// Optional channel router for broadcasting notifications to all configured channels
-    channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
     #[cfg(test)]
     fail_start_task_run_once: Arc<AtomicBool>,
 }
@@ -450,7 +286,7 @@ impl TaskRunner {
     pub fn new(
         storage: Arc<TaskStorage>,
         executor: Arc<dyn AgentExecutor>,
-        notifier: Arc<dyn NotificationSender>,
+        #[cfg(test)] _notifier: Arc<dyn NotificationSender>,
         config: TaskRunnerConfig,
         steer_registry: Arc<SteerRegistry>,
     ) -> Self {
@@ -463,22 +299,18 @@ impl TaskRunner {
         Self {
             storage,
             executor,
-            notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             stop_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
-            resume_checkpoint_ids: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
-            memory_persister: None,
             session_service: None,
             steer_registry,
-            channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
             fail_start_task_run_once: Arc::new(AtomicBool::new(false)),
         }
@@ -488,7 +320,7 @@ impl TaskRunner {
     pub fn with_heartbeat_emitter(
         storage: Arc<TaskStorage>,
         executor: Arc<dyn AgentExecutor>,
-        notifier: Arc<dyn NotificationSender>,
+        #[cfg(test)] _notifier: Arc<dyn NotificationSender>,
         config: TaskRunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
         steer_registry: Arc<SteerRegistry>,
@@ -502,65 +334,18 @@ impl TaskRunner {
         Self {
             storage,
             executor,
-            notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             stop_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
-            resume_checkpoint_ids: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
-            memory_persister: None,
             session_service: None,
             steer_registry,
-            channel_router: Arc::new(RwLock::new(None)),
-            #[cfg(test)]
-            fail_start_task_run_once: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Create a new task runner with memory persistence enabled.
-    ///
-    /// When memory persistence is enabled, conversation messages from task
-    /// executions are stored in long-term memory for later retrieval and search.
-    pub fn with_memory_persistence(
-        storage: Arc<TaskStorage>,
-        executor: Arc<dyn AgentExecutor>,
-        notifier: Arc<dyn NotificationSender>,
-        config: TaskRunnerConfig,
-        heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
-        memory_storage: MemoryStorage,
-        steer_registry: Arc<SteerRegistry>,
-    ) -> Self {
-        let queue_config = TaskQueueConfig {
-            max_concurrent: config.max_concurrent_tasks,
-            ..Default::default()
-        };
-        let task_queue = Arc::new(TaskQueue::new(queue_config, None));
-
-        Self {
-            storage,
-            executor,
-            notifier,
-            config,
-            running_tasks: Arc::new(RwLock::new(HashSet::new())),
-            stop_senders: Arc::new(RwLock::new(HashMap::new())),
-            pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
-            resume_states: Arc::new(RwLock::new(HashMap::new())),
-            resume_checkpoint_ids: Arc::new(RwLock::new(HashMap::new())),
-            task_queue,
-            heartbeat_emitter,
-            event_emitter: Arc::new(NoopEventEmitter),
-            sequence: AtomicU64::new(0),
-            start_time: Instant::now(),
-            memory_persister: Some(MemoryPersister::new(memory_storage)),
-            session_service: None,
-            steer_registry,
-            channel_router: Arc::new(RwLock::new(None)),
             #[cfg(test)]
             fail_start_task_run_once: Arc::new(AtomicBool::new(false)),
         }
@@ -578,28 +363,6 @@ impl TaskRunner {
         self
     }
 
-    /// Replace the internal channel-router handle with a shared pointer.
-    ///
-    /// This is useful when other runtime components (for example reply senders)
-    /// need to observe the same router availability/updates.
-    pub fn with_channel_router_handle(
-        mut self,
-        channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
-    ) -> Self {
-        self.channel_router = channel_router;
-        self
-    }
-
-    /// Set the channel router for broadcasting notifications to all configured channels.
-    ///
-    /// When a channel router is set, task notifications are broadcast through
-    /// configured channels (e.g., Telegram) instead of requiring per-task
-    /// notification configuration.
-    pub async fn set_channel_router(&self, router: Arc<ChannelRouter>) {
-        let mut guard = self.channel_router.write().await;
-        *guard = Some(router);
-    }
-
     /// Get a reference to the steer registry for sending messages to running tasks.
     pub fn steer_registry(&self) -> Arc<SteerRegistry> {
         self.steer_registry.clone()
@@ -610,32 +373,12 @@ impl TaskRunner {
         self.storage.execution_traces()
     }
 
-    #[cfg(test)]
-    fn inject_start_task_run_failure(&self) {
-        self.fail_start_task_run_once.store(true, Ordering::SeqCst);
-    }
-
     async fn has_resume_intent(&self, task_id: &str) -> bool {
         self.resume_states.read().await.contains_key(task_id)
-            || self
-                .resume_checkpoint_ids
-                .read()
-                .await
-                .contains_key(task_id)
     }
 
-    async fn staged_resume_intent(
-        &self,
-        task_id: &str,
-    ) -> (Option<restflow_ai::AgentState>, Option<String>) {
-        let state = self.resume_states.read().await.get(task_id).cloned();
-        let checkpoint_id = self
-            .resume_checkpoint_ids
-            .read()
-            .await
-            .get(task_id)
-            .cloned();
-        (state, checkpoint_id)
+    async fn staged_resume_intent(&self, task_id: &str) -> Option<restflow_ai::AgentState> {
+        self.resume_states.read().await.get(task_id).cloned()
     }
 
     fn build_run_handle_for_task_run(
@@ -676,36 +419,6 @@ impl TaskRunner {
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.storage.save_task(&task)?;
         Ok(true)
-    }
-
-    async fn consume_resume_checkpoint(&self, task_id: &str, checkpoint_id: &str) -> Result<()> {
-        let checkpoint = self
-            .storage
-            .load_checkpoint(checkpoint_id)?
-            .ok_or_else(|| {
-                anyhow!(
-                    "Checkpoint {} not found for task {}",
-                    checkpoint_id,
-                    task_id
-                )
-            })?;
-        if checkpoint.task_id.as_deref() != Some(task_id) {
-            anyhow::bail!(
-                "Checkpoint {} no longer belongs to task {}",
-                checkpoint_id,
-                task_id
-            );
-        }
-
-        let mut checkpoint = checkpoint;
-        if !checkpoint.is_resumed() {
-            checkpoint.mark_resumed();
-            self.storage.save_checkpoint(&checkpoint)?;
-        }
-        if let Some(savepoint_id) = checkpoint.savepoint_id {
-            self.storage.delete_checkpoint_savepoint(savepoint_id)?;
-        }
-        Ok(())
     }
 
     async fn rollback_failed_launch_start(
@@ -846,10 +559,6 @@ impl TaskRunner {
                         Some(TaskRunnerCommand::StopTask(task_id)) => {
                             debug!("Stop requested for task: {}", task_id);
                             self.stop_task_execution(&task_id).await;
-                        }
-                        Some(TaskRunnerCommand::ResumeTask { task_id, payload }) => {
-                            info!(task_id = %task_id, "Resume from checkpoint requested");
-                            self.resume_from_checkpoint(&task_id, payload).await;
                         }
                         None => {
                             info!("Command channel closed, stopping runner");
@@ -993,13 +702,6 @@ impl TaskRunner {
             info!(
                 "Startup recovery: {} task(s) reset from Running to Active",
                 recovered
-            );
-        }
-
-        if let Err(e) = self.storage.cleanup_expired_checkpoints() {
-            warn!(
-                "Failed to cleanup expired checkpoints during startup: {}",
-                e
             );
         }
     }
@@ -1321,137 +1023,6 @@ impl TaskRunner {
         }
     }
 
-    async fn resume_from_checkpoint(&self, task_id: &str, payload: crate::models::ResumePayload) {
-        let checkpoint_id = payload.checkpoint_id.trim();
-        if checkpoint_id.is_empty() {
-            warn!("Cannot resume task {} with empty checkpoint_id", task_id);
-            return;
-        }
-
-        // Load checkpoint from storage
-        let checkpoint = match self.storage.load_checkpoint(checkpoint_id) {
-            Ok(Some(cp)) => cp,
-            Ok(None) => {
-                warn!("No checkpoint {} found for task {}", checkpoint_id, task_id);
-                return;
-            }
-            Err(e) => {
-                error!(
-                    "Failed to load checkpoint {} for task {}: {}",
-                    checkpoint_id, task_id, e
-                );
-                return;
-            }
-        };
-
-        if checkpoint.task_id.as_deref() != Some(task_id) {
-            warn!(
-                "Checkpoint {} does not belong to task {}",
-                checkpoint_id, task_id
-            );
-            return;
-        }
-
-        if checkpoint.is_resumed() {
-            warn!(
-                "Checkpoint {} for task {} was already resumed",
-                checkpoint_id, task_id
-            );
-            return;
-        }
-
-        let restored_state: Option<restflow_ai::AgentState> =
-            match serde_json::from_slice(&checkpoint.state_json) {
-                Ok(state) => Some(state),
-                Err(e) => {
-                    error!(
-                        "Failed to deserialize checkpoint state for task {}: {}",
-                        task_id, e
-                    );
-                    None
-                }
-            };
-
-        let checkpoint_id = checkpoint.id.clone();
-
-        if !payload.approved {
-            let mut denied_checkpoint = checkpoint;
-            denied_checkpoint.mark_resumed();
-            if let Err(e) = self.storage.save_checkpoint(&denied_checkpoint) {
-                warn!("Failed to mark checkpoint as resumed: {}", e);
-            }
-            if let Some(savepoint_id) = denied_checkpoint.savepoint_id
-                && let Err(e) = self.storage.delete_checkpoint_savepoint(savepoint_id)
-            {
-                warn!(
-                    "Failed to delete checkpoint savepoint {} for task {}: {}",
-                    savepoint_id, task_id, e
-                );
-            }
-
-            if let Ok(Some(mut task)) = self.storage.get_task(task_id) {
-                task.status = TaskStatus::Paused;
-                task.updated_at = chrono::Utc::now().timestamp_millis();
-                if let Err(e) = self.storage.save_task(&task) {
-                    error!(
-                        "Failed to update task status after checkpoint denial: {}",
-                        e
-                    );
-                    return;
-                }
-            }
-        } else {
-            let Some(state) = restored_state else {
-                error!(
-                    "Cannot resume task {} from checkpoint {} without a valid restored state",
-                    task_id, checkpoint_id
-                );
-                return;
-            };
-            self.resume_states
-                .write()
-                .await
-                .insert(task_id.to_string(), state);
-            self.resume_checkpoint_ids
-                .write()
-                .await
-                .insert(task_id.to_string(), checkpoint_id.clone());
-
-            info!(
-                task_id = %task_id,
-                checkpoint_id = %checkpoint_id,
-                approved = payload.approved,
-                "Staged checkpoint resume intent"
-            );
-            self.run_task_immediate(task_id).await;
-        }
-
-        let detail = format!(
-            "Resumed from checkpoint {}: {}",
-            checkpoint_id,
-            if payload.approved {
-                "approved"
-            } else {
-                "denied"
-            }
-        );
-        self.event_emitter
-            .emit(TaskStreamEvent::progress(
-                task_id,
-                "resumed",
-                None,
-                Some(detail),
-            ))
-            .await;
-
-        info!(
-            task_id = %task_id,
-            checkpoint_id = %checkpoint_id,
-            approved = payload.approved,
-            "Processed checkpoint resume request"
-        );
-    }
-
     fn to_steer_source(source: &TaskMessageSource) -> SteerSource {
         match source {
             TaskMessageSource::User => SteerSource::User,
@@ -1658,7 +1229,7 @@ impl TaskRunner {
         } else {
             execution_timeout_secs
         };
-        let (resume_state, resume_checkpoint_id) = self.staged_resume_intent(task_id).await;
+        let resume_state = self.staged_resume_intent(task_id).await;
 
         let execution_trace_storage = self.execution_trace_storage();
         let telemetry_sink = crate::telemetry::build_execution_trace_sink(execution_trace_storage);
@@ -1692,13 +1263,11 @@ impl TaskRunner {
                 task.id
             ));
         }
-        let persisted_resume_checkpoint_id = resume_checkpoint_id.clone();
         if let Err(err) = self.storage.start_task_run(
             &task.id,
             run_handle.run_id().to_string(),
             execution_id,
             start_time,
-            persisted_resume_checkpoint_id,
         ) {
             pump_cancel.cancel();
             if let Some(pump) = message_pump.take() {
@@ -1725,24 +1294,6 @@ impl TaskRunner {
             resolved_input.clone(),
             run_handle.clone(),
         );
-        if let Some(checkpoint_id) = resume_checkpoint_id.as_deref()
-            && let Err(err) = self
-                .consume_resume_checkpoint(&task.id, checkpoint_id)
-                .await
-        {
-            let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
-            let error_msg = format!("Execution error: failed to consume resume checkpoint: {err}");
-            pump_cancel.cancel();
-            if let Some(pump) = message_pump.take() {
-                let _ = pump.await;
-            }
-            finalizer
-                .finalize_failure(&error_msg, duration_ms, false)
-                .await;
-            self.clear_task_conversation_links(task_id).await;
-            self.cleanup_task_tracking(task_id).await;
-            return Ok(false);
-        }
         self.clear_resume_intent(task_id).await;
         self.event_emitter
             .emit(TaskStreamEvent::started(
@@ -1775,30 +1326,10 @@ impl TaskRunner {
             return Ok(false);
         }
 
-        let broadcast_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
-            && task.notification.broadcast_steps
-        {
-            self.channel_router
-                .read()
-                .await
-                .as_ref()
-                .cloned()
-                .map(|router| {
-                    Box::new(BroadcastStreamEmitter::new(task.name.clone(), router))
-                        as Box<dyn StreamEmitter>
-                })
+        let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api) {
+            Some(Box::new(NoopStreamEmitter) as Box<dyn StreamEmitter>)
         } else {
             None
-        };
-
-        let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api) {
-            let inner: Box<dyn StreamEmitter> = match broadcast_emitter {
-                Some(emitter) => emitter,
-                None => Box::new(NoopStreamEmitter),
-            };
-            Some(inner)
-        } else {
-            broadcast_emitter
         };
 
         let exec_future = async {
@@ -1814,7 +1345,6 @@ impl TaskRunner {
                                     &task.agent_id,
                                     Some(&task.id),
                                     state,
-                                    &task.memory,
                                     steer_rx,
                                     step_emitter,
                                     telemetry_context.clone(),
@@ -1828,7 +1358,6 @@ impl TaskRunner {
                                     &task.agent_id,
                                     Some(&task.id),
                                     state,
-                                    &task.memory,
                                     steer_rx,
                                     step_emitter,
                                     telemetry_context.clone(),
@@ -1842,7 +1371,6 @@ impl TaskRunner {
                                 &task.agent_id,
                                 Some(&task.id),
                                 resolved_input.as_deref(),
-                                &task.memory,
                                 steer_rx,
                                 step_emitter,
                                 telemetry_context.clone(),
@@ -1856,7 +1384,6 @@ impl TaskRunner {
                                 &task.agent_id,
                                 Some(&task.id),
                                 resolved_input.as_deref(),
-                                &task.memory,
                                 steer_rx,
                                 step_emitter,
                                 telemetry_context.clone(),
@@ -2061,27 +1588,6 @@ impl TaskRunner {
     /// Get the IDs of currently running tasks
     pub async fn running_task_ids(&self) -> Vec<String> {
         self.running_tasks.read().await.iter().cloned().collect()
-    }
-}
-
-/// No-op notification sender for when notifications are not configured
-pub struct NoopNotificationSender;
-
-#[async_trait::async_trait]
-impl NotificationSender for NoopNotificationSender {
-    async fn send(
-        &self,
-        _config: &NotificationConfig,
-        _task: &Task,
-        _success: bool,
-        _message: &str,
-    ) -> Result<()> {
-        // No-op: notifications are handled elsewhere or disabled
-        Ok(())
-    }
-
-    async fn send_formatted(&self, _message: &str) -> Result<()> {
-        Ok(())
     }
 }
 

@@ -1,6 +1,5 @@
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use restflow_contracts::request::{
-    DurabilityMode as ContractDurabilityMode, MemoryConfig as ContractMemoryConfig,
     ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
 };
 use serde_json::{Value, json};
@@ -207,9 +206,6 @@ pub(super) async fn execute_run_batch(
     chat_session_id: Option<String>,
     schedule: Option<ContractTaskSchedule>,
     timeout_secs: Option<u64>,
-    durability_mode: Option<ContractDurabilityMode>,
-    memory: Option<ContractMemoryConfig>,
-    memory_scope: Option<String>,
     resource_limits: Option<ContractResourceLimits>,
     run_now: Option<bool>,
     preview: bool,
@@ -298,15 +294,6 @@ pub(super) async fn execute_run_batch(
             input: Some(worker_input),
             input_template: None,
             timeout_secs: worker_spec.timeout_secs.or(timeout_secs),
-            durability_mode: worker_spec
-                .durability_mode
-                .clone()
-                .or_else(|| durability_mode.clone()),
-            memory: worker_spec.memory.clone().or_else(|| memory.clone()),
-            memory_scope: worker_spec
-                .memory_scope
-                .clone()
-                .or_else(|| memory_scope.clone()),
             resource_limits: worker_spec
                 .resource_limits
                 .clone()

@@ -6,10 +6,9 @@ use std::sync::Arc;
 use crate::cli::ConfigCommands;
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::storage::SystemConfig;
-use restflow_storage::{
-    CliConfig, ConfigDocument, effective_config_sources, load_cli_config, load_global_cli_config,
-    write_cli_config,
+use restflow_core::storage::{
+    CliConfig, ConfigDocument, ConfigSourcePathInfo, SystemConfig, effective_config_sources,
+    load_cli_config, load_global_cli_config, write_cli_config,
 };
 
 pub async fn run(
@@ -78,14 +77,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     table.add_row(vec![
         Cell::new("system.task_retention_days"),
         Cell::new(config.system.task_retention_days),
-    ]);
-    table.add_row(vec![
-        Cell::new("system.checkpoint_retention_days"),
-        Cell::new(config.system.checkpoint_retention_days),
-    ]);
-    table.add_row(vec![
-        Cell::new("system.memory_chunk_retention_days"),
-        Cell::new(config.system.memory_chunk_retention_days),
     ]);
     table.add_row(vec![
         Cell::new("system.log_file_retention_days"),
@@ -175,10 +166,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         ),
     ]);
     table.add_row(vec![
-        Cell::new("api.memory_search_limit"),
-        Cell::new(config.api.memory_search_limit),
-    ]);
-    table.add_row(vec![
         Cell::new("api.session_list_limit"),
         Cell::new(config.api.session_list_limit),
     ]);
@@ -213,14 +200,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     table.add_row(vec![
         Cell::new("runtime.chat_max_session_history"),
         Cell::new(config.runtime.chat_max_session_history),
-    ]);
-    table.add_row(vec![
-        Cell::new("channel.telegram_api_timeout_secs"),
-        Cell::new(config.channel.telegram_api_timeout_secs),
-    ]);
-    table.add_row(vec![
-        Cell::new("channel.telegram_polling_timeout_secs"),
-        Cell::new(config.channel.telegram_polling_timeout_secs),
     ]);
     table.add_row(vec![
         Cell::new("registry.github_cache_ttl_secs"),
@@ -280,8 +259,6 @@ async fn get_config_value(
         "system.task_retention_days" => {
             json!(config.system.task_retention_days)
         }
-        "system.checkpoint_retention_days" => json!(config.system.checkpoint_retention_days),
-        "system.memory_chunk_retention_days" => json!(config.system.memory_chunk_retention_days),
         "system.log_file_retention_days" => json!(config.system.log_file_retention_days),
         "system.experimental_features" => json!(config.system.experimental_features),
         "agent" => json!(config.agent),
@@ -304,7 +281,6 @@ async fn get_config_value(
         "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
         "agent.fallback_models" => json!(config.agent.fallback_models),
         "api" => json!(config.api),
-        "api.memory_search_limit" => json!(config.api.memory_search_limit),
         "api.session_list_limit" => json!(config.api.session_list_limit),
         "api.task_progress_event_limit" => {
             json!(config.api.task_progress_event_limit)
@@ -330,13 +306,6 @@ async fn get_config_value(
         }
         "runtime.chat_max_session_history" => {
             json!(config.runtime.chat_max_session_history)
-        }
-        "channel" => json!(config.channel),
-        "channel.telegram_api_timeout_secs" => {
-            json!(config.channel.telegram_api_timeout_secs)
-        }
-        "channel.telegram_polling_timeout_secs" => {
-            json!(config.channel.telegram_polling_timeout_secs)
         }
         "registry" => json!(config.registry),
         "registry.github_cache_ttl_secs" => {
@@ -411,12 +380,6 @@ async fn set_config_value(
             "system.task_retention_days" => {
                 config.task_retention_days = parse_value(value)?;
             }
-            "system.checkpoint_retention_days" => {
-                config.checkpoint_retention_days = parse_value(value)?;
-            }
-            "system.memory_chunk_retention_days" => {
-                config.memory_chunk_retention_days = parse_value(value)?;
-            }
             "system.log_file_retention_days" => {
                 config.log_file_retention_days = parse_value(value)?;
             }
@@ -477,9 +440,6 @@ async fn set_config_value(
             "agent.fallback_models" => {
                 config.agent.fallback_models = parse_optional_string_list(value)?;
             }
-            "api.memory_search_limit" => {
-                config.api_defaults.memory_search_limit = parse_value(value)?;
-            }
             "api.session_list_limit" => {
                 config.api_defaults.session_list_limit = parse_value(value)?;
             }
@@ -506,12 +466,6 @@ async fn set_config_value(
             }
             "runtime.chat_max_session_history" => {
                 config.runtime_defaults.chat_max_session_history = parse_value(value)?;
-            }
-            "channel.telegram_api_timeout_secs" => {
-                config.channel_defaults.telegram_api_timeout_secs = parse_value(value)?;
-            }
-            "channel.telegram_polling_timeout_secs" => {
-                config.channel_defaults.telegram_polling_timeout_secs = parse_value(value)?;
             }
             "registry.github_cache_ttl_secs" => {
                 config.registry_defaults.github_cache_ttl_secs = parse_value(value)?;
@@ -609,7 +563,7 @@ async fn load_effective_config_document(
     Ok(ConfigDocument::from_system_config(system, cli))
 }
 
-fn format_source_info(source: &Option<restflow_storage::ConfigSourcePathInfo>) -> String {
+fn format_source_info(source: &Option<ConfigSourcePathInfo>) -> String {
     match source {
         Some(info) => {
             let exists = if info.exists { "exists" } else { "missing" };
@@ -631,7 +585,7 @@ fn format_optional_u64(value: Option<u64>) -> String {
 mod tests {
     use super::*;
     use crate::executor::{CommandExecutor, direct::DirectExecutor};
-    use restflow_storage::{load_cli_config, load_global_cli_config};
+    use restflow_core::storage::{load_cli_config, load_global_cli_config};
     use std::env;
     use std::path::Path;
     use tempfile::tempdir;

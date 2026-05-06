@@ -6,7 +6,6 @@ covers:
   - crates/restflow-core/src/storage/task_runtime/**/*.rs
   - crates/restflow-core/src/mcp/server/tasks.rs
   - crates/restflow-tools/src/impls/task/**/*.rs
-  - crates/restflow-storage/src/task.rs
 ---
 
 # Task / Run Domain Model
@@ -15,7 +14,7 @@ This document defines the canonical naming boundary for RestFlow.
 
 ## Core Principle
 
-RestFlow uses one internal execution model:
+RestFlow keeps `Task / Run` as the background-runtime domain model:
 
 - `Agent`: capability, identity, role, and configuration
 - `Task`: a schedulable unit of work assigned to an agent

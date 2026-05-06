@@ -44,7 +44,7 @@ pub struct AgentState {
     /// Maximum iterations allowed
     pub max_iterations: usize,
 
-    /// Version counter for state changes (LangGraph-inspired, for Phase 3 checkpointing)
+    /// Version counter for state changes.
     pub version: u64,
 
     /// Hidden context not exposed to LLM (Swarm-inspired).
@@ -106,7 +106,7 @@ impl AgentState {
         self.version += 1;
     }
 
-    /// Interrupt execution (for checkpoint/resume).
+    /// Interrupt execution.
     pub fn interrupt(&mut self, reason: impl Into<String>) {
         self.status = AgentStatus::Interrupted {
             reason: reason.into(),

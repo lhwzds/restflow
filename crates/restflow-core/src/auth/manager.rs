@@ -19,8 +19,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::Provider;
-use crate::storage::SecretStorage;
-use restflow_storage::{AuthProfileStorage, SimpleStorage};
+use crate::storage::{AuthProfileStorage, SecretStorage, SimpleStorage};
 
 /// Configuration for the auth profile manager
 #[derive(Debug, Clone, Serialize, Deserialize)]

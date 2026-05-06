@@ -7,7 +7,7 @@ use anyhow::{Result, anyhow};
 use tokio::sync::{RwLock, mpsc};
 use tokio::time::{Duration, sleep};
 
-use crate::models::{MemoryConfig, NotificationConfig, SteerMessage, Task};
+use crate::models::{SteerMessage, Task};
 use crate::runtime::task_runtime::runner::{AgentExecutor, ExecutionResult, NotificationSender};
 use crate::storage::TaskStorage;
 
@@ -52,7 +52,6 @@ impl AgentExecutor for DeterministicMockExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         _input: Option<&str>,
-        _memory_config: &MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         let call_index = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -97,13 +96,7 @@ impl MockNotificationSender {
 
 #[async_trait::async_trait]
 impl NotificationSender for MockNotificationSender {
-    async fn send(
-        &self,
-        _config: &NotificationConfig,
-        task: &Task,
-        success: bool,
-        message: &str,
-    ) -> Result<()> {
+    async fn send(&self, task: &Task, success: bool, message: &str) -> Result<()> {
         self.notifications
             .write()
             .await

@@ -4,7 +4,7 @@ pub(super) use super::runtime::{
     subagent_config_from_defaults,
 };
 pub(super) use super::*;
-pub(super) use crate::models::{AgentNode, ChannelSessionBinding};
+pub(super) use crate::models::AgentNode;
 pub(super) use crate::prompt_files;
 pub(super) use crate::test_support::RestflowTestEnv;
 pub(super) use restflow_contracts::ToolExecutionResult;
@@ -48,7 +48,6 @@ async fn create_test_core_isolates_restflow_dir_env() {
 }
 
 mod agents;
-mod memory;
 mod runtime_tools;
 mod sessions;
 mod system;

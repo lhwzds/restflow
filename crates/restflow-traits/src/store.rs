@@ -11,10 +11,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use restflow_contracts::request::{
-    AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
-    ExecutionMode as ContractExecutionMode, MemoryConfig as ContractMemoryConfig,
-    NotificationConfig as ContractNotificationConfig, ResourceLimits as ContractResourceLimits,
-    TaskSchedule as ContractTaskSchedule,
+    AgentNode as ContractAgentNode, ExecutionMode as ContractExecutionMode,
+    ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,22 +50,6 @@ pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
 
 pub fn is_task_management_tool_name(tool_name: &str) -> bool {
     tool_name == MANAGE_TASKS_TOOL_NAME
-}
-
-// ── MemoryStore ──────────────────────────────────────────────────────
-
-pub trait MemoryStore: Send + Sync {
-    fn save(&self, agent_id: &str, title: &str, content: &str, tags: &[String]) -> Result<Value>;
-    fn read_by_id(&self, id: &str) -> Result<Option<Value>>;
-    fn search(
-        &self,
-        agent_id: &str,
-        tag: Option<&str>,
-        search: Option<&str>,
-        limit: usize,
-    ) -> Result<Value>;
-    fn list(&self, agent_id: &str, tag: Option<&str>, limit: usize) -> Result<Value>;
-    fn delete(&self, id: &str) -> Result<Value>;
 }
 
 // ── AgentStore ───────────────────────────────────────────────────────
@@ -111,12 +93,6 @@ pub struct TaskCreateRequest {
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
-    pub durability_mode: Option<ContractDurabilityMode>,
-    #[serde(default)]
-    pub memory: Option<ContractMemoryConfig>,
-    #[serde(default)]
-    pub memory_scope: Option<String>,
-    #[serde(default)]
     pub resource_limits: Option<ContractResourceLimits>,
     #[serde(default)]
     pub preview: bool,
@@ -135,12 +111,6 @@ pub struct TaskConvertSessionRequest {
     pub input: Option<String>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub durability_mode: Option<ContractDurabilityMode>,
-    #[serde(default)]
-    pub memory: Option<ContractMemoryConfig>,
-    #[serde(default)]
-    pub memory_scope: Option<String>,
     #[serde(default)]
     pub resource_limits: Option<ContractResourceLimits>,
     #[serde(default)]
@@ -169,17 +139,9 @@ pub struct TaskUpdateRequest {
     #[serde(default)]
     pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
-    pub notification: Option<ContractNotificationConfig>,
-    #[serde(default)]
     pub execution_mode: Option<ContractExecutionMode>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub durability_mode: Option<ContractDurabilityMode>,
-    #[serde(default)]
-    pub memory: Option<ContractMemoryConfig>,
-    #[serde(default)]
-    pub memory_scope: Option<String>,
     #[serde(default)]
     pub resource_limits: Option<ContractResourceLimits>,
     #[serde(default)]
@@ -393,9 +355,6 @@ mod tests {
                 input: None,
                 input_template: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -667,19 +626,6 @@ pub trait TerminalStore: Send + Sync {
     fn send_input(&self, session_id: &str, data: &str) -> Result<Value>;
     fn read_output(&self, session_id: &str) -> Result<Value>;
     fn close_session(&self, session_id: &str) -> Result<Value>;
-}
-
-// ── UnifiedMemorySearch ─────────────────────────────────────────────
-
-pub trait UnifiedMemorySearch: Send + Sync {
-    fn search(
-        &self,
-        agent_id: &str,
-        query: &str,
-        include_sessions: bool,
-        limit: u32,
-        offset: u32,
-    ) -> Result<Value>;
 }
 
 // ── MarketplaceStore ────────────────────────────────────────────────

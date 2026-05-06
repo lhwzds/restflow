@@ -1,27 +1,13 @@
 use super::*;
-use restflow_ai::llm::Message;
 
 impl TaskRunner {
     pub(super) async fn clear_resume_intent(&self, task_id: &str) {
-        let (mut states, mut checkpoint_ids) = tokio::join!(
-            self.resume_states.write(),
-            self.resume_checkpoint_ids.write(),
-        );
+        let mut states = self.resume_states.write().await;
         states.remove(task_id);
-        checkpoint_ids.remove(task_id);
     }
 
     pub(super) async fn clear_task_conversation_links(&self, task_id: &str) {
-        let Some(router) = self.channel_router.read().await.as_ref().cloned() else {
-            return;
-        };
-        let cleared = router.clear_task_associations(task_id).await;
-        if cleared > 0 {
-            info!(
-                "Cleared task association for {} conversation(s) after task {} terminal state",
-                cleared, task_id
-            );
-        }
+        let _ = task_id;
     }
 
     /// Clean up all resources associated with a task.
@@ -141,47 +127,6 @@ impl TaskRunner {
         );
     }
 
-    /// Persist conversation messages to long-term memory.
-    ///
-    /// Called after successful task execution when `persist_on_complete` is enabled.
-    pub(super) fn persist_memory(&self, task: &Task, messages: &[Message]) {
-        let Some(persister) = &self.memory_persister else {
-            debug!("Memory persistence not configured, skipping");
-            return;
-        };
-
-        if messages.is_empty() {
-            debug!("No messages to persist for task '{}'", task.name);
-            return;
-        }
-
-        // Generate tags from task metadata
-        // Note: Task doesn't have a tags field, so we use task name and agent_id
-        let tags: Vec<String> = vec![
-            format!("task:{}", task.id),
-            format!("agent:{}", task.agent_id),
-            format!(
-                "memory_scope:{}",
-                Self::memory_scope_label(&task.memory.memory_scope)
-            ),
-        ];
-        let memory_agent_id = Self::resolve_memory_agent_id(task);
-
-        match persister.persist(messages, &memory_agent_id, &task.id, &task.name, &tags) {
-            Ok(result) => {
-                if result.chunk_count > 0 {
-                    info!(
-                        "Persisted {} memory chunks for task '{}' (session: {}, namespace: {})",
-                        result.chunk_count, task.name, result.session_id, memory_agent_id
-                    );
-                }
-            }
-            Err(e) => {
-                warn!("Failed to persist memory for task '{}': {}", task.name, e);
-            }
-        }
-    }
-
     pub(super) fn resolve_task_input(&self, task: &Task) -> Option<String> {
         let fallback_input = task.input.clone().filter(|value| !value.trim().is_empty());
 
@@ -230,19 +175,5 @@ impl TaskRunner {
 
     fn format_optional_timestamp(timestamp: Option<i64>) -> String {
         timestamp.map(|value| value.to_string()).unwrap_or_default()
-    }
-
-    pub(super) fn resolve_memory_agent_id(task: &Task) -> String {
-        match task.memory.memory_scope {
-            MemoryScope::SharedAgent => task.agent_id.clone(),
-            MemoryScope::PerTask => format!("{}::task::{}", task.agent_id, task.id),
-        }
-    }
-
-    fn memory_scope_label(scope: &MemoryScope) -> &'static str {
-        match scope {
-            MemoryScope::SharedAgent => "shared_agent",
-            MemoryScope::PerTask => "per_task",
-        }
     }
 }

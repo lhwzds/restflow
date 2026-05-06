@@ -15,8 +15,8 @@ use crate::{
     ModelId, Provider,
     auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
     models::{
-        AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
-        DurabilityMode, MemoryConfig, Skill, SteerMessage, TaskStatus,
+        AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, Skill, SteerMessage,
+        TaskStatus,
     },
     process::ProcessRegistry,
     prompt_files,
@@ -24,12 +24,11 @@ use crate::{
     storage::Storage,
 };
 use restflow_ai::agent::{
-    CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig, PromptFlags,
-    SharedStreamEmitter, StreamEmitter,
+    ModelRoutingConfig as AiModelRoutingConfig, PromptFlags, SharedStreamEmitter, StreamEmitter,
 };
 use restflow_ai::llm::Message;
 use restflow_ai::{
-    AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
+    AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, ResourceLimits as AgentResourceLimits,
     SwappableLlm,
 };

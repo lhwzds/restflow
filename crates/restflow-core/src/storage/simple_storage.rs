@@ -97,6 +97,15 @@ pub trait SimpleStorage: Send + Sync {
             .is_some_and(|store| store.remove(id).is_some()))
     }
 
+    /// Delete by ID and return the removed bytes.
+    fn delete_atomically(&self, id: &str) -> Result<(bool, Option<Vec<u8>>)> {
+        let mut stores = simple_stores().lock().expect("simple store lock poisoned");
+        let removed = stores
+            .get_mut(&(self.namespace(), Self::STORE))
+            .and_then(|store| store.remove(id));
+        Ok((removed.is_some(), removed))
+    }
+
     /// Delete multiple IDs in one transaction.
     fn delete_many(&self, ids: &[String]) -> Result<usize> {
         let mut stores = simple_stores().lock().expect("simple store lock poisoned");
@@ -145,8 +154,6 @@ pub trait SimpleStorage: Send + Sync {
     }
 }
 
-/// Macro to generate a simple storage struct with common implementations.
-#[macro_export]
 macro_rules! define_simple_storage {
     ( $(#[$meta:meta])* $vis:vis struct $name:ident { store: $store_name:literal } ) => {
         $(#[$meta])*
@@ -159,13 +166,13 @@ macro_rules! define_simple_storage {
         impl $name {
             pub fn new(db: std::sync::Arc<redb::Database>) -> anyhow::Result<Self> {
                 Ok(Self {
-                    namespace: $crate::simple_storage::namespace_for_db(&db),
+                    namespace: $crate::storage::simple_storage::namespace_for_db(&db),
                     db,
                 })
             }
         }
 
-        impl $crate::SimpleStorage for $name {
+        impl $crate::storage::simple_storage::SimpleStorage for $name {
             const STORE: &'static str = $store_name;
 
             fn namespace(&self) -> usize {
@@ -177,4 +184,24 @@ macro_rules! define_simple_storage {
             }
         }
     };
+}
+
+define_simple_storage! {
+    pub struct AgentRawStorage { store: "agent" }
+}
+
+define_simple_storage! {
+    pub struct AuthProfileRawStorage { store: "auth-profile" }
+}
+
+define_simple_storage! {
+    pub struct ChatSessionRawStorage { store: "chat-session" }
+}
+
+define_simple_storage! {
+    pub struct ExecutionTraceRawStorage { store: "execution-trace" }
+}
+
+define_simple_storage! {
+    pub struct TerminalSessionRawStorage { store: "terminal-session" }
 }

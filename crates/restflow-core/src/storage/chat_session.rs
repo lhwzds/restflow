@@ -1,20 +1,19 @@
 //! Typed chat session storage wrapper.
 //!
-//! Provides type-safe access to chat session storage, wrapping the byte-level
-//! API from restflow-storage with our Rust models.
+//! Provides type-safe access to chat session storage.
 
 use crate::models::{ChatSession, ChatSessionSummary, ModelId};
+use crate::storage::simple_storage::{ChatSessionRawStorage, SimpleStorage};
 use anyhow::Result;
 use redb::Database;
-use restflow_storage::SimpleStorage;
 use std::sync::Arc;
 
-/// Typed chat session storage wrapper around restflow-storage::ChatSessionStorage.
+/// Typed chat session storage wrapper around process-local session bytes.
 ///
 /// Provides CRUD operations for chat sessions with automatic JSON serialization.
 #[derive(Debug, Clone)]
 pub struct ChatSessionStorage {
-    inner: restflow_storage::ChatSessionStorage,
+    inner: ChatSessionRawStorage,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -55,7 +54,7 @@ impl ChatSessionStorage {
     /// Create a new chat session storage instance.
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
-            inner: restflow_storage::ChatSessionStorage::new(db)?,
+            inner: ChatSessionRawStorage::new(db)?,
         })
     }
 

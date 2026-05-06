@@ -18,8 +18,8 @@ use crate::services::adapters::*;
 use crate::storage::ConfigStorage;
 #[cfg(test)]
 use crate::storage::{
-    AgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage,
-    MemoryStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
+    AgentStorage, ChatSessionStorage, ExecutionTraceStorage, SecretStorage, TaskStorage,
+    TerminalSessionStorage,
 };
 #[cfg(test)]
 use restflow_ai::AgentState;

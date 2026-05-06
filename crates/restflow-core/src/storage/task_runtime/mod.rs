@@ -1,12 +1,13 @@
 //! Typed agent task storage wrapper.
 //!
 //! Provides type-safe access to agent task storage by wrapping the byte-level
-//! APIs from restflow-storage with Rust types from our models.
+//! process-local byte APIs with Rust types from our models.
+
+pub(crate) mod raw;
 
 use crate::models::{
-    AgentCheckpoint, Task, TaskControlAction, TaskEvent, TaskEventType, TaskMessage,
-    TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress, TaskSchedule, TaskSpec,
-    TaskStatus,
+    Task, TaskControlAction, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
+    TaskMessageStatus, TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
 };
 use anyhow::Result;
 use redb::Database;
@@ -15,13 +16,13 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::{CheckpointStorage, ExecutionTraceStorage};
+use super::ExecutionTraceStorage;
+use raw::TaskStorage as RawTaskStorage;
 
-/// Typed agent task storage wrapper around restflow-storage::TaskStorage.
+/// Typed agent task storage wrapper around process-local task bytes.
 #[derive(Clone)]
 pub struct TaskStorage {
-    inner: restflow_storage::TaskStorage,
-    checkpoints: CheckpointStorage,
+    inner: RawTaskStorage,
     execution_traces: ExecutionTraceStorage,
 }
 
@@ -97,11 +98,9 @@ impl TaskStorage {
 
     /// Create a new TaskStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        let checkpoints = CheckpointStorage::new(db.clone())?;
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
-            inner: restflow_storage::TaskStorage::new(db.clone())?,
-            checkpoints,
+            inner: RawTaskStorage::new(db.clone())?,
             execution_traces,
         })
     }
@@ -119,8 +118,6 @@ impl TaskStorage {
             TaskEventType::Failed => "failed",
             TaskEventType::Paused => "paused",
             TaskEventType::Resumed => "active",
-            TaskEventType::NotificationSent => "notification_sent",
-            TaskEventType::NotificationFailed => "notification_failed",
             TaskEventType::Compaction => "compaction",
             TaskEventType::Interrupted => "interrupted",
         }
@@ -128,7 +125,6 @@ impl TaskStorage {
     }
 }
 
-mod checkpoint_bridge;
 mod cleanup;
 mod event_log;
 mod message_queue;

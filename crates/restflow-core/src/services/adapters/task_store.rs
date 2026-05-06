@@ -457,13 +457,9 @@ mod tests {
     use super::*;
     use crate::prompt_files;
     use crate::services::session::SessionService;
-    use crate::storage::{
-        ChannelSessionBindingStorage, ExecutionTraceStorage, MemoryStorage, SessionStorage,
-    };
+    use crate::storage::{ExecutionTraceStorage, SessionStorage};
     use async_trait::async_trait;
-    use restflow_contracts::request::{
-        DurabilityMode as ContractDurabilityMode, TaskSchedule as ContractTaskSchedule,
-    };
+    use restflow_contracts::request::TaskSchedule as ContractTaskSchedule;
     use restflow_traits::assessment::{
         AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     };
@@ -736,15 +732,12 @@ mod tests {
         let bg_storage = TaskStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let chat_storage = crate::storage::ChatSessionStorage::new(db.clone()).unwrap();
-        let binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
         let trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
-        let memory_storage = MemoryStorage::new(db.clone()).unwrap();
-        let session_storage = SessionStorage::new(chat_storage, binding_storage, trace_storage);
+        let session_storage = SessionStorage::new(chat_storage, trace_storage);
         let session_service = SessionService::new(
             session_storage,
             Some(agent_storage.clone()),
             bg_storage.clone(),
-            Some(memory_storage),
         );
         let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
         unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
@@ -791,9 +784,6 @@ mod tests {
             input_template: None,
             schedule: default_schedule(),
             timeout_secs: None,
-            memory: None,
-            memory_scope: None,
-            durability_mode: None,
             resource_limits: None,
             preview: false,
             approval_id: None,
@@ -820,9 +810,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -857,9 +844,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: Some(120),
-                durability_mode: Some(ContractDurabilityMode::Async),
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
                 preview: false,
@@ -894,9 +878,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -932,9 +913,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
                 preview: false,
@@ -971,9 +949,6 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
                 preview: false,
@@ -1000,9 +975,6 @@ mod tests {
             input_template: None,
             schedule: default_schedule(),
             timeout_secs: None,
-            memory: None,
-            memory_scope: None,
-            durability_mode: None,
             resource_limits: None,
             preview: false,
             approval_id: None,
@@ -1047,9 +1019,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -1093,9 +1062,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: true,
                 approval_id: None,
@@ -1115,9 +1081,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: Some(preview_token),
@@ -1135,12 +1098,8 @@ mod tests {
                 input: None,
                 input_template: None,
                 schedule: None,
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -1165,9 +1124,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: true,
                 approval_id: None,
@@ -1186,9 +1142,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: Some(preview_token),
@@ -1223,9 +1176,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -1264,9 +1214,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,
@@ -1322,9 +1269,6 @@ mod tests {
                 input_template: None,
                 schedule: default_schedule(),
                 timeout_secs: None,
-                memory: None,
-                memory_scope: None,
-                durability_mode: None,
                 resource_limits: None,
                 preview: false,
                 approval_id: None,

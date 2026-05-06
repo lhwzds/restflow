@@ -1,11 +1,11 @@
 use super::*;
 use crate::models::ChatSessionSource;
 use crate::storage::Storage;
+use crate::storage::simple_storage::{ChatSessionRawStorage, SimpleStorage};
 use crate::{
     ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace, MetricSampleTrace,
 };
 use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
-use restflow_storage::SimpleStorage;
 
 fn assert_execution_thread_error(
     response: IpcResponse,
@@ -612,27 +612,6 @@ async fn is_workspace_managed_session_accepts_sessions_without_channel_bindings(
 }
 
 #[tokio::test]
-async fn is_workspace_managed_session_rejects_sessions_with_channel_bindings() {
-    let (core, _temp) = create_test_core().await;
-    let session_service = SessionService::from_storage(&core.storage);
-
-    let mut telegram = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    telegram.source_channel = Some(ChatSessionSource::Telegram);
-    core.storage.chat_sessions.create(&telegram).unwrap();
-    core.storage
-        .channel_session_bindings
-        .upsert(&ChannelSessionBinding::new(
-            "telegram",
-            None,
-            "chat-123",
-            &telegram.id,
-        ))
-        .unwrap();
-
-    assert!(!session_service.is_workspace_managed(&telegram).unwrap());
-}
-
-#[tokio::test]
 async fn delete_session_rejects_background_bound_workspace_session() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -650,11 +629,8 @@ async fn delete_session_rejects_background_bound_workspace_session() {
             input: Some("run".to_string()),
             input_template: None,
             schedule: crate::models::TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -696,11 +672,8 @@ async fn switch_session_model_rejects_background_bound_workspace_session() {
             input: Some("run".to_string()),
             input_template: None,
             schedule: crate::models::TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -747,11 +720,8 @@ async fn archive_session_rejects_background_bound_workspace_session() {
             input: Some("run".to_string()),
             input_template: None,
             schedule: crate::models::TaskSchedule::default(),
-            notification: None,
             execution_mode: None,
             timeout_secs: None,
-            memory: None,
-            durability_mode: None,
             resource_limits: None,
             prerequisites: Vec::new(),
             continuation: None,
@@ -775,31 +745,6 @@ async fn archive_session_rejects_background_bound_workspace_session() {
     }
 }
 #[tokio::test]
-async fn apply_effective_session_source_uses_binding_data() {
-    let (core, _temp) = create_test_core().await;
-    let session_service = SessionService::from_storage(&core.storage);
-
-    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-        .with_source(ChatSessionSource::Workspace, "stale-conv");
-    core.storage.chat_sessions.create(&session).unwrap();
-    core.storage
-        .channel_session_bindings
-        .upsert(&ChannelSessionBinding::new(
-            "telegram",
-            None,
-            "chat-888",
-            &session.id,
-        ))
-        .unwrap();
-
-    session_service
-        .apply_effective_source(&mut session)
-        .unwrap();
-    assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
-    assert_eq!(session.source_conversation_id.as_deref(), Some("chat-888"));
-}
-
-#[tokio::test]
 async fn apply_effective_session_source_defaults_to_workspace_when_no_external_route() {
     let (core, _temp) = create_test_core().await;
     let session_service = SessionService::from_storage(&core.storage);
@@ -810,77 +755,6 @@ async fn apply_effective_session_source_defaults_to_workspace_when_no_external_r
         .unwrap();
     assert_eq!(session.source_channel, Some(ChatSessionSource::Workspace));
     assert!(session.source_conversation_id.is_none());
-}
-
-#[test]
-fn rebuild_external_session_preserves_binding_and_runtime_config() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("rebuild-session.db");
-    let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-    let service = SessionService::from_storage(&storage);
-    let source = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-        .with_source(ChatSessionSource::Telegram, "chat-123")
-        .with_name("channel:chat-123")
-        .with_skill("skill-1")
-        .with_retention("7d");
-    storage.chat_sessions.create(&source).unwrap();
-    storage
-        .channel_session_bindings
-        .upsert(&ChannelSessionBinding::new(
-            "telegram", None, "chat-123", &source.id,
-        ))
-        .unwrap();
-
-    let rebuilt = service
-        .rebuild_external_session(&source.id)
-        .unwrap()
-        .expect("rebuilt session");
-    assert_ne!(rebuilt.id, source.id);
-    assert_eq!(rebuilt.agent_id, source.agent_id);
-    assert_eq!(rebuilt.model, source.model);
-    assert_eq!(rebuilt.skill_id, source.skill_id);
-    assert_eq!(rebuilt.retention, source.retention);
-    assert_eq!(rebuilt.source_channel, Some(ChatSessionSource::Telegram));
-    assert_eq!(rebuilt.source_conversation_id.as_deref(), Some("chat-123"));
-    assert_eq!(rebuilt.name, "channel:chat-123");
-}
-
-#[test]
-fn rebuild_external_session_rejects_workspace_session() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("rebuild-workspace-session.db");
-    let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-    let service = SessionService::from_storage(&storage);
-    let source = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    storage.chat_sessions.create(&source).unwrap();
-    let err = service
-        .rebuild_external_session(&source.id)
-        .expect_err("should fail");
-    assert!(err.to_string().contains("not externally managed"));
-}
-
-#[tokio::test]
-async fn effective_source_prefers_binding_over_session_source_fields() {
-    let (core, _temp) = create_test_core().await;
-    let service = SessionService::from_storage(&core.storage);
-
-    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-        .with_source(ChatSessionSource::Telegram, "source-chat");
-    session.source_conversation_id = Some("source-chat".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
-    core.storage
-        .channel_session_bindings
-        .upsert(&ChannelSessionBinding::new(
-            "discord",
-            None,
-            "binding-chat",
-            &session.id,
-        ))
-        .unwrap();
-
-    let (channel, conversation_id) = service.effective_source(&session).unwrap();
-    assert_eq!(channel, ChatSessionSource::Discord);
-    assert_eq!(conversation_id.as_deref(), Some("binding-chat"));
 }
 
 #[tokio::test]
@@ -1079,7 +953,7 @@ async fn add_message_returns_bad_request_for_invalid_role_payload() {
 async fn execute_chat_session_returns_internal_error_for_malformed_session_payload() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
-    let raw_storage = restflow_storage::ChatSessionStorage::new(core.storage.get_db()).unwrap();
+    let raw_storage = ChatSessionRawStorage::new(core.storage.get_db()).unwrap();
 
     raw_storage.put_raw("bad-session", b"{bad-json").unwrap();
 

@@ -1,7 +1,7 @@
 //! Two-stage context management: Prune (zero LLM cost) + Compact (LLM cost).
 //!
 //! **Prune** runs after the ReAct loop exits, middle-truncating old tool results
-//! to shrink the checkpoint for future resume.
+//! to keep future context handoffs small.
 //!
 //! **Compact** runs inside the loop when estimated tokens approach the context
 //! window limit, asking the LLM to generate a handoff summary that replaces

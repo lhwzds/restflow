@@ -906,9 +906,6 @@ fn session_source_to_str(source: ChatSessionSource) -> &'static str {
     match source {
         ChatSessionSource::Workspace => "workspace",
         ChatSessionSource::Background => "background",
-        ChatSessionSource::Telegram => "telegram",
-        ChatSessionSource::Discord => "discord",
-        ChatSessionSource::Slack => "slack",
     }
 }
 
@@ -916,9 +913,6 @@ fn session_source_from_str(source: &str) -> Option<ChatSessionSource> {
     match source.trim().to_ascii_lowercase().as_str() {
         "workspace" => Some(ChatSessionSource::Workspace),
         "background" => Some(ChatSessionSource::Background),
-        "telegram" => Some(ChatSessionSource::Telegram),
-        "discord" => Some(ChatSessionSource::Discord),
-        "slack" => Some(ChatSessionSource::Slack),
         _ => None,
     }
 }

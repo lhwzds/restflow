@@ -7,22 +7,17 @@ use crate::impls::config::ConfigTool;
 use crate::impls::diagnostics::DiagnosticsTool;
 use crate::impls::manage_ops::ManageOpsTool;
 use crate::impls::marketplace::MarketplaceTool;
-use crate::impls::memory_store::{
-    DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
-};
 use crate::impls::secrets::SecretsTool;
 use crate::impls::security_query::SecurityQueryTool;
 use crate::impls::session::SessionTool;
 use crate::impls::skill::SkillTool;
 use crate::impls::terminal::TerminalTool;
-use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::security::SecurityGate;
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
-    AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore, MemoryStore,
-    OpsProvider, SecretStore, SecurityQueryProvider, SessionStore, TaskStore, TerminalStore,
-    UnifiedMemorySearch,
+    AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore, OpsProvider,
+    SecretStore, SecurityQueryProvider, SessionStore, TaskStore, TerminalStore,
 };
 
 use super::ToolRegistryBuilder;
@@ -75,19 +70,6 @@ impl ToolRegistryBuilder {
     pub fn with_session(mut self, store: Arc<dyn SessionStore>) -> Self {
         self.registry
             .register(SessionTool::new(store).with_write(true));
-        self
-    }
-
-    pub fn with_memory_store(mut self, store: Arc<dyn MemoryStore>) -> Self {
-        self.registry.register(SaveMemoryTool::new(store.clone()));
-        self.registry.register(ReadMemoryTool::new(store.clone()));
-        self.registry.register(ListMemoryTool::new(store.clone()));
-        self.registry.register(DeleteMemoryTool::new(store));
-        self
-    }
-
-    pub fn with_unified_search(mut self, search: Arc<dyn UnifiedMemorySearch>) -> Self {
-        self.registry.register(UnifiedMemorySearchTool::new(search));
         self
     }
 

@@ -54,7 +54,6 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
         _agent_id: &str,
         _task_id: Option<&str>,
         _input: Option<&str>,
-        _memory_config: &crate::models::MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
         _emitter: Option<Box<dyn StreamEmitter>>,
     ) -> anyhow::Result<crate::runtime::ExecutionResult> {
@@ -66,7 +65,6 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
         _agent_id: &str,
         _task_id: Option<&str>,
         _state: AgentState,
-        _memory_config: &crate::models::MemoryConfig,
         _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
         _emitter: Option<Box<dyn StreamEmitter>>,
     ) -> anyhow::Result<crate::runtime::ExecutionResult> {

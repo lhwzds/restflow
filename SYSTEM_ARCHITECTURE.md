@@ -4,13 +4,13 @@
 
 - Updated: 2026-05-05
 - Scope: Runtime architecture, session storage, deployment model, and migration baseline
-- Audience: Core contributors working on TUI, CLI, daemon, skills, and runtime channels
+- Audience: Core contributors working on TUI, CLI, daemon, skills, and runtime services
 
 ## 1. Architectural Decision
 
 RestFlow follows a **local agent runtime with file-backed sessions** architecture.
 
-- Daemon is the execution owner for agent loops, tasks, channels, approvals, secrets, and runtime side effects.
+- Daemon is the execution owner for agent loops, background tasks, approvals, secrets, and runtime side effects.
 - User-visible chat sessions are stored as one JSONL file per session under `~/.restflow/sessions/`.
 - TUI reads session history through daemon IPC; `SessionService` is the canonical user-visible session read/write boundary and prefers JSONL when the file store is available.
 - CLI `session` commands route through daemon IPC and `SessionService`; `import` may write JSONL session transcripts directly because it only migrates external history.
@@ -25,7 +25,7 @@ inspectable, and compatible with other coding-agent transcripts.
 1. Single execution center: agent execution and routing decisions are daemon-owned.
 2. Canonical session files: user-visible session history lives in JSONL files under `~/.restflow/sessions/`.
 3. Direct session-file writes outside `SessionService` are limited to transcript import.
-4. Daemon-owned state remains daemon-owned: tasks, runs, channels, approvals, secrets, and runtime side effects must not be written by TUI adapters.
+4. Daemon-owned state remains daemon-owned: tasks, runs, approvals, secrets, and runtime side effects must not be written by TUI adapters.
 5. One file per session: imported Claude Code, Codex, and OpenCode histories are normalized into RestFlow session JSONL, without preserving source-specific storage ownership fields.
 6. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
 7. Turn-level UI history: `ChatSession.messages` remains the model-context projection; `ChatSession.turns[*].events` is the ordered UI/runtime projection for user messages, assistant output, tool calls, tool results, errors, and cancellation.
@@ -38,19 +38,18 @@ inspectable, and compatible with other coding-agent transcripts.
 flowchart TD
     TUI["TUI"] -->|"IPC / stream"| Daemon["Daemon"]
     CLI["CLI"] -->|"IPC / HTTP"| Daemon
-    Channels["Telegram / Discord / Slack"] -->|"channel events"| Daemon
     McpCallers["MCP callers"] -->|"JSON-RPC over HTTP"| Daemon
 
     Daemon --> Ipc["IPC server"]
     Daemon --> Mcp["MCP HTTP server"]
-    Daemon --> Router["Channel router + chat dispatcher"]
+    Daemon --> Chat["Chat session runtime"]
     Daemon --> Runner["Task runner"]
     Daemon --> Runtime["Runtime event publishing"]
     Daemon --> Services["Service layer"]
     CLI -->|"session/import JSONL only"| SessionFiles["~/.restflow/sessions/**/*.jsonl"]
 
     Services --> SessionFiles
-    Services --> RuntimeState["process-local task / channel / trace state"]
+    Services --> RuntimeState["process-local task / trace state"]
     Services --> Secrets["redb secrets table"]
     Services --> Config["config.toml"]
 ```
@@ -61,7 +60,6 @@ flowchart TD
 flowchart LR
     Contracts["restflow-contracts"] --> Traits["restflow-traits"]
     Traits --> Models["restflow-models"]
-    Traits --> Storage["restflow-storage"]
     Traits --> Ai["restflow-ai"]
     Traits --> Tools["restflow-tools"]
 
@@ -69,7 +67,7 @@ flowchart LR
     Models --> Tools
     Contracts --> Core["restflow-core"]
     Models --> Core
-    Storage --> Core
+    Storage["restflow-storage"] --> Core
     Ai --> Core
     Tools --> Core
 
@@ -89,7 +87,7 @@ Notes:
 ### 4.1 Chat Session Flow
 
 1. Client sends request to daemon.
-2. Daemon routes message via channel runtime.
+2. Daemon routes message via the chat session runtime.
 3. Daemon records the active turn and user event.
 4. Runtime executes agent/tool loop.
 5. Daemon emits realtime stream events and records turn events for tool calls, tool results, final assistant output, errors, and cancellation.
@@ -132,7 +130,7 @@ ChatSession
 - Primary local user interface.
 - Calls daemon/runtime through IPC and stream contracts.
 - Reads session history through daemon IPC; daemon services own JSONL transcript access.
-- Does not write task/run/channel/secrets state.
+- Does not write task/run/secrets state.
 
 ### CLI
 
@@ -145,7 +143,7 @@ ChatSession
 
 - Owns chat routing, task execution, and event emission.
 - Owns all persistence updates.
-- Owns channel/session binding and policy enforcement.
+- Owns session binding and policy enforcement.
 
 ### Execution Ownership Split
 
@@ -341,14 +339,14 @@ of the runtime.
 
 - `restflow-core` owns trace domain models, typed trace wrappers, and runtime
   trace services
-- `restflow-storage` owns the reduced secrets table and process-local MVP stores
+- `restflow-storage` owns config loading and the reduced secrets table
 - `restflow-contracts` owns IPC-visible task/session stream contracts
 - `restflow-ai` owns AI-internal execution stream types and telemetry events
 
 This means:
 
 - typed trace models belong in `restflow-core`
-- raw byte storage stays in `restflow-storage`; only secrets use a redb table
+- process-local runtime stores stay inside `restflow-core`; only secrets use a redb table
 - client-visible stream contracts stay in `restflow-contracts`
 - AI-internal execution streaming abstractions stay near AI execution runtime
   code
@@ -362,7 +360,7 @@ without a full dependency review:
    - it is coupled to AI execution streaming semantics and AI-specific stream
      payloads
 2. Runtime emitter implementations stay in `restflow-core`
-   - they depend on storage, sanitization, runtime channels, and daemon-owned
+   - they depend on storage, sanitization, runtime services, and daemon-owned
      execution policy
 3. Trace storage must not reintroduce redb tables
    - MVP trace state is process-local until a file-backed format is designed
@@ -441,7 +439,7 @@ Runtime configuration resolves in this order:
 
 Database state is no longer part of the runtime configuration read path.
 Session history is file-backed JSONL. New workspace sessions, imported
-sessions, channel-created external sessions, execution-console session views,
+sessions, execution-console session views,
 background task session binding/results, and agent-deletion session checks go
 through `SessionService` and prefer JSONL when the file store is available.
 `TaskStorage` is process-local in the MVP. Session binding validation,
@@ -468,9 +466,8 @@ tooling.
 | --- | --- | --- | --- | --- |
 | System | `[system]` | Cross-cutting system policy, retention, and feature flags | `worker_count`, `task_timeout_seconds`, `max_retries`, `chat_session_retention_days`, `log_file_retention_days` | cleanup services, daemon/runtime setup, feature flag loading |
 | Agent | `[agent]` | Agent and sub-agent execution policy | `max_iterations`, `subagent_timeout_secs`, `max_parallel_subagents`, `max_tool_calls`, `tool_timeout_secs` | agent executor, subagent manager, task runtime, chat dispatcher |
-| API | `[api]` | Default limits for MCP and API-facing operations | `memory_search_limit`, `session_list_limit`, `task_trace_line_limit`, `diagnostics_timeout_ms` | MCP server handlers, runtime tool registry |
+| API | `[api]` | Default limits for MCP and API-facing operations | `session_list_limit`, `task_trace_line_limit`, `diagnostics_timeout_ms` | MCP server handlers, runtime tool registry |
 | Runtime | `[runtime]` | Default daemon runtime behavior | `task_runner_poll_interval_ms`, `task_runner_max_concurrent_tasks`, `chat_max_session_history` | task runner, chat dispatcher |
-| Channel | `[channel]` | External channel integration defaults | `telegram_api_timeout_secs`, `telegram_polling_timeout_secs` | Telegram channel runtime |
 | Registry | `[registry]` | Skill and marketplace integration defaults | `github_cache_ttl_secs`, `marketplace_cache_ttl_secs` | marketplace adapters, skill discovery/install flows |
 | CLI | `[cli]` | CLI-only local preferences | `version`, `agent`, `model` | CLI config loader |
 
@@ -485,8 +482,7 @@ Section names describe ownership domains, not implementation details:
 - CLI convenience selections are flattened into `[cli]` as `agent` and `model`;
   there is no `[cli.default]` subsection anymore.
 - Tool-adjacent knobs should live with the subsystem that owns the behavior,
-  not in a generic `[tool]` bucket. Channel transport timeouts belong to
-  `[channel]`, while MCP and API list limits belong to `[api]`.
+  not in a generic `[tool]` bucket. MCP and API list limits belong to `[api]`.
 
 ## 8. Migration Baseline
 
@@ -589,6 +585,6 @@ Do not:
 
 1. Enforce daemon handshake and remove silent fallback execution paths.
 2. Unify client command surfaces through daemon APIs.
-3. Move routing ownership to explicit channel/session binding.
+3. Keep routing ownership in daemon session services.
 4. Unify realtime and persisted event identity to eliminate duplicates.
 5. Remove obsolete compatibility paths after rollout verification.

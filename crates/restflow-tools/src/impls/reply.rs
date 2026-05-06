@@ -34,7 +34,7 @@ impl Tool for ReplyTool {
     }
 
     fn description(&self) -> &str {
-        "Send an intermediate message to the user during execution. Use this to acknowledge requests, provide progress updates, or share partial results before the final response. The message is delivered immediately to the user's channel (e.g., Telegram, chat)."
+        "Send an intermediate message to the user during execution. Use this to acknowledge requests, provide progress updates, or share partial results before the final response. The message is delivered immediately to the active chat stream."
     }
 
     fn parameters_schema(&self) -> Value {

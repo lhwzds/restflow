@@ -1,15 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_contracts::{
-    CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-    RouteBindingResponse, request::TaskFromSessionRequest,
-};
+use restflow_contracts::{CleanupReportResponse, request::TaskFromSessionRequest};
 use restflow_core::daemon::is_daemon_available;
-use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, MemoryChunk, MemorySearchResult,
-    MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task, TaskControlAction,
-    TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, RunListQuery, RunSummary,
+    Secret, Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress,
+    TaskSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -36,27 +32,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn list_skills(&self) -> Result<Vec<Skill>>;
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>>;
 
-    async fn search_memory(
-        &self,
-        query: String,
-        agent_id: Option<String>,
-        limit: Option<u32>,
-    ) -> Result<MemorySearchResult>;
-    async fn list_memory(
-        &self,
-        agent_id: Option<String>,
-        tag: Option<String>,
-    ) -> Result<Vec<MemoryChunk>>;
-    async fn clear_memory(&self, agent_id: Option<String>) -> Result<u32>;
-    async fn get_memory_stats(&self, agent_id: Option<String>) -> Result<MemoryStats>;
-    async fn export_memory(&self, agent_id: Option<String>) -> Result<ExportResult>;
-    async fn store_memory(
-        &self,
-        agent_id: &str,
-        content: &str,
-        tags: Vec<String>,
-    ) -> Result<String>;
-
     async fn list_secrets(&self) -> Result<Vec<Secret>>;
     async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
     #[allow(dead_code)]
@@ -79,22 +54,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn get_config(&self) -> Result<SystemConfig>;
     async fn get_global_config(&self) -> Result<SystemConfig>;
     async fn set_config(&self, config: SystemConfig) -> Result<()>;
-
-    async fn list_pairing_state(&self) -> Result<PairingStateResponse>;
-    async fn approve_pairing(&self, code: &str) -> Result<PairingApprovalResponse>;
-    async fn deny_pairing(&self, code: &str) -> Result<()>;
-    async fn revoke_paired_peer(&self, peer_id: &str) -> Result<bool>;
-    async fn get_pairing_owner(&self) -> Result<PairingOwnerResponse>;
-    async fn set_pairing_owner(&self, chat_id: &str) -> Result<PairingOwnerResponse>;
-
-    async fn list_route_bindings(&self) -> Result<Vec<RouteBindingResponse>>;
-    async fn bind_route(
-        &self,
-        binding_type: &str,
-        target_id: &str,
-        agent_id: &str,
-    ) -> Result<RouteBindingResponse>;
-    async fn unbind_route(&self, id: &str) -> Result<bool>;
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse>;
 

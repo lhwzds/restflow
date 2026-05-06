@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::models::{ChatSession, MemoryConfig, SteerMessage};
+use crate::models::{ChatSession, SteerMessage};
 use crate::runtime::task_runtime::{
     AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionExecutionResult, SessionInputMode,
     SessionTurnRuntimeOptions,
@@ -36,7 +36,6 @@ pub trait ExecutionBackend: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult>;
@@ -46,7 +45,6 @@ pub trait ExecutionBackend: Send + Sync {
         agent_id: &str,
         task_id: Option<&str>,
         state: AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult>;
@@ -105,11 +103,10 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_with_emitter(agent_id, task_id, input, memory_config, steer_rx, emitter)
+        self.execute_with_emitter(agent_id, task_id, input, steer_rx, emitter)
             .await
     }
 
@@ -118,11 +115,10 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         state: AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_from_state(agent_id, task_id, state, memory_config, steer_rx, emitter)
+        self.execute_from_state(agent_id, task_id, state, steer_rx, emitter)
             .await
     }
 

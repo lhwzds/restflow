@@ -33,7 +33,6 @@ impl SessionStorageAdapter {
             self.sessions.clone(),
             Some(self.agent_storage.clone()),
             self.task_storage.clone(),
-            None,
         )
         .with_default_file_sessions()
     }
@@ -134,7 +133,6 @@ mod tests {
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let session_storage = SessionStorage::new(
             crate::storage::ChatSessionStorage::new(db.clone()).unwrap(),
-            crate::storage::ChannelSessionBindingStorage::new(db.clone()).unwrap(),
             crate::storage::ExecutionTraceStorage::new(db.clone()).unwrap(),
         );
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
@@ -230,11 +228,8 @@ mod tests {
                 input: Some("run".to_string()),
                 input_template: None,
                 schedule: crate::models::TaskSchedule::default(),
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,
@@ -328,103 +323,6 @@ mod tests {
         let result = adapter.search_sessions(query).unwrap();
         let sessions = result.as_array().unwrap();
         assert_eq!(sessions.len(), 1);
-    }
-
-    #[test]
-    fn test_list_sessions_applies_effective_source_normalization() {
-        let (adapter, _dir) = setup();
-        let agent_id = create_default_agent(&adapter);
-        let created = adapter
-            .create_session(SessionCreateRequest {
-                agent_id,
-                model: "gpt-4".to_string(),
-                name: Some("Telegram Session".to_string()),
-                skill_id: None,
-                retention: None,
-            })
-            .unwrap();
-        let session_id = created["id"].as_str().unwrap();
-        let mut stored = adapter
-            .sessions
-            .chat_sessions
-            .get(session_id)
-            .unwrap()
-            .unwrap();
-        stored.source_channel = Some(crate::models::ChatSessionSource::Telegram);
-        stored.source_conversation_id = Some("chat-42".to_string());
-        adapter.sessions.chat_sessions.update(&stored).unwrap();
-        adapter
-            .sessions
-            .channel_session_bindings
-            .upsert(&crate::models::ChannelSessionBinding::new(
-                "telegram", None, "chat-42", session_id,
-            ))
-            .unwrap();
-
-        let result = adapter
-            .list_sessions(SessionListFilter {
-                agent_id: None,
-                skill_id: None,
-                include_messages: None,
-                include_archived: None,
-            })
-            .unwrap();
-        let sessions = result.as_array().unwrap();
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0]["source_channel"], "telegram");
-        assert_eq!(sessions[0]["source_conversation_id"], "chat-42");
-    }
-
-    #[test]
-    fn test_search_sessions_applies_effective_source_normalization() {
-        let (adapter, _dir) = setup();
-        let agent_id = create_default_agent(&adapter);
-        let created = adapter
-            .create_session(SessionCreateRequest {
-                agent_id,
-                model: "gpt-4".to_string(),
-                name: Some("Remote Chat".to_string()),
-                skill_id: None,
-                retention: None,
-            })
-            .unwrap();
-        let session_id = created["id"].as_str().unwrap();
-        let mut stored = adapter
-            .sessions
-            .chat_sessions
-            .get(session_id)
-            .unwrap()
-            .unwrap();
-        stored.source_channel = Some(crate::models::ChatSessionSource::Telegram);
-        stored.source_conversation_id = Some("chat-search".to_string());
-        stored.add_message(crate::models::ChatMessage::user(
-            "find this remote chat".to_string(),
-        ));
-        adapter.sessions.chat_sessions.update(&stored).unwrap();
-        adapter
-            .sessions
-            .channel_session_bindings
-            .upsert(&crate::models::ChannelSessionBinding::new(
-                "telegram",
-                None,
-                "chat-search",
-                session_id,
-            ))
-            .unwrap();
-
-        let result = adapter
-            .search_sessions(SessionSearchQuery {
-                query: "remote".to_string(),
-                agent_id: None,
-                skill_id: None,
-                include_archived: None,
-                limit: None,
-            })
-            .unwrap();
-        let sessions = result.as_array().unwrap();
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0]["source_channel"], "telegram");
-        assert_eq!(sessions[0]["source_conversation_id"], "chat-search");
     }
 
     #[test]

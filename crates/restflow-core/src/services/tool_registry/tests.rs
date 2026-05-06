@@ -5,9 +5,7 @@ use super::subagent_backend::{
 };
 use super::*;
 use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery};
-use crate::services::adapters::{
-    AgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter, TaskStoreAdapter,
-};
+use crate::services::adapters::{AgentStoreAdapter, OpsProviderAdapter, TaskStoreAdapter};
 use crate::services::session::SessionService;
 use async_trait::async_trait;
 use futures::stream;
@@ -16,17 +14,16 @@ use restflow_ai::llm::{
     ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
 use restflow_contracts::request::{
-    AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
-    InlineAgentRunConfig as ContractInlineAgentRunConfig,
+    AgentNode as ContractAgentNode, InlineAgentRunConfig as ContractInlineAgentRunConfig,
     RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
 };
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
 };
 use restflow_traits::store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, MemoryStore as _, TaskControlRequest,
-    TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, TaskControlRequest, TaskCreateRequest,
+    TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest, TaskProgressRequest, TaskStore,
+    TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -187,9 +184,7 @@ fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
 
 #[allow(clippy::type_complexity)]
 fn setup_storage() -> (
-    MemoryStorage,
     ChatSessionStorage,
-    ChannelSessionBindingStorage,
     ExecutionTraceStorage,
     SecretStorage,
     ConfigStorage,
@@ -209,9 +204,7 @@ fn setup_storage() -> (
         std::env::set_var("RESTFLOW_DIR", &state_dir);
     }
 
-    let memory_storage = MemoryStorage::new(db.clone()).unwrap();
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let channel_session_binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
     let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
     let test_master_key = std::array::from_fn(|index| (index as u8).wrapping_add(1));
     let secret_storage = SecretStorage::with_master_key(db.clone(), test_master_key).unwrap();
@@ -224,9 +217,7 @@ fn setup_storage() -> (
         std::env::remove_var("RESTFLOW_DIR");
     }
     (
-        memory_storage,
         chat_storage,
-        channel_session_binding_storage,
         execution_trace_storage,
         secret_storage,
         config_storage,
@@ -327,9 +318,7 @@ impl LlmClientFactory for TestLlmFactory {
 #[test]
 fn test_create_tool_registry() {
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         _execution_trace_storage,
         _secret_storage,
         config_storage,
@@ -388,9 +377,7 @@ fn test_create_tool_registry() {
 #[test]
 fn test_create_tool_registry_excludes_subagent_tools_by_default() {
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         _execution_trace_storage,
         _secret_storage,
         config_storage,
@@ -623,9 +610,7 @@ fn test_agent_store_adapter_crud_flow() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         _execution_trace_storage,
         secret_storage,
         _config_storage,
@@ -735,9 +720,7 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         _execution_trace_storage,
         secret_storage,
         _config_storage,
@@ -783,9 +766,7 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         _execution_trace_storage,
         secret_storage,
         _config_storage,
@@ -856,9 +837,7 @@ fn test_task_store_adapter_task_flow() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        memory_storage,
         chat_storage,
-        channel_session_binding_storage,
         execution_trace_storage,
         _secret_storage,
         _config_storage,
@@ -878,14 +857,9 @@ fn test_task_store_adapter_task_flow() {
         task_storage.clone(),
         agent_storage.clone(),
         SessionService::new(
-            crate::storage::SessionStorage::new(
-                chat_storage,
-                channel_session_binding_storage,
-                execution_trace_storage,
-            ),
+            crate::storage::SessionStorage::new(chat_storage, execution_trace_storage),
             Some(agent_storage),
             task_storage,
-            Some(memory_storage),
         ),
     )
     .with_assessor(Arc::new(BackgroundMutationAssessor));
@@ -900,9 +874,6 @@ fn test_task_store_adapter_task_flow() {
             input: Some("Run periodic checks".to_string()),
             input_template: Some("Template {{task.id}}".to_string()),
             timeout_secs: Some(1800),
-            durability_mode: Some(ContractDurabilityMode::Async),
-            memory: None,
-            memory_scope: Some("per_task".to_string()),
             resource_limits: None,
             preview: false,
             approval_id: None,
@@ -915,14 +886,6 @@ fn test_task_store_adapter_task_flow() {
             .and_then(|value| value.get("input_template"))
             .and_then(|value| value.as_str()),
         Some("Template {{task.id}}")
-    );
-    assert_eq!(
-        created
-            .get("result")
-            .and_then(|value| value.get("memory"))
-            .and_then(|value| value.get("memory_scope"))
-            .and_then(|value| value.as_str()),
-        Some("per_task")
     );
     let task_id = created
         .get("result")
@@ -942,12 +905,8 @@ fn test_task_store_adapter_task_flow() {
             input: Some("Run checks and summarize".to_string()),
             input_template: Some("Updated {{task.name}}".to_string()),
             schedule: None,
-            notification: None,
             execution_mode: None,
             timeout_secs: Some(900),
-            durability_mode: Some(ContractDurabilityMode::Sync),
-            memory: None,
-            memory_scope: Some("shared_agent".to_string()),
             resource_limits: None,
             preview: false,
             approval_id: None,
@@ -960,14 +919,6 @@ fn test_task_store_adapter_task_flow() {
             .and_then(|value| value.get("name"))
             .and_then(|value| value.as_str()),
         Some("Task Updated")
-    );
-    assert_eq!(
-        updated
-            .get("result")
-            .and_then(|value| value.get("memory"))
-            .and_then(|value| value.get("memory_scope"))
-            .and_then(|value| value.as_str()),
-        Some("shared_agent")
     );
     assert_eq!(
         updated
@@ -1237,99 +1188,9 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_db_memory_store_adapter_crud() {
-    let (
-        memory_storage,
-        _chat_storage,
-        _channel_session_binding_storage,
-        _execution_trace_storage,
-        _secret_storage,
-        _config_storage,
-        _agent_storage,
-        _task_storage,
-        _terminal_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let store = DbMemoryStoreAdapter::new(memory_storage);
-
-    let saved = store
-        .save(
-            "test-agent",
-            "My Note",
-            "Hello world content",
-            &["tag1".into(), "tag2".into()],
-        )
-        .unwrap();
-    assert!(saved["success"].as_bool().unwrap());
-    let entry_id = saved["id"].as_str().unwrap().to_string();
-    assert_eq!(saved["title"].as_str().unwrap(), "My Note");
-
-    let read = store.read_by_id(&entry_id).unwrap().unwrap();
-    assert!(read["found"].as_bool().unwrap());
-    assert_eq!(read["entry"]["title"].as_str().unwrap(), "My Note");
-    assert_eq!(
-        read["entry"]["content"].as_str().unwrap(),
-        "Hello world content"
-    );
-    let tags = read["entry"]["tags"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert!(tags.contains(&"tag1"));
-    assert!(tags.contains(&"tag2"));
-    assert!(!tags.iter().any(|t| t.starts_with("__title:")));
-
-    let listed = store.list("test-agent", None, 10).unwrap();
-    assert_eq!(listed["total"].as_u64().unwrap(), 1);
-    let memories = listed["memories"].as_array().unwrap();
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0]["title"].as_str().unwrap(), "My Note");
-
-    let listed = store.list("test-agent", Some("tag1"), 10).unwrap();
-    assert_eq!(listed["count"].as_u64().unwrap(), 1);
-    let listed = store.list("test-agent", Some("nonexistent"), 10).unwrap();
-    assert_eq!(listed["count"].as_u64().unwrap(), 0);
-
-    let found = store.search("test-agent", None, Some("Note"), 10).unwrap();
-    assert!(found["count"].as_u64().unwrap() >= 1);
-    let found = store
-        .search("test-agent", None, Some("nonexistent"), 10)
-        .unwrap();
-    assert_eq!(found["count"].as_u64().unwrap(), 0);
-
-    let found = store.search("test-agent", Some("tag2"), None, 10).unwrap();
-    assert!(found["count"].as_u64().unwrap() >= 1);
-
-    let saved2 = store
-        .save(
-            "test-agent",
-            "My Note",
-            "Hello world content",
-            &["tag1".into()],
-        )
-        .unwrap();
-    assert!(saved2["success"].as_bool().unwrap());
-    let listed = store.list("test-agent", None, 10).unwrap();
-    assert_eq!(listed["total"].as_u64().unwrap(), 1);
-
-    let deleted = store.delete(&entry_id).unwrap();
-    assert!(deleted["deleted"].as_bool().unwrap());
-    let listed = store.list("test-agent", None, 10).unwrap();
-    assert_eq!(listed["total"].as_u64().unwrap(), 0);
-
-    let read = store.read_by_id(&entry_id).unwrap();
-    assert!(read.is_none());
-}
-
-#[tokio::test(flavor = "current_thread")]
 async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         _execution_trace_storage,
         _secret_storage,
         config_storage,
@@ -1482,9 +1343,7 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_subagent_manager_persists_execution_traces() {
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         execution_trace_storage,
         _secret_storage,
         config_storage,
@@ -1614,9 +1473,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
 #[tokio::test]
 async fn test_service_subagent_manager_supports_temporary_model_provider_only() {
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         execution_trace_storage,
         _secret_storage,
         config_storage,
@@ -1678,9 +1535,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
 #[test]
 fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     let (
-        _memory_storage,
         _chat_storage,
-        _channel_session_binding_storage,
         execution_trace_storage,
         secret_storage,
         config_storage,

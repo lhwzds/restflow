@@ -559,7 +559,6 @@ async fn test_create_accepts_typed_task_payloads() {
                 "interval_ms": 60000,
                 "start_at": null
             },
-            "durability_mode": "async",
             "memory": {},
             "resource_limits": {}
         }))
@@ -637,27 +636,6 @@ async fn test_delete_accepts_approval_id_for_replay() {
     assert!(output.success);
     assert_eq!(output.result["result"]["id"], "task-1");
     assert_eq!(output.result["result"]["deleted"], true);
-}
-
-#[tokio::test]
-async fn test_create_rejects_invalid_durability_mode_payload() {
-    let tool = TaskTool::new(Arc::new(MockStore)).with_write(true);
-    let output = tool
-        .execute(json!({
-            "operation": "create",
-            "name": "Broken Task",
-            "agent_id": "agent-1",
-            "durability_mode": "broken"
-        }))
-        .await
-        .expect("tool should return structured error output");
-    assert!(!output.success);
-    assert!(
-        output
-            .error
-            .expect("expected error")
-            .contains("Invalid input")
-    );
 }
 
 #[tokio::test]

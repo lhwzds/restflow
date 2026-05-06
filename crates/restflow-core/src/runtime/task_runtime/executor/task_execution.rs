@@ -50,7 +50,6 @@ impl AgentRuntimeExecutor {
         llm_client: Arc<dyn LlmClient>,
         task_id: Option<&str>,
         input: Option<&str>,
-        _memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
@@ -199,58 +198,6 @@ impl AgentRuntimeExecutor {
                 self.storage.as_ref(),
             ))
             .with_telemetry_context(telemetry_context.clone());
-        if let Some(task) = task_snapshot.as_ref() {
-            let checkpoint_durability = match task.durability_mode {
-                DurabilityMode::Sync => CheckpointDurability::PerTurn,
-                DurabilityMode::Async => CheckpointDurability::Periodic { interval: 5 },
-                DurabilityMode::Exit => CheckpointDurability::OnComplete,
-            };
-            config = config.with_checkpoint_durability(checkpoint_durability);
-
-            let checkpoints = self.storage.tasks.clone();
-            let run_id = telemetry_context.trace.run_id.clone();
-            let task_id_owned = task.id.clone();
-            config = config.with_checkpoint_callback(move |state| {
-                let checkpoints = checkpoints.clone();
-                let run_id = run_id.clone();
-                let task_id = task_id_owned.clone();
-                let state = state.clone();
-                async move {
-                    let state_json = serde_json::to_vec(&state)
-                        .map_err(|e| AiError::Agent(format!("Failed to encode state: {e}")))?;
-                    let mut checkpoint = AgentCheckpoint::new(
-                        state.execution_id.clone(),
-                        Some(task_id),
-                        state.version,
-                        state.iteration,
-                        state_json,
-                        "periodic_checkpoint".to_string(),
-                    );
-                    // Atomic checkpoint + savepoint: first save with savepoint (no savepoint_id in data),
-                    // then re-save with savepoint_id embedded to close the race window.
-                    let savepoint_id = checkpoints
-                        .save_checkpoint_with_savepoint(&checkpoint)
-                        .map_err(|e| {
-                            AiError::Agent(format!("Failed to save checkpoint with savepoint: {e}"))
-                        })?;
-                    checkpoint.savepoint_id = Some(savepoint_id);
-                    checkpoints
-                        .save_checkpoint_with_savepoint_id(&checkpoint)
-                        .map_err(|e| {
-                            AiError::Agent(format!(
-                                "Failed to persist checkpoint with savepoint id: {e}"
-                            ))
-                        })?;
-                    checkpoints
-                        .set_task_run_checkpoint(&run_id, Some(checkpoint.id.clone()))
-                        .map_err(|e| {
-                            AiError::Agent(format!("Failed to update task run checkpoint: {e}"))
-                        })?;
-                    Ok(())
-                }
-            });
-        }
-
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
         if let Some(workspace_root) = workspace_root {
@@ -325,7 +272,6 @@ impl AgentRuntimeExecutor {
         model: ModelId,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -369,7 +315,6 @@ impl AgentRuntimeExecutor {
             llm_client,
             task_id,
             input,
-            memory_config,
             resource_limits,
             steer_rx,
             emitter,
@@ -388,7 +333,6 @@ impl AgentRuntimeExecutor {
         model: ModelId,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -404,7 +348,6 @@ impl AgentRuntimeExecutor {
                     model,
                     task_id,
                     input,
-                    memory_config,
                     resource_limits,
                     primary_provider,
                     steer_rx,
@@ -423,7 +366,6 @@ impl AgentRuntimeExecutor {
                     model,
                     task_id,
                     input,
-                    memory_config,
                     resource_limits,
                     primary_provider,
                     steer_rx,
@@ -447,7 +389,6 @@ impl AgentRuntimeExecutor {
                     model,
                     task_id,
                     input,
-                    memory_config,
                     resource_limits,
                     primary_provider,
                     steer_rx,
@@ -501,7 +442,6 @@ impl AgentRuntimeExecutor {
                     llm_client,
                     task_id,
                     input,
-                    memory_config,
                     resource_limits,
                     steer_rx.take(),
                     emitter.take(),
@@ -575,19 +515,10 @@ impl AgentExecutor for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
-        self.execute_internal(
-            agent_id,
-            task_id,
-            input,
-            memory_config,
-            steer_rx,
-            None,
-            None,
-        )
-        .await
+        self.execute_internal(agent_id, task_id, input, steer_rx, None, None)
+            .await
     }
 
     async fn execute_with_emitter(
@@ -595,20 +526,11 @@ impl AgentExecutor for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_with_emitter_and_telemetry(
-            agent_id,
-            task_id,
-            input,
-            memory_config,
-            steer_rx,
-            emitter,
-            None,
-        )
-        .await
+        self.execute_with_emitter_and_telemetry(agent_id, task_id, input, steer_rx, emitter, None)
+            .await
     }
 
     async fn execute_with_emitter_and_telemetry(
@@ -616,7 +538,6 @@ impl AgentExecutor for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
@@ -625,7 +546,6 @@ impl AgentExecutor for AgentRuntimeExecutor {
             agent_id,
             task_id,
             input,
-            memory_config,
             steer_rx,
             emitter,
             telemetry_context,
@@ -638,18 +558,11 @@ impl AgentExecutor for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         self.execute_from_state_with_emitter_and_telemetry(
-            agent_id,
-            task_id,
-            state,
-            memory_config,
-            steer_rx,
-            emitter,
-            None,
+            agent_id, task_id, state, steer_rx, emitter, None,
         )
         .await
     }
@@ -659,7 +572,6 @@ impl AgentExecutor for AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
@@ -668,7 +580,6 @@ impl AgentExecutor for AgentRuntimeExecutor {
             agent_id,
             task_id,
             state,
-            memory_config,
             steer_rx,
             emitter,
             telemetry_context,
@@ -685,7 +596,6 @@ impl AgentRuntimeExecutor {
         task_id: Option<&str>,
         input: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
@@ -780,7 +690,6 @@ impl AgentRuntimeExecutor {
                         model,
                         task_id,
                         input_ref,
-                        memory_config,
                         &limits,
                         primary_provider,
                         steer_rx,
@@ -825,7 +734,6 @@ impl AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
@@ -835,7 +743,6 @@ impl AgentRuntimeExecutor {
             task_id,
             input,
             None,
-            memory_config,
             steer_rx,
             emitter,
             telemetry_context,
@@ -849,7 +756,6 @@ impl AgentRuntimeExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         state: restflow_ai::AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
@@ -859,7 +765,6 @@ impl AgentRuntimeExecutor {
             task_id,
             None,
             Some(state),
-            memory_config,
             steer_rx,
             emitter,
             telemetry_context,
@@ -871,7 +776,7 @@ impl AgentRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ExecutionMode, NotificationConfig, TaskSchedule, TaskSpec};
+    use crate::models::{ExecutionMode, TaskSchedule, TaskSpec};
     use crate::storage::Storage;
     use tempfile::tempdir;
 
@@ -898,11 +803,8 @@ mod tests {
                 input: Some("digest".to_string()),
                 input_template: None,
                 schedule: TaskSchedule::default(),
-                notification: Some(NotificationConfig::default()),
                 execution_mode: Some(ExecutionMode::default()),
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,

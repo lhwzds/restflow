@@ -139,15 +139,6 @@ impl<'a> TaskRunFinalizer<'a> {
                 ))
                 .await;
         }
-
-        if self.task.memory.persist_on_complete {
-            self.runner
-                .persist_memory(&self.task, &exec_result.messages);
-        }
-
-        self.runner
-            .send_notification(&self.task, true, &exec_result.output)
-            .await;
     }
 
     pub(super) async fn finalize_failure(
@@ -193,10 +184,6 @@ impl<'a> TaskRunFinalizer<'a> {
                 duration_ms,
             );
         }
-
-        self.runner
-            .send_notification(&self.task, false, error_msg)
-            .await;
     }
 
     pub(super) async fn finalize_timeout(
@@ -239,10 +226,6 @@ impl<'a> TaskRunFinalizer<'a> {
             true,
             duration_ms,
         );
-
-        self.runner
-            .send_notification(&self.task, false, error_msg)
-            .await;
     }
 
     pub(super) async fn finalize_interrupted(&self, reason: &str, duration_ms: i64) {

@@ -9,9 +9,6 @@ use super::super::parse::{parse_u32, parse_u64, parse_usize};
 
 pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> Result<()> {
     match field {
-        "memory_search_limit" => {
-            config.api.memory_search_limit = parse_u32(value, "api.memory_search_limit")?;
-        }
         "session_list_limit" => {
             config.api.session_list_limit = parse_u32(value, "api.session_list_limit")?;
         }

@@ -321,7 +321,6 @@ impl TaskStorage {
     /// Delete an agent task and all task-owned records without touching sessions.
     pub fn delete_task_record(&self, id: &str) -> Result<Option<Task>> {
         let task = self.get_task(id)?;
-        self.delete_checkpoints_for_task(id)?;
         let deleted = self.inner.delete_task_cascade(id)?;
         if !deleted {
             return Ok(None);

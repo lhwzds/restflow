@@ -23,37 +23,6 @@ pub struct GetAgentParams {
     pub id: String,
 }
 
-/// Parameters for memory_search tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct MemorySearchParams {
-    /// Search query string
-    pub query: String,
-    /// Agent ID to scope the search
-    pub agent_id: String,
-    /// Maximum number of results to return.
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-/// Parameters for memory_store tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct MemoryStoreParams {
-    /// Agent ID to store memory under
-    pub agent_id: String,
-    /// Memory content to store
-    pub content: String,
-    /// Optional tags for categorization
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
-/// Parameters for memory_stats tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct MemoryStatsParams {
-    /// Agent ID to fetch stats for
-    pub agent_id: String,
-}
-
 /// Parameters for get_skill_context tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetSkillContextParams {
@@ -131,24 +100,12 @@ pub struct ManageTasksParams {
     /// Optional schedule payload
     #[serde(default)]
     pub schedule: Option<Value>,
-    /// Optional notification payload
-    #[serde(default)]
-    pub notification: Option<Value>,
     /// Optional execution mode payload
     #[serde(default)]
     pub execution_mode: Option<Value>,
     /// Optional per-task timeout (seconds) for API execution mode
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    /// Optional checkpoint durability mode
-    #[serde(default)]
-    pub durability_mode: Option<String>,
-    /// Optional memory payload
-    #[serde(default)]
-    pub memory: Option<Value>,
-    /// Optional memory scope override
-    #[serde(default)]
-    pub memory_scope: Option<String>,
     /// Optional resource limits payload
     #[serde(default)]
     pub resource_limits: Option<Value>,

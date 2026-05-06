@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::models::{ChatSession, MemoryConfig, SteerMessage};
+use crate::models::{ChatSession, SteerMessage};
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{interactive, subagent, task};
 use crate::runtime::task_runtime::{
@@ -230,7 +230,6 @@ impl AgentOrchestratorImpl {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
@@ -240,7 +239,6 @@ impl AgentOrchestratorImpl {
                 agent_id: agent_id.to_string(),
                 task_id: task_id.map(ToOwned::to_owned),
                 input: input.map(ToOwned::to_owned),
-                memory_config: memory_config.clone(),
                 steer_rx,
                 emitter,
                 state: None,
@@ -254,7 +252,6 @@ impl AgentOrchestratorImpl {
         agent_id: &str,
         task_id: Option<&str>,
         state: AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
@@ -264,7 +261,6 @@ impl AgentOrchestratorImpl {
                 agent_id: agent_id.to_string(),
                 task_id: task_id.map(ToOwned::to_owned),
                 input: None,
-                memory_config: memory_config.clone(),
                 steer_rx,
                 emitter,
                 state: Some(state),
@@ -320,11 +316,10 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_task_execution(agent_id, task_id, input, memory_config, steer_rx, None)
+            .run_task_execution(agent_id, task_id, input, steer_rx, None)
             .await
     }
 
@@ -333,12 +328,11 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_task_execution(agent_id, task_id, input, memory_config, steer_rx, emitter)
+            .run_task_execution(agent_id, task_id, input, steer_rx, emitter)
             .await
     }
 
@@ -347,19 +341,11 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         agent_id: &str,
         task_id: Option<&str>,
         state: AgentState,
-        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
-            .run_task_execution_from_state(
-                agent_id,
-                task_id,
-                state,
-                memory_config,
-                steer_rx,
-                emitter,
-            )
+            .run_task_execution_from_state(agent_id, task_id, state, steer_rx, emitter)
             .await
     }
 }
@@ -375,8 +361,8 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::models::{
-        ChatSession, ExecutionTraceCategory, ExecutionTraceQuery, LlmCallTrace, MemoryConfig,
-        ModelId, ModelSwitchTrace, SteerMessage,
+        ChatSession, ExecutionTraceCategory, ExecutionTraceQuery, LlmCallTrace, ModelId,
+        ModelSwitchTrace, SteerMessage,
     };
     use crate::runtime::orchestrator::kernel::ExecutionBackend;
     use crate::runtime::task_runtime::{ExecutionResult, SessionExecutionResult, SessionInputMode};
@@ -436,7 +422,6 @@ mod tests {
             agent_id: &str,
             task_id: Option<&str>,
             _input: Option<&str>,
-            _memory_config: &MemoryConfig,
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
             _emitter: Option<Box<dyn StreamEmitter>>,
         ) -> Result<ExecutionResult> {
@@ -455,7 +440,6 @@ mod tests {
             agent_id: &str,
             task_id: Option<&str>,
             _state: AgentState,
-            _memory_config: &MemoryConfig,
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
             _emitter: Option<Box<dyn StreamEmitter>>,
         ) -> Result<ExecutionResult> {
@@ -720,7 +704,6 @@ mod tests {
                 _agent_id: &str,
                 _task_id: Option<&str>,
                 _input: Option<&str>,
-                _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
                 _emitter: Option<Box<dyn StreamEmitter>>,
             ) -> Result<ExecutionResult> {
@@ -732,7 +715,6 @@ mod tests {
                 _agent_id: &str,
                 _task_id: Option<&str>,
                 _state: AgentState,
-                _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
                 _emitter: Option<Box<dyn StreamEmitter>>,
             ) -> Result<ExecutionResult> {
@@ -875,7 +857,6 @@ mod tests {
                 _agent_id: &str,
                 _task_id: Option<&str>,
                 _input: Option<&str>,
-                _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
                 _emitter: Option<Box<dyn StreamEmitter>>,
             ) -> Result<ExecutionResult> {
@@ -887,7 +868,6 @@ mod tests {
                 _agent_id: &str,
                 _task_id: Option<&str>,
                 _state: AgentState,
-                _memory_config: &MemoryConfig,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
                 _emitter: Option<Box<dyn StreamEmitter>>,
             ) -> Result<ExecutionResult> {
@@ -935,13 +915,7 @@ mod tests {
             OrchestratingAgentExecutor::new(Arc::new(AgentOrchestratorImpl::new(backend.clone())));
 
         let result = executor
-            .execute(
-                "agent-a",
-                Some("task-1"),
-                Some("run"),
-                &MemoryConfig::default(),
-                None,
-            )
+            .execute("agent-a", Some("task-1"), Some("run"), None)
             .await
             .expect("task execution should succeed");
 

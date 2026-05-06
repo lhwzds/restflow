@@ -10,14 +10,6 @@ pub enum SessionPolicyError {
         owner: ChatSessionSource,
         operation: &'static str,
     },
-    NotExternallyManaged {
-        session_id: String,
-        operation: &'static str,
-    },
-    MissingExternalRoute {
-        session_id: String,
-        operation: &'static str,
-    },
     BoundToTask {
         session_id: String,
         task_id: String,
@@ -30,7 +22,6 @@ impl SessionPolicyError {
     pub const fn status_code(&self) -> u16 {
         match self {
             Self::NotWorkspaceManaged { .. } => 403,
-            Self::NotExternallyManaged { .. } | Self::MissingExternalRoute { .. } => 400,
             Self::BoundToTask { .. } => 409,
         }
     }
@@ -47,22 +38,6 @@ impl std::fmt::Display for SessionPolicyError {
                 f,
                 "Session {} is managed by {:?} and cannot be {} from workspace",
                 session_id, owner, operation
-            ),
-            Self::NotExternallyManaged {
-                session_id,
-                operation,
-            } => write!(
-                f,
-                "Session {} is not externally managed and cannot be {}",
-                session_id, operation
-            ),
-            Self::MissingExternalRoute {
-                session_id,
-                operation,
-            } => write!(
-                f,
-                "Session {} is missing an external route and cannot be {}",
-                session_id, operation
             ),
             Self::BoundToTask {
                 session_id,
@@ -113,15 +88,6 @@ impl SessionPolicy {
         Self::new(storage.sessions.clone(), storage.tasks.clone())
     }
 
-    fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
-        match channel.trim().to_ascii_lowercase().as_str() {
-            "telegram" => Some(ChatSessionSource::Telegram),
-            "discord" => Some(ChatSessionSource::Discord),
-            "slack" => Some(ChatSessionSource::Slack),
-            _ => None,
-        }
-    }
-
     fn normalize_session_id(session_id: &str) -> Option<String> {
         let trimmed = session_id.trim();
         if trimmed.is_empty() {
@@ -142,16 +108,6 @@ impl SessionPolicy {
     }
 
     pub fn effective_source(&self, session: &ChatSession) -> Result<EffectiveSessionSource> {
-        let bindings = self.sessions.list_bindings_by_session(&session.id)?;
-        if let Some(binding) = bindings.first()
-            && let Some(source) = Self::parse_binding_channel_source(&binding.channel)
-        {
-            return Ok(EffectiveSessionSource {
-                source,
-                conversation_id: Some(binding.conversation_id.clone()),
-            });
-        }
-
         if self.bound_task(&session.id)?.is_some()
             || session.source_channel == Some(ChatSessionSource::Background)
         {
@@ -213,42 +169,6 @@ impl SessionPolicy {
             .into());
         }
 
-        Ok(())
-    }
-
-    pub fn ensure_external_rebuild_allowed(&self, session: &ChatSession) -> Result<()> {
-        let effective = self.effective_source(session)?;
-        if matches!(
-            effective.source,
-            ChatSessionSource::Workspace | ChatSessionSource::Background
-        ) {
-            return Err(SessionPolicyError::NotExternallyManaged {
-                session_id: session.id.clone(),
-                operation: "rebuilt",
-            }
-            .into());
-        }
-        if effective
-            .conversation_id
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(|value| value.is_empty())
-        {
-            return Err(SessionPolicyError::MissingExternalRoute {
-                session_id: session.id.clone(),
-                operation: "rebuilt",
-            }
-            .into());
-        }
-        if let Some(task) = self.bound_task(&session.id)? {
-            return Err(SessionPolicyError::BoundToTask {
-                session_id: session.id.clone(),
-                task_id: task.id,
-                task_name: task.name,
-                operation: "rebuilt",
-            }
-            .into());
-        }
         Ok(())
     }
 
@@ -384,7 +304,7 @@ fn parse_retention_to_ms(retention: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChannelSessionBinding, ChatSessionSource, TaskSpec};
+    use crate::models::{ChatSessionSource, TaskSpec};
     use crate::storage::{ChatSessionStorage, Storage, TaskStorage};
     use tempfile::tempdir;
 
@@ -405,74 +325,13 @@ mod tests {
                 input: Some("run".to_string()),
                 input_template: None,
                 schedule: crate::models::TaskSchedule::default(),
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
-    }
-
-    #[test]
-    fn management_owner_prefers_binding_over_session_source_fields() {
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("session-policy-owner.db");
-        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-            .with_source(ChatSessionSource::Telegram, "source-chat");
-        storage.chat_sessions.create(&session).unwrap();
-        storage
-            .channel_session_bindings
-            .upsert(&ChannelSessionBinding::new(
-                "discord",
-                None,
-                "binding-chat",
-                &session.id,
-            ))
-            .unwrap();
-
-        let policy = SessionPolicy::from_storage(&storage);
-        assert_eq!(
-            policy.management_owner(&session).unwrap(),
-            Some(ChatSessionSource::Discord)
-        );
-
-        policy
-            .effective_source(&session)
-            .map(|effective| {
-                assert_eq!(effective.source, ChatSessionSource::Discord);
-                assert_eq!(effective.conversation_id.as_deref(), Some("binding-chat"));
-            })
-            .unwrap();
-
-        session.source_channel = Some(ChatSessionSource::Workspace);
-        session.source_conversation_id = None;
-        assert_eq!(
-            policy.management_owner(&session).unwrap(),
-            Some(ChatSessionSource::Discord)
-        );
-    }
-
-    #[test]
-    fn ensure_external_rebuild_allowed_rejects_workspace_sessions() {
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("session-policy-rebuild.db");
-        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-        let session = create_workspace_session(&storage.chat_sessions, "agent-1");
-        let policy = SessionPolicy::from_storage(&storage);
-
-        let error = policy
-            .ensure_external_rebuild_allowed(&session)
-            .expect_err("workspace session should not rebuild");
-        let error = error.downcast::<SessionPolicyError>().unwrap();
-        assert!(matches!(
-            error,
-            SessionPolicyError::NotExternallyManaged { .. }
-        ));
     }
 
     #[test]
@@ -506,25 +365,11 @@ mod tests {
         storage.chat_sessions.update(&bound_workspace).unwrap();
         create_task(&storage.tasks, "bound-task", &bound_workspace.id);
 
-        let mut external = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
-            .with_source(ChatSessionSource::Telegram, "chat-123");
-        external.updated_at = 1;
-        storage.chat_sessions.create(&external).unwrap();
-        storage
-            .channel_session_bindings
-            .upsert(&ChannelSessionBinding::new(
-                "telegram",
-                None,
-                "chat-123",
-                &external.id,
-            ))
-            .unwrap();
-
         let policy = SessionPolicy::from_storage(&storage);
         let stats = policy.cleanup_workspace_sessions_older_than(10).unwrap();
 
         assert_eq!(stats.deleted, 1);
-        assert_eq!(stats.skipped_non_workspace, 1);
+        assert_eq!(stats.skipped_non_workspace, 0);
         assert_eq!(stats.skipped_bound_task, 1);
         assert!(
             storage
@@ -540,6 +385,5 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        assert!(storage.chat_sessions.get(&external.id).unwrap().is_some());
     }
 }

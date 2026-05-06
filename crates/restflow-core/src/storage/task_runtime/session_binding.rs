@@ -45,11 +45,8 @@ impl TaskStorage {
             input,
             input_template,
             schedule,
-            notification,
             execution_mode,
             timeout_secs,
-            memory,
-            durability_mode,
             resource_limits,
             prerequisites,
             continuation,
@@ -62,19 +59,10 @@ impl TaskStorage {
         task.description = description;
         task.input = input;
         task.input_template = input_template;
-        if let Some(notification) = notification {
-            task.notification = notification;
-        }
         if let Some(execution_mode) = execution_mode {
             task.execution_mode = execution_mode;
         }
         task.timeout_secs = timeout_secs;
-        if let Some(memory) = memory {
-            task.memory = memory;
-        }
-        if let Some(durability_mode) = durability_mode {
-            task.durability_mode = durability_mode;
-        }
         if let Some(resource_limits) = resource_limits {
             task.resource_limits = resource_limits;
         }
@@ -131,11 +119,8 @@ impl TaskStorage {
             input,
             input_template,
             schedule,
-            notification,
             execution_mode,
             timeout_secs,
-            memory,
-            durability_mode,
             resource_limits,
             prerequisites,
             continuation,
@@ -162,20 +147,11 @@ impl TaskStorage {
             task.schedule = schedule;
             task.update_next_run();
         }
-        if let Some(notification) = notification {
-            task.notification = notification;
-        }
         if let Some(execution_mode) = execution_mode {
             task.execution_mode = execution_mode;
         }
         if let Some(timeout_secs) = timeout_secs {
             task.timeout_secs = Some(timeout_secs);
-        }
-        if let Some(memory) = memory {
-            task.memory = memory;
-        }
-        if let Some(durability_mode) = durability_mode {
-            task.durability_mode = durability_mode;
         }
         if let Some(resource_limits) = resource_limits {
             task.resource_limits = resource_limits;

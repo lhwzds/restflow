@@ -1,6 +1,6 @@
 use crate::models::{
-    ChatMessage, ChatRole, ChatSession, ContinuationConfig, DurabilityMode, ExecutionMode,
-    MemoryConfig, NotificationConfig, ResourceLimits, TaskSchedule, TaskSpec,
+    ChatMessage, ChatRole, ChatSession, ContinuationConfig, ExecutionMode, ResourceLimits,
+    TaskSchedule, TaskSpec,
 };
 
 pub const MISSING_CONVERSION_INPUT_ERROR: &str =
@@ -12,11 +12,8 @@ pub struct ConvertSessionSpecOptions {
     pub description: Option<String>,
     pub schedule: Option<TaskSchedule>,
     pub input: Option<String>,
-    pub notification: Option<NotificationConfig>,
     pub execution_mode: Option<ExecutionMode>,
     pub timeout_secs: Option<u64>,
-    pub memory: Option<MemoryConfig>,
-    pub durability_mode: Option<DurabilityMode>,
     pub resource_limits: Option<ResourceLimits>,
     pub prerequisites: Vec<String>,
     pub continuation: Option<ContinuationConfig>,
@@ -88,11 +85,8 @@ pub fn build_convert_session_spec(
         input: Some(input),
         input_template: None,
         schedule: options.schedule.unwrap_or_else(default_conversion_schedule),
-        notification: options.notification,
         execution_mode: options.execution_mode,
         timeout_secs: options.timeout_secs,
-        memory: options.memory,
-        durability_mode: options.durability_mode,
         resource_limits: options.resource_limits,
         prerequisites: options.prerequisites,
         continuation: options.continuation,

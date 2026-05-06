@@ -1,21 +1,16 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_contracts::{
-    CleanupReportResponse, ClearResponse, IdResponse, OkResponse, PairingApprovalResponse,
-    PairingOwnerResponse, PairingStateResponse, RouteBindingResponse,
-    request::TaskFromSessionRequest,
-};
+use restflow_contracts::{CleanupReportResponse, OkResponse, request::TaskFromSessionRequest};
 use std::path::Path;
 use tokio::sync::Mutex;
 
 use crate::executor::CommandExecutor;
 use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{IpcClient, IpcRequest};
-use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, MemoryChunk, MemorySearchResult,
-    MemoryStats, RunListQuery, RunSummary, Secret, Skill, Task, TaskControlAction,
-    TaskConversionResult, TaskMessage, TaskPatch, TaskProgress, TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, RunListQuery, RunSummary,
+    Secret, Skill, Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch,
+    TaskProgress, TaskSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -92,62 +87,6 @@ impl CommandExecutor for IpcExecutor {
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>> {
         self.request_optional(IpcRequest::GetSkill { id: id.to_string() })
             .await
-    }
-
-    async fn search_memory(
-        &self,
-        query: String,
-        agent_id: Option<String>,
-        limit: Option<u32>,
-    ) -> Result<MemorySearchResult> {
-        self.request_typed(IpcRequest::SearchMemory {
-            query,
-            agent_id,
-            limit,
-        })
-        .await
-    }
-
-    async fn list_memory(
-        &self,
-        agent_id: Option<String>,
-        tag: Option<String>,
-    ) -> Result<Vec<MemoryChunk>> {
-        self.request_typed(IpcRequest::ListMemory { agent_id, tag })
-            .await
-    }
-
-    async fn clear_memory(&self, agent_id: Option<String>) -> Result<u32> {
-        let resp: ClearResponse = self
-            .request_typed(IpcRequest::ClearMemory { agent_id })
-            .await?;
-        Ok(resp.deleted)
-    }
-
-    async fn get_memory_stats(&self, agent_id: Option<String>) -> Result<MemoryStats> {
-        self.request_typed(IpcRequest::GetMemoryStats { agent_id })
-            .await
-    }
-
-    async fn export_memory(&self, agent_id: Option<String>) -> Result<ExportResult> {
-        self.request_typed(IpcRequest::ExportMemory { agent_id })
-            .await
-    }
-
-    async fn store_memory(
-        &self,
-        agent_id: &str,
-        content: &str,
-        tags: Vec<String>,
-    ) -> Result<String> {
-        let resp: IdResponse = self
-            .request_typed(IpcRequest::AddMemory {
-                content: content.to_string(),
-                agent_id: Some(agent_id.to_string()),
-                tags,
-            })
-            .await?;
-        Ok(resp.id)
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
@@ -227,71 +166,6 @@ impl CommandExecutor for IpcExecutor {
         let config = to_contract(config)?;
         let _: OkResponse = self.request_typed(IpcRequest::SetConfig { config }).await?;
         Ok(())
-    }
-
-    async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
-        self.request_typed(IpcRequest::ListPairingState).await
-    }
-
-    async fn approve_pairing(&self, code: &str) -> Result<PairingApprovalResponse> {
-        self.request_typed(IpcRequest::ApprovePairing {
-            code: code.to_string(),
-        })
-        .await
-    }
-
-    async fn deny_pairing(&self, code: &str) -> Result<()> {
-        let _: OkResponse = self
-            .request_typed(IpcRequest::DenyPairing {
-                code: code.to_string(),
-            })
-            .await?;
-        Ok(())
-    }
-
-    async fn revoke_paired_peer(&self, peer_id: &str) -> Result<bool> {
-        let resp: restflow_contracts::DeleteResponse = self
-            .request_typed(IpcRequest::RevokePairedPeer {
-                peer_id: peer_id.to_string(),
-            })
-            .await?;
-        Ok(resp.deleted)
-    }
-
-    async fn get_pairing_owner(&self) -> Result<PairingOwnerResponse> {
-        self.request_typed(IpcRequest::GetPairingOwner).await
-    }
-
-    async fn set_pairing_owner(&self, chat_id: &str) -> Result<PairingOwnerResponse> {
-        self.request_typed(IpcRequest::SetPairingOwner {
-            chat_id: chat_id.to_string(),
-        })
-        .await
-    }
-
-    async fn list_route_bindings(&self) -> Result<Vec<RouteBindingResponse>> {
-        self.request_typed(IpcRequest::ListRouteBindings).await
-    }
-
-    async fn bind_route(
-        &self,
-        binding_type: &str,
-        target_id: &str,
-        agent_id: &str,
-    ) -> Result<RouteBindingResponse> {
-        self.request_typed(IpcRequest::BindRoute {
-            binding_type: binding_type.to_string(),
-            target_id: target_id.to_string(),
-            agent_id: agent_id.to_string(),
-        })
-        .await
-    }
-
-    async fn unbind_route(&self, id: &str) -> Result<bool> {
-        let resp: restflow_contracts::DeleteResponse = self
-            .request_typed(IpcRequest::UnbindRoute { id: id.to_string() })
-            .await?;
-        Ok(resp.deleted)
     }
 
     async fn run_cleanup(&self) -> Result<CleanupReportResponse> {

@@ -683,48 +683,6 @@ async fn test_executor_allows_disabling_llm_timeout() {
 }
 
 #[tokio::test]
-async fn test_checkpoint_durability_per_turn_triggers_callback() {
-    let responses = vec![
-        CompletionResponse {
-            content: Some("Tool".to_string()),
-            tool_calls: vec![ToolCall {
-                id: "call_1".to_string(),
-                name: "echo".to_string(),
-                arguments: serde_json::json!({"message":"hello"}),
-            }],
-            finish_reason: FinishReason::ToolCalls,
-            usage: None,
-        },
-        CompletionResponse {
-            content: Some("Done".to_string()),
-            tool_calls: vec![],
-            finish_reason: FinishReason::Stop,
-            usage: None,
-        },
-    ];
-    let mock_llm = Arc::new(MockLlmClient::new(responses));
-    let mut registry = ToolRegistry::new();
-    registry.register(EchoTool);
-    let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
-
-    let checkpoint_count = Arc::new(AtomicUsize::new(0));
-    let count_ref = checkpoint_count.clone();
-    let config = AgentConfig::new("checkpoint")
-        .with_checkpoint_durability(CheckpointDurability::PerTurn)
-        .with_checkpoint_callback(move |_| {
-            let count_ref = count_ref.clone();
-            async move {
-                count_ref.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        });
-
-    let result = executor.run(config).await.unwrap();
-    assert!(result.success);
-    assert_eq!(checkpoint_count.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
 async fn test_executor_uses_working_memory() {
     // Create a response that completes immediately
     let response = CompletionResponse {

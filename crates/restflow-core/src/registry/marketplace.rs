@@ -169,8 +169,7 @@ impl MarketplaceProvider {
                 "file" | "file_read" => SkillPermission::FileRead,
                 "file_write" => SkillPermission::FileWrite,
                 "http" | "network" | "web" => SkillPermission::Network,
-                "email" => SkillPermission::Network,
-                "telegram" => SkillPermission::Network,
+                "email" | "chat" => SkillPermission::Network,
                 "python" => SkillPermission::ShellExec,
                 _ => SkillPermission::Custom(tool),
             })

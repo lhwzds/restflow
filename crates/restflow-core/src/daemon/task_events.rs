@@ -31,7 +31,7 @@ mod tests {
         let mut receiver = subscribe_task_events();
         let event = TaskStreamEvent::progress(
             "task-1",
-            "notification",
+            "progress",
             Some(42),
             Some("streaming".to_string()),
         );

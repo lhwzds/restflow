@@ -1,15 +1,12 @@
 use super::*;
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
+use crate::storage::simple_storage::{AgentRawStorage, SimpleStorage};
 use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
-use restflow_contracts::{
-    ApprovalHandledResponse, CleanupReportResponse, PairingApprovalResponse, PairingStateResponse,
-    RouteBindingResponse,
-};
-use restflow_storage::SimpleStorage;
+use restflow_contracts::{ApprovalHandledResponse, CleanupReportResponse};
 
-fn raw_agent_storage(core: &Arc<AppCore>) -> restflow_storage::AgentStorage {
-    restflow_storage::AgentStorage::new(core.storage.get_db()).unwrap()
+fn raw_agent_storage(core: &Arc<AppCore>) -> AgentRawStorage {
+    AgentRawStorage::new(core.storage.get_db()).unwrap()
 }
 
 fn ensure_test_agent_with_id(core: &Arc<AppCore>, id: &str) {
@@ -45,11 +42,8 @@ fn task_spec(name: &str) -> crate::models::TaskSpec {
         input: Some("run".to_string()),
         input_template: None,
         schedule: crate::models::TaskSchedule::default(),
-        notification: None,
         execution_mode: None,
         timeout_secs: None,
-        memory: None,
-        durability_mode: None,
         resource_limits: None,
         prerequisites: Vec::new(),
         continuation: None,
@@ -72,8 +66,8 @@ fn configure_default_agent(core: &Arc<AppCore>) -> String {
     default_id
 }
 
-fn raw_task_storage(core: &Arc<AppCore>) -> restflow_storage::TaskStorage {
-    restflow_storage::TaskStorage::new(core.storage.get_db()).unwrap()
+fn raw_task_storage(core: &Arc<AppCore>) -> crate::storage::task_runtime::raw::TaskStorage {
+    crate::storage::task_runtime::raw::TaskStorage::new(core.storage.get_db()).unwrap()
 }
 
 fn insert_task_with_id(core: &Arc<AppCore>, id: &str) -> crate::models::Task {
@@ -179,9 +173,6 @@ async fn process_convert_session_task_returns_direct_result() {
                 schedule: None,
                 input: None,
                 timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
             },
@@ -550,127 +541,6 @@ async fn process_create_terminal_session_returns_session() {
 }
 
 #[tokio::test]
-async fn process_list_pairing_state_returns_empty_by_default() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response =
-        IpcServer::process(&core, &runtime_tool_registry, IpcRequest::ListPairingState).await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let state: PairingStateResponse = serde_json::from_value(value).expect("pairing state");
-            assert!(state.allowed_peers.is_empty());
-            assert!(state.pending_requests.is_empty());
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn process_approve_pairing_auto_binds_owner_chat_id() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let pairing_storage =
-        Arc::new(crate::storage::PairingStorage::new(core.storage.get_db()).unwrap());
-    let manager = crate::channel::PairingManager::new(pairing_storage);
-    let code = manager
-        .create_request("peer-1", Some("Peer 1"), "chat-100")
-        .expect("pairing request");
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ApprovePairing { code },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let approval: PairingApprovalResponse =
-                serde_json::from_value(value).expect("pairing approval");
-            assert!(approval.approved);
-            assert_eq!(approval.peer_id, "peer-1");
-            assert_eq!(approval.peer_name.as_deref(), Some("Peer 1"));
-            assert_eq!(approval.owner_chat_id.as_deref(), Some("chat-100"));
-            assert!(approval.owner_auto_bound);
-            assert_eq!(
-                core.storage
-                    .secrets
-                    .get_secret("TELEGRAM_CHAT_ID")
-                    .expect("owner secret"),
-                Some("chat-100".to_string())
-            );
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn process_bind_route_binds_channel() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::BindRoute {
-            binding_type: "channel".to_string(),
-            target_id: "Telegram".to_string(),
-            agent_id: "agent-1".to_string(),
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let binding: RouteBindingResponse =
-                serde_json::from_value(value).expect("route binding");
-            assert_eq!(binding.binding_type, "channel");
-            assert_eq!(binding.target_id, "telegram");
-            assert_eq!(binding.agent_id, "agent-1");
-            assert_eq!(binding.priority, 2);
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-
-    let storage = Arc::new(crate::storage::PairingStorage::new(core.storage.get_db()).unwrap());
-    let resolver = crate::channel::RouteResolver::new(storage);
-    let resolved = resolver.resolve_route(
-        crate::channel::ChannelType::Telegram,
-        "bot-1",
-        "peer-1",
-        "chat-1",
-    );
-    assert_eq!(
-        resolved.as_ref().map(|route| route.agent_id.as_str()),
-        Some("agent-1")
-    );
-}
-
-#[tokio::test]
-async fn process_bind_route_rejects_invalid_binding_type() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::BindRoute {
-            binding_type: "bad".to_string(),
-            target_id: "chat-1".to_string(),
-            agent_id: "agent-1".to_string(),
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Error(error) => assert_eq!(error.code, 400),
-        other => panic!("expected error response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn process_run_cleanup_returns_report() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -868,11 +738,8 @@ async fn process_create_task_requires_confirmation_when_agent_provider_missing()
                 input: Some("run".to_string()),
                 input_template: None,
                 schedule: crate::models::TaskSchedule::default(),
-                notification: None,
                 execution_mode: None,
                 timeout_secs: None,
-                memory: None,
-                durability_mode: None,
                 resource_limits: None,
                 prerequisites: Vec::new(),
                 continuation: None,
