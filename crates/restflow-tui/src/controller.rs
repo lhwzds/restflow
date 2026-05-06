@@ -13,7 +13,8 @@ use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
 use super::state::{
     AppState, ModelPickerCategory, ModelPickerItem, OverlayState, ProviderPickerItem,
-    RunPickerItem, SkillManagerSelection, SkillPickerItem, TaskPickerItem,
+    SkillManagerSelection, SkillPickerItem, TaskPickerItem, WorkPickerItem,
+    build_work_picker_items, work_notice_text,
 };
 use super::transcript::ShellMessage;
 
@@ -114,8 +115,15 @@ impl ShellController {
         } else {
             Vec::new()
         };
+        let child_runs = self.child_runs_for_runs(&runs).await;
+        let tasks = self.task_items().await.unwrap_or_default();
 
-        let actions = vec![ShellAction::StateRefreshed { sessions, runs }];
+        let actions = vec![ShellAction::StateRefreshed {
+            sessions,
+            runs,
+            child_runs,
+            tasks,
+        }];
 
         Ok(actions)
     }
@@ -134,10 +142,12 @@ impl ShellController {
         } else {
             Vec::new()
         };
+        let child_runs = self.child_runs_for_runs(&runs).await;
 
         let mut actions = vec![ShellAction::CurrentSessionReloaded {
             session: session.map(Box::new),
             runs,
+            child_runs,
         }];
         actions.extend(self.refresh_actions(state).await?);
         Ok(actions)
@@ -233,9 +243,11 @@ impl ShellController {
                     .list_runs_for_session(&session_id)
                     .await
                     .unwrap_or_default();
+                let child_runs = self.child_runs_for_runs(&runs).await;
                 Ok(vec![ShellAction::SessionOpened {
                     session: Box::new(session),
                     runs,
+                    child_runs,
                     status: format!("Opened session {session_id}"),
                 }])
             }
@@ -285,28 +297,10 @@ impl ShellController {
                 self.switch_model_actions(state, item.model).await
             }
             Some(OverlayState::RunPicker { .. }) => {
-                let Some(RunPickerItem::Run { run_id, .. }) = state.selected_run_picker_item()
-                else {
+                let Some(item) = state.selected_run_picker_item() else {
                     return Ok(Vec::new());
                 };
-                let thread = self.client.get_execution_run_thread(&run_id).await?;
-                let child_runs = self
-                    .client
-                    .list_child_runs(&run_id)
-                    .await
-                    .unwrap_or_default();
-                let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
-                    self.client.get_session(session_id).await.ok()
-                } else {
-                    None
-                };
-                Ok(vec![ShellAction::RunOpened {
-                    session: session.map(Box::new),
-                    run_id: run_id.clone(),
-                    thread: Box::new(thread),
-                    child_runs,
-                    status: format!("Opened run {run_id}"),
-                }])
+                self.work_picker_selection_actions(item).await
             }
             Some(OverlayState::SkillMentionPicker { .. })
             | Some(OverlayState::SkillDetail)
@@ -371,6 +365,7 @@ impl ShellController {
         Ok(vec![ShellAction::SessionCreatedForSubmit {
             session: Box::new(session),
             runs: Vec::new(),
+            child_runs: Vec::new(),
             message,
         }])
     }
@@ -478,16 +473,7 @@ impl ShellController {
     }
 
     async fn task_picker_actions(&self) -> Result<Vec<ShellAction>> {
-        let tasks = self.client.list_tasks().await?;
-        let tasks = tasks
-            .into_iter()
-            .map(|task| TaskPickerItem {
-                task_id: task.id,
-                name: task.name,
-                status: format!("{:?}", task.status),
-                next_run_at: task.next_run_at,
-            })
-            .collect::<Vec<_>>();
+        let tasks = self.task_items().await?;
         let status = if tasks.is_empty() {
             "No tasks available.".to_string()
         } else {
@@ -702,30 +688,108 @@ impl ShellController {
     }
 
     async fn list_runs_inline_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let items = state.run_picker_items();
+        let tasks = self
+            .task_items()
+            .await
+            .unwrap_or_else(|_| state.tasks.clone());
+        let runs = if let Some(session_id) = state.current_session_id() {
+            self.client
+                .list_runs_for_session(session_id)
+                .await
+                .unwrap_or_else(|_| state.thread.runs.clone())
+        } else {
+            state.thread.runs.clone()
+        };
+        let child_runs = self.child_runs_for_runs(&runs).await;
+        let items = build_work_picker_items(&tasks, &runs, &child_runs);
         if items.is_empty() {
             return Ok(vec![ShellAction::MessageAppended(
                 ShellMessage::InfoNotice {
-                    content: "No runs for the current session.".to_string(),
+                    content: "No active work, runs, or background tasks.".to_string(),
                 },
             )]);
         }
 
-        let mut lines = vec!["Runs".to_string()];
-        for item in items {
-            let RunPickerItem::Run {
-                run_id,
-                title,
-                status,
-            } = item;
-            lines.push(format!("- {title} · {status} · {run_id}"));
-        }
-        lines.push("Open one with /run open <run_id>".to_string());
         Ok(vec![ShellAction::MessageAppended(
             ShellMessage::InfoNotice {
-                content: lines.join("\n"),
+                content: work_notice_text(&items),
             },
         )])
+    }
+
+    async fn task_items(&self) -> Result<Vec<TaskPickerItem>> {
+        Ok(self
+            .client
+            .list_tasks()
+            .await?
+            .into_iter()
+            .map(task_item_from_task)
+            .collect())
+    }
+
+    async fn child_runs_for_runs(
+        &self,
+        runs: &[restflow_core::models::RunSummary],
+    ) -> Vec<restflow_core::models::RunSummary> {
+        let mut child_runs = Vec::new();
+        for run in runs {
+            let Some(run_id) = run.run_id.as_deref() else {
+                continue;
+            };
+            child_runs.extend(
+                self.client
+                    .list_child_runs(run_id)
+                    .await
+                    .unwrap_or_default(),
+            );
+        }
+        child_runs.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        child_runs
+    }
+
+    async fn work_picker_selection_actions(
+        &self,
+        item: WorkPickerItem,
+    ) -> Result<Vec<ShellAction>> {
+        match item {
+            WorkPickerItem::BackgroundTask { task_id, .. } => {
+                Ok(vec![ShellAction::OpenTaskActionPicker { task_id }])
+            }
+            WorkPickerItem::Run { run_id, .. } => {
+                let thread = self.client.get_execution_run_thread(&run_id).await?;
+                let child_runs = self
+                    .client
+                    .list_child_runs(&run_id)
+                    .await
+                    .unwrap_or_default();
+                let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
+                    self.client.get_session(session_id).await.ok()
+                } else {
+                    None
+                };
+                Ok(vec![ShellAction::RunOpened {
+                    session: session.map(Box::new),
+                    run_id: run_id.clone(),
+                    thread: Box::new(thread),
+                    child_runs,
+                    status: format!("Opened run {run_id}"),
+                }])
+            }
+        }
+    }
+}
+
+fn task_item_from_task(task: restflow_core::models::Task) -> TaskPickerItem {
+    TaskPickerItem {
+        task_id: task.id,
+        name: task.name,
+        status: format!("{:?}", task.status),
+        next_run_at: task.next_run_at,
     }
 }
 

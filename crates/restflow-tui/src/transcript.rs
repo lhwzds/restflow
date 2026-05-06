@@ -170,39 +170,39 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
             .turns
             .iter()
             .flat_map(|turn| {
-                turn.events.iter().filter_map(|event| match &event.kind {
-                    ChatTurnEventKind::UserMessage { content } => Some(ShellMessage::UserMessage {
+                turn.events.iter().map(|event| match &event.kind {
+                    ChatTurnEventKind::UserMessage { content } => ShellMessage::UserMessage {
                         content: content.clone(),
-                    }),
+                    },
                     ChatTurnEventKind::AssistantMessage { content } => {
-                        Some(ShellMessage::AssistantMessage {
+                        ShellMessage::AssistantMessage {
                             content: content.clone(),
-                        })
+                        }
                     }
                     ChatTurnEventKind::ToolCall {
                         call_id,
                         name,
                         arguments,
-                    } => Some(ShellMessage::ToolCall {
+                    } => ShellMessage::ToolCall {
                         call_id: call_id.clone(),
                         name: name.clone(),
                         arguments: arguments.clone(),
-                    }),
+                    },
                     ChatTurnEventKind::ToolResult {
                         call_id,
                         success,
                         result,
-                    } => Some(ShellMessage::ToolResult {
+                    } => ShellMessage::ToolResult {
                         call_id: call_id.clone(),
                         success: *success,
                         result: result.clone(),
-                    }),
-                    ChatTurnEventKind::Error { message } => Some(ShellMessage::ErrorNotice {
+                    },
+                    ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
                         content: message.clone(),
-                    }),
-                    ChatTurnEventKind::Canceled => Some(ShellMessage::InfoNotice {
+                    },
+                    ChatTurnEventKind::Canceled => ShellMessage::InfoNotice {
                         content: "Turn canceled".to_string(),
-                    }),
+                    },
                 })
             })
             .collect();

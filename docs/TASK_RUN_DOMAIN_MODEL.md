@@ -18,11 +18,20 @@ RestFlow keeps `Task / Run` as the background-runtime domain model:
 
 - `Agent`: capability, identity, role, and configuration
 - `Task`: a schedulable unit of work assigned to an agent
-- `Run`: one execution of a task
-- `Sub-agent`: delegated execution spawned within a run
+- `Run`: one agent execution
+- `Sub-agent`: delegated ephemeral child run spawned within a parent run
 
 `Agent` is not a task state model.
 `Task` is not an agent capability definition.
+
+The durable/ephemeral split belongs to the envelope around a run:
+
+- Background task: durable `TaskSpec`, schedule, controls, and repeated runs.
+- Sub-agent: ephemeral child run, `parent_run_id`, and no task storage row.
+
+TUI surfaces may show background tasks and sub-agent child runs in one Work
+view, but storage and daemon state must keep the durable task envelope separate
+from ephemeral child-run execution.
 
 ## Layering Rules
 

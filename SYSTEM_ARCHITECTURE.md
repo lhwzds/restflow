@@ -117,6 +117,22 @@ ChatSession
 3. Messages/events are published once with stable IDs.
 4. Task history and message history are persisted by daemon only.
 
+Task and subagent execution share the same underlying run model. Their
+difference is the execution envelope:
+
+```text
+Agent run
+├── Background task run
+│   └── created from durable TaskSpec / schedule / task controls
+└── Subagent run
+    └── created as an ephemeral child run with parent_run_id
+```
+
+The TUI may present both as one Work view, but it must keep the domain split:
+background tasks are durable triggers and subagents are ephemeral child runs.
+Do not add a separate persisted subagent store or merge subagents into task
+storage.
+
 ### 4.4 Tool Trace Flow
 
 1. Runtime emits turn/tool events during execution.

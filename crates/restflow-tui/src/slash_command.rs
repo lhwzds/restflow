@@ -87,6 +87,11 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         args: "",
         description: "Select a task action",
     },
+    SlashCommandSpec {
+        command: "/runs",
+        args: "",
+        description: "Show work, runs, and subagents",
+    },
 ];
 
 pub const HELP_TEXT: &str = "RestFlow terminal shell\n\n\
@@ -104,7 +109,8 @@ Slash commands:\n\
 /resume\n\
 /skill\n\
 /model\n\
-/task";
+/task\n\
+/runs";
 
 pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
     let mut parts = raw.split_whitespace();
@@ -352,7 +358,7 @@ mod tests {
         assert!(specs.contains(&("/task", "")));
         assert!(!specs.contains(&("/team", "")));
         assert!(!specs.contains(&("/session", "open <session_id>")));
-        assert!(!specs.contains(&("/runs", "")));
+        assert!(specs.contains(&("/runs", "")));
         assert!(!specs.contains(&("/run", "open <run_id>")));
         assert!(!specs.contains(&("/task", "pause <id>")));
         assert!(!specs.contains(&("/task", "resume <id>")));

@@ -24,6 +24,8 @@ pub enum ShellAction {
     StateRefreshed {
         sessions: Vec<ChatSessionSummary>,
         runs: Vec<RunSummary>,
+        child_runs: Vec<RunSummary>,
+        tasks: Vec<TaskPickerItem>,
     },
     SessionPickerLoaded {
         sessions: Vec<ChatSessionSummary>,
@@ -38,15 +40,18 @@ pub enum ShellAction {
     CurrentSessionReloaded {
         session: Option<Box<ChatSession>>,
         runs: Vec<RunSummary>,
+        child_runs: Vec<RunSummary>,
     },
     SessionOpened {
         session: Box<ChatSession>,
         runs: Vec<RunSummary>,
+        child_runs: Vec<RunSummary>,
         status: String,
     },
     SessionCreatedForSubmit {
         session: Box<ChatSession>,
         runs: Vec<RunSummary>,
+        child_runs: Vec<RunSummary>,
         message: String,
     },
     RunOpened {
@@ -176,14 +181,18 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.apply_task_event(event);
             output.effects.push(ShellEffect::RefreshState);
         }
-        ShellAction::StateRefreshed { sessions, runs } => {
+        ShellAction::StateRefreshed {
+            sessions,
+            runs,
+            child_runs,
+            tasks,
+        } => {
             state.sessions = sessions;
+            state.tasks = tasks;
             if state.current_session_id().is_some() {
-                state.set_session_runs(runs);
+                state.set_session_runs_and_child_runs(runs, child_runs);
             } else {
-                state.thread.runs.clear();
-                state.thread.child_runs.clear();
-                state.thread.execution_thread = None;
+                state.clear_thread_runs();
             }
         }
         ShellAction::SessionPickerLoaded { sessions, status } => {
@@ -205,10 +214,14 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 state.push_error(status);
             }
         }
-        ShellAction::CurrentSessionReloaded { session, runs } => {
+        ShellAction::CurrentSessionReloaded {
+            session,
+            runs,
+            child_runs,
+        } => {
             if let Some(session) = session {
                 state.refresh_current_session(*session);
-                state.set_session_runs(runs);
+                state.set_session_runs_and_child_runs(runs, child_runs);
             } else {
                 state.clear_current_session("The active session is no longer available.");
             }
@@ -216,20 +229,22 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         ShellAction::SessionOpened {
             session,
             runs,
+            child_runs,
             status,
         } => {
             state.set_current_session(*session);
-            state.set_session_runs(runs);
+            state.set_session_runs_and_child_runs(runs, child_runs);
             state.clear_overlay();
             state.status = status;
         }
         ShellAction::SessionCreatedForSubmit {
             session,
             runs,
+            child_runs,
             message,
         } => {
             state.set_current_session(*session);
-            state.set_session_runs(runs);
+            state.set_session_runs_and_child_runs(runs, child_runs);
             state.push_local_user_message(message.clone());
             state.start_assistant_typing();
             state.status = "Sending message...".to_string();
@@ -1323,6 +1338,7 @@ mod tests {
             ShellAction::SessionCreatedForSubmit {
                 session: Box::new(session),
                 runs: Vec::new(),
+                child_runs: Vec::new(),
                 message: "hi".to_string(),
             },
         );
@@ -1403,6 +1419,7 @@ mod tests {
             ShellAction::SessionCreatedForSubmit {
                 session: Box::new(session),
                 runs: Vec::new(),
+                child_runs: Vec::new(),
                 message: "hi".to_string(),
             },
         );

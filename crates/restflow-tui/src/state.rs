@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use chrono::Utc;
 use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
-    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider,
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunKind,
     RunSummary, Skill, SkillSource,
 };
 use restflow_core::storage::agent::StoredAgent;
@@ -16,9 +16,16 @@ use super::transcript::{
 };
 
 #[derive(Debug, Clone)]
-pub enum RunPickerItem {
+pub enum WorkPickerItem {
+    BackgroundTask {
+        task_id: String,
+        title: String,
+        status: String,
+        next_run_at: Option<i64>,
+    },
     Run {
         run_id: String,
+        kind: RunKind,
         title: String,
         status: String,
     },
@@ -485,10 +492,6 @@ impl AppState {
         self.is_streaming = false;
     }
 
-    pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
-        self.thread.set_session_runs(runs);
-    }
-
     pub fn set_run_focus(
         &mut self,
         run_id: String,
@@ -785,34 +788,148 @@ impl AppState {
         }
     }
 
-    pub fn selected_run_picker_item(&self) -> Option<RunPickerItem> {
+    pub fn selected_run_picker_item(&self) -> Option<WorkPickerItem> {
         match self.overlay.as_ref() {
             Some(OverlayState::RunPicker { selected }) => {
-                self.run_picker_items().get(*selected).cloned()
+                self.work_picker_items().get(*selected).cloned()
             }
             _ => None,
         }
     }
 
-    pub fn run_picker_items(&self) -> Vec<RunPickerItem> {
-        let mut items = Vec::new();
-        items.extend(self.thread.runs.iter().filter_map(|run| {
-            run.run_id.as_ref().map(|run_id| RunPickerItem::Run {
-                run_id: run_id.clone(),
-                title: run.title.clone(),
-                status: run.status.clone(),
-            })
-        }));
-        items.extend(self.thread.child_runs.iter().filter_map(|run| {
-            run.run_id.as_ref().map(|run_id| RunPickerItem::Run {
-                run_id: run_id.clone(),
-                title: format!("-> {}", run.title),
-                status: run.status.clone(),
-            })
-        }));
-        items
+    pub fn work_picker_items(&self) -> Vec<WorkPickerItem> {
+        build_work_picker_items(&self.tasks, &self.thread.runs, &self.thread.child_runs)
     }
 
+    pub fn run_picker_items(&self) -> Vec<WorkPickerItem> {
+        self.work_picker_items()
+    }
+
+    pub fn set_session_runs_and_child_runs(
+        &mut self,
+        runs: Vec<RunSummary>,
+        child_runs: Vec<RunSummary>,
+    ) {
+        self.thread.set_session_runs(runs);
+        self.thread.child_runs = child_runs;
+    }
+
+    pub fn clear_thread_runs(&mut self) {
+        self.thread.runs.clear();
+        self.thread.child_runs.clear();
+        self.thread.execution_thread = None;
+    }
+
+    pub fn work_summary_notice(&self) -> Option<TranscriptCell> {
+        let items = self.work_picker_items();
+        if items.is_empty() {
+            return None;
+        }
+        let active_items = items
+            .into_iter()
+            .filter(is_live_work_item)
+            .take(5)
+            .collect::<Vec<_>>();
+        if active_items.is_empty() {
+            return None;
+        }
+        Some(cell_from_message(
+            &ShellMessage::InfoNotice {
+                content: work_notice_text(&active_items),
+            },
+            self.assistant_name(),
+        ))
+    }
+}
+
+pub fn build_work_picker_items(
+    tasks: &[TaskPickerItem],
+    runs: &[RunSummary],
+    child_runs: &[RunSummary],
+) -> Vec<WorkPickerItem> {
+    let mut items = Vec::new();
+    items.extend(tasks.iter().map(|task| WorkPickerItem::BackgroundTask {
+        task_id: task.task_id.clone(),
+        title: task.name.clone(),
+        status: task.status.clone(),
+        next_run_at: task.next_run_at,
+    }));
+    items.extend(runs.iter().filter_map(|run| {
+        run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
+            run_id: run_id.clone(),
+            kind: run.kind,
+            title: run.title.clone(),
+            status: run.status.clone(),
+        })
+    }));
+    items.extend(child_runs.iter().filter_map(|run| {
+        run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
+            run_id: run_id.clone(),
+            kind: run.kind,
+            title: run.title.clone(),
+            status: run.status.clone(),
+        })
+    }));
+    items
+}
+
+pub fn work_notice_text(items: &[WorkPickerItem]) -> String {
+    let mut lines = vec!["Work".to_string()];
+    for item in items {
+        match item {
+            WorkPickerItem::BackgroundTask {
+                task_id,
+                title,
+                status,
+                next_run_at,
+            } => {
+                let next_run = next_run_at
+                    .map(|value| format!(" · next {value}"))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "- background task · {title} · {status} · {task_id}{next_run}"
+                ));
+            }
+            WorkPickerItem::Run {
+                run_id,
+                kind,
+                title,
+                status,
+            } => {
+                lines.push(format!(
+                    "- {} · {title} · {status} · {run_id}",
+                    work_run_kind_label(*kind)
+                ));
+            }
+        }
+    }
+    lines.push("Open a run with /run open <run_id>; manage tasks with /task.".to_string());
+    lines.join("\n")
+}
+
+fn is_live_work_item(item: &WorkPickerItem) -> bool {
+    match item {
+        WorkPickerItem::BackgroundTask { status, .. } => {
+            matches_normalized_status(status, &["active", "running"])
+        }
+        WorkPickerItem::Run { status, .. } => matches_normalized_status(status, &["running"]),
+    }
+}
+
+fn matches_normalized_status(status: &str, values: &[&str]) -> bool {
+    let normalized = status.trim().to_ascii_lowercase();
+    values.iter().any(|value| normalized == *value)
+}
+
+pub fn work_run_kind_label(kind: RunKind) -> &'static str {
+    match kind {
+        RunKind::WorkspaceRun => "workspace run",
+        RunKind::TaskRun => "task run",
+        RunKind::SubagentRun => "subagent run",
+    }
+}
+
+impl AppState {
     pub fn push_message(&mut self, message: ShellMessage) {
         if matches!(
             message,
@@ -1047,16 +1164,15 @@ impl AppState {
         if !self.active_tool_result_ids.insert(call_id.to_string()) {
             return;
         }
-        if let Some(active_turn) = self.active_turn.as_mut() {
-            if let Some(cell) = active_turn
+        if let Some(active_turn) = self.active_turn.as_mut()
+            && let Some(cell) = active_turn
                 .cells
                 .iter_mut()
                 .find(|cell| cell.tool_call_id() == Some(call_id))
-            {
-                let _ = cell.merge_tool_result(success, result);
-                self.active_progress_started_at_ms = None;
-                return;
-            }
+        {
+            let _ = cell.merge_tool_result(success, result);
+            self.active_progress_started_at_ms = None;
+            return;
         }
         let assistant_name = self.assistant_name().to_string();
         let cell = cell_from_message(
@@ -1285,11 +1401,10 @@ impl AppState {
             // end as well.
             if entry.base_cell_index == old_cells.len() {
                 entry.base_cell_index = self.conversation_cells.len();
-            } else if let Some(old_cell) = old_cells.get(entry.base_cell_index) {
-                if let Some(new_index) = self.conversation_cells.iter().position(|c| c == old_cell)
-                {
-                    entry.base_cell_index = new_index;
-                }
+            } else if let Some(old_cell) = old_cells.get(entry.base_cell_index)
+                && let Some(new_index) = self.conversation_cells.iter().position(|c| c == old_cell)
+            {
+                entry.base_cell_index = new_index;
             }
         }
     }
@@ -1340,7 +1455,7 @@ fn append_active_text(body: &mut String, text: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, OverlayState};
+    use super::{AppState, OverlayState, TaskPickerItem};
     use crate::transcript::TranscriptCellKind;
     use restflow_contracts::{ChatSessionEvent, StreamFrame};
 
@@ -1555,8 +1670,14 @@ mod tests {
     }
 
     #[test]
-    fn run_picker_uses_only_thread_runs() {
+    fn work_picker_includes_tasks_runs_and_child_runs() {
         let mut state = AppState::empty();
+        state.tasks.push(TaskPickerItem {
+            task_id: "task-1".to_string(),
+            name: "Daily digest".to_string(),
+            status: "Active".to_string(),
+            next_run_at: None,
+        });
         state.thread.runs.push(restflow_core::models::RunSummary {
             id: "run-local".to_string(),
             kind: restflow_core::models::RunKind::WorkspaceRun,
@@ -1579,10 +1700,52 @@ mod tests {
             provider: None,
             event_count: 0,
         });
+        state
+            .thread
+            .child_runs
+            .push(restflow_core::models::RunSummary {
+                id: "child-1".to_string(),
+                kind: restflow_core::models::RunKind::SubagentRun,
+                container_id: "session-1".to_string(),
+                root_run_id: Some("run-local".to_string()),
+                title: "Subagent run".to_string(),
+                subtitle: None,
+                status: "running".to_string(),
+                updated_at: 2,
+                started_at: Some(2),
+                ended_at: None,
+                session_id: Some("session-1".to_string()),
+                run_id: Some("child-1".to_string()),
+                task_id: None,
+                parent_run_id: Some("run-local".to_string()),
+                agent_id: Some("agent-2".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                effective_model: None,
+                provider: None,
+                event_count: 0,
+            });
 
-        let items = state.run_picker_items();
-        assert_eq!(items.len(), 1);
-        assert!(matches!(items[0], super::RunPickerItem::Run { .. }));
+        let items = state.work_picker_items();
+        assert_eq!(items.len(), 3);
+        assert!(matches!(
+            items[0],
+            super::WorkPickerItem::BackgroundTask { .. }
+        ));
+        assert!(matches!(
+            items[1],
+            super::WorkPickerItem::Run {
+                kind: restflow_core::models::RunKind::WorkspaceRun,
+                ..
+            }
+        ));
+        assert!(matches!(
+            items[2],
+            super::WorkPickerItem::Run {
+                kind: restflow_core::models::RunKind::SubagentRun,
+                ..
+            }
+        ));
     }
 
     #[test]

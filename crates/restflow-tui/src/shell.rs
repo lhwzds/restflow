@@ -14,7 +14,7 @@ use restflow_core::models::SkillSource;
 use crate::render::render_shell_bottom_viewport;
 use crate::scrollback::ScrollbackWriter;
 use crate::slash_command::{HELP_TEXT, SLASH_COMMAND_SPECS};
-use crate::state::AppState;
+use crate::state::{AppState, WorkPickerItem, work_run_kind_label};
 use crate::transcript::{TranscriptCell, TranscriptCellKind};
 
 const CONTINUATION_PREFIX: &str = "  ";
@@ -424,11 +424,15 @@ fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<
 }
 
 fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-    state
+    let mut cells = state
         .active_turn
         .as_ref()
         .map(|turn| turn.cells.clone())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if let Some(work_cell) = state.work_summary_notice() {
+        cells.push(work_cell);
+    }
+    cells
 }
 
 fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Vec<Line<'static>>> {
@@ -437,6 +441,10 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
     }
 
     if let Some(lines) = build_task_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_run_picker_lines(state, width, max_rows) {
         return Some(lines);
     }
 
@@ -658,6 +666,120 @@ fn build_task_picker_lines(
     if end < state.tasks.len() {
         lines.push(styled_line(
             format!("  ... {} more", state.tasks.len() - end),
+            muted_style(),
+        ));
+    }
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn build_run_picker_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    let Some(crate::state::OverlayState::RunPicker { selected }) = state.overlay.as_ref() else {
+        return None;
+    };
+
+    let items = state.work_picker_items();
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Work", tool_title_style()),
+        Span::styled("  Up/Down select, Enter open, Esc close", muted_style()),
+    ])];
+    if items.is_empty() {
+        lines.push(styled_line(
+            "  No active work, runs, or background tasks.",
+            muted_style(),
+        ));
+        return Some(lines);
+    }
+
+    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
+    let rows_per_item = 2usize;
+    let visible_items = (visible_capacity / rows_per_item).max(1);
+    let selected_index = (*selected).min(items.len().saturating_sub(1));
+    let start = selected_index
+        .saturating_sub(visible_items / 2)
+        .min(items.len().saturating_sub(visible_items));
+    let end = (start + visible_items).min(items.len());
+
+    for (index, item) in items[start..end].iter().enumerate() {
+        let index = start + index;
+        let is_selected = index == selected_index;
+        let marker = if is_selected { "› " } else { "  " };
+        let title_style = if is_selected {
+            tool_title_style()
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        match item {
+            WorkPickerItem::BackgroundTask {
+                task_id,
+                title,
+                status,
+                ..
+            } => {
+                lines.extend(wrap_styled_line(
+                    Line::from(vec![
+                        Span::styled(
+                            marker,
+                            if is_selected {
+                                tool_title_style()
+                            } else {
+                                muted_style()
+                            },
+                        ),
+                        Span::styled("background task · ", muted_style()),
+                        Span::styled(title.clone(), title_style),
+                        Span::styled(format!(" · {status}"), muted_style()),
+                    ]),
+                    width,
+                ));
+                lines.extend(wrap_styled_line(
+                    Line::from(vec![
+                        Span::styled("    id: ", muted_style()),
+                        Span::styled(task_id.clone(), muted_style()),
+                    ]),
+                    width,
+                ));
+            }
+            WorkPickerItem::Run {
+                run_id,
+                kind,
+                title,
+                status,
+            } => {
+                lines.extend(wrap_styled_line(
+                    Line::from(vec![
+                        Span::styled(
+                            marker,
+                            if is_selected {
+                                tool_title_style()
+                            } else {
+                                muted_style()
+                            },
+                        ),
+                        Span::styled(format!("{} · ", work_run_kind_label(*kind)), muted_style()),
+                        Span::styled(title.clone(), title_style),
+                        Span::styled(format!(" · {status}"), muted_style()),
+                    ]),
+                    width,
+                ));
+                lines.extend(wrap_styled_line(
+                    Line::from(vec![
+                        Span::styled("    run: ", muted_style()),
+                        Span::styled(run_id.clone(), muted_style()),
+                    ]),
+                    width,
+                ));
+            }
+        }
+    }
+
+    if end < items.len() {
+        lines.push(styled_line(
+            format!("  ... {} more", items.len() - end),
             muted_style(),
         ));
     }
@@ -1912,7 +2034,7 @@ mod tests {
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use restflow_contracts::StreamFrame;
-    use restflow_core::models::{ChatSessionSummary, Skill, SkillSource};
+    use restflow_core::models::{ChatSessionSummary, RunKind, RunSummary, Skill, SkillSource};
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
@@ -2453,7 +2575,7 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("/session open <session_id>"))
         );
-        assert!(!rendered.iter().any(|line| line.contains("/runs")));
+        assert!(rendered.iter().any(|line| line.contains("/runs")));
         assert!(
             !rendered
                 .iter()
@@ -2587,6 +2709,47 @@ mod tests {
         assert!(text.contains("/task pause"));
         assert!(text.contains("/task resume"));
         assert!(text.contains("/task stop"));
+    }
+
+    #[test]
+    fn message_viewport_shows_background_tasks_and_subagent_runs() {
+        let mut state = AppState::empty();
+        state.tasks = vec![TaskPickerItem {
+            task_id: "task-1".to_string(),
+            name: "Daily digest".to_string(),
+            status: "Active".to_string(),
+            next_run_at: None,
+        }];
+        state.thread.child_runs = vec![RunSummary {
+            id: "child-1".to_string(),
+            kind: RunKind::SubagentRun,
+            container_id: "session-1".to_string(),
+            root_run_id: Some("run-1".to_string()),
+            title: "Subagent run".to_string(),
+            subtitle: None,
+            status: "running".to_string(),
+            updated_at: 2,
+            started_at: Some(2),
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("child-1".to_string()),
+            task_id: None,
+            parent_run_id: Some("run-1".to_string()),
+            agent_id: Some("agent-2".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
+        }];
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(text.contains("Work"));
+        assert!(text.contains("background task"));
+        assert!(text.contains("Daily digest"));
+        assert!(text.contains("subagent run"));
+        assert!(text.contains("child-1"));
     }
 
     #[test]
