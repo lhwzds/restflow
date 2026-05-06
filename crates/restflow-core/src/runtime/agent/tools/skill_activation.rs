@@ -90,6 +90,7 @@ pub fn resolve_skill_activated_tool_allowlist(
     for skill_id in mentioned_ids {
         activate_mentioned_skill(
             &skill_id,
+            assigned_ids,
             &skill_by_id,
             &mut result,
             &mut tool_set,
@@ -126,6 +127,7 @@ fn activate_assigned_skill(
 
 fn activate_mentioned_skill(
     skill_id: &str,
+    assigned_skill_ids: &[String],
     skill_by_id: &HashMap<&str, &Skill>,
     result: &mut SkillActivationResult,
     tool_set: &mut HashSet<String>,
@@ -142,6 +144,19 @@ fn activate_mentioned_skill(
         });
         return;
     };
+
+    if !assigned_skill_ids.iter().any(|id| id == skill_id) {
+        result.issues.push(SkillActivationIssue {
+            category: SkillActivationIssueCategory::UnauthorizedSkill,
+            skill_id: skill_id.to_string(),
+            message: format!(
+                "Mentioned skill '{}' is not assigned to this agent",
+                skill_id
+            ),
+            suggestion: Some("Add the skill to agent.skills before using it".to_string()),
+        });
+        return;
+    }
 
     add_skill_suggested_tools(skill, result, tool_set, activated_set);
 }
@@ -262,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn known_mention_activates_suggested_tools_without_assignment() {
+    fn known_unassigned_mention_reports_unauthorized_without_adding_tools() {
         let base_tools = vec!["bash".to_string()];
         let assigned = vec!["regular".to_string()];
         let catalog = vec![skill("admin", &["manage_secrets"]), skill("regular", &[])];
@@ -274,11 +289,15 @@ mod tests {
             &catalog,
             SkillActivationPolicy::IgnoreInvalid,
         )
-        .expect("known mention should activate");
+        .expect("ignore invalid policy should return issues");
 
         assert!(result.tool_names.contains(&"load_skill".to_string()));
-        assert!(result.tool_names.contains(&"manage_secrets".to_string()));
-        assert!(result.issues.is_empty());
+        assert!(!result.tool_names.contains(&"manage_secrets".to_string()));
+        assert_eq!(result.issues.len(), 1);
+        assert_eq!(
+            result.issues[0].category,
+            SkillActivationIssueCategory::UnauthorizedSkill
+        );
     }
 
     #[test]

@@ -62,18 +62,9 @@ impl IpcServer {
             IpcRequest::DeleteAgent { id } => Self::handle_delete_agent(core, id).await,
             IpcRequest::ListSkills => Self::handle_list_skills(core).await,
             IpcRequest::GetSkill { id } => Self::handle_get_skill(core, id).await,
-            IpcRequest::CreateSkill { skill } => match from_contract(skill) {
-                Ok(skill) => Self::handle_create_skill(core, skill).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::UpdateSkill { id, skill } => match from_contract(skill) {
-                Ok(skill) => Self::handle_update_skill(core, id, skill).await,
-                Err(err) => invalid_request_response(err),
-            },
             IpcRequest::GetSkillReference { skill_id, ref_id } => {
                 Self::handle_get_skill_reference(core, skill_id, ref_id).await
             }
-            IpcRequest::DeleteSkill { id } => Self::handle_delete_skill(core, id).await,
             IpcRequest::ListTasks { status } => Self::handle_list_tasks(core, status).await,
             IpcRequest::ListRunnableTasks { current_time } => {
                 Self::handle_list_runnable_tasks(core, current_time).await
@@ -257,7 +248,7 @@ impl IpcServer {
                 instruction,
             } => Self::handle_steer_chat_session_stream(session_id, instruction).await,
             IpcRequest::CancelChatSessionStream { stream_id } => {
-                Self::handle_cancel_chat_session_stream(stream_id).await
+                Self::handle_cancel_chat_session_stream(core, stream_id).await
             }
             IpcRequest::GetSessionMessages { session_id, limit } => {
                 Self::handle_get_session_messages(core, session_id, limit).await

@@ -8,53 +8,19 @@ use std::sync::Arc;
 use crate::Result;
 use crate::security::{SecurityGate, ToolAction};
 use crate::{Tool, ToolOutput, check_security};
-use restflow_traits::skill::{SkillProvider, SkillRecord, SkillUpdate};
+use restflow_traits::skill::SkillProvider;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum SkillInput {
     List,
-    Read {
-        id: String,
-    },
-    Create {
-        id: String,
-        name: String,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        tags: Option<Vec<String>>,
-        content: String,
-    },
-    Update {
-        id: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        description: Option<Option<String>>,
-        #[serde(default)]
-        tags: Option<Option<Vec<String>>>,
-        #[serde(default)]
-        content: Option<String>,
-    },
-    Delete {
-        id: String,
-    },
-    Export {
-        id: String,
-    },
-    Import {
-        id: String,
-        markdown: String,
-        #[serde(default)]
-        overwrite: Option<bool>,
-    },
+    Read { id: String },
+    Export { id: String },
 }
 
 /// Skill tool for managing skills
 pub struct SkillTool {
     provider: Arc<dyn SkillProvider>,
-    allow_write: bool,
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: Option<String>,
     task_id: Option<String>,
@@ -65,16 +31,10 @@ impl SkillTool {
     pub fn new(provider: Arc<dyn SkillProvider>) -> Self {
         Self {
             provider,
-            allow_write: false,
             security_gate: None,
             agent_id: None,
             task_id: None,
         }
-    }
-
-    pub fn with_write(mut self, allow_write: bool) -> Self {
-        self.allow_write = allow_write;
-        self
     }
 
     pub fn with_security(
@@ -88,35 +48,6 @@ impl SkillTool {
         self.task_id = Some(task_id.into());
         self
     }
-
-    fn write_guard(&self) -> Result<()> {
-        if self.allow_write {
-            Ok(())
-        } else {
-            Err(crate::ToolError::Tool(
-                "Write access to skills is disabled. Available read-only operations: list, read, export. To modify skills, the user must grant write permissions.".to_string(),
-            ))
-        }
-    }
-
-    fn to_record(
-        id: String,
-        name: String,
-        description: Option<String>,
-        tags: Option<Vec<String>>,
-        content: String,
-    ) -> SkillRecord {
-        SkillRecord {
-            id,
-            name,
-            description,
-            tags,
-            content,
-            source: restflow_traits::skill::SkillSource::User,
-            read_only: false,
-            source_ref: None,
-        }
-    }
 }
 
 #[async_trait]
@@ -126,51 +57,21 @@ impl Tool for SkillTool {
     }
 
     fn description(&self) -> &str {
-        "Create, read, update, list, import, export, and delete reusable skill definitions. This is the PRIMARY skill management tool."
+        "List, read, and export reusable skill definitions from the skrun-managed catalog."
     }
 
     fn parameters_schema(&self) -> Value {
-        let mut actions = vec!["list", "read", "export"];
-        if self.allow_write {
-            actions.extend(["create", "update", "delete", "import"]);
-        }
         json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": actions,
+                    "enum": ["list", "read", "export"],
                     "description": "Action to perform"
                 },
                 "id": {
                     "type": "string",
-                    "description": "Skill ID (required for read/update/delete/export/import/create)"
-                },
-                "name": {
-                    "type": "string",
-                    "description": "Skill name (required for create)"
-                },
-                "description": {
-                    "type": ["string", "null"],
-                    "description": "Skill description (optional, set to null to clear on update)"
-                },
-                "tags": {
-                    "type": ["array", "null"],
-                    "items": { "type": "string" },
-                    "description": "Skill tags (optional, set to null to clear on update)"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Skill markdown content"
-                },
-                "markdown": {
-                    "type": "string",
-                    "description": "Skill markdown with YAML frontmatter (for import)"
-                },
-                "overwrite": {
-                    "type": "boolean",
-                    "description": "Whether to overwrite existing skill on import",
-                    "default": false
+                    "description": "Skill ID (required for read/export)"
                 }
             },
             "required": ["action"]
@@ -223,94 +124,6 @@ impl Tool for SkillTool {
                     None => Ok(ToolOutput::error(format!("Skill '{}' not found", id))),
                 }
             }
-            SkillInput::Create {
-                id,
-                name,
-                description,
-                tags,
-                content,
-            } => {
-                self.write_guard()?;
-                if let Some(message) = check_security(
-                    self.security_gate.as_deref(),
-                    ToolAction {
-                        tool_name: "skill".to_string(),
-                        operation: "create".to_string(),
-                        target: id.clone(),
-                        summary: format!("Create skill '{}'", id),
-                    },
-                    self.agent_id.as_deref(),
-                    self.task_id.as_deref(),
-                )
-                .await?
-                {
-                    return Ok(ToolOutput::error(message));
-                }
-                let record = Self::to_record(id, name, description, tags, content);
-                match self.provider.create_skill(record) {
-                    Ok(created) => Ok(ToolOutput::success(json!(created))),
-                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
-                }
-            }
-            SkillInput::Update {
-                id,
-                name,
-                description,
-                tags,
-                content,
-            } => {
-                self.write_guard()?;
-                if let Some(message) = check_security(
-                    self.security_gate.as_deref(),
-                    ToolAction {
-                        tool_name: "skill".to_string(),
-                        operation: "update".to_string(),
-                        target: id.clone(),
-                        summary: format!("Update skill '{}'", id),
-                    },
-                    self.agent_id.as_deref(),
-                    self.task_id.as_deref(),
-                )
-                .await?
-                {
-                    return Ok(ToolOutput::error(message));
-                }
-                let update = SkillUpdate {
-                    name,
-                    description,
-                    tags,
-                    content,
-                };
-                match self.provider.update_skill(&id, update) {
-                    Ok(updated) => Ok(ToolOutput::success(json!(updated))),
-                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
-                }
-            }
-            SkillInput::Delete { id } => {
-                self.write_guard()?;
-                if let Some(message) = check_security(
-                    self.security_gate.as_deref(),
-                    ToolAction {
-                        tool_name: "skill".to_string(),
-                        operation: "delete".to_string(),
-                        target: id.clone(),
-                        summary: format!("Delete skill '{}'", id),
-                    },
-                    self.agent_id.as_deref(),
-                    self.task_id.as_deref(),
-                )
-                .await?
-                {
-                    return Ok(ToolOutput::error(message));
-                }
-                match self.provider.delete_skill(&id) {
-                    Ok(deleted) => Ok(ToolOutput::success(json!({
-                        "id": id,
-                        "deleted": deleted
-                    }))),
-                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
-                }
-            }
             SkillInput::Export { id } => match self.provider.export_skill(&id) {
                 Ok(markdown) => {
                     if let Some(message) = check_security(
@@ -335,33 +148,6 @@ impl Tool for SkillTool {
                 }
                 Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
             },
-            SkillInput::Import {
-                id,
-                markdown,
-                overwrite,
-            } => {
-                self.write_guard()?;
-                if let Some(message) = check_security(
-                    self.security_gate.as_deref(),
-                    ToolAction {
-                        tool_name: "skill".to_string(),
-                        operation: "import".to_string(),
-                        target: id.clone(),
-                        summary: format!("Import skill '{}'", id),
-                    },
-                    self.agent_id.as_deref(),
-                    self.task_id.as_deref(),
-                )
-                .await?
-                {
-                    return Ok(ToolOutput::error(message));
-                }
-                let overwrite = overwrite.unwrap_or(false);
-                match self.provider.import_skill(&id, &markdown, overwrite) {
-                    Ok(imported) => Ok(ToolOutput::success(json!(imported))),
-                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
-                }
-            }
         }
     }
 }
@@ -371,8 +157,20 @@ mod tests {
     use super::*;
     use restflow_traits::skill::{SkillContent, SkillInfo, SkillSource};
 
+    #[derive(Clone)]
+    struct TestSkill {
+        id: String,
+        name: String,
+        description: Option<String>,
+        tags: Option<Vec<String>>,
+        content: String,
+        source: SkillSource,
+        read_only: bool,
+        source_ref: Option<String>,
+    }
+
     struct MockSkillProvider {
-        skills: Vec<SkillRecord>,
+        skills: Vec<TestSkill>,
     }
 
     impl SkillProvider for MockSkillProvider {
@@ -384,6 +182,9 @@ mod tests {
                     name: skill.name.clone(),
                     description: skill.description.clone(),
                     tags: skill.tags.clone(),
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: skill.source,
                     read_only: skill.read_only,
                     source_ref: skill.source_ref.clone(),
@@ -399,45 +200,13 @@ mod tests {
                     id: skill.id.clone(),
                     name: skill.name.clone(),
                     content: skill.content.clone(),
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: skill.source,
                     read_only: skill.read_only,
                     source_ref: skill.source_ref.clone(),
                 })
-        }
-
-        fn create_skill(&self, skill: SkillRecord) -> std::result::Result<SkillRecord, String> {
-            if self.skills.iter().any(|s| s.id == skill.id) {
-                return Err(format!("Skill {} already exists", skill.id));
-            }
-            Ok(skill)
-        }
-
-        fn update_skill(
-            &self,
-            id: &str,
-            update: SkillUpdate,
-        ) -> std::result::Result<SkillRecord, String> {
-            let Some(existing) = self.skills.iter().find(|s| s.id == id) else {
-                return Err(format!("Skill {} not found", id));
-            };
-            let mut updated = existing.clone();
-            if let Some(name) = update.name {
-                updated.name = name;
-            }
-            if let Some(description) = update.description {
-                updated.description = description;
-            }
-            if let Some(tags) = update.tags {
-                updated.tags = tags;
-            }
-            if let Some(content) = update.content {
-                updated.content = content;
-            }
-            Ok(updated)
-        }
-
-        fn delete_skill(&self, id: &str) -> std::result::Result<bool, String> {
-            Ok(self.skills.iter().any(|s| s.id == id))
         }
 
         fn export_skill(&self, id: &str) -> std::result::Result<String, String> {
@@ -451,29 +220,11 @@ mod tests {
                 skill.name, skill.content
             ))
         }
-
-        fn import_skill(
-            &self,
-            id: &str,
-            markdown: &str,
-            _overwrite: bool,
-        ) -> std::result::Result<SkillRecord, String> {
-            Ok(SkillRecord {
-                id: id.to_string(),
-                name: "Imported Skill".to_string(),
-                description: None,
-                tags: None,
-                content: markdown.to_string(),
-                source: SkillSource::User,
-                read_only: false,
-                source_ref: None,
-            })
-        }
     }
 
     fn create_mock_provider() -> Arc<dyn SkillProvider> {
         Arc::new(MockSkillProvider {
-            skills: vec![SkillRecord {
+            skills: vec![TestSkill {
                 id: "test-skill".to_string(),
                 name: "Test Skill".to_string(),
                 description: Some("A test skill".to_string()),
@@ -497,32 +248,20 @@ mod tests {
     }
 
     #[test]
-    fn test_schema_respects_write_permissions() {
-        let read_only = SkillTool::new(create_mock_provider());
-        let read_schema = read_only.parameters_schema();
-        let read_actions = read_schema["properties"]["action"]["enum"]
+    fn test_schema_never_exposes_write_actions() {
+        let tool = SkillTool::new(create_mock_provider());
+        let schema = tool.parameters_schema();
+        let actions = schema["properties"]["action"]["enum"]
             .as_array()
             .expect("enum array");
-        let read_values: Vec<&str> = read_actions
-            .iter()
-            .filter_map(|value| value.as_str())
-            .collect();
-        assert!(
-            !read_values.contains(&"create"),
-            "read-only schema must not expose create action"
-        );
-
-        let writable = SkillTool::new(create_mock_provider()).with_write(true);
-        let write_schema = writable.parameters_schema();
-        let write_actions = write_schema["properties"]["action"]["enum"]
-            .as_array()
-            .expect("enum array");
-        assert!(
-            write_actions
-                .iter()
-                .any(|value| value.as_str() == Some("create")),
-            "writable schema should expose create action"
-        );
+        for write_action in ["create", "update", "delete", "import"] {
+            assert!(
+                !actions
+                    .iter()
+                    .any(|value| value.as_str() == Some(write_action)),
+                "skill tool must not expose {write_action} action"
+            );
+        }
     }
 
     #[tokio::test]
@@ -567,7 +306,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_write_guard_blocks_create() {
+    async fn test_create_action_is_not_supported() {
         let tool = SkillTool::new(create_mock_provider());
         let result = tool
             .execute(json!({
@@ -578,11 +317,8 @@ mod tests {
             }))
             .await;
 
-        let err = result.expect_err("expected write-guard error");
-        assert!(
-            err.to_string()
-                .contains("Available read-only operations: list, read, export")
-        );
+        let err = result.expect_err("expected unsupported action error");
+        assert!(err.to_string().contains("unknown variant"));
     }
 
     #[tokio::test]
@@ -618,9 +354,6 @@ mod tests {
             .await;
 
         let err = result.expect_err("expected builder-registered skill create to fail");
-        assert!(
-            err.to_string()
-                .contains("Available read-only operations: list, read, export")
-        );
+        assert!(err.to_string().contains("unknown variant"));
     }
 }

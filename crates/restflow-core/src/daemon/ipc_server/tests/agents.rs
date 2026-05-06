@@ -883,43 +883,11 @@ async fn process_create_task_requires_confirmation_when_agent_provider_missing()
     .await;
 
     match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 409);
-            let details = error.details.expect("confirmation details");
-            assert_eq!(details["status"], "confirmation_required");
-            assert_eq!(details["pending_approval"], true);
-            assert_eq!(details["assessment"]["operation"], "create_task");
+        IpcResponse::Success(value) => {
+            assert_eq!(value["name"], "bg-warning");
+            assert_eq!(value["agent_id"], stored_agent.id);
         }
-        other => panic!("expected confirmation error response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn process_create_skill_returns_skrun_guidance() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let skill = Skill::new(
-        "skill-ipc-test".to_string(),
-        "IPC Skill".to_string(),
-        Some("Created through ipc".to_string()),
-        Some(vec!["ipc".to_string()]),
-        "Use this skill for testing".to_string(),
-    );
-
-    let create_response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::CreateSkill {
-            skill: to_contract(skill.clone()).expect("contract skill"),
-        },
-    )
-    .await;
-    match create_response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 500);
-            assert!(error.message.contains("through skrun"));
-        }
-        other => panic!("expected skrun guidance error response, got {other:?}"),
+        other => panic!("expected successful task creation response, got {other:?}"),
     }
 }
 

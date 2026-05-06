@@ -7,6 +7,7 @@ use crate::models::{
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
+use crate::test_support::RestflowTestEnv;
 use restflow_traits::ToolErrorCategory;
 use rmcp::ClientHandler;
 use rmcp::model::ClientInfo;
@@ -19,40 +20,20 @@ use tokio::time::{Duration, sleep};
 // Test Utilities
 // =========================================================================
 
-/// RAII guard that isolates the agents directory via env var.
-struct AgentsDirEnvGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-}
-
-impl AgentsDirEnvGuard {
-    fn new() -> Self {
-        Self {
-            _lock: prompt_files::agents_dir_env_lock(),
-        }
-    }
-}
-
-impl Drop for AgentsDirEnvGuard {
-    fn drop(&mut self) {
-        unsafe { std::env::remove_var(prompt_files::AGENTS_DIR_ENV) };
-    }
-}
-
 /// Create a test server with a temporary database and isolated agents directory.
 /// All returned values must be held alive for the test duration.
 #[allow(clippy::await_holding_lock)]
 async fn create_test_server() -> (
     RestFlowMcpServer,
     Arc<AppCore>,
+    RestflowTestEnv,
     TempDir,
-    TempDir,
-    AgentsDirEnvGuard,
+    (),
 ) {
-    let env_guard = AgentsDirEnvGuard::new();
-    let temp_dir = tempfile::tempdir().unwrap();
+    let state = RestflowTestEnv::new();
     let temp_agents = tempfile::tempdir().unwrap();
     unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
-    let db_path = temp_dir.path().join("test.db");
+    let db_path = state.db_path("test.db");
     let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
     let default_agent = core.storage.agents.resolve_default_agent().unwrap();
     let mut configured_agent = default_agent.agent.clone();
@@ -65,9 +46,9 @@ async fn create_test_server() -> (
     (
         RestFlowMcpServer::new(core.clone()),
         core,
-        temp_dir,
+        state,
         temp_agents,
-        env_guard,
+        (),
     )
 }
 
@@ -163,6 +144,9 @@ fn test_skill_summary_serialization() {
         name: "Test Skill".to_string(),
         description: Some("A test skill".to_string()),
         tags: Some(vec!["test".to_string()]),
+        kind: Some("markdown".to_string()),
+        executable: false,
+        suggested_tools: Vec::new(),
         status: SkillStatus::Active,
     };
 
@@ -335,182 +319,6 @@ async fn test_get_skill_context_auto_complete_updates_status() {
     );
 }
 
-#[tokio::test]
-async fn test_create_skill_success() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(Vec::new())));
-
-    let base_json = server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
-    let base_len = base_skills.len();
-
-    let params = CreateSkillParams {
-        name: "New Skill".to_string(),
-        description: Some("A new skill".to_string()),
-        tags: Some(vec!["new".to_string()]),
-        content: "# New Skill\n\nContent".to_string(),
-    };
-    let result = server.handle_create_skill(params).await;
-
-    assert!(result.is_ok());
-    let message = result.unwrap();
-    assert!(message.contains("created successfully"));
-
-    // Verify it was persisted
-    let skills = server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let skill_list: Vec<SkillSummary> = serde_json::from_str(&skills).unwrap();
-    assert_eq!(skill_list.len(), base_len + 1);
-    assert!(skill_list.iter().any(|s| s.name == "New Skill"));
-}
-
-#[tokio::test]
-async fn test_create_skill_returns_validation_warnings_non_blocking() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(Vec::new())));
-
-    let params = CreateSkillParams {
-        name: "   ".to_string(),
-        description: None,
-        tags: Some(vec!["valid".to_string(), "".to_string()]),
-        content: "   ".to_string(),
-    };
-    let result = server.handle_create_skill(params).await;
-
-    assert!(result.is_ok());
-    let message = result.unwrap();
-    assert!(message.contains("created successfully"));
-    assert!(message.contains("Warnings:"));
-    assert!(message.contains("name: Skill name cannot be empty"));
-    assert!(message.contains("content: Skill content cannot be empty"));
-}
-
-#[tokio::test]
-async fn test_update_skill_success() {
-    let skill = create_test_skill("test-skill", "Original Name");
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
-
-    let params = UpdateSkillParams {
-        id: "test-skill".to_string(),
-        name: Some("Updated Name".to_string()),
-        description: Some("Updated description".to_string()),
-        tags: None,
-        content: Some("# Updated content".to_string()),
-    };
-    let result = server.handle_update_skill(params).await;
-
-    assert!(result.is_ok());
-
-    // Verify changes
-    let get_params = GetSkillParams {
-        id: "test-skill".to_string(),
-    };
-    let json = server.handle_get_skill(get_params).await.unwrap();
-    let updated: Skill = serde_json::from_str(&json).unwrap();
-    assert_eq!(updated.name, "Updated Name");
-    assert_eq!(updated.description, Some("Updated description".to_string()));
-    assert_eq!(updated.content, "# Updated content");
-}
-
-#[tokio::test]
-async fn test_update_skill_returns_validation_warnings_non_blocking() {
-    let skill = create_test_skill("warn-skill", "Warn Skill");
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
-
-    let params = UpdateSkillParams {
-        id: "warn-skill".to_string(),
-        name: None,
-        description: None,
-        tags: None,
-        content: Some("Use {{bad-variable}} in template".to_string()),
-    };
-    let result = server.handle_update_skill(params).await;
-
-    assert!(result.is_ok());
-    let message = result.unwrap();
-    assert!(message.contains("updated successfully"));
-    assert!(message.contains("Warnings:"));
-    assert!(message.contains("Invalid variable 'bad-variable'"));
-
-    let updated_json = server
-        .handle_get_skill(GetSkillParams {
-            id: "warn-skill".to_string(),
-        })
-        .await
-        .unwrap();
-    let updated: Skill = serde_json::from_str(&updated_json).unwrap();
-    assert_eq!(updated.content, "Use {{bad-variable}} in template");
-}
-
-#[tokio::test]
-async fn test_update_skill_not_found() {
-    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-
-    let params = UpdateSkillParams {
-        id: "nonexistent".to_string(),
-        name: Some("New Name".to_string()),
-        description: None,
-        tags: None,
-        content: None,
-    };
-    let result = server.handle_update_skill(params).await;
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("not found"));
-}
-
-#[tokio::test]
-async fn test_update_skill_partial() {
-    let skill = create_test_skill("test-skill", "Original Name");
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
-
-    // Only update name, keep other fields
-    let params = UpdateSkillParams {
-        id: "test-skill".to_string(),
-        name: Some("New Name".to_string()),
-        description: None,
-        tags: None,
-        content: None,
-    };
-    server.handle_update_skill(params).await.unwrap();
-
-    let get_params = GetSkillParams {
-        id: "test-skill".to_string(),
-    };
-    let json = server.handle_get_skill(get_params).await.unwrap();
-    let updated: Skill = serde_json::from_str(&json).unwrap();
-
-    assert_eq!(updated.name, "New Name");
-    // Original description should be preserved
-    assert_eq!(
-        updated.description,
-        Some("Description for Original Name".to_string())
-    );
-}
-
-#[tokio::test]
-async fn test_delete_skill_success() {
-    let skill = create_test_skill("test-skill", "Test Skill");
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(vec![skill])));
-
-    let params = DeleteSkillParams {
-        id: "test-skill".to_string(),
-    };
-    let result = server.handle_delete_skill(params).await;
-
-    assert!(result.is_ok());
-
-    // Verify deletion
-    let get_params = GetSkillParams {
-        id: "test-skill".to_string(),
-    };
-    let get_result = server.handle_get_skill(get_params).await;
-    assert!(get_result.is_err());
-}
-
 // =========================================================================
 // Agent Tool Tests
 // =========================================================================
@@ -611,9 +419,6 @@ fn test_tool_definitions() {
         "list_skills",
         "get_skill",
         "get_skill_reference",
-        "create_skill",
-        "update_skill",
-        "delete_skill",
         "list_agents",
         "get_agent",
         "memory_search",
@@ -626,7 +431,7 @@ fn test_tool_definitions() {
     ];
 
     // Verify we have definitions for all expected tools
-    assert_eq!(expected_tools.len(), 15);
+    assert_eq!(expected_tools.len(), 12);
 }
 
 #[tokio::test]
@@ -654,87 +459,6 @@ async fn test_handle_invalid_skill_params() {
 
     // Should fail to parse
     assert!(result.is_err());
-}
-
-// =========================================================================
-// Integration Tests (Full Workflow)
-// =========================================================================
-
-#[tokio::test]
-async fn test_skill_crud_workflow() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_skills(Vec::new())));
-
-    let base_json = server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
-    let base_len = base_skills.len();
-
-    // 1. Create
-    let create_params = CreateSkillParams {
-        name: "Workflow Skill".to_string(),
-        description: Some("Test workflow".to_string()),
-        tags: Some(vec!["workflow".to_string()]),
-        content: "# Workflow\n\nInitial content".to_string(),
-    };
-    let create_result = server.handle_create_skill(create_params).await.unwrap();
-    assert!(create_result.contains("created successfully"));
-
-    // 2. List to get ID
-    let list_json = server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let skills: Vec<SkillSummary> = serde_json::from_str(&list_json).unwrap();
-    assert_eq!(skills.len(), base_len + 1);
-    let skill_id = skills
-        .iter()
-        .find(|skill| skill.name == "Workflow Skill")
-        .unwrap()
-        .id
-        .clone();
-
-    // 3. Get
-    let get_params = GetSkillParams {
-        id: skill_id.clone(),
-    };
-    let get_json = server.handle_get_skill(get_params).await.unwrap();
-    let skill: Skill = serde_json::from_str(&get_json).unwrap();
-    assert_eq!(skill.name, "Workflow Skill");
-
-    // 4. Update
-    let update_params = UpdateSkillParams {
-        id: skill_id.clone(),
-        name: Some("Updated Workflow Skill".to_string()),
-        description: None,
-        tags: None,
-        content: Some("# Updated\n\nNew content".to_string()),
-    };
-    server.handle_update_skill(update_params).await.unwrap();
-
-    // 5. Verify update
-    let get_params2 = GetSkillParams {
-        id: skill_id.clone(),
-    };
-    let get_json2 = server.handle_get_skill(get_params2).await.unwrap();
-    let updated_skill: Skill = serde_json::from_str(&get_json2).unwrap();
-    assert_eq!(updated_skill.name, "Updated Workflow Skill");
-    assert_eq!(updated_skill.content, "# Updated\n\nNew content");
-
-    // 6. Delete
-    let delete_params = DeleteSkillParams {
-        id: skill_id.clone(),
-    };
-    server.handle_delete_skill(delete_params).await.unwrap();
-
-    // 7. Verify deletion
-    let final_list = server
-        .handle_list_skills(ListSkillsParams::default())
-        .await
-        .unwrap();
-    let final_skills: Vec<SkillSummary> = serde_json::from_str(&final_list).unwrap();
-    assert_eq!(final_skills.len(), base_len);
 }
 
 #[cfg(unix)]
@@ -979,39 +703,6 @@ impl McpBackend for MockBackend {
             "Mock reference content for {}",
             reference.path
         )))
-    }
-
-    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
-        self.skills
-            .lock()
-            .map_err(|_| "mock skill lock poisoned".to_string())?
-            .push(skill);
-        Ok(())
-    }
-
-    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
-        let mut skills = self
-            .skills
-            .lock()
-            .map_err(|_| "mock skill lock poisoned".to_string())?;
-        let Some(existing) = skills.iter_mut().find(|existing| existing.id == skill.id) else {
-            return Err(format!("Skill not found: {}", skill.id));
-        };
-        *existing = skill;
-        Ok(())
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<(), String> {
-        let mut skills = self
-            .skills
-            .lock()
-            .map_err(|_| "mock skill lock poisoned".to_string())?;
-        let original_len = skills.len();
-        skills.retain(|skill| skill.id != id);
-        if skills.len() == original_len {
-            return Err(format!("Skill not found: {}", id));
-        }
-        Ok(())
     }
 
     async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {

@@ -1,9 +1,5 @@
 #[cfg(unix)]
 use super::*;
-#[cfg(unix)]
-use crate::daemon::request_mapper::to_contract;
-#[cfg(unix)]
-use restflow_contracts::OkResponse;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -13,27 +9,6 @@ impl IpcClient {
 
     pub async fn get_skill(&mut self, id: String) -> Result<Option<Skill>> {
         self.request_optional(IpcRequest::GetSkill { id }).await
-    }
-
-    pub async fn create_skill(&mut self, skill: Skill) -> Result<()> {
-        let skill = to_contract(skill)?;
-        let _: OkResponse = self
-            .request_typed(IpcRequest::CreateSkill { skill })
-            .await?;
-        Ok(())
-    }
-
-    pub async fn update_skill(&mut self, id: String, skill: Skill) -> Result<()> {
-        let skill = to_contract(skill)?;
-        let _: OkResponse = self
-            .request_typed(IpcRequest::UpdateSkill { id, skill })
-            .await?;
-        Ok(())
-    }
-
-    pub async fn delete_skill(&mut self, id: String) -> Result<()> {
-        let _: OkResponse = self.request_typed(IpcRequest::DeleteSkill { id }).await?;
-        Ok(())
     }
 
     pub async fn get_skill_reference(

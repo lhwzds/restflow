@@ -9,8 +9,8 @@ use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AgentNode, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-    MemoryChunk, MemorySearchQuery, MessageExecution, ModelId, SteerMessage, SteerSource,
-    TaskStatus, TerminalSession,
+    ChatTurnEventKind, MemoryChunk, MemorySearchQuery, MessageExecution, ModelId, SteerMessage,
+    SteerSource, TaskStatus, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::channel::{
@@ -53,7 +53,9 @@ mod dispatch;
 #[path = "ipc_server/runtime.rs"]
 mod runtime;
 
-use self::runtime::{execute_chat_session, latest_assistant_payload};
+use self::runtime::{
+    execute_chat_session, latest_assistant_payload, record_turn_event_in_session_store,
+};
 
 #[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -143,13 +145,25 @@ pub(crate) fn build_daemon_status() -> IpcDaemonStatus {
 }
 
 struct IpcStreamEmitter {
+    core: Arc<AppCore>,
+    session_id: String,
+    turn_id: String,
     tx: mpsc::UnboundedSender<StreamFrame>,
     has_text_streamed: Arc<AtomicBool>,
 }
 
 impl IpcStreamEmitter {
-    fn new(tx: mpsc::UnboundedSender<StreamFrame>, has_text_streamed: Arc<AtomicBool>) -> Self {
+    fn new(
+        core: Arc<AppCore>,
+        session_id: String,
+        turn_id: String,
+        tx: mpsc::UnboundedSender<StreamFrame>,
+        has_text_streamed: Arc<AtomicBool>,
+    ) -> Self {
         Self {
+            core,
+            session_id,
+            turn_id,
             tx,
             has_text_streamed,
         }
@@ -246,6 +260,24 @@ impl StreamEmitter for IpcStreamEmitter {
     async fn emit_thinking_delta(&mut self, _text: &str) {}
 
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        if let Err(error) = record_turn_event_in_session_store(
+            &self.core,
+            &self.session_id,
+            &self.turn_id,
+            ChatTurnEventKind::ToolCall {
+                call_id: id.to_string(),
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            },
+        ) {
+            warn!(
+                session_id = %self.session_id,
+                turn_id = %self.turn_id,
+                call_id = %id,
+                error = %error,
+                "Failed to persist turn tool call event"
+            );
+        }
         let _ = self.tx.send(StreamFrame::ToolCall {
             id: id.to_string(),
             name: name.to_string(),
@@ -254,6 +286,24 @@ impl StreamEmitter for IpcStreamEmitter {
     }
 
     async fn emit_tool_call_result(&mut self, id: &str, _name: &str, result: &str, success: bool) {
+        if let Err(error) = record_turn_event_in_session_store(
+            &self.core,
+            &self.session_id,
+            &self.turn_id,
+            ChatTurnEventKind::ToolResult {
+                call_id: id.to_string(),
+                success,
+                result: result.to_string(),
+            },
+        ) {
+            warn!(
+                session_id = %self.session_id,
+                turn_id = %self.turn_id,
+                call_id = %id,
+                error = %error,
+                "Failed to persist turn tool result event"
+            );
+        }
         let _ = self.tx.send(StreamFrame::ToolResult {
             id: id.to_string(),
             result: result.to_string(),
@@ -480,7 +530,13 @@ impl IpcServer {
         let worker_core = core.clone();
         let handle = tokio::spawn(async move {
             let has_text_streamed = Arc::new(AtomicBool::new(false));
-            let emitter = IpcStreamEmitter::new(tx.clone(), has_text_streamed.clone());
+            let emitter = IpcStreamEmitter::new(
+                worker_core.clone(),
+                worker_session_id.clone(),
+                worker_turn_id.clone(),
+                tx.clone(),
+                has_text_streamed.clone(),
+            );
             let result = execute_chat_session(
                 &worker_core,
                 worker_session_id,

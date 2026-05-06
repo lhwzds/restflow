@@ -277,7 +277,6 @@ pub struct AppState {
     pub current_stream_id: Option<String>,
     pub startup: Option<StartupState>,
     pending_session_delete_id: Option<String>,
-    pending_skill_delete_id: Option<String>,
     pending_initial_message: Option<String>,
 }
 
@@ -311,7 +310,6 @@ impl AppState {
             current_stream_id: None,
             startup: None,
             pending_session_delete_id: None,
-            pending_skill_delete_id: None,
             pending_initial_message: None,
         }
     }
@@ -503,7 +501,6 @@ impl AppState {
     pub fn clear_overlay(&mut self) {
         self.overlay = None;
         self.pending_session_delete_id = None;
-        self.pending_skill_delete_id = None;
         self.selected_skill = None;
     }
 
@@ -569,7 +566,6 @@ impl AppState {
 
     pub fn move_overlay_selection(&mut self, delta: isize) {
         self.pending_session_delete_id = None;
-        self.pending_skill_delete_id = None;
         let len = match self.overlay_item_len() {
             Some(len) if len > 0 => len,
             _ => return,
@@ -709,14 +705,6 @@ impl AppState {
 
     pub fn is_session_delete_pending(&self, session_id: &str) -> bool {
         self.pending_session_delete_id.as_deref() == Some(session_id)
-    }
-
-    pub fn mark_skill_delete_pending(&mut self, skill_id: impl Into<String>) {
-        self.pending_skill_delete_id = Some(skill_id.into());
-    }
-
-    pub fn is_skill_delete_pending(&self, skill_id: &str) -> bool {
-        self.pending_skill_delete_id.as_deref() == Some(skill_id)
     }
 
     pub fn apply_session_delete_result(
@@ -885,7 +873,7 @@ impl AppState {
     }
 
     pub fn cancel_active_response(&mut self) {
-        self.finish_active_assistant_segment();
+        self.flush_active_turn_to_runtime();
         self.is_streaming = false;
         self.current_stream_id = None;
     }
@@ -1505,15 +1493,44 @@ mod tests {
 
         state.apply_stream_frame(StreamFrame::error(500, "stream failed"));
 
-        assert!(state.active_turn.is_some());
+        assert!(state.active_turn.is_none());
         assert!(!state.is_streaming);
         assert!(state.conversation_cells.is_empty());
-        let active_turn = state.active_turn.as_ref().expect("active turn");
-        assert!(active_turn.cells[0].body.contains("Partial answer"));
-        assert_eq!(active_turn.cells[1].kind, TranscriptCellKind::Tool);
-        assert_eq!(state.runtime_cells.len(), 1);
-        assert_eq!(state.runtime_cells[0].cell.title, "Error");
-        assert!(state.runtime_cells[0].cell.body.contains("stream failed"));
+        assert_eq!(state.runtime_cells.len(), 3);
+        assert!(state.runtime_cells[0].cell.body.contains("Partial answer"));
+        assert_eq!(state.runtime_cells[1].cell.kind, TranscriptCellKind::Tool);
+        assert_eq!(state.runtime_cells[2].cell.title, "Error");
+        assert!(state.runtime_cells[2].cell.body.contains("stream failed"));
+    }
+
+    #[test]
+    fn cancel_preserves_unfinished_tool_call_without_result() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run tool".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Checking".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"cmd": "sleep 10"}),
+        });
+
+        state.cancel_active_response();
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(
+            rendered.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+            vec![
+                TranscriptCellKind::User,
+                TranscriptCellKind::Assistant,
+                TranscriptCellKind::Tool,
+            ]
+        );
+        assert_eq!(rendered[2].title, "Tool · bash");
+        assert_eq!(rendered[2].tool_call_id(), Some("call-1"));
+        assert!(rendered[2].body.contains("sleep 10"));
+        assert!(!rendered[2].is_active);
     }
 
     #[test]

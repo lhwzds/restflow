@@ -144,6 +144,9 @@ impl Tool for LoadSkillTool {
                         "name": info.name,
                         "description": info.description,
                         "tags": info.tags,
+                        "kind": info.kind,
+                        "executable": info.executable,
+                        "suggested_tools": info.suggested_tools,
                         "source": info.source,
                         "read_only": info.read_only,
                         "source_ref": info.source_ref,
@@ -179,6 +182,9 @@ impl Tool for LoadSkillTool {
                 "skill_id": content.id,
                 "name": content.name,
                 "content": content.content,
+                "kind": content.kind,
+                "executable": content.executable,
+                "suggested_tools": content.suggested_tools,
                 "source": content.source,
                 "read_only": content.read_only,
                 "source_ref": content.source_ref,
@@ -193,7 +199,7 @@ mod tests {
     use super::*;
     use crate::security::{SecurityDecision, SecurityGate, ToolAction};
     use async_trait::async_trait;
-    use restflow_traits::skill::{SkillContent, SkillInfo, SkillRecord, SkillSource, SkillUpdate};
+    use restflow_traits::skill::{SkillContent, SkillInfo, SkillSource};
     use std::sync::{Arc, Mutex};
 
     struct MockProvider;
@@ -205,6 +211,9 @@ mod tests {
                 name: "Test Skill".to_string(),
                 description: Some("A test skill".to_string()),
                 tags: None,
+                kind: None,
+                executable: false,
+                suggested_tools: Vec::new(),
                 source: SkillSource::User,
                 read_only: false,
                 source_ref: None,
@@ -217,6 +226,9 @@ mod tests {
                     id: "test-skill".to_string(),
                     name: "Test Skill".to_string(),
                     content: "# Test Skill\nDo something useful.".to_string(),
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: SkillSource::User,
                     read_only: false,
                     source_ref: None,
@@ -226,28 +238,7 @@ mod tests {
             }
         }
 
-        fn create_skill(&self, _: SkillRecord) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn update_skill(
-            &self,
-            _: &str,
-            _: SkillUpdate,
-        ) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn delete_skill(&self, _: &str) -> std::result::Result<bool, String> {
-            Err("not implemented".to_string())
-        }
         fn export_skill(&self, _: &str) -> std::result::Result<String, String> {
-            Err("not implemented".to_string())
-        }
-        fn import_skill(
-            &self,
-            _: &str,
-            _: &str,
-            _: bool,
-        ) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
     }
@@ -322,28 +313,7 @@ mod tests {
         fn get_skill(&self, _: &str) -> Option<SkillContent> {
             None
         }
-        fn create_skill(&self, _: SkillRecord) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn update_skill(
-            &self,
-            _: &str,
-            _: SkillUpdate,
-        ) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn delete_skill(&self, _: &str) -> std::result::Result<bool, String> {
-            Err("not implemented".to_string())
-        }
         fn export_skill(&self, _: &str) -> std::result::Result<String, String> {
-            Err("not implemented".to_string())
-        }
-        fn import_skill(
-            &self,
-            _: &str,
-            _: &str,
-            _: bool,
-        ) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
     }

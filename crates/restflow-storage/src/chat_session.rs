@@ -9,7 +9,7 @@ define_simple_storage! {
     ///
     /// Chat sessions store conversation history with agents, including messages,
     /// execution details, and metadata.
-    pub struct ChatSessionStorage { table: "chat_sessions" }
+    pub struct ChatSessionStorage { store: "chat-session" }
 }
 
 #[cfg(test)]

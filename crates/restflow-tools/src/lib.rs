@@ -65,9 +65,7 @@ pub use impls::{
 };
 
 // Re-export skill types from restflow-traits
-pub use restflow_traits::skill::{
-    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
-};
+pub use restflow_traits::skill::{SkillContent, SkillInfo, SkillProvider};
 pub use skill::loader::register_skills;
 pub use skill::tool::SkillAsTool;
 

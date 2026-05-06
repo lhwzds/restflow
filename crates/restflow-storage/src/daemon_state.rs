@@ -8,7 +8,7 @@ use anyhow::Result;
 
 define_simple_storage! {
     /// Daemon runtime key-value state.
-    pub struct DaemonStateStorage { table: "daemon_state" }
+    pub struct DaemonStateStorage { store: "daemon-state" }
 }
 
 impl DaemonStateStorage {

@@ -286,7 +286,6 @@ mod tests {
     use super::*;
     use crate::models::chat_session::ChatMessage;
     use crate::models::memory::{MemoryChunk, MemorySearchQuery, SearchMode};
-    use crate::session_log::{FileSession, FileSessionStore};
     use crate::storage::Storage;
     use tempfile::tempdir;
 

@@ -119,47 +119,6 @@ impl CoreAccess {
         }
     }
 
-    pub async fn create_skill(&mut self, skill: Skill) -> Result<()> {
-        match self {
-            CoreAccess::Local(core) => skills_service::create_skill(core, skill).await,
-            CoreAccess::Remote(client) => {
-                let skill = to_contract(skill)?;
-                let _: OkResponse = client
-                    .request_typed(IpcRequest::CreateSkill { skill })
-                    .await?;
-                Ok(())
-            }
-        }
-    }
-
-    pub async fn update_skill(&mut self, id: &str, skill: Skill) -> Result<()> {
-        match self {
-            CoreAccess::Local(core) => skills_service::update_skill(core, id, &skill).await,
-            CoreAccess::Remote(client) => {
-                let skill = to_contract(skill)?;
-                let _: OkResponse = client
-                    .request_typed(IpcRequest::UpdateSkill {
-                        id: id.to_string(),
-                        skill,
-                    })
-                    .await?;
-                Ok(())
-            }
-        }
-    }
-
-    pub async fn delete_skill(&mut self, id: &str) -> Result<()> {
-        match self {
-            CoreAccess::Local(core) => skills_service::delete_skill(core, id).await,
-            CoreAccess::Remote(client) => {
-                let _: OkResponse = client
-                    .request_typed(IpcRequest::DeleteSkill { id: id.to_string() })
-                    .await?;
-                Ok(())
-            }
-        }
-    }
-
     pub async fn list_tasks(&mut self, status: Option<TaskStatus>) -> Result<Vec<Task>> {
         match self {
             CoreAccess::Local(core) => match status {

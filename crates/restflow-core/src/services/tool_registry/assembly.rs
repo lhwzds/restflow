@@ -61,7 +61,8 @@ pub fn create_tool_registry_with_assessor(
         builder.with_load_skill(skill_provider)
     };
 
-    let mut run_skill_tool = restflow_tools::RunSkillTool::new();
+    let mut run_skill_tool = restflow_tools::RunSkillTool::new()
+        .with_root(crate::services::skills::skill_catalog_root()?);
     if let Some(gate) = security_gate.clone() {
         run_skill_tool =
             run_skill_tool.with_security(gate, security_agent_id, DEFAULT_SECURITY_TASK_ID);

@@ -29,6 +29,9 @@ mod tests {
                     name: "Skill A".to_string(),
                     description: Some("First skill".to_string()),
                     tags: None,
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: SkillSource::User,
                     read_only: false,
                     source_ref: None,
@@ -38,6 +41,9 @@ mod tests {
                     name: "Skill B".to_string(),
                     description: Some("Second skill".to_string()),
                     tags: None,
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: SkillSource::User,
                     read_only: false,
                     source_ref: None,
@@ -51,6 +57,9 @@ mod tests {
                     id: "skill-a".to_string(),
                     name: "Skill A".to_string(),
                     content: "Do A".to_string(),
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: SkillSource::User,
                     read_only: false,
                     source_ref: None,
@@ -59,6 +68,9 @@ mod tests {
                     id: "skill-b".to_string(),
                     name: "Skill B".to_string(),
                     content: "Do B".to_string(),
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: SkillSource::User,
                     read_only: false,
                     source_ref: None,
@@ -67,28 +79,7 @@ mod tests {
             }
         }
 
-        fn create_skill(&self, _skill: SkillRecord) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn update_skill(
-            &self,
-            _id: &str,
-            _update: SkillUpdate,
-        ) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn delete_skill(&self, _id: &str) -> std::result::Result<bool, String> {
-            Err("not implemented".to_string())
-        }
         fn export_skill(&self, _id: &str) -> std::result::Result<String, String> {
-            Err("not implemented".to_string())
-        }
-        fn import_skill(
-            &self,
-            _id: &str,
-            _markdown: &str,
-            _overwrite: bool,
-        ) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
     }

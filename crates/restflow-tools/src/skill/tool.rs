@@ -121,6 +121,9 @@ mod tests {
                 name: "Test Skill".to_string(),
                 description: Some("A test skill".to_string()),
                 tags: None,
+                kind: None,
+                executable: false,
+                suggested_tools: Vec::new(),
                 source: SkillSource::User,
                 read_only: false,
                 source_ref: None,
@@ -133,6 +136,9 @@ mod tests {
                     id: "test-skill".to_string(),
                     name: "Test Skill".to_string(),
                     content: "# Test Skill\nDo something useful.".to_string(),
+                    kind: None,
+                    executable: false,
+                    suggested_tools: Vec::new(),
                     source: SkillSource::User,
                     read_only: false,
                     source_ref: None,
@@ -142,28 +148,7 @@ mod tests {
             }
         }
 
-        fn create_skill(&self, _skill: SkillRecord) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn update_skill(
-            &self,
-            _id: &str,
-            _update: SkillUpdate,
-        ) -> std::result::Result<SkillRecord, String> {
-            Err("not implemented".to_string())
-        }
-        fn delete_skill(&self, _id: &str) -> std::result::Result<bool, String> {
-            Err("not implemented".to_string())
-        }
         fn export_skill(&self, _id: &str) -> std::result::Result<String, String> {
-            Err("not implemented".to_string())
-        }
-        fn import_skill(
-            &self,
-            _id: &str,
-            _markdown: &str,
-            _overwrite: bool,
-        ) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
     }
@@ -197,6 +182,9 @@ mod tests {
             name: "Nope".to_string(),
             description: None,
             tags: None,
+            kind: None,
+            executable: false,
+            suggested_tools: Vec::new(),
             source: SkillSource::User,
             read_only: false,
             source_ref: None,

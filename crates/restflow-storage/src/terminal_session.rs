@@ -4,7 +4,7 @@ use crate::define_simple_storage;
 
 define_simple_storage! {
     /// Low-level terminal session storage with byte-level API
-    pub struct TerminalSessionStorage { table: "terminal_sessions" }
+    pub struct TerminalSessionStorage { store: "terminal-session" }
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 ## Status
 
-- Updated: 2026-05-03
+- Updated: 2026-05-05
 - Scope: Runtime architecture, session storage, deployment model, and migration baseline
 - Audience: Core contributors working on TUI, CLI, daemon, skills, and runtime channels
 
@@ -14,7 +14,8 @@ RestFlow follows a **local agent runtime with file-backed sessions** architectur
 - User-visible chat sessions are stored as one JSONL file per session under `~/.restflow/sessions/`.
 - TUI reads session history through daemon IPC; `SessionService` is the canonical user-visible session read/write boundary and prefers JSONL when the file store is available.
 - CLI `session` commands route through daemon IPC and `SessionService`; `import` may write JSONL session transcripts directly because it only migrates external history.
-- `restflow.db` remains a legacy daemon state store during reduction; it is not the canonical source for user-visible chat sessions.
+- `restflow.db` is reduced to the secrets store. Other local runtime state is
+  file-backed or process-local unless a new file format is explicitly added.
 
 This keeps execution ownership centralized while making session history portable,
 inspectable, and compatible with other coding-agent transcripts.
@@ -27,6 +28,7 @@ inspectable, and compatible with other coding-agent transcripts.
 4. Daemon-owned state remains daemon-owned: tasks, runs, channels, approvals, secrets, and runtime side effects must not be written by TUI adapters.
 5. One file per session: imported Claude Code, Codex, and OpenCode histories are normalized into RestFlow session JSONL, without preserving source-specific storage ownership fields.
 6. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
+7. Turn-level UI history: `ChatSession.messages` remains the model-context projection; `ChatSession.turns[*].events` is the ordered UI/runtime projection for user messages, assistant output, tool calls, tool results, errors, and cancellation.
 
 ## 3. Runtime Topology
 
@@ -48,9 +50,9 @@ flowchart TD
     CLI -->|"session/import JSONL only"| SessionFiles["~/.restflow/sessions/**/*.jsonl"]
 
     Services --> SessionFiles
-    Services --> Traces["tool_traces / execution traces"]
-    Services --> Tasks["tasks / runs / history"]
-    Services --> Secrets["auth / secrets / config"]
+    Services --> RuntimeState["process-local task / channel / trace state"]
+    Services --> Secrets["redb secrets table"]
+    Services --> Config["config.toml"]
 ```
 
 ### 3.2 Crate Dependency Graph
@@ -88,9 +90,17 @@ Notes:
 
 1. Client sends request to daemon.
 2. Daemon routes message via channel runtime.
-3. Runtime executes agent/tool loop.
-4. Daemon emits realtime events and appends normalized transcript events.
-5. Client renders stream and later reads history from `~/.restflow/sessions/**/*.jsonl`.
+3. Daemon records the active turn and user event.
+4. Runtime executes agent/tool loop.
+5. Daemon emits realtime stream events and records turn events for tool calls, tool results, final assistant output, errors, and cancellation.
+6. Client renders the live stream, then reads stable history from the session turn/event projection.
+
+```text
+ChatSession
+├── messages[]          # model context: user / assistant / system
+└── turns[]             # UI/runtime history
+    └── events[]        # user, assistant, tool_call, tool_result, error, canceled
+```
 
 ### 4.2 Session Import Flow
 
@@ -329,16 +339,16 @@ of the runtime.
 
 #### Trace Domain Ownership
 
-- `restflow-core` owns trace domain models, typed trace storage wrappers, and
-  runtime trace services
-- `restflow-storage` owns raw persistence primitives only
+- `restflow-core` owns trace domain models, typed trace wrappers, and runtime
+  trace services
+- `restflow-storage` owns the reduced secrets table and process-local MVP stores
 - `restflow-contracts` owns IPC-visible task/session stream contracts
 - `restflow-ai` owns AI-internal execution stream types and telemetry events
 
 This means:
 
 - typed trace models belong in `restflow-core`
-- raw byte/table persistence stays in `restflow-storage`
+- raw byte storage stays in `restflow-storage`; only secrets use a redb table
 - client-visible stream contracts stay in `restflow-contracts`
 - AI-internal execution streaming abstractions stay near AI execution runtime
   code
@@ -354,8 +364,8 @@ without a full dependency review:
 2. Runtime emitter implementations stay in `restflow-core`
    - they depend on storage, sanitization, runtime channels, and daemon-owned
      execution policy
-3. Raw trace table definitions stay in `restflow-storage`
-   - they are persistence plumbing, not domain APIs
+3. Trace storage must not reintroduce redb tables
+   - MVP trace state is process-local until a file-backed format is designed
 
 The goal is not to force every trace-related type into one crate. The goal is
 to keep protocol, domain, runtime, and storage responsibilities explicit.
@@ -407,7 +417,11 @@ RestFlow unified runtime directory:
 ├── config.toml
 ├── sessions/
 │   └── YYYY/MM/DD/<session-id>.jsonl
-├── restflow.db      # legacy daemon state during storage reduction
+├── agents/
+│   └── <agent-id>.md
+├── skills/
+│   └── <skill-id>/
+├── restflow.db      # secrets table only
 ├── master.key
 └── logs/
 ```
@@ -430,11 +444,9 @@ Session history is file-backed JSONL. New workspace sessions, imported
 sessions, channel-created external sessions, execution-console session views,
 background task session binding/results, and agent-deletion session checks go
 through `SessionService` and prefer JSONL when the file store is available.
-`TaskStorage` persists task records only; session binding validation, creation,
-archival, and transcript writes are owned by `TaskCommandService` and
-`SessionService`.
-`restflow.db` remains only for daemon state that has not yet been reduced, such
-as secrets, task/runtime state, and legacy trace plumbing.
+`TaskStorage` is process-local in the MVP. Session binding validation,
+creation, archival, and transcript writes are owned by `TaskCommandService` and
+`SessionService`. `restflow.db` remains only for secrets.
 
 Task final outputs are no longer persisted as new `run_artifacts` payloads.
 Prerequisite checks use task completion state instead of artifact existence.
@@ -442,9 +454,9 @@ The low-level `run_artifacts` redb tables are no longer created. Existing
 `list_artifacts` protocol operations remain as compatibility no-ops and return
 an empty list.
 
-Telemetry projection tables are also no longer created. Metrics, provider
-health, and structured log queries read the canonical `audit_events_v2`
-execution trace stream instead of maintaining duplicate projection stores.
+Telemetry projection tables and trace tables are no longer created. Metrics,
+provider health, and structured log queries read the process-local execution
+trace stream or log files.
 
 ### 7.2 Config Groups and Primary Consumers
 

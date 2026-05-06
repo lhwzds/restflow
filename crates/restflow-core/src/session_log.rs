@@ -5,14 +5,15 @@
 
 use crate::models::chat_session::{
     ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession,
-    ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, MessageExecution,
+    ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, ChatTurn, ChatTurnEvent,
+    ChatTurnEventKind, ChatTurnStatus, MessageExecution,
 };
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -138,6 +139,15 @@ pub enum SessionLogEvent {
         exit_code: Option<i32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         duration_ms: Option<u64>,
+    },
+    TurnEvent {
+        id: String,
+        time: String,
+        turn_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<ChatTurnStatus>,
+        #[serde(rename = "event")]
+        kind: ChatTurnEventKind,
     },
     Compact {
         id: String,
@@ -312,6 +322,11 @@ impl FileSession {
         for message in &session.messages {
             events.push(message_event_from_chat_message(message));
         }
+        for turn in &session.turns {
+            for event in &turn.events {
+                events.push(turn_event_from_chat_turn_event(turn, event));
+            }
+        }
 
         Self { meta, events }
     }
@@ -322,33 +337,36 @@ impl FileSession {
             return next;
         };
 
-        let next_messages = session
-            .messages
+        let next_events = next
+            .events
             .iter()
-            .map(|message| (message.id.clone(), message))
+            .skip(1)
+            .filter_map(|event| event_id(event).map(|id| (id.to_string(), event.clone())))
             .collect::<HashMap<_, _>>();
-        let mut remaining_messages = next_messages.clone();
+        let mut remaining_event_ids = next_events.keys().cloned().collect::<HashSet<_>>();
         let mut merged_events = vec![next.meta.clone().into_event()];
 
         for event in existing.events.iter().skip(1) {
             if let Some(id) = event_id(event)
-                && let Some(message) = next_messages.get(id)
+                && let Some(next_event) = next_events.get(id)
             {
-                if matches!(event, SessionLogEvent::Message { .. }) {
-                    merged_events.push(message_event_from_chat_message(message));
+                if std::mem::discriminant(event) == std::mem::discriminant(next_event) {
+                    merged_events.push(next_event.clone());
                 } else {
                     merged_events.push(event.clone());
                 }
-                remaining_messages.remove(id);
+                remaining_event_ids.remove(id);
                 continue;
             }
             merged_events.push(event.clone());
         }
 
         for event in next.events.drain(1..) {
-            if let SessionLogEvent::Message { id, .. } = &event
-                && remaining_messages.remove(id).is_some()
-            {
+            let Some(id) = event_id(&event) else {
+                merged_events.push(event);
+                continue;
+            };
+            if remaining_event_ids.remove(id) {
                 merged_events.push(event);
             }
         }
@@ -377,6 +395,7 @@ impl FileSession {
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
             messages: Vec::new(),
+            turns: Vec::new(),
             created_at: parse_time_ms(&self.meta.created_at),
             updated_at: parse_time_ms(&self.meta.updated_at),
             skill_id: self.meta.skill_id.clone(),
@@ -468,6 +487,48 @@ impl FileSession {
                         transcript: None,
                     };
                     push_message_unbounded(&mut session, message);
+                }
+                SessionLogEvent::TurnEvent {
+                    id,
+                    time,
+                    turn_id,
+                    status,
+                    kind,
+                } => {
+                    let timestamp = parse_time_ms(time);
+                    let index = if let Some(index) =
+                        session.turns.iter().position(|turn| turn.id == *turn_id)
+                    {
+                        index
+                    } else {
+                        session.turns.push(ChatTurn {
+                            id: turn_id.clone(),
+                            status: ChatTurnStatus::Running,
+                            started_at: timestamp,
+                            updated_at: timestamp,
+                            completed_at: None,
+                            events: Vec::new(),
+                        });
+                        session.turns.len() - 1
+                    };
+                    let turn = &mut session.turns[index];
+                    turn.events.push(ChatTurnEvent {
+                        id: id.clone(),
+                        timestamp,
+                        kind: kind.clone(),
+                    });
+                    turn.updated_at = timestamp;
+                    if let Some(status) = status {
+                        turn.status = *status;
+                        if matches!(
+                            status,
+                            ChatTurnStatus::Completed
+                                | ChatTurnStatus::Canceled
+                                | ChatTurnStatus::Failed
+                        ) {
+                            turn.completed_at = Some(timestamp);
+                        }
+                    }
                 }
                 SessionLogEvent::Compact {
                     id, time, summary, ..
@@ -783,6 +844,16 @@ fn message_event_from_chat_message(message: &ChatMessage) -> SessionLogEvent {
     }
 }
 
+fn turn_event_from_chat_turn_event(turn: &ChatTurn, event: &ChatTurnEvent) -> SessionLogEvent {
+    SessionLogEvent::TurnEvent {
+        id: event.id.clone(),
+        time: iso_from_millis(event.timestamp),
+        turn_id: turn.id.clone(),
+        status: Some(turn.status),
+        kind: event.kind.clone(),
+    }
+}
+
 fn push_message_unbounded(session: &mut ChatSession, message: ChatMessage) {
     if let Some(execution) = &message.execution {
         session.metadata.update(execution.tokens_used);
@@ -807,6 +878,7 @@ fn event_id(event: &SessionLogEvent) -> Option<&str> {
         | SessionLogEvent::Reasoning { id, .. }
         | SessionLogEvent::ToolCall { id, .. }
         | SessionLogEvent::ToolResult { id, .. }
+        | SessionLogEvent::TurnEvent { id, .. }
         | SessionLogEvent::Compact { id, .. } => Some(id),
         SessionLogEvent::SessionMeta { .. } | SessionLogEvent::Usage { .. } => None,
     }
@@ -860,6 +932,7 @@ fn latest_event_time(events: &[SessionLogEvent]) -> Option<String> {
             | SessionLogEvent::Reasoning { time, .. }
             | SessionLogEvent::ToolCall { time, .. }
             | SessionLogEvent::ToolResult { time, .. }
+            | SessionLogEvent::TurnEvent { time, .. }
             | SessionLogEvent::Compact { time, .. }
             | SessionLogEvent::Usage { time, .. } => time.clone(),
         })
@@ -900,6 +973,16 @@ fn event_text(event: &SessionLogEvent) -> String {
             error.as_deref().unwrap_or("")
         )
         .to_lowercase(),
+        SessionLogEvent::TurnEvent { kind, .. } => match kind {
+            ChatTurnEventKind::UserMessage { content }
+            | ChatTurnEventKind::AssistantMessage { content } => content.to_lowercase(),
+            ChatTurnEventKind::ToolCall {
+                name, arguments, ..
+            } => format!("{name} {arguments}").to_lowercase(),
+            ChatTurnEventKind::ToolResult { result, .. } => result.to_lowercase(),
+            ChatTurnEventKind::Error { message } => message.to_lowercase(),
+            ChatTurnEventKind::Canceled => "canceled".to_string(),
+        },
         SessionLogEvent::Usage { .. } => String::new(),
     }
 }
@@ -996,6 +1079,44 @@ mod tests {
             Some(summary_message_id.as_str())
         );
         assert!(reloaded.is_archived());
+    }
+
+    #[test]
+    fn turn_events_roundtrip_through_jsonl_session() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.record_turn_user_message("turn-1", "hello");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "pwd".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "/tmp/project".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("turn-1", "done");
+
+        let file_session = FileSession::from_chat_session(&session);
+        assert!(matches!(
+            file_session.events.get(1),
+            Some(SessionLogEvent::TurnEvent { .. })
+        ));
+
+        let reloaded = file_session.to_chat_session();
+        assert_eq!(reloaded.turns.len(), 1);
+        assert_eq!(reloaded.turns[0].status, ChatTurnStatus::Completed);
+        assert_eq!(reloaded.turns[0].events.len(), 4);
+        assert!(matches!(
+            reloaded.turns[0].events[1].kind,
+            ChatTurnEventKind::ToolCall { .. }
+        ));
     }
 
     #[test]

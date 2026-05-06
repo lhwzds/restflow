@@ -16,47 +16,6 @@ pub struct GetSkillReferenceParams {
     pub ref_id: String,
 }
 
-/// Parameters for create_skill tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CreateSkillParams {
-    /// Display name of the skill
-    pub name: String,
-    /// Optional description of what the skill does
-    #[serde(default)]
-    pub description: Option<String>,
-    /// Optional tags for categorization
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-    /// The markdown content of the skill (instructions for the AI)
-    pub content: String,
-}
-
-/// Parameters for update_skill tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct UpdateSkillParams {
-    /// The ID of the skill to update
-    pub id: String,
-    /// New display name (optional)
-    #[serde(default)]
-    pub name: Option<String>,
-    /// New description (optional)
-    #[serde(default)]
-    pub description: Option<String>,
-    /// New tags (optional)
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-    /// New content (optional)
-    #[serde(default)]
-    pub content: Option<String>,
-}
-
-/// Parameters for delete_skill tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct DeleteSkillParams {
-    /// The ID of the skill to delete
-    pub id: String,
-}
-
 /// Parameters for get_agent tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetAgentParams {
@@ -253,6 +212,9 @@ pub struct SkillSummary {
     pub name: String,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub kind: Option<String>,
+    pub executable: bool,
+    pub suggested_tools: Vec<String>,
     pub status: SkillStatus,
 }
 

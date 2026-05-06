@@ -64,7 +64,7 @@ pub use network::{
 pub use security::{SecurityDecision, SecurityGate, ToolAction};
 
 // Skill types
-pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource, SkillUpdate};
+pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
 
 // Store traits
 pub use store::{

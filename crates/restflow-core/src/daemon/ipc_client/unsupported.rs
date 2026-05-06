@@ -92,9 +92,6 @@ impl IpcClient {
         fn list_skills(&mut self) -> Vec<Skill>;
         fn get_skill(&mut self, _id: String) -> Option<Skill>;
         fn get_skill_reference(&mut self, _skill_id: String, _ref_id: String) -> Option<String>;
-        fn create_skill(&mut self, _skill: Skill) -> ();
-        fn update_skill(&mut self, _id: String, _skill: Skill) -> ();
-        fn delete_skill(&mut self, _id: String) -> ();
         fn list_agents(&mut self) -> Vec<StoredAgent>;
         fn get_agent(&mut self, _id: String) -> StoredAgent;
         fn search_memory_ranked(&mut self, _query: crate::models::memory::MemorySearchQuery, _min_score: Option<f64>, _scoring_preset: Option<String>) -> crate::memory::RankedSearchResult;

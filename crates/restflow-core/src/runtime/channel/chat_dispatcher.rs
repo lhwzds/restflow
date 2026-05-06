@@ -1270,8 +1270,8 @@ mod tests {
 
         assert_eq!(session.id, stale.id);
         assert_eq!(session.agent_id, default_agent.id);
-        assert_eq!(session.provider, "anthropic");
-        assert_eq!(session.model, ModelId::ClaudeSonnet4_5.as_str());
+        assert_eq!(session.provider, "openai");
+        assert_eq!(session.model, ModelId::Gpt5_4.as_serialized_str());
     }
 
     #[tokio::test]
@@ -1450,8 +1450,8 @@ mod tests {
             .expect("session should rebind");
 
         assert_eq!(rebound.agent_id, fallback.id);
-        assert_eq!(rebound.provider, "codex");
-        assert_eq!(rebound.model, ModelId::CodexCli.as_str());
+        assert_eq!(rebound.provider, "openai");
+        assert_eq!(rebound.model, ModelId::Gpt5_4.as_serialized_str());
     }
 
     #[test]

@@ -172,11 +172,6 @@ impl TuiDaemonClient {
         client.get_skill(skill_id.to_string()).await
     }
 
-    pub async fn delete_skill(&self, skill_id: &str) -> Result<()> {
-        let mut client = self.connect().await?;
-        client.delete_skill(skill_id.to_string()).await
-    }
-
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
         let mut client = self.connect().await?;
         client.get_session(session_id.to_string()).await

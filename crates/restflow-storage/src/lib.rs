@@ -1,13 +1,14 @@
 //! RestFlow Storage - Low-level storage abstraction layer
 //!
-//! This crate provides the persistence layer for RestFlow, using redb as the
-//! embedded database. It exposes byte-level APIs for different entity types.
+//! This crate provides the reduced storage layer for RestFlow. Secrets use the
+//! only remaining redb table; MVP runtime stores are process-local byte stores
+//! until they are promoted to explicit file-backed formats.
 //!
 //! # Architecture
 //!
-//! The storage layer uses a simple key-value design with separate tables for
-//! different entity types. Higher-level type wrappers are provided by
-//! restflow-core.
+//! Higher-level typed wrappers are provided by `restflow-core`. New durable
+//! product data should prefer explicit files such as session JSONL or agent
+//! Markdown, not additional redb tables.
 
 pub mod agent;
 pub mod auth_profiles;
@@ -23,7 +24,6 @@ pub mod pairing;
 pub mod paths;
 pub mod range_utils;
 pub mod secrets;
-pub mod security_amendment;
 pub mod task;
 pub mod terminal_session;
 pub mod vector;
@@ -50,7 +50,6 @@ pub use memory::{MemoryStorage, PutChunkResult};
 pub use memory_index::{IndexableChunk, MemoryIndex, SearchHit};
 pub use pairing::PairingStorage;
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
-pub use security_amendment::SecurityAmendmentStorage;
 pub use simple_storage::SimpleStorage;
 pub use task::TaskStorage;
 pub use terminal_session::TerminalSessionStorage;

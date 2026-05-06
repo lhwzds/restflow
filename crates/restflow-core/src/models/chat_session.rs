@@ -265,6 +265,98 @@ pub struct ChatMessage {
     pub transcript: Option<ChatMessageTranscript>,
 }
 
+/// Lifecycle state for a user-visible conversation turn.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatTurnStatus {
+    /// The turn is currently executing.
+    #[default]
+    Running,
+    /// The turn finished with an assistant response.
+    Completed,
+    /// The turn was interrupted or canceled by the user.
+    Canceled,
+    /// The turn failed before producing a final response.
+    Failed,
+}
+
+/// User-visible event inside a chat turn.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatTurnEventKind {
+    /// User input that started the turn.
+    UserMessage { content: String },
+    /// Final or partial assistant text captured for this turn.
+    AssistantMessage { content: String },
+    /// A tool call started during the turn.
+    ToolCall {
+        call_id: String,
+        name: String,
+        arguments: String,
+    },
+    /// A tool call completed during the turn.
+    ToolResult {
+        call_id: String,
+        success: bool,
+        result: String,
+    },
+    /// The runtime reported an error for this turn.
+    Error { message: String },
+    /// The user canceled or interrupted this turn.
+    Canceled,
+}
+
+/// A single user-visible event in a chat turn.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ChatTurnEvent {
+    /// Unique event identifier.
+    #[serde(default = "new_message_id")]
+    pub id: String,
+    /// Unix timestamp in milliseconds when the event was recorded.
+    pub timestamp: i64,
+    /// Event payload.
+    pub kind: ChatTurnEventKind,
+}
+
+impl ChatTurnEvent {
+    /// Create a new turn event with the current timestamp.
+    pub fn new(kind: ChatTurnEventKind) -> Self {
+        Self {
+            id: new_message_id(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            kind,
+        }
+    }
+}
+
+/// A single user turn containing ordered UI/runtime events.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ChatTurn {
+    /// Stable turn identifier. Streaming IPC uses the stream id as the turn id.
+    pub id: String,
+    /// Current lifecycle state.
+    pub status: ChatTurnStatus,
+    /// Unix timestamp in milliseconds when the turn started.
+    pub started_at: i64,
+    /// Unix timestamp in milliseconds when the turn was last updated.
+    pub updated_at: i64,
+    /// Unix timestamp in milliseconds when the turn ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub completed_at: Option<i64>,
+    /// Ordered user-visible runtime events for this turn.
+    #[serde(default)]
+    pub events: Vec<ChatTurnEvent>,
+}
+
 fn new_message_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -407,6 +499,9 @@ pub struct ChatSession {
     pub model: String,
     /// Ordered list of messages in the conversation
     pub messages: Vec<ChatMessage>,
+    /// Ordered turn/event history used by terminal UI projection and replay.
+    #[serde(default)]
+    pub turns: Vec<ChatTurn>,
     /// Unix timestamp in milliseconds when the session was created
     pub created_at: i64,
     /// Unix timestamp in milliseconds when the session was last updated
@@ -484,6 +579,7 @@ impl ChatSession {
             provider,
             model,
             messages: Vec::new(),
+            turns: Vec::new(),
             created_at: now,
             updated_at: now,
             skill_id: None,
@@ -571,6 +667,120 @@ impl ChatSession {
         }
 
         self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    fn ensure_turn_index(&mut self, turn_id: &str) -> usize {
+        if let Some(index) = self.turns.iter().position(|turn| turn.id == turn_id) {
+            return index;
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        self.turns.push(ChatTurn {
+            id: turn_id.to_string(),
+            status: ChatTurnStatus::Running,
+            started_at: now,
+            updated_at: now,
+            completed_at: None,
+            events: Vec::new(),
+        });
+        self.turns.len() - 1
+    }
+
+    /// Start or update a turn with the user input that drives it.
+    pub fn record_turn_user_message(&mut self, turn_id: &str, content: impl Into<String>) {
+        let content = content.into();
+        let index = self.ensure_turn_index(turn_id);
+        let turn = &mut self.turns[index];
+        turn.status = ChatTurnStatus::Running;
+        turn.completed_at = None;
+        let already_recorded = turn.events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                ChatTurnEventKind::UserMessage { content: existing } if existing == &content
+            )
+        });
+        if !already_recorded {
+            turn.events
+                .push(ChatTurnEvent::new(ChatTurnEventKind::UserMessage {
+                    content,
+                }));
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        turn.updated_at = now;
+        self.updated_at = now;
+    }
+
+    /// Append an ordered event to a turn.
+    pub fn record_turn_event(&mut self, turn_id: &str, kind: ChatTurnEventKind) {
+        let index = self.ensure_turn_index(turn_id);
+        let turn = &mut self.turns[index];
+        turn.events.push(ChatTurnEvent::new(kind));
+        let now = chrono::Utc::now().timestamp_millis();
+        turn.updated_at = now;
+        self.updated_at = now;
+    }
+
+    /// Mark a turn as completed and persist its assistant output.
+    pub fn complete_turn_with_assistant_message(
+        &mut self,
+        turn_id: &str,
+        content: impl Into<String>,
+    ) {
+        let content = content.into();
+        let index = self.ensure_turn_index(turn_id);
+        let turn = &mut self.turns[index];
+        let already_recorded = turn.events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                ChatTurnEventKind::AssistantMessage { content: existing } if existing == &content
+            )
+        });
+        if !content.trim().is_empty() && !already_recorded {
+            turn.events
+                .push(ChatTurnEvent::new(ChatTurnEventKind::AssistantMessage {
+                    content,
+                }));
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        turn.status = ChatTurnStatus::Completed;
+        turn.updated_at = now;
+        turn.completed_at = Some(now);
+        self.updated_at = now;
+    }
+
+    /// Mark a turn as failed and persist the error message.
+    pub fn fail_turn(&mut self, turn_id: &str, message: impl Into<String>) {
+        let message = message.into();
+        let index = self.ensure_turn_index(turn_id);
+        let turn = &mut self.turns[index];
+        if !message.trim().is_empty() {
+            turn.events
+                .push(ChatTurnEvent::new(ChatTurnEventKind::Error { message }));
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        turn.status = ChatTurnStatus::Failed;
+        turn.updated_at = now;
+        turn.completed_at = Some(now);
+        self.updated_at = now;
+    }
+
+    /// Mark a turn as canceled.
+    pub fn cancel_turn(&mut self, turn_id: &str) {
+        let index = self.ensure_turn_index(turn_id);
+        let turn = &mut self.turns[index];
+        let already_recorded = turn
+            .events
+            .iter()
+            .any(|event| matches!(event.kind, ChatTurnEventKind::Canceled));
+        if !already_recorded {
+            turn.events
+                .push(ChatTurnEvent::new(ChatTurnEventKind::Canceled));
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        turn.status = ChatTurnStatus::Canceled;
+        turn.updated_at = now;
+        turn.completed_at = Some(now);
+        self.updated_at = now;
     }
 
     /// Rename the session.
@@ -695,6 +905,36 @@ mod tests {
     #[test]
     fn test_execution_status_default() {
         assert_eq!(ChatExecutionStatus::default(), ChatExecutionStatus::Running);
+    }
+
+    #[test]
+    fn records_turn_events_without_adding_model_context_messages() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+        session.record_turn_user_message("turn-1", "hello");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"cmd\":\"pwd\"}".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "/tmp".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("turn-1", "done");
+
+        assert!(session.messages.is_empty());
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.turns[0].status, ChatTurnStatus::Completed);
+        assert_eq!(session.turns[0].events.len(), 4);
+        assert!(session.turns[0].completed_at.is_some());
     }
 
     #[test]

@@ -115,7 +115,7 @@ pub(super) fn create_chat_executor(
     )
 }
 
-pub(super) async fn cancel_chat_stream(stream_id: &str) -> bool {
+pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> bool {
     if let Some(handle) = active_chat_streams().lock().await.remove(stream_id) {
         handle.abort();
         active_chat_stream_steers().lock().await.remove(stream_id);
@@ -126,6 +126,14 @@ pub(super) async fn cancel_chat_stream(stream_id: &str) -> bool {
             .map(|(session_id, active_stream_id)| (session_id.clone(), active_stream_id.clone()))
         {
             session_streams.remove(&session_id);
+            if let Err(error) = cancel_turn_in_session_store(core, &session_id, stream_id) {
+                warn!(
+                    session_id = %session_id,
+                    turn_id = %stream_id,
+                    error = %error,
+                    "Failed to persist canceled chat turn"
+                );
+            }
         }
         true
     } else {
@@ -287,6 +295,7 @@ pub(super) async fn execute_chat_session(
     } else if replace_latest_user_message_content(&mut session, &input, &persisted_input) {
         SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
     }
+    record_turn_user_message_in_session_store(core, &mut session, &turn_id, &persisted_input)?;
 
     let turn_start_index = session.messages.len();
     let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
@@ -299,13 +308,13 @@ pub(super) async fn execute_chat_session(
     let chat_max_session_history = load_chat_max_session_history_from_core(core);
 
     let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
-    let traced_execution = orchestrator
+    let traced_execution = match orchestrator
         .run_traced_interactive_session_turn(InteractiveSessionRequest {
             session: &mut session,
             user_input: &agent_input,
             max_history: chat_max_session_history,
             input_mode: SessionInputMode::PersistedInSession,
-            run_id: turn_id,
+            run_id: turn_id.clone(),
             execution_trace_storage: core.storage.execution_traces.clone(),
             timeout_secs: None,
             emitter,
@@ -313,7 +322,14 @@ pub(super) async fn execute_chat_session(
             stream_display_mode: StreamDisplayMode::Streaming,
         })
         .await
-        .map_err(anyhow::Error::new)?;
+    {
+        Ok(execution) => execution,
+        Err(error) => {
+            let message = error.to_string();
+            fail_turn_in_session_store(core, &session_id, &turn_id, &message)?;
+            return Err(anyhow::Error::new(error).into());
+        }
+    };
     let trace = traced_execution.trace;
     let duration_ms = traced_execution.duration_ms;
     let exec_result = traced_execution.execution;
@@ -352,7 +368,17 @@ pub(super) async fn execute_chat_session(
         &session,
         turn_start_index,
     )
-    .ok_or(ExecuteChatSessionError::EmptyAssistantOutput)?;
+    .ok_or_else(|| {
+        let _ = fail_turn_in_session_store(
+            core,
+            &session_id,
+            &turn_id,
+            "Interactive execution completed without assistant output",
+        );
+        ExecuteChatSessionError::EmptyAssistantOutput
+    })?;
+    sync_turns_from_session_store(core, &mut session)?;
+    session.complete_turn_with_assistant_message(&turn_id, &assistant_output);
     if latest_turn_assistant_matches(&session, turn_start_index, &assistant_output) {
         if let Some(message) = session.messages.last_mut() {
             message.execution = Some(execution);
@@ -378,6 +404,71 @@ pub(super) async fn execute_chat_session(
         )?;
     }
     Ok(session)
+}
+
+pub(super) fn record_turn_event_in_session_store(
+    core: &Arc<AppCore>,
+    session_id: &str,
+    turn_id: &str,
+    event: ChatTurnEventKind,
+) -> Result<()> {
+    let session_service = SessionService::from_storage(&core.storage);
+    let Some(mut session) = session_service.get_session_view(session_id)? else {
+        return Ok(());
+    };
+    session.record_turn_event(turn_id, event);
+    session_service.save_existing_session(&session, "ipc")?;
+    Ok(())
+}
+
+fn record_turn_user_message_in_session_store(
+    core: &Arc<AppCore>,
+    session: &mut ChatSession,
+    turn_id: &str,
+    content: &str,
+) -> Result<()> {
+    sync_turns_from_session_store(core, session)?;
+    session.record_turn_user_message(turn_id, content);
+    SessionService::from_storage(&core.storage).save_existing_session(session, "ipc")?;
+    Ok(())
+}
+
+fn sync_turns_from_session_store(core: &Arc<AppCore>, session: &mut ChatSession) -> Result<()> {
+    if let Some(stored) =
+        SessionService::from_storage(&core.storage).get_session_view(&session.id)?
+    {
+        session.turns = stored.turns;
+    }
+    Ok(())
+}
+
+fn fail_turn_in_session_store(
+    core: &Arc<AppCore>,
+    session_id: &str,
+    turn_id: &str,
+    message: &str,
+) -> Result<()> {
+    let session_service = SessionService::from_storage(&core.storage);
+    let Some(mut session) = session_service.get_session_view(session_id)? else {
+        return Ok(());
+    };
+    session.fail_turn(turn_id, message);
+    session_service.save_existing_session(&session, "ipc")?;
+    Ok(())
+}
+
+fn cancel_turn_in_session_store(
+    core: &Arc<AppCore>,
+    session_id: &str,
+    turn_id: &str,
+) -> Result<()> {
+    let session_service = SessionService::from_storage(&core.storage);
+    let Some(mut session) = session_service.get_session_view(session_id)? else {
+        return Ok(());
+    };
+    session.cancel_turn(turn_id);
+    session_service.save_existing_session(&session, "ipc")?;
+    Ok(())
 }
 
 fn load_chat_session_for_execution(

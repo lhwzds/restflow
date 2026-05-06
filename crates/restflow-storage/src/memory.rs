@@ -1,44 +1,40 @@
-//! Memory storage - byte-level API for long-term memory persistence.
-//!
-//! Provides low-level storage operations for memory chunks and sessions
-//! using the redb embedded database. Supports indexing by agent_id, session_id,
-//! content hash (for deduplication), and tags.
-//!
-//! # Tables
-//!
-//! - `memory_chunks`: chunk_id -> chunk_data
-//! - `memory_sessions`: session_id -> session_data
-//! - `memory_agent_index`: agent_id:chunk_id -> chunk_id (for listing by agent)
-//! - `memory_session_index`: session_id:chunk_id -> chunk_id (for listing by session)
-//! - `memory_hash_index`: agent_id:content_hash -> chunk_id (for deduplication)
-//! - `memory_tag_index`: tag:chunk_id -> chunk_id (for tag filtering)
+//! Process-local memory storage.
 
+use crate::simple_storage::namespace_for_db;
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::sync::Arc;
+use redb::Database;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::range_utils::prefix_range;
+#[derive(Clone)]
+struct ChunkRecord {
+    agent_id: String,
+    session_id: Option<String>,
+    content_hash: String,
+    tags: Vec<String>,
+    data: Vec<u8>,
+}
 
-const MEMORY_CHUNK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("memory_chunks");
-const MEMORY_SESSION_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("memory_sessions");
+#[derive(Clone)]
+struct SessionRecord {
+    agent_id: String,
+    data: Vec<u8>,
+}
 
-/// Index: agent_id:chunk_id -> chunk_id
-const AGENT_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("memory_agent_index");
-/// Index: session_id:chunk_id -> chunk_id
-const SESSION_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("memory_session_index");
-/// Index: agent_id:content_hash -> chunk_id (for deduplication)
-const HASH_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("memory_hash_index");
-/// Index: tag:chunk_id -> chunk_id (for tag filtering)
-const TAG_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("memory_tag_index");
-/// Index: agent_id:session_id -> session_id (for listing sessions by agent)
-const AGENT_SESSION_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("memory_agent_session_index");
+#[derive(Default)]
+struct MemoryStore {
+    chunks: BTreeMap<String, ChunkRecord>,
+    sessions: BTreeMap<String, SessionRecord>,
+}
 
-/// Low-level memory storage with byte-level API
+fn stores() -> &'static Mutex<HashMap<usize, MemoryStore>> {
+    static STORES: OnceLock<Mutex<HashMap<usize, MemoryStore>>> = OnceLock::new();
+    STORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[derive(Clone)]
 pub struct MemoryStorage {
-    db: Arc<Database>,
+    namespace: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,31 +44,12 @@ pub enum PutChunkResult {
 }
 
 impl MemoryStorage {
-    fn scoped_hash_key(agent_id: &str, content_hash: &str) -> String {
-        format!("{}:{}", agent_id, content_hash)
-    }
-
-    /// Create a new MemoryStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Initialize all tables
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(MEMORY_CHUNK_TABLE)?;
-        write_txn.open_table(MEMORY_SESSION_TABLE)?;
-        write_txn.open_table(AGENT_INDEX_TABLE)?;
-        write_txn.open_table(SESSION_INDEX_TABLE)?;
-        write_txn.open_table(HASH_INDEX_TABLE)?;
-        write_txn.open_table(TAG_INDEX_TABLE)?;
-        write_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
-        write_txn.commit()?;
-
-        Ok(Self { db })
+        Ok(Self {
+            namespace: namespace_for_db(&db),
+        })
     }
 
-    // ============== Memory Chunk Operations ==============
-
-    /// Store a raw memory chunk if one with the same content hash does not exist.
-    ///
-    /// Returns the existing chunk ID when a duplicate is detected.
     pub fn put_chunk_if_not_exists(
         &self,
         chunk_id: &str,
@@ -82,52 +59,28 @@ impl MemoryStorage {
         tags: &[String],
         data: &[u8],
     ) -> Result<PutChunkResult> {
-        let write_txn = self.db.begin_write()?;
-        let result = {
-            // Open hash_index once as mutable for both read and write
-            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            let hash_key = Self::scoped_hash_key(agent_id, content_hash);
-            if let Some(existing) = hash_index.get(hash_key.as_str())? {
-                PutChunkResult::Existing(existing.value().to_string())
-            } else {
-                let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
-                chunk_table.insert(chunk_id, data)?;
-
-                let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
-                let agent_key = format!("{}:{}", agent_id, chunk_id);
-                agent_index.insert(agent_key.as_str(), chunk_id)?;
-
-                if let Some(sid) = session_id {
-                    let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
-                    let session_key = format!("{}:{}", sid, chunk_id);
-                    session_index.insert(session_key.as_str(), chunk_id)?;
-                }
-
-                // Use the already-opened hash_index for insert
-                hash_index.insert(hash_key.as_str(), chunk_id)?;
-
-                let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
-                for tag in tags {
-                    let tag_key = format!("{}:{}", tag, chunk_id);
-                    tag_index.insert(tag_key.as_str(), chunk_id)?;
-                }
-
-                PutChunkResult::Created(chunk_id.to_string())
-            }
-        };
-        write_txn.commit()?;
-        Ok(result)
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        if let Some((existing_id, _)) = store
+            .chunks
+            .iter()
+            .find(|(_, record)| record.agent_id == agent_id && record.content_hash == content_hash)
+        {
+            return Ok(PutChunkResult::Existing(existing_id.clone()));
+        }
+        store.chunks.insert(
+            chunk_id.to_string(),
+            ChunkRecord {
+                agent_id: agent_id.to_string(),
+                session_id: session_id.map(str::to_string),
+                content_hash: content_hash.to_string(),
+                tags: tags.to_vec(),
+                data: data.to_vec(),
+            },
+        );
+        Ok(PutChunkResult::Created(chunk_id.to_string()))
     }
 
-    /// Store a raw memory chunk with all necessary indexes.
-    ///
-    /// # Arguments
-    /// - `chunk_id`: Unique identifier for the chunk
-    /// - `agent_id`: Agent this chunk belongs to
-    /// - `session_id`: Optional session ID for grouping
-    /// - `content_hash`: SHA-256 hash of content for deduplication
-    /// - `tags`: List of tags for filtering
-    /// - `data`: Serialized chunk data
     pub fn put_chunk_raw(
         &self,
         chunk_id: &str,
@@ -137,1355 +90,233 @@ impl MemoryStorage {
         tags: &[String],
         data: &[u8],
     ) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            // Store the chunk data
-            let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
-            chunk_table.insert(chunk_id, data)?;
-
-            // Index by agent_id
-            let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
-            let agent_key = format!("{}:{}", agent_id, chunk_id);
-            agent_index.insert(agent_key.as_str(), chunk_id)?;
-
-            // Index by session_id if provided
-            if let Some(sid) = session_id {
-                let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
-                let session_key = format!("{}:{}", sid, chunk_id);
-                session_index.insert(session_key.as_str(), chunk_id)?;
-            }
-
-            // Index by content hash for deduplication checking
-            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            let hash_key = Self::scoped_hash_key(agent_id, content_hash);
-            hash_index.insert(hash_key.as_str(), chunk_id)?;
-
-            // Index by tags
-            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
-            for tag in tags {
-                let tag_key = format!("{}:{}", tag, chunk_id);
-                tag_index.insert(tag_key.as_str(), chunk_id)?;
-            }
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        stores.entry(self.namespace).or_default().chunks.insert(
+            chunk_id.to_string(),
+            ChunkRecord {
+                agent_id: agent_id.to_string(),
+                session_id: session_id.map(str::to_string),
+                content_hash: content_hash.to_string(),
+                tags: tags.to_vec(),
+                data: data.to_vec(),
+            },
+        );
         Ok(())
     }
 
-    /// Get raw chunk data by ID
     pub fn get_chunk_raw(&self, chunk_id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
-
-        if let Some(value) = table.get(chunk_id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .and_then(|store| store.chunks.get(chunk_id).map(|record| record.data.clone())))
     }
 
-    /// List all chunks for an agent
     pub fn list_chunks_by_agent_raw(&self, agent_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
-        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
-
-        let prefix = format!("{}:", agent_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut chunks = Vec::new();
-
-        for item in agent_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let chunk_id = value.value();
-            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-            }
-        }
-
-        Ok(chunks)
+        self.list_chunks_matching(|record| record.agent_id == agent_id)
     }
 
-    /// List all chunks across agents.
     pub fn list_all_chunks_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
-        let mut chunks = Vec::new();
-
-        for item in chunk_table.iter()? {
-            let (key, value) = item?;
-            chunks.push((key.value().to_string(), value.value().to_vec()));
-        }
-
-        Ok(chunks)
+        self.list_chunks_matching(|_| true)
     }
 
-    /// List all chunks for a session
     pub fn list_chunks_by_session_raw(&self, session_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let session_index = read_txn.open_table(SESSION_INDEX_TABLE)?;
-        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
-
-        let prefix = format!("{}:", session_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut chunks = Vec::new();
-
-        for item in session_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let chunk_id = value.value();
-            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-            }
-        }
-
-        Ok(chunks)
+        self.list_chunks_matching(|record| record.session_id.as_deref() == Some(session_id))
     }
 
-    /// Check if any chunks exist for a session without loading them all.
     pub fn has_chunks_for_session(&self, session_id: &str) -> Result<bool> {
-        let read_txn = self.db.begin_read()?;
-        let session_index = read_txn.open_table(SESSION_INDEX_TABLE)?;
-
-        let prefix = format!("{}:", session_id);
-        let (start, end) = prefix_range(&prefix);
-
-        let mut iter = session_index.range(start.as_str()..end.as_str())?;
-        Ok(iter.next().is_some())
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores.get(&self.namespace).is_some_and(|store| {
+            store
+                .chunks
+                .values()
+                .any(|record| record.session_id.as_deref() == Some(session_id))
+        }))
     }
 
-    /// List all chunks with a specific tag
     pub fn list_chunks_by_tag_raw(&self, tag: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let tag_index = read_txn.open_table(TAG_INDEX_TABLE)?;
-        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
-
-        let prefix = format!("{}:", tag);
-        let (start, end) = prefix_range(&prefix);
-        let mut chunks = Vec::new();
-
-        for item in tag_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let chunk_id = value.value();
-            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-            }
-        }
-
-        Ok(chunks)
+        self.list_chunks_matching(|record| record.tags.iter().any(|item| item == tag))
     }
 
-    /// Check if a chunk with the given content hash already exists.
-    /// Returns the existing chunk ID if found.
+    fn list_chunks_matching<F>(&self, predicate: F) -> Result<Vec<(String, Vec<u8>)>>
+    where
+        F: Fn(&ChunkRecord) -> bool,
+    {
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .map(|store| {
+                store
+                    .chunks
+                    .iter()
+                    .filter(|(_, record)| predicate(record))
+                    .map(|(id, record)| (id.clone(), record.data.clone()))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     pub fn find_by_hash(&self, agent_id: &str, content_hash: &str) -> Result<Option<String>> {
-        let read_txn = self.db.begin_read()?;
-        let hash_index = read_txn.open_table(HASH_INDEX_TABLE)?;
-        let hash_key = Self::scoped_hash_key(agent_id, content_hash);
-
-        if let Some(value) = hash_index.get(hash_key.as_str())? {
-            Ok(Some(value.value().to_string()))
-        } else {
-            Ok(None)
-        }
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores.get(&self.namespace).and_then(|store| {
+            store
+                .chunks
+                .iter()
+                .find(|(_, record)| {
+                    record.agent_id == agent_id && record.content_hash == content_hash
+                })
+                .map(|(id, _)| id.clone())
+        }))
     }
 
-    /// Delete a chunk and all its index entries.
-    ///
-    /// Note: Requires the metadata to be known for proper index cleanup.
     pub fn delete_chunk(
         &self,
         chunk_id: &str,
-        agent_id: &str,
-        session_id: Option<&str>,
-        content_hash: &str,
-        tags: &[String],
+        _agent_id: &str,
+        _session_id: Option<&str>,
+        _content_hash: &str,
+        _tags: &[String],
     ) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            // Delete the chunk
-            let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
-            let existed = chunk_table.remove(chunk_id)?.is_some();
-
-            // Remove from agent index
-            let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
-            let agent_key = format!("{}:{}", agent_id, chunk_id);
-            agent_index.remove(agent_key.as_str())?;
-
-            // Remove from session index if applicable
-            if let Some(sid) = session_id {
-                let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
-                let session_key = format!("{}:{}", sid, chunk_id);
-                session_index.remove(session_key.as_str())?;
-            }
-
-            // Remove from hash index
-            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            let hash_key = Self::scoped_hash_key(agent_id, content_hash);
-            hash_index.remove(hash_key.as_str())?;
-            // Best-effort cleanup for legacy global hash keys.
-            let remove_legacy_key = hash_index
-                .get(content_hash)?
-                .map(|existing| existing.value() == chunk_id)
-                .unwrap_or(false);
-            if remove_legacy_key {
-                hash_index.remove(content_hash)?;
-            }
-
-            // Remove from tag indexes
-            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
-            for tag in tags {
-                let tag_key = format!("{}:{}", tag, chunk_id);
-                tag_index.remove(tag_key.as_str())?;
-            }
-
-            existed
-        };
-        write_txn.commit()?;
-        Ok(existed)
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get_mut(&self.namespace)
+            .is_some_and(|store| store.chunks.remove(chunk_id).is_some()))
     }
 
-    /// Count chunks for an agent
     pub fn count_chunks_by_agent(&self, agent_id: &str) -> Result<u32> {
-        let read_txn = self.db.begin_read()?;
-        let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
-
-        let prefix = format!("{}:", agent_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut count = 0u32;
-
-        for _ in agent_index.range(start.as_str()..end.as_str())? {
-            count += 1;
-        }
-
-        Ok(count)
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .map(|store| {
+                store
+                    .chunks
+                    .values()
+                    .filter(|record| record.agent_id == agent_id)
+                    .count() as u32
+            })
+            .unwrap_or_default())
     }
 
-    /// List chunks with database-level pagination
-    #[allow(clippy::type_complexity)]
     pub fn list_chunks_by_agent_paginated(
         &self,
         agent_id: &str,
+        offset: usize,
         limit: usize,
-        cursor: Option<&str>,
-    ) -> Result<(Vec<(String, Vec<u8>)>, Option<String>)> {
-        let read_txn = self.db.begin_read()?;
-        let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
-        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
-
-        let prefix = format!("{}:", agent_id);
-        let (_, end) = prefix_range(&prefix);
-        let start = match cursor {
-            Some(last_id) => format!("{}:{}\x00", agent_id, last_id),
-            None => prefix.clone(),
-        };
-
-        let mut chunks = Vec::new();
-        let mut last_id = None;
-        for item in agent_index.range(start.as_str()..end.as_str())? {
-            if chunks.len() >= limit {
-                break;
-            }
-            let (_, value) = item?;
-            let chunk_id = value.value();
-            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                last_id = Some(chunk_id.to_string());
-                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-            }
-        }
-
-        let next_cursor = if chunks.len() >= limit { last_id } else { None };
-        Ok((chunks, next_cursor))
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let mut rows = self.list_chunks_by_agent_raw(agent_id)?;
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(rows.into_iter().skip(offset).take(limit).collect())
     }
 
-    // ============== Memory Session Operations ==============
-
-    /// Store a raw memory session
     pub fn put_session_raw(&self, session_id: &str, agent_id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut session_table = write_txn.open_table(MEMORY_SESSION_TABLE)?;
-            session_table.insert(session_id, data)?;
-
-            // Index by agent_id
-            let mut agent_session_index = write_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
-            let index_key = format!("{}:{}", agent_id, session_id);
-            agent_session_index.insert(index_key.as_str(), session_id)?;
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        stores.entry(self.namespace).or_default().sessions.insert(
+            session_id.to_string(),
+            SessionRecord {
+                agent_id: agent_id.to_string(),
+                data: data.to_vec(),
+            },
+        );
         Ok(())
     }
 
-    /// Get raw session data by ID
     pub fn get_session_raw(&self, session_id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(MEMORY_SESSION_TABLE)?;
-
-        if let Some(value) = table.get(session_id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores.get(&self.namespace).and_then(|store| {
+            store
+                .sessions
+                .get(session_id)
+                .map(|record| record.data.clone())
+        }))
     }
 
-    /// List all sessions for an agent
     pub fn list_sessions_by_agent_raw(&self, agent_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let agent_session_index = read_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
-        let session_table = read_txn.open_table(MEMORY_SESSION_TABLE)?;
-
-        let prefix = format!("{}:", agent_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut sessions = Vec::new();
-
-        for item in agent_session_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let session_id = value.value();
-            if let Some(session_data) = session_table.get(session_id)? {
-                sessions.push((session_id.to_string(), session_data.value().to_vec()));
-            }
-        }
-
-        Ok(sessions)
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .map(|store| {
+                store
+                    .sessions
+                    .iter()
+                    .filter(|(_, record)| record.agent_id == agent_id)
+                    .map(|(id, record)| (id.clone(), record.data.clone()))
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
-    /// Delete a session (does not delete associated chunks)
-    pub fn delete_session(&self, session_id: &str, agent_id: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut session_table = write_txn.open_table(MEMORY_SESSION_TABLE)?;
-            let existed = session_table.remove(session_id)?.is_some();
-
-            // Remove from agent session index
-            let mut agent_session_index = write_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
-            let index_key = format!("{}:{}", agent_id, session_id);
-            agent_session_index.remove(index_key.as_str())?;
-
-            existed
-        };
-        write_txn.commit()?;
-        Ok(existed)
+    pub fn delete_session(&self, session_id: &str, _agent_id: &str) -> Result<bool> {
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get_mut(&self.namespace)
+            .is_some_and(|store| store.sessions.remove(session_id).is_some()))
     }
 
-    /// Count sessions for an agent
     pub fn count_sessions_by_agent(&self, agent_id: &str) -> Result<u32> {
-        let read_txn = self.db.begin_read()?;
-        let agent_session_index = read_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
-
-        let prefix = format!("{}:", agent_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut count = 0u32;
-
-        for _ in agent_session_index.range(start.as_str()..end.as_str())? {
-            count += 1;
-        }
-
-        Ok(count)
+        let stores = stores().lock().expect("memory store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .map(|store| {
+                store
+                    .sessions
+                    .values()
+                    .filter(|record| record.agent_id == agent_id)
+                    .count() as u32
+            })
+            .unwrap_or_default())
     }
 
-    // ============== Bulk Operations ==============
-
-    /// Delete all chunks for an agent with full index cleanup.
     pub fn delete_all_chunks_for_agent_with_metadata(
         &self,
         agent_id: &str,
         chunk_metadata: &[(String, Option<String>, String, Vec<String>)],
     ) -> Result<u32> {
-        if chunk_metadata.is_empty() {
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
             return Ok(0);
-        }
-
-        let write_txn = self.db.begin_write()?;
-        let count = {
-            let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
-            let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
-            let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
-            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
-            let mut deleted = 0u32;
-
-            for (chunk_id, session_id, content_hash, tags) in chunk_metadata {
-                chunk_table.remove(chunk_id.as_str())?;
-
-                let agent_key = format!("{}:{}", agent_id, chunk_id);
-                agent_index.remove(agent_key.as_str())?;
-
-                if let Some(sid) = session_id {
-                    let session_key = format!("{}:{}", sid, chunk_id);
-                    session_index.remove(session_key.as_str())?;
-                }
-
-                let hash_key = Self::scoped_hash_key(agent_id, content_hash.as_str());
-                hash_index.remove(hash_key.as_str())?;
-                let remove_legacy_key = hash_index
-                    .get(content_hash.as_str())?
-                    .map(|existing| existing.value() == chunk_id.as_str())
-                    .unwrap_or(false);
-                if remove_legacy_key {
-                    hash_index.remove(content_hash.as_str())?;
-                }
-
-                for tag in tags {
-                    let tag_key = format!("{}:{}", tag, chunk_id);
-                    tag_index.remove(tag_key.as_str())?;
-                }
-
+        };
+        let mut deleted = 0_u32;
+        for (chunk_id, _, _, _) in chunk_metadata {
+            if store
+                .chunks
+                .get(chunk_id)
+                .is_some_and(|record| record.agent_id == agent_id)
+                && store.chunks.remove(chunk_id).is_some()
+            {
                 deleted += 1;
             }
-
-            deleted
-        };
-        write_txn.commit()?;
-        Ok(count)
+        }
+        Ok(deleted)
     }
 
-    /// Delete all chunks for an agent with full index cleanup.
     pub fn delete_all_chunks_for_agent(&self, agent_id: &str) -> Result<u32> {
-        let write_txn = self.db.begin_write()?;
-        let count = {
-            use std::collections::HashSet;
-
-            let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
-            let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
-            let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
-            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
-
-            let prefix = format!("{}:", agent_id);
-            let (start, end) = prefix_range(&prefix);
-
-            let mut chunk_ids: HashSet<String> = HashSet::new();
-            let mut agent_keys: Vec<String> = Vec::new();
-            for item in agent_index.range(start.as_str()..end.as_str())? {
-                let (key, value) = item?;
-                chunk_ids.insert(value.value().to_string());
-                agent_keys.push(key.value().to_string());
-            }
-
-            if chunk_ids.is_empty() {
-                0
-            } else {
-                let mut hash_keys: Vec<String> = Vec::new();
-                for item in hash_index.iter()? {
-                    let (key, value) = item?;
-                    if chunk_ids.contains(value.value()) {
-                        hash_keys.push(key.value().to_string());
-                    }
-                }
-
-                let mut session_keys: Vec<String> = Vec::new();
-                for item in session_index.iter()? {
-                    let (key, value) = item?;
-                    if chunk_ids.contains(value.value()) {
-                        session_keys.push(key.value().to_string());
-                    }
-                }
-
-                let mut tag_keys: Vec<String> = Vec::new();
-                for item in tag_index.iter()? {
-                    let (key, value) = item?;
-                    if chunk_ids.contains(value.value()) {
-                        tag_keys.push(key.value().to_string());
-                    }
-                }
-
-                for chunk_id in &chunk_ids {
-                    chunk_table.remove(chunk_id.as_str())?;
-                }
-
-                for key in &agent_keys {
-                    agent_index.remove(key.as_str())?;
-                }
-
-                for key in &hash_keys {
-                    hash_index.remove(key.as_str())?;
-                }
-
-                for key in &session_keys {
-                    session_index.remove(key.as_str())?;
-                }
-
-                for key in &tag_keys {
-                    tag_index.remove(key.as_str())?;
-                }
-
-                chunk_ids.len() as u32
-            }
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
+            return Ok(0);
         };
-        write_txn.commit()?;
-
-        Ok(count)
+        let ids = store
+            .chunks
+            .iter()
+            .filter_map(|(id, record)| (record.agent_id == agent_id).then_some(id.clone()))
+            .collect::<Vec<_>>();
+        for id in &ids {
+            store.chunks.remove(id);
+        }
+        Ok(ids.len() as u32)
     }
 
-    /// Delete all sessions for an agent
     pub fn delete_all_sessions_for_agent(&self, agent_id: &str) -> Result<u32> {
-        let write_txn = self.db.begin_write()?;
-        let count = {
-            let mut session_table = write_txn.open_table(MEMORY_SESSION_TABLE)?;
-            let mut agent_session_index = write_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
-
-            let prefix = format!("{}:", agent_id);
-            let (start, end) = prefix_range(&prefix);
-            let mut session_ids: Vec<String> = Vec::new();
-            let mut index_keys: Vec<String> = Vec::new();
-
-            for item in agent_session_index.range(start.as_str()..end.as_str())? {
-                let (key, value) = item?;
-                session_ids.push(value.value().to_string());
-                index_keys.push(key.value().to_string());
-            }
-
-            if session_ids.is_empty() {
-                0
-            } else {
-                for session_id in &session_ids {
-                    session_table.remove(session_id.as_str())?;
-                }
-
-                for key in &index_keys {
-                    agent_session_index.remove(key.as_str())?;
-                }
-
-                session_ids.len() as u32
-            }
+        let mut stores = stores().lock().expect("memory store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
+            return Ok(0);
         };
-        write_txn.commit()?;
-
-        Ok(count)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, mpsc};
-    use std::thread;
-    use std::time::Duration;
-    use tempfile::tempdir;
-
-    fn create_test_storage() -> MemoryStorage {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        MemoryStorage::new(db).unwrap()
-    }
-
-    #[test]
-    fn test_put_and_get_chunk_raw() {
-        let storage = create_test_storage();
-
-        let data = b"test chunk data";
-        storage
-            .put_chunk_raw(
-                "chunk-001",
-                "agent-001",
-                Some("session-001"),
-                "hash123",
-                &["tag1".to_string(), "tag2".to_string()],
-                data,
-            )
-            .unwrap();
-
-        let retrieved = storage.get_chunk_raw("chunk-001").unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap(), data);
-    }
-
-    #[test]
-    fn test_get_nonexistent_chunk() {
-        let storage = create_test_storage();
-
-        let result = storage.get_chunk_raw("nonexistent").unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_list_chunks_by_agent() {
-        let storage = create_test_storage();
-
-        // Add chunks for agent-001
-        storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"data1")
-            .unwrap();
-        storage
-            .put_chunk_raw("chunk-002", "agent-001", None, "hash2", &[], b"data2")
-            .unwrap();
-
-        // Add chunk for agent-002
-        storage
-            .put_chunk_raw("chunk-003", "agent-002", None, "hash3", &[], b"data3")
-            .unwrap();
-
-        let chunks_agent1 = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert_eq!(chunks_agent1.len(), 2);
-
-        let chunks_agent2 = storage.list_chunks_by_agent_raw("agent-002").unwrap();
-        assert_eq!(chunks_agent2.len(), 1);
-
-        let chunks_agent3 = storage.list_chunks_by_agent_raw("agent-003").unwrap();
-        assert_eq!(chunks_agent3.len(), 0);
-    }
-
-    #[test]
-    fn test_list_all_chunks_raw() {
-        let storage = create_test_storage();
-
-        storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"data1")
-            .unwrap();
-        storage
-            .put_chunk_raw("chunk-002", "agent-002", None, "hash2", &[], b"data2")
-            .unwrap();
-
-        let mut chunks = storage.list_all_chunks_raw().unwrap();
-        chunks.sort_by(|a, b| a.0.cmp(&b.0));
-        assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].0, "chunk-001");
-        assert_eq!(chunks[1].0, "chunk-002");
-    }
-
-    #[test]
-    fn test_list_chunks_by_agent_paginated() {
-        let storage = create_test_storage();
-
-        for idx in 0..25 {
-            let chunk_id = format!("chunk-{:03}", idx);
-            let hash = format!("hash-{:03}", idx);
-            storage
-                .put_chunk_raw(
-                    chunk_id.as_str(),
-                    "agent-001",
-                    None,
-                    hash.as_str(),
-                    &[],
-                    b"data",
-                )
-                .unwrap();
-        }
-
-        let (page1, cursor1) = storage
-            .list_chunks_by_agent_paginated("agent-001", 10, None)
-            .unwrap();
-        assert_eq!(page1.len(), 10);
-        assert!(cursor1.is_some());
-
-        let (page2, cursor2) = storage
-            .list_chunks_by_agent_paginated("agent-001", 10, cursor1.as_deref())
-            .unwrap();
-        assert_eq!(page2.len(), 10);
-        assert!(cursor2.is_some());
-
-        let (page3, cursor3) = storage
-            .list_chunks_by_agent_paginated("agent-001", 10, cursor2.as_deref())
-            .unwrap();
-        assert_eq!(page3.len(), 5);
-        assert!(cursor3.is_none());
-    }
-
-    #[test]
-    fn test_list_chunks_by_session() {
-        let storage = create_test_storage();
-
-        // Add chunks for session-001
-        storage
-            .put_chunk_raw(
-                "chunk-001",
-                "agent-001",
-                Some("session-001"),
-                "hash1",
-                &[],
-                b"data1",
-            )
-            .unwrap();
-        storage
-            .put_chunk_raw(
-                "chunk-002",
-                "agent-001",
-                Some("session-001"),
-                "hash2",
-                &[],
-                b"data2",
-            )
-            .unwrap();
-
-        // Add chunk for session-002
-        storage
-            .put_chunk_raw(
-                "chunk-003",
-                "agent-001",
-                Some("session-002"),
-                "hash3",
-                &[],
-                b"data3",
-            )
-            .unwrap();
-
-        let chunks_session1 = storage.list_chunks_by_session_raw("session-001").unwrap();
-        assert_eq!(chunks_session1.len(), 2);
-
-        let chunks_session2 = storage.list_chunks_by_session_raw("session-002").unwrap();
-        assert_eq!(chunks_session2.len(), 1);
-    }
-
-    #[test]
-    fn test_list_chunks_by_tag() {
-        let storage = create_test_storage();
-
-        storage
-            .put_chunk_raw(
-                "chunk-001",
-                "agent-001",
-                None,
-                "hash1",
-                &["rust".to_string(), "async".to_string()],
-                b"data1",
-            )
-            .unwrap();
-        storage
-            .put_chunk_raw(
-                "chunk-002",
-                "agent-001",
-                None,
-                "hash2",
-                &["rust".to_string()],
-                b"data2",
-            )
-            .unwrap();
-        storage
-            .put_chunk_raw(
-                "chunk-003",
-                "agent-001",
-                None,
-                "hash3",
-                &["python".to_string()],
-                b"data3",
-            )
-            .unwrap();
-
-        let rust_chunks = storage.list_chunks_by_tag_raw("rust").unwrap();
-        assert_eq!(rust_chunks.len(), 2);
-
-        let async_chunks = storage.list_chunks_by_tag_raw("async").unwrap();
-        assert_eq!(async_chunks.len(), 1);
-
-        let python_chunks = storage.list_chunks_by_tag_raw("python").unwrap();
-        assert_eq!(python_chunks.len(), 1);
-    }
-
-    #[test]
-    fn test_find_by_hash_deduplication() {
-        let storage = create_test_storage();
-
-        // Store first chunk
-        storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "unique-hash", &[], b"data")
-            .unwrap();
-
-        // Check for existing hash
-        let existing = storage.find_by_hash("agent-001", "unique-hash").unwrap();
-        assert!(existing.is_some());
-        assert_eq!(existing.unwrap(), "chunk-001");
-
-        // Check for non-existing hash
-        let not_found = storage.find_by_hash("agent-001", "other-hash").unwrap();
-        assert!(not_found.is_none());
-    }
-
-    #[test]
-    fn test_delete_chunk() {
-        let storage = create_test_storage();
-
-        storage
-            .put_chunk_raw(
-                "chunk-001",
-                "agent-001",
-                Some("session-001"),
-                "hash123",
-                &["tag1".to_string()],
-                b"data",
-            )
-            .unwrap();
-
-        let deleted = storage
-            .delete_chunk(
-                "chunk-001",
-                "agent-001",
-                Some("session-001"),
-                "hash123",
-                &["tag1".to_string()],
-            )
-            .unwrap();
-        assert!(deleted);
-
-        // Chunk should be gone
-        let retrieved = storage.get_chunk_raw("chunk-001").unwrap();
-        assert!(retrieved.is_none());
-
-        // Agent index should be empty
-        let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert!(chunks.is_empty());
-
-        // Session index should be empty
-        let session_chunks = storage.list_chunks_by_session_raw("session-001").unwrap();
-        assert!(session_chunks.is_empty());
-
-        // Hash index should be empty
-        let hash_result = storage.find_by_hash("agent-001", "hash123").unwrap();
-        assert!(hash_result.is_none());
-
-        // Tag index should be empty
-        let tag_chunks = storage.list_chunks_by_tag_raw("tag1").unwrap();
-        assert!(tag_chunks.is_empty());
-    }
-
-    #[test]
-    fn test_count_chunks_by_agent() {
-        let storage = create_test_storage();
-
-        storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"data1")
-            .unwrap();
-        storage
-            .put_chunk_raw("chunk-002", "agent-001", None, "hash2", &[], b"data2")
-            .unwrap();
-        storage
-            .put_chunk_raw("chunk-003", "agent-002", None, "hash3", &[], b"data3")
-            .unwrap();
-
-        assert_eq!(storage.count_chunks_by_agent("agent-001").unwrap(), 2);
-        assert_eq!(storage.count_chunks_by_agent("agent-002").unwrap(), 1);
-        assert_eq!(storage.count_chunks_by_agent("agent-003").unwrap(), 0);
-    }
-
-    #[test]
-    fn test_put_and_get_session_raw() {
-        let storage = create_test_storage();
-
-        let data = b"session data";
-        storage
-            .put_session_raw("session-001", "agent-001", data)
-            .unwrap();
-
-        let retrieved = storage.get_session_raw("session-001").unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap(), data);
-    }
-
-    #[test]
-    fn test_list_sessions_by_agent() {
-        let storage = create_test_storage();
-
-        storage
-            .put_session_raw("session-001", "agent-001", b"data1")
-            .unwrap();
-        storage
-            .put_session_raw("session-002", "agent-001", b"data2")
-            .unwrap();
-        storage
-            .put_session_raw("session-003", "agent-002", b"data3")
-            .unwrap();
-
-        let sessions_agent1 = storage.list_sessions_by_agent_raw("agent-001").unwrap();
-        assert_eq!(sessions_agent1.len(), 2);
-
-        let sessions_agent2 = storage.list_sessions_by_agent_raw("agent-002").unwrap();
-        assert_eq!(sessions_agent2.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_session() {
-        let storage = create_test_storage();
-
-        storage
-            .put_session_raw("session-001", "agent-001", b"data")
-            .unwrap();
-
-        let deleted = storage.delete_session("session-001", "agent-001").unwrap();
-        assert!(deleted);
-
-        let retrieved = storage.get_session_raw("session-001").unwrap();
-        assert!(retrieved.is_none());
-
-        let sessions = storage.list_sessions_by_agent_raw("agent-001").unwrap();
-        assert!(sessions.is_empty());
-    }
-
-    #[test]
-    fn test_count_sessions_by_agent() {
-        let storage = create_test_storage();
-
-        storage
-            .put_session_raw("session-001", "agent-001", b"data1")
-            .unwrap();
-        storage
-            .put_session_raw("session-002", "agent-001", b"data2")
-            .unwrap();
-        storage
-            .put_session_raw("session-003", "agent-002", b"data3")
-            .unwrap();
-
-        assert_eq!(storage.count_sessions_by_agent("agent-001").unwrap(), 2);
-        assert_eq!(storage.count_sessions_by_agent("agent-002").unwrap(), 1);
-        assert_eq!(storage.count_sessions_by_agent("agent-003").unwrap(), 0);
-    }
-
-    #[test]
-    fn test_delete_all_chunks_for_agent() {
-        let storage = create_test_storage();
-
-        storage
-            .put_chunk_raw(
-                "chunk-001",
-                "agent-001",
-                Some("session-001"),
-                "hash1",
-                &["rust".to_string(), "async".to_string()],
-                b"data1",
-            )
-            .unwrap();
-        storage
-            .put_chunk_raw(
-                "chunk-002",
-                "agent-001",
-                Some("session-002"),
-                "hash2",
-                &["rust".to_string()],
-                b"data2",
-            )
-            .unwrap();
-        storage
-            .put_chunk_raw(
-                "chunk-003",
-                "agent-002",
-                Some("session-002"),
-                "hash3",
-                &["python".to_string()],
-                b"data3",
-            )
-            .unwrap();
-
-        let deleted = storage.delete_all_chunks_for_agent("agent-001").unwrap();
-        assert_eq!(deleted, 2);
-
-        // Primary + agent index cleaned
-        let chunks_agent1 = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert!(chunks_agent1.is_empty());
-
-        // Hash index cleaned
-        assert!(
-            storage
-                .find_by_hash("agent-001", "hash1")
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            storage
-                .find_by_hash("agent-001", "hash2")
-                .unwrap()
-                .is_none()
-        );
-
-        // Session index cleaned
-        let session1 = storage.list_chunks_by_session_raw("session-001").unwrap();
-        assert!(session1.is_empty());
-        // session-002 should only have agent-002's chunk
-        let session2 = storage.list_chunks_by_session_raw("session-002").unwrap();
-        assert_eq!(session2.len(), 1);
-
-        // Tag index cleaned
-        let rust_chunks = storage.list_chunks_by_tag_raw("rust").unwrap();
-        assert!(rust_chunks.is_empty());
-        let async_chunks = storage.list_chunks_by_tag_raw("async").unwrap();
-        assert!(async_chunks.is_empty());
-
-        // agent-002 data untouched
-        let chunks_agent2 = storage.list_chunks_by_agent_raw("agent-002").unwrap();
-        assert_eq!(chunks_agent2.len(), 1);
-        assert!(
-            storage
-                .find_by_hash("agent-002", "hash3")
-                .unwrap()
-                .is_some()
-        );
-        let python_chunks = storage.list_chunks_by_tag_raw("python").unwrap();
-        assert_eq!(python_chunks.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_all_chunks_for_agent_blocks_concurrent_writes() {
-        let storage = create_test_storage();
-
-        let existing_chunks = 32;
-        for idx in 0..existing_chunks {
-            let chunk_id = format!("chunk-{idx:03}");
-            let hash = format!("hash-{idx:03}");
-            storage
-                .put_chunk_raw(
-                    chunk_id.as_str(),
-                    "agent-001",
-                    None,
-                    hash.as_str(),
-                    &[],
-                    b"data",
-                )
-                .unwrap();
-        }
-
-        let delete_storage = storage.clone();
-        let delete_handle = thread::spawn(move || {
-            delete_storage
-                .delete_all_chunks_for_agent("agent-001")
-                .unwrap()
-        });
-
-        let (start_tx, start_rx) = mpsc::channel();
-        let (done_tx, done_rx) = mpsc::channel();
-        let insert_storage = storage.clone();
-        let insert_handle = thread::spawn(move || {
-            start_rx.recv().unwrap();
-            insert_storage
-                .put_chunk_raw(
-                    "chunk-concurrent",
-                    "agent-001",
-                    None,
-                    "hash-concurrent",
-                    &[],
-                    b"late",
-                )
-                .unwrap();
-            done_tx.send(()).unwrap();
-        });
-
-        // Ensure the delete thread has time to acquire the write lock before inserts start
-        thread::sleep(Duration::from_millis(10));
-        start_tx.send(()).unwrap();
-        thread::sleep(Duration::from_millis(10));
-
-        let deleted = delete_handle.join().unwrap();
-        assert!(
-            deleted == existing_chunks || deleted == existing_chunks + 1,
-            "deleted count should only include existing chunks, optionally including the concurrent chunk if it committed first",
-        );
-
-        done_rx.recv().unwrap();
-        insert_handle.join().unwrap();
-
-        let remaining = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert!(
-            remaining.len() <= 1,
-            "after concurrent delete/insert there should be at most one remaining chunk",
-        );
-        if let Some((chunk_id, _)) = remaining.first() {
-            assert_eq!(chunk_id, "chunk-concurrent");
-        }
-    }
-
-    #[test]
-    fn test_delete_all_sessions_for_agent() {
-        let storage = create_test_storage();
-
-        storage
-            .put_session_raw("session-001", "agent-001", b"data1")
-            .unwrap();
-        storage
-            .put_session_raw("session-002", "agent-001", b"data2")
-            .unwrap();
-        storage
-            .put_session_raw("session-003", "agent-002", b"data3")
-            .unwrap();
-
-        let deleted = storage.delete_all_sessions_for_agent("agent-001").unwrap();
-        assert_eq!(deleted, 2);
-
-        let sessions_agent1 = storage.list_sessions_by_agent_raw("agent-001").unwrap();
-        assert!(sessions_agent1.is_empty());
-
-        // agent-002 sessions should still exist
-        let sessions_agent2 = storage.list_sessions_by_agent_raw("agent-002").unwrap();
-        assert_eq!(sessions_agent2.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_all_sessions_for_agent_blocks_concurrent_writes() {
-        let storage = create_test_storage();
-
-        let existing_sessions = 8;
-        for idx in 0..existing_sessions {
-            let session_id = format!("session-{idx:03}");
-            storage
-                .put_session_raw(session_id.as_str(), "agent-001", b"session-data")
-                .unwrap();
-        }
-
-        let delete_storage = storage.clone();
-        let delete_handle = thread::spawn(move || {
-            delete_storage
-                .delete_all_sessions_for_agent("agent-001")
-                .unwrap()
-        });
-
-        let (start_tx, start_rx) = mpsc::channel();
-        let (done_tx, done_rx) = mpsc::channel();
-        let insert_storage = storage.clone();
-        let insert_handle = thread::spawn(move || {
-            start_rx.recv().unwrap();
-            insert_storage
-                .put_session_raw("session-concurrent", "agent-001", b"late")
-                .unwrap();
-            done_tx.send(()).unwrap();
-        });
-
-        thread::sleep(Duration::from_millis(10));
-        start_tx.send(()).unwrap();
-        thread::sleep(Duration::from_millis(10));
-
-        let deleted = delete_handle.join().unwrap();
-        assert!(
-            deleted == existing_sessions || deleted == existing_sessions + 1,
-            "deleted count should only include existing sessions, optionally including the concurrent session if it committed first",
-        );
-
-        done_rx.recv().unwrap();
-        insert_handle.join().unwrap();
-
-        let sessions = storage.list_sessions_by_agent_raw("agent-001").unwrap();
-        assert!(
-            sessions.len() <= 1,
-            "after concurrent delete/insert there should be at most one remaining session",
-        );
-        if let Some((session_id, _)) = sessions.first() {
-            assert_eq!(session_id, "session-concurrent");
-        }
-    }
-
-    #[test]
-    fn test_update_chunk() {
-        let storage = create_test_storage();
-
-        storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"original")
-            .unwrap();
-        storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"updated")
-            .unwrap();
-
-        let retrieved = storage.get_chunk_raw("chunk-001").unwrap();
-        assert_eq!(retrieved.unwrap(), b"updated");
-    }
-
-    #[test]
-    fn test_update_session() {
-        let storage = create_test_storage();
-
-        storage
-            .put_session_raw("session-001", "agent-001", b"original")
-            .unwrap();
-        storage
-            .put_session_raw("session-001", "agent-001", b"updated")
-            .unwrap();
-
-        let retrieved = storage.get_session_raw("session-001").unwrap();
-        assert_eq!(retrieved.unwrap(), b"updated");
-    }
-
-    #[test]
-    fn test_put_chunk_if_not_exists_basic() {
-        let storage = create_test_storage();
-
-        // First insert should create
-        let result = storage
-            .put_chunk_if_not_exists("chunk-001", "agent-001", None, "unique-hash", &[], b"data")
-            .unwrap();
-        assert_eq!(result, PutChunkResult::Created("chunk-001".to_string()));
-
-        // Second insert with same hash should return existing
-        let result = storage
-            .put_chunk_if_not_exists("chunk-002", "agent-001", None, "unique-hash", &[], b"data")
-            .unwrap();
-        assert_eq!(result, PutChunkResult::Existing("chunk-001".to_string()));
-
-        // Only one chunk should exist
-        let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert_eq!(chunks.len(), 1);
-    }
-
-    #[test]
-    fn test_put_chunk_if_not_exists_isolated_by_agent() {
-        let storage = create_test_storage();
-
-        let result_agent_1 = storage
-            .put_chunk_if_not_exists(
-                "chunk-a1",
-                "agent-001",
-                None,
-                "shared-hash",
-                &[],
-                b"same-content",
-            )
-            .unwrap();
-        assert_eq!(
-            result_agent_1,
-            PutChunkResult::Created("chunk-a1".to_string())
-        );
-
-        let result_agent_2 = storage
-            .put_chunk_if_not_exists(
-                "chunk-a2",
-                "agent-002",
-                None,
-                "shared-hash",
-                &[],
-                b"same-content",
-            )
-            .unwrap();
-        assert_eq!(
-            result_agent_2,
-            PutChunkResult::Created("chunk-a2".to_string())
-        );
-
-        let agent_1_chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        let agent_2_chunks = storage.list_chunks_by_agent_raw("agent-002").unwrap();
-        assert_eq!(agent_1_chunks.len(), 1);
-        assert_eq!(agent_2_chunks.len(), 1);
-        assert_eq!(
-            storage.find_by_hash("agent-001", "shared-hash").unwrap(),
-            Some("chunk-a1".to_string())
-        );
-        assert_eq!(
-            storage.find_by_hash("agent-002", "shared-hash").unwrap(),
-            Some("chunk-a2".to_string())
-        );
-    }
-
-    /// Test concurrent chunk deduplication - all threads should get the same chunk ID.
-    #[test]
-    fn test_concurrent_chunk_dedup() {
-        use std::collections::HashSet;
-        use std::thread;
-
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = Arc::new(MemoryStorage::new(db).unwrap());
-
-        let content_hash = "duplicate-hash";
-        let num_threads = 10;
-
-        let handles: Vec<_> = (0..num_threads)
-            .map(|i| {
-                let s = Arc::clone(&storage);
-                let hash = content_hash.to_string();
-                thread::spawn(move || {
-                    let chunk_id = format!("chunk-{}", i);
-                    s.put_chunk_if_not_exists(
-                        &chunk_id,
-                        "agent-001",
-                        None,
-                        &hash,
-                        &[],
-                        b"duplicate content",
-                    )
-                    .unwrap()
-                })
-            })
-            .collect();
-
-        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        // All results should reference the same chunk ID
-        let chunk_ids: HashSet<_> = results
+        let ids = store
+            .sessions
             .iter()
-            .map(|r| match r {
-                PutChunkResult::Created(id) | PutChunkResult::Existing(id) => id.clone(),
-            })
-            .collect();
-        assert_eq!(
-            chunk_ids.len(),
-            1,
-            "All threads should get the same chunk ID"
-        );
-
-        // Exactly one should be Created, the rest Existing
-        let created_count = results
-            .iter()
-            .filter(|r| matches!(r, PutChunkResult::Created(_)))
-            .count();
-        assert_eq!(
-            created_count, 1,
-            "Exactly one thread should create the chunk"
-        );
-
-        // Only one chunk should exist in storage
-        let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert_eq!(chunks.len(), 1);
-
-        // Hash index should point to the single chunk
-        let hash_result = storage.find_by_hash("agent-001", content_hash).unwrap();
-        assert!(hash_result.is_some());
-    }
-
-    /// Test concurrent bulk delete with metadata is atomic.
-    #[test]
-    fn test_concurrent_bulk_delete() {
-        use std::thread;
-
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = Arc::new(MemoryStorage::new(db).unwrap());
-
-        // Create chunks for multiple agents
-        for i in 0..10 {
-            storage
-                .put_chunk_raw(
-                    &format!("chunk-a1-{}", i),
-                    "agent-001",
-                    None,
-                    &format!("hash-a1-{}", i),
-                    &["tag".to_string()],
-                    b"data",
-                )
-                .unwrap();
-            storage
-                .put_chunk_raw(
-                    &format!("chunk-a2-{}", i),
-                    "agent-002",
-                    None,
-                    &format!("hash-a2-{}", i),
-                    &["tag".to_string()],
-                    b"data",
-                )
-                .unwrap();
+            .filter_map(|(id, record)| (record.agent_id == agent_id).then_some(id.clone()))
+            .collect::<Vec<_>>();
+        for id in &ids {
+            store.sessions.remove(id);
         }
-
-        // Prepare metadata for agent-001 deletion
-        let metadata: Vec<_> = (0..10)
-            .map(|i| {
-                (
-                    format!("chunk-a1-{}", i),
-                    None,
-                    format!("hash-a1-{}", i),
-                    vec!["tag".to_string()],
-                )
-            })
-            .collect();
-
-        // Concurrent deletion from multiple threads
-        let handles: Vec<_> = (0..3)
-            .map(|_| {
-                let s = Arc::clone(&storage);
-                let m = metadata.clone();
-                thread::spawn(move || s.delete_all_chunks_for_agent_with_metadata("agent-001", &m))
-            })
-            .collect();
-
-        for h in handles {
-            // All should succeed (idempotent delete)
-            let _ = h.join().unwrap();
-        }
-
-        // agent-001 should have no chunks
-        let chunks_a1 = storage.list_chunks_by_agent_raw("agent-001").unwrap();
-        assert!(chunks_a1.is_empty());
-
-        // agent-002 should still have all chunks
-        let chunks_a2 = storage.list_chunks_by_agent_raw("agent-002").unwrap();
-        assert_eq!(chunks_a2.len(), 10);
+        Ok(ids.len() as u32)
     }
 }

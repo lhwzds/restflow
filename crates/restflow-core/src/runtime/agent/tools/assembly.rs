@@ -73,6 +73,21 @@ pub(crate) fn populate_known_tools_from_registry(
             .into_iter()
             .map(|name| name.to_string())
             .collect::<HashSet<_>>();
+        for name in [
+            "bash",
+            "file",
+            "edit",
+            "multiedit",
+            "patch",
+            "glob",
+            "grep",
+            "load_skill",
+            "run_skill",
+            "manage_agents",
+            "manage_tasks",
+        ] {
+            known.insert(name.to_string());
+        }
     }
 }
 

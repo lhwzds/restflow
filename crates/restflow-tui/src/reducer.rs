@@ -76,11 +76,6 @@ pub enum ShellAction {
         skill: Box<restflow_core::models::Skill>,
         status: String,
     },
-    SkillDeleted {
-        skill_id: String,
-        skills: Vec<SkillPickerItem>,
-        status: String,
-    },
     ProviderPickerLoaded {
         items: Vec<ProviderPickerItem>,
         available_models: Vec<ModelMetadataDTO>,
@@ -141,7 +136,6 @@ pub enum ShellEffect {
     CancelStream { stream_id: String },
     ExecuteSlashCommand(SlashCommand),
     DeleteSession { session_id: String },
-    DeleteSkill { skill_id: String },
     ListSkillsForMention,
     ListSessionsInline,
     ListRunsInline,
@@ -284,17 +278,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.open_skill_detail(*skill);
             state.status = status;
         }
-        ShellAction::SkillDeleted {
-            skill_id,
-            skills,
-            status,
-        } => {
-            state.skills = skills;
-            state.skills_loaded = true;
-            state.open_skill_manager();
-            state.status = status.clone();
-            state.push_info(format!("Deleted skill {skill_id}"));
-        }
         ShellAction::ProviderPickerLoaded {
             items,
             available_models,
@@ -427,7 +410,14 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
-            if state.overlay.is_some() {
+            if let Some(stream_id) = state.current_stream_id.clone()
+                && state.is_streaming
+            {
+                state.cancel_active_response();
+                state.push_info("Canceled current response.");
+                state.status = "Canceling response...".to_string();
+                output.effects.push(ShellEffect::CancelStream { stream_id });
+            } else if state.overlay.is_some() {
                 state.clear_overlay();
                 if matches!(state.composer.mode(), ComposerMode::Command) {
                     state.composer.clear();
@@ -441,16 +431,7 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                     "Cleared input".to_string()
                 };
             } else {
-                if let Some(stream_id) = state.current_stream_id.clone()
-                    && state.is_streaming
-                {
-                    state.cancel_active_response();
-                    state.push_info("Canceled current response.");
-                    state.status = "Canceling response...".to_string();
-                    output.effects.push(ShellEffect::CancelStream { stream_id });
-                } else {
-                    state.status = "Input already empty. Press Ctrl-C to quit.".to_string();
-                }
+                state.status = "Input already empty. Press Ctrl-C to quit.".to_string();
             }
         }
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
@@ -522,18 +503,11 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                 Some(crate::state::OverlayState::SkillManager { .. })
             ) {
                 match state.selected_skill_manager_item() {
-                    Some(SkillManagerSelection::Skill(skill)) if skill.read_only => {
-                        state.status = format!("Skill {} is read-only", skill.id);
-                    }
                     Some(SkillManagerSelection::Skill(skill)) => {
-                        if state.is_skill_delete_pending(&skill.id) {
-                            output
-                                .effects
-                                .push(ShellEffect::DeleteSkill { skill_id: skill.id });
-                        } else {
-                            state.mark_skill_delete_pending(skill.id.clone());
-                            state.status = format!("Press d again to delete skill {}", skill.name);
-                        }
+                        state.status = format!(
+                            "Skill {} is managed by skrun; edit or remove it from ~/.restflow/skills",
+                            skill.id
+                        );
                     }
                     None => {}
                 }
@@ -1519,15 +1493,56 @@ mod tests {
         assert!(!output.should_quit);
         assert!(!state.is_streaming);
         assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
         assert!(
             state
-                .active_turn
-                .as_ref()
-                .is_some_and(|turn| turn.cells[0].body.contains("Partial"))
+                .runtime_cells
+                .iter()
+                .any(|entry| entry.cell.body.contains("Partial"))
         );
         assert!(state.runtime_cells.iter().any(|entry| {
             entry.cell.title == "Info" && entry.cell.body.contains("Canceled current response")
         }));
+        assert_eq!(state.status, "Canceling response...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+        ));
+    }
+
+    #[test]
+    fn esc_with_draft_cancels_active_stream_before_clearing_composer() {
+        let mut state = AppState::empty();
+        state.is_streaming = true;
+        state.current_stream_id = Some("stream-1".to_string());
+        state.composer.replace("draft");
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Partial".to_string(),
+        });
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert_eq!(state.composer.draft(), "draft");
+        assert_eq!(state.status, "Canceling response...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+        ));
+    }
+
+    #[test]
+    fn esc_with_overlay_cancels_active_stream_before_closing_overlay() {
+        let mut state = AppState::empty();
+        state.is_streaming = true;
+        state.current_stream_id = Some("stream-1".to_string());
+        state.open_command_picker();
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "Partial".to_string(),
+        });
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(state.overlay.is_some());
         assert_eq!(state.status, "Canceling response...");
         assert!(matches!(
             output.effects.as_slice(),

@@ -11,6 +11,57 @@ use tokio::task;
 use crate::security::{SecurityGate, ToolAction};
 use crate::{Result, Tool, ToolOutput, check_security};
 
+fn validate_skill_id(skill_id: &str) -> anyhow::Result<()> {
+    if skill_id.is_empty() {
+        anyhow::bail!("skill id cannot be empty");
+    }
+    if !skill_id
+        .chars()
+        .all(|item| item.is_ascii_alphanumeric() || item == '-' || item == '_')
+    {
+        anyhow::bail!("skill id must contain only ASCII letters, numbers, '-' or '_'");
+    }
+    if !skill_id
+        .chars()
+        .next()
+        .is_some_and(|item| item.is_ascii_alphanumeric())
+    {
+        anyhow::bail!("skill id must start with an ASCII letter or number");
+    }
+    Ok(())
+}
+
+fn resolve_catalog_skill(root: PathBuf, skill_id: &str) -> anyhow::Result<PathBuf> {
+    validate_skill_id(skill_id)?;
+    let skills_root = root
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("resolve skill catalog root: {error}"))?;
+    let skill_root = skills_root.join(skill_id);
+    if !skill_root.exists() {
+        anyhow::bail!("skill '{}' is not installed", skill_id);
+    }
+    let skill_root = skill_root
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("resolve skill '{}': {error}", skill_id))?;
+    if !skill_root.starts_with(&skills_root) {
+        anyhow::bail!("skill '{}' resolves outside the skill catalog", skill_id);
+    }
+
+    let artifact = skrun::load_artifact(&skill_root)?;
+    if artifact.id != skill_id {
+        anyhow::bail!(
+            "skill artifact id mismatch: requested '{}', found '{}'",
+            skill_id,
+            artifact.id
+        );
+    }
+    if !artifact.executable || artifact.kind == skrun::ArtifactKind::Markdown {
+        anyhow::bail!("skill '{}' is guidance-only and cannot be run", skill_id);
+    }
+
+    Ok(skill_root)
+}
+
 #[derive(Debug, Deserialize)]
 struct RunSkillInput {
     id: String,
@@ -127,11 +178,12 @@ impl Tool for RunSkillTool {
                 Some(root) => root,
                 None => skrun::default_skills_dir()?,
             };
+            let skill_root = resolve_catalog_skill(skills_root, &skill_id)?;
             let options = skrun::RunOptions {
                 timeout,
                 ..Default::default()
             };
-            skrun::run_skill(skills_root.join(&skill_id), skill_input, &options)
+            skrun::run_skill(skill_root, skill_input, &options)
         })
         .await
         {
@@ -184,5 +236,46 @@ mod tests {
 
         assert!(!output.success);
         assert!(output.error.unwrap().contains("failed"));
+    }
+
+    #[tokio::test]
+    async fn rejects_path_like_skill_id() {
+        let tool = RunSkillTool::new().with_root("/path/to/missing/skills");
+
+        let output = tool
+            .execute(json!({
+                "id": "../outside",
+                "input": {}
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .unwrap()
+                .contains("must contain only ASCII letters")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_markdown_only_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact =
+            skrun::SkillArtifact::markdown("team", "Team", "0.1.0", "# Team\n\nCoordinate work.");
+        skrun::save_artifact(dir.path().join("team"), &artifact).unwrap();
+        let tool = RunSkillTool::new().with_root(dir.path());
+
+        let output = tool
+            .execute(json!({
+                "id": "team",
+                "input": {}
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert!(output.error.unwrap().contains("guidance-only"));
     }
 }

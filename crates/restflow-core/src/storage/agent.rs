@@ -8,7 +8,10 @@ use restflow_storage::SimpleStorage;
 use restflow_storage::time_utils;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::fs;
+use std::sync::{Arc, Mutex};
+use std::time::UNIX_EPOCH;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -32,16 +35,36 @@ pub struct StoredAgent {
     pub updated_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AgentFileFrontmatter {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_variables: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_preflight_policy_mode: Option<crate::models::SkillPreflightPolicyMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<i64>,
+}
+
 /// Typed agent storage wrapper around restflow-storage::AgentStorage.
 #[derive(Clone)]
 pub struct AgentStorage {
     inner: restflow_storage::AgentStorage,
+    delete_lock: Arc<Mutex<()>>,
 }
 
 impl AgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
             inner: restflow_storage::AgentStorage::new(db)?,
+            delete_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -52,28 +75,45 @@ impl AgentStorage {
 
         // Prompt content is file-backed under ~/.restflow/agents/{agent-name}.md, not stored in DB.
         let prompt_override = agent.prompt.take();
-        let prompt_path =
-            prompt_files::ensure_agent_prompt_file(&id, &name, None, prompt_override.as_deref())?;
+        let prompt_file = if agent_file_catalog_enabled() {
+            let prompt_path = prompt_files::ensure_agent_prompt_file(
+                &id,
+                &name,
+                None,
+                prompt_override.as_deref(),
+            )?;
+            agent.prompt = read_agent_prompt_body(&prompt_path)?;
+            Some(path_file_name(&prompt_path)?)
+        } else {
+            agent.prompt = prompt_override;
+            None
+        };
 
         let stored_agent = StoredAgent {
             id,
             name,
             agent,
-            prompt_file: Some(path_file_name(&prompt_path)?),
+            prompt_file,
             created_at: Some(now),
             updated_at: Some(now),
         };
 
         self.persist_without_prompt(&stored_agent)?;
 
-        self.hydrate_prompt_from_file(stored_agent)
+        Ok(stored_agent)
     }
 
     pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
+        if let Some(agent) = self.get_file_agent(&id)? {
+            return Ok(Some(agent));
+        }
+
         if let Some(bytes) = self.inner.get_raw(&id)? {
             let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
             normalize_model_fields(&mut agent.agent)?;
-            Ok(Some(self.hydrate_prompt_from_file(agent)?))
+            let hydrated = self.hydrate_prompt_from_file(agent)?;
+            let _ = self.persist_without_prompt(&hydrated);
+            Ok(Some(hydrated))
         } else {
             let Some(resolved_id) = self.resolve_agent_id_candidate(&id)? else {
                 return Ok(None);
@@ -81,7 +121,9 @@ impl AgentStorage {
             if let Some(bytes) = self.inner.get_raw(&resolved_id)? {
                 let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
                 normalize_model_fields(&mut agent.agent)?;
-                Ok(Some(self.hydrate_prompt_from_file(agent)?))
+                let hydrated = self.hydrate_prompt_from_file(agent)?;
+                let _ = self.persist_without_prompt(&hydrated);
+                Ok(Some(hydrated))
             } else {
                 Ok(None)
             }
@@ -89,12 +131,19 @@ impl AgentStorage {
     }
 
     pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
+        let file_agents = self.list_file_agents()?;
+        if !file_agents.is_empty() {
+            return Ok(file_agents);
+        }
+
         let agents = self.inner.list_raw()?;
         let mut result = Vec::new();
         for (_, bytes) in agents {
             let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
             normalize_model_fields(&mut agent.agent)?;
-            result.push(self.hydrate_prompt_from_file(agent)?);
+            let hydrated = self.hydrate_prompt_from_file(agent)?;
+            let _ = self.persist_without_prompt(&hydrated);
+            result.push(hydrated);
         }
         Ok(result)
     }
@@ -158,21 +207,28 @@ impl AgentStorage {
             existing_agent.agent = new_agent;
         }
 
-        prompt_files::ensure_agent_prompt_file(
-            &existing_agent.id,
-            &existing_agent.name,
-            existing_agent.prompt_file.as_deref(),
-            prompt_override.as_deref(),
-        )
-        .and_then(|path| path_file_name(&path))
-        .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
+        if agent_file_catalog_enabled() {
+            prompt_files::ensure_agent_prompt_file(
+                &existing_agent.id,
+                &existing_agent.name,
+                existing_agent.prompt_file.as_deref(),
+                prompt_override.as_deref(),
+            )
+            .and_then(|path| {
+                existing_agent.agent.prompt = read_agent_prompt_body(&path)?;
+                path_file_name(&path)
+            })
+            .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
+        } else if let Some(prompt) = prompt_override {
+            existing_agent.agent.prompt = Some(prompt);
+        }
 
         let now = time_utils::now_ms();
         existing_agent.updated_at = Some(now);
 
         self.persist_without_prompt(&existing_agent)?;
 
-        self.hydrate_prompt_from_file(existing_agent)
+        Ok(existing_agent)
     }
 
     /// Delete an agent atomically to prevent TOCTOU race conditions.
@@ -184,6 +240,30 @@ impl AgentStorage {
     /// # Errors
     /// Returns an error if the agent is not found or if the ID prefix is ambiguous.
     pub fn delete_agent(&self, id: String) -> Result<()> {
+        let _delete_guard = self
+            .delete_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Agent delete lock poisoned"))?;
+        if let Some(existing) = self.get_file_agent(&id)? {
+            let _ = self.inner.delete(&existing.id);
+            if let Some(prompt_file) = existing.prompt_file.as_deref() {
+                let path = prompt_files::ensure_agents_dir()?.join(prompt_file);
+                match fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        anyhow::bail!("Agent {} not found", id);
+                    }
+                    Err(error) => {
+                        return Err(anyhow::anyhow!(
+                            "Failed to remove agent file {}: {error}",
+                            path.display()
+                        ));
+                    }
+                }
+            }
+            return Ok(());
+        }
+
         let resolved_id = self.resolve_existing_agent_id(&id)?;
         let bytes = self
             .inner
@@ -208,6 +288,10 @@ impl AgentStorage {
         let id = id_or_prefix.trim();
         if id.is_empty() {
             anyhow::bail!("Agent ID is empty");
+        }
+
+        if let Some(agent) = self.get_file_agent(id)? {
+            return Ok(agent.id);
         }
 
         if self.inner.get_raw(id)?.is_some() {
@@ -244,7 +328,16 @@ impl AgentStorage {
             &stored.name,
             stored.prompt_file.as_deref(),
         )?;
-        stored.agent.prompt = loaded.content;
+        if let Some(content) = loaded.content {
+            if let Some((frontmatter, prompt)) = parse_agent_file(&content)? {
+                apply_agent_file_frontmatter(&mut stored, frontmatter);
+                stored.agent.prompt = prompt;
+            } else {
+                stored.agent.prompt = Some(content);
+            }
+        } else {
+            stored.agent.prompt = None;
+        }
         if stored.prompt_file != loaded.prompt_file {
             stored.prompt_file = loaded.prompt_file;
             self.persist_without_prompt(&stored)?;
@@ -253,6 +346,9 @@ impl AgentStorage {
     }
 
     fn persist_without_prompt(&self, stored: &StoredAgent) -> Result<()> {
+        if agent_file_catalog_enabled() {
+            self.write_agent_file(stored)?;
+        }
         let mut scrubbed = stored.clone();
         scrubbed.agent.prompt = None;
         let json_bytes = serde_json::to_vec(&scrubbed)?;
@@ -260,10 +356,121 @@ impl AgentStorage {
         Ok(())
     }
 
+    fn get_file_agent(&self, id_or_prefix: &str) -> Result<Option<StoredAgent>> {
+        let candidate = id_or_prefix.trim();
+        if candidate.is_empty() {
+            return Ok(None);
+        }
+        let agents = self.list_file_agents()?;
+        if let Some(agent) = agents.iter().find(|agent| agent.id == candidate).cloned() {
+            return Ok(Some(agent));
+        }
+        let matches = agents
+            .into_iter()
+            .filter(|agent| agent.id.starts_with(candidate))
+            .collect::<Vec<_>>();
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(matches.into_iter().next()),
+            _ => {
+                let preview = matches
+                    .iter()
+                    .take(5)
+                    .map(|agent| agent.id.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "Agent ID prefix '{}' is ambiguous ({} matches: {})",
+                    candidate,
+                    matches.len(),
+                    preview
+                )
+            }
+        }
+    }
+
+    fn list_file_agents(&self) -> Result<Vec<StoredAgent>> {
+        if !agent_file_catalog_enabled() {
+            return Ok(Vec::new());
+        }
+        let agents_dir = prompt_files::ensure_agents_dir()?;
+        let mut agents = Vec::new();
+        for entry in fs::read_dir(&agents_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to read agents directory {}: {error}",
+                agents_dir.display()
+            )
+        })? {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                continue;
+            }
+            if path.file_name().and_then(|value| value.to_str()) == Some("task.md") {
+                continue;
+            }
+            if let Some(agent) = load_file_agent(&path)? {
+                agents.push(agent);
+            }
+        }
+        agents.sort_by(|left, right| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(agents)
+    }
+
+    fn write_agent_file(&self, stored: &StoredAgent) -> Result<()> {
+        let prompt = stored
+            .agent
+            .prompt
+            .clone()
+            .or_else(|| prompt_files::load_default_main_agent_prompt().ok())
+            .unwrap_or_default();
+        let file_name = stored.prompt_file.clone().unwrap_or_else(|| {
+            format!(
+                "{}.md",
+                prompt_files::sanitize_agent_file_stem(&stored.name)
+            )
+        });
+        let path = prompt_files::ensure_agents_dir()?.join(file_name);
+        let content = render_agent_file(stored, &prompt)?;
+        fs::write(&path, content).map_err(|error| {
+            anyhow::anyhow!("Failed to write agent file {}: {error}", path.display())
+        })
+    }
+
     fn resolve_agent_id_candidate(&self, id_or_prefix: &str) -> Result<Option<String>> {
         let prefix = id_or_prefix.trim();
         if prefix.is_empty() {
             return Ok(None);
+        }
+
+        if agent_file_catalog_enabled() {
+            let matches: Vec<String> = self
+                .list_file_agents()?
+                .into_iter()
+                .map(|agent| agent.id)
+                .filter(|id| id.starts_with(prefix))
+                .collect();
+            match matches.len() {
+                0 => {}
+                1 => return Ok(matches.into_iter().next()),
+                _ => {
+                    let preview = matches
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    anyhow::bail!(
+                        "Agent ID prefix '{}' is ambiguous ({} matches: {})",
+                        prefix,
+                        matches.len(),
+                        preview
+                    );
+                }
+            }
         }
 
         let matches: Vec<String> = self
@@ -295,11 +502,129 @@ impl AgentStorage {
     }
 }
 
+fn agent_file_catalog_enabled() -> bool {
+    if std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG").is_some() {
+        return false;
+    }
+    #[cfg(test)]
+    {
+        std::env::var_os(prompt_files::AGENTS_DIR_ENV).is_some()
+            || std::env::var_os("RESTFLOW_DIR").is_some()
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
 fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {
     if let Err(error) = agent.normalize_model_fields() {
         anyhow::bail!(crate::models::encode_validation_error(vec![error]));
     }
     Ok(())
+}
+
+fn render_agent_file(stored: &StoredAgent, prompt: &str) -> Result<String> {
+    let frontmatter = AgentFileFrontmatter {
+        id: stored.id.clone(),
+        name: stored.name.clone(),
+        tools: stored.agent.tools.clone(),
+        skills: stored.agent.skills.clone(),
+        skill_variables: stored.agent.skill_variables.clone(),
+        skill_preflight_policy_mode: stored.agent.skill_preflight_policy_mode,
+        created_at: stored.created_at,
+        updated_at: stored.updated_at,
+    };
+    let yaml = serde_yaml::to_string(&frontmatter)?;
+    let yaml = yaml.strip_prefix("---\n").unwrap_or(&yaml);
+    Ok(format!("---\n{}---\n\n{}", yaml, prompt.trim_start()))
+}
+
+fn read_agent_prompt_body(path: &std::path::Path) -> Result<Option<String>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).map_err(|error| {
+                anyhow::anyhow!("Failed to read agent file {}: {error}", path.display())
+            });
+        }
+    };
+    Ok(match parse_agent_file(&content)? {
+        Some((_, prompt)) => prompt,
+        None => Some(content),
+    })
+}
+
+fn load_file_agent(path: &std::path::Path) -> Result<Option<StoredAgent>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).map_err(|error| {
+                anyhow::anyhow!("Failed to read agent file {}: {error}", path.display())
+            });
+        }
+    };
+    let Some((frontmatter, prompt)) = parse_agent_file(&content)? else {
+        return Ok(None);
+    };
+    if frontmatter.id.trim().is_empty() || frontmatter.name.trim().is_empty() {
+        return Ok(None);
+    }
+    let modified = path
+        .metadata()
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as i64);
+    let mut agent = AgentNode::new();
+    agent.prompt = prompt;
+    agent.tools = frontmatter.tools;
+    agent.skills = frontmatter.skills;
+    agent.skill_variables = frontmatter.skill_variables;
+    agent.skill_preflight_policy_mode = frontmatter.skill_preflight_policy_mode;
+    Ok(Some(StoredAgent {
+        id: frontmatter.id,
+        name: frontmatter.name,
+        agent,
+        prompt_file: Some(path_file_name(path)?),
+        created_at: frontmatter.created_at.or(modified),
+        updated_at: frontmatter.updated_at.or(modified),
+    }))
+}
+
+fn parse_agent_file(content: &str) -> Result<Option<(AgentFileFrontmatter, Option<String>)>> {
+    let Some(rest) = content.strip_prefix("---\n") else {
+        return Ok(None);
+    };
+    let Some((frontmatter, body)) = rest.split_once("\n---") else {
+        return Ok(None);
+    };
+    let body = body
+        .strip_prefix("\n\n")
+        .or_else(|| body.strip_prefix('\n'))
+        .unwrap_or(body);
+    let frontmatter = serde_yaml::from_str::<AgentFileFrontmatter>(frontmatter)?;
+    let prompt = if body.trim().is_empty() {
+        None
+    } else {
+        Some(body.to_string())
+    };
+    Ok(Some((frontmatter, prompt)))
+}
+
+fn apply_agent_file_frontmatter(stored: &mut StoredAgent, frontmatter: AgentFileFrontmatter) {
+    if !frontmatter.id.trim().is_empty() {
+        stored.id = frontmatter.id;
+    }
+    if !frontmatter.name.trim().is_empty() {
+        stored.name = frontmatter.name;
+    }
+    stored.agent.tools = frontmatter.tools;
+    stored.agent.skills = frontmatter.skills;
+    stored.agent.skill_variables = frontmatter.skill_variables;
+    stored.agent.skill_preflight_policy_mode = frontmatter.skill_preflight_policy_mode;
 }
 
 fn path_file_name(path: &std::path::Path) -> Result<String> {
@@ -314,6 +639,7 @@ mod tests {
     use super::*;
     use crate::models::ModelId;
     use crate::prompt_files;
+    use redb::ReadableDatabase;
     use tempfile::tempdir;
 
     const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
@@ -370,18 +696,22 @@ mod tests {
                 .agent
                 .resolved_model_ref()
                 .map(|model_ref| model_ref.model),
-            Some(ModelId::ClaudeSonnet4_5)
+            None
         );
         assert!(prompts_dir.join("test-agent.md").exists());
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+        unsafe {
+            std::env::remove_var(AGENTS_DIR_ENV);
+        }
     }
 
     #[test]
     fn test_list_agents() {
         let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
-        let prompts_dir = temp_dir.path().join("agents");
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        unsafe {
+            std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1");
+            std::env::remove_var(AGENTS_DIR_ENV);
+        }
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
@@ -403,7 +733,10 @@ mod tests {
         assert!(names.contains(&"Agent 1".to_string()));
         assert!(names.contains(&"Agent 2".to_string()));
         assert!(names.contains(&"Agent 3".to_string()));
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+        unsafe {
+            std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
+            std::env::remove_var(AGENTS_DIR_ENV);
+        }
     }
 
     #[test]
@@ -429,7 +762,7 @@ mod tests {
                 .agent
                 .resolved_model_ref()
                 .map(|model_ref| model_ref.model),
-            Some(ModelId::ClaudeSonnet4_5)
+            None
         );
 
         let mut new_agent_node = create_test_agent_node();
@@ -445,14 +778,14 @@ mod tests {
     }
 
     #[test]
-    fn test_update_name_does_not_rehydrate_prompt_into_db() {
+    fn test_update_name_keeps_redb_tables_empty_for_file_backed_agent() {
         let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let prompts_dir = temp_dir.path().join("agents");
         unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = AgentStorage::new(db).unwrap();
+        let storage = AgentStorage::new(db.clone()).unwrap();
 
         let stored = storage
             .create_agent("Original Name".to_string(), create_test_agent_node())
@@ -464,9 +797,12 @@ mod tests {
         assert_eq!(updated.name, "Updated Name");
         assert!(updated.agent.prompt.is_some());
 
-        let raw = storage.inner.get_raw(&stored.id).unwrap().unwrap();
-        let persisted: StoredAgent = serde_json::from_slice(&raw).unwrap();
-        assert!(persisted.agent.prompt.is_none());
+        let read_txn = db.begin_read().unwrap();
+        let tables = read_txn.list_tables().unwrap().collect::<Vec<_>>();
+        assert!(
+            tables.is_empty(),
+            "file-backed agents must not create redb tables"
+        );
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
@@ -492,16 +828,11 @@ mod tests {
 
         assert!(!prompts_dir.join("original-name.md").exists());
         assert!(prompts_dir.join("renamed-agent.md").exists());
-        let loaded = prompt_files::load_agent_prompt_for_agent(
-            &stored.id,
-            "Renamed Agent",
-            Some("renamed-agent.md"),
-        )
-        .unwrap();
-        assert_eq!(
-            loaded.content.as_deref(),
-            Some("You are a helpful assistant")
-        );
+        let content = fs::read_to_string(prompts_dir.join("renamed-agent.md")).unwrap();
+        let (_, prompt) = parse_agent_file(&content)
+            .unwrap()
+            .expect("renamed agent file should contain frontmatter");
+        assert_eq!(prompt.as_deref(), Some("You are a helpful assistant"));
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }

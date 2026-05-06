@@ -1,5 +1,5 @@
 use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
-use restflow_core::models::{ChatRole, ChatSession};
+use restflow_core::models::{ChatRole, ChatSession, ChatTurnEventKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -165,6 +165,49 @@ impl ShellMessage {
 }
 
 pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
+    if session.turns.iter().any(|turn| !turn.events.is_empty()) {
+        return session
+            .turns
+            .iter()
+            .flat_map(|turn| {
+                turn.events.iter().filter_map(|event| match &event.kind {
+                    ChatTurnEventKind::UserMessage { content } => Some(ShellMessage::UserMessage {
+                        content: content.clone(),
+                    }),
+                    ChatTurnEventKind::AssistantMessage { content } => {
+                        Some(ShellMessage::AssistantMessage {
+                            content: content.clone(),
+                        })
+                    }
+                    ChatTurnEventKind::ToolCall {
+                        call_id,
+                        name,
+                        arguments,
+                    } => Some(ShellMessage::ToolCall {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: arguments.clone(),
+                    }),
+                    ChatTurnEventKind::ToolResult {
+                        call_id,
+                        success,
+                        result,
+                    } => Some(ShellMessage::ToolResult {
+                        call_id: call_id.clone(),
+                        success: *success,
+                        result: result.clone(),
+                    }),
+                    ChatTurnEventKind::Error { message } => Some(ShellMessage::ErrorNotice {
+                        content: message.clone(),
+                    }),
+                    ChatTurnEventKind::Canceled => Some(ShellMessage::InfoNotice {
+                        content: "Turn canceled".to_string(),
+                    }),
+                })
+            })
+            .collect();
+    }
+
     session
         .messages
         .iter()
@@ -408,7 +451,7 @@ mod tests {
         messages_from_session, transcript_cells,
     };
     use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
-    use restflow_core::models::{ChatMessage, ChatSession};
+    use restflow_core::models::{ChatMessage, ChatSession, ChatTurnEventKind};
 
     #[test]
     fn appends_and_finalizes_assistant_stream() {
@@ -485,6 +528,41 @@ mod tests {
             ShellMessage::AssistantMessage { .. }
         ));
         assert!(matches!(transcript[2], ShellMessage::SystemMessage { .. }));
+    }
+
+    #[test]
+    fn maps_session_turn_events_before_legacy_messages() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.add_message(ChatMessage::user("legacy user"));
+        session.add_message(ChatMessage::assistant("legacy assistant"));
+        session.record_turn_user_message("turn-1", "hello");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "pwd".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "/tmp".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("turn-1", "done");
+
+        let transcript = messages_from_session(&session);
+        assert_eq!(transcript.len(), 4);
+        assert!(matches!(transcript[0], ShellMessage::UserMessage { .. }));
+        assert!(matches!(transcript[1], ShellMessage::ToolCall { .. }));
+        assert!(matches!(transcript[2], ShellMessage::ToolResult { .. }));
+        assert!(matches!(
+            transcript[3],
+            ShellMessage::AssistantMessage { .. }
+        ));
     }
 
     #[test]

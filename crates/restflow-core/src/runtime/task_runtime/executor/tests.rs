@@ -469,7 +469,7 @@ fn test_resolve_effective_tool_names_activates_explicit_skill_mention() {
 
 #[cfg(unix)]
 #[test]
-fn test_resolve_effective_tool_names_activates_known_unassigned_skill_mention() {
+fn test_resolve_effective_tool_names_rejects_known_unassigned_skill_mention() {
     let (storage, temp_dir) = create_test_storage();
     let bin = install_skrun_skills(
         &temp_dir,
@@ -489,10 +489,10 @@ fn test_resolve_effective_tool_names_activates_known_unassigned_skill_mention() 
 
     let tools = executor
         .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
-        .expect("known mention should activate suggested tools");
+        .expect("invalid skill mentions should not fail the turn");
 
     assert!(tools.iter().any(|tool| tool == "load_skill"));
-    assert!(tools.iter().any(|tool| tool == "manage_tasks"));
+    assert!(!tools.iter().any(|tool| tool == "manage_tasks"));
 }
 
 #[tokio::test]
@@ -666,6 +666,10 @@ async fn test_execute_from_state_enforces_skill_preflight_policy() {
     );
     let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
 
+    storage
+        .secrets
+        .set_secret("OPENAI_API_KEY", "test-openai-key", None)
+        .unwrap();
     let agent = AgentNode::with_model(ModelId::CodexCli)
         .with_skills(vec!["preflight-resume-skill".to_string()])
         .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);

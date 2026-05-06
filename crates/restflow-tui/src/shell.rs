@@ -714,11 +714,7 @@ fn build_skill_manager_lines(
             Style::default().add_modifier(Modifier::BOLD)
         };
         let readonly = if skill.read_only { " · read-only" } else { "" };
-        let delete_pending = if is_selected && state.is_skill_delete_pending(&skill.id) {
-            " · press d again to delete"
-        } else {
-            ""
-        };
+        let delete_pending = "";
         let title = Line::from(vec![
             Span::styled(
                 marker,

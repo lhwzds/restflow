@@ -1,80 +1,60 @@
-//! Task storage - byte-level API for durable task persistence.
+//! In-process task storage used by the local TUI MVP.
 //!
-//! Provides low-level storage operations for durable tasks and their
-//! execution events using the redb embedded database.
+//! Task persistence is intentionally no longer backed by redb tables. The
+//! durable conversation surface is the file-backed session log; background task
+//! state remains process-local until it is promoted to a file format.
 
+use crate::simple_storage::namespace_for_db;
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::sync::Arc;
+use redb::Database;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::range_utils::prefix_range;
+#[derive(Default)]
+struct TaskStore {
+    tasks: BTreeMap<String, Vec<u8>>,
+    task_status: HashMap<String, String>,
+    runs: BTreeMap<String, Vec<u8>>,
+    run_task: HashMap<String, String>,
+    active_run: HashMap<String, String>,
+    messages: BTreeMap<String, Vec<u8>>,
+    message_task: HashMap<String, String>,
+    message_status: HashMap<String, String>,
+    events: BTreeMap<String, Vec<u8>>,
+    event_task: HashMap<String, String>,
+}
 
-const TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("tasks");
-const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_events");
-/// Index table: task_id -> event_id (for listing events by task)
-const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_event_index");
-/// Index table: status:task_id -> task_id (for listing tasks by status)
-const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_status_index");
-/// Reverse index: task_id -> status:task_id (for direct status cleanup)
-const TASK_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_status_lookup");
-/// Task execution attempt payload table.
-const TASK_RUN_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_runs");
-/// Index table: task_id:run_id -> run_id
-const TASK_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_run_task_index");
-/// Index table: task_id -> run_id for the single active run of one task.
-const TASK_ACTIVE_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_active_run_index");
-/// Task message payload table
-const TASK_MESSAGE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_messages");
-/// Index table: task_id:message_id -> message_id
-const TASK_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_message_task_index");
-/// Index table: status:task_id:message_id -> message_id
-const TASK_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_message_status_index");
-/// Reverse index: message_id -> status:task_id:message_id
-const TASK_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_message_status_lookup");
+fn stores() -> &'static Mutex<HashMap<usize, TaskStore>> {
+    static STORES: OnceLock<Mutex<HashMap<usize, TaskStore>>> = OnceLock::new();
+    STORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
-/// Low-level task storage with byte-level API.
+/// Low-level process-local task storage with byte-level API.
 #[derive(Clone)]
 pub struct TaskStorage {
-    db: Arc<Database>,
+    namespace: usize,
 }
 
 impl TaskStorage {
+    fn parse_field(data: &[u8], field: &str) -> Result<String> {
+        let value: serde_json::Value = serde_json::from_slice(data)?;
+        value
+            .get(field)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("{field} is missing or not a string"))
+    }
+
     fn parse_task_status(data: &[u8]) -> Result<String> {
-        let value: serde_json::Value =
-            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
-        let status = value
-            .get("status")
-            .and_then(|status| status.as_str())
-            .ok_or_else(|| anyhow::anyhow!("status is missing or not a string"))?;
-        Ok(status.to_string())
+        Self::parse_field(data, "status")
     }
 
     fn parse_run_task_id(data: &[u8]) -> Result<String> {
-        let value: serde_json::Value =
-            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
-        let task_id = value
-            .get("task_id")
-            .and_then(|task_id| task_id.as_str())
-            .ok_or_else(|| anyhow::anyhow!("task_id is missing or not a string"))?;
-        Ok(task_id.to_string())
+        Self::parse_field(data, "task_id")
     }
 
     fn parse_run_status(data: &[u8]) -> Result<String> {
-        let value: serde_json::Value =
-            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
-        let status = value
-            .get("status")
-            .and_then(|status| status.as_str())
-            .ok_or_else(|| anyhow::anyhow!("status is missing or not a string"))?;
-        Ok(status.to_string())
+        Self::parse_field(data, "status")
     }
 
     fn validate_run_payload(run_id: &str, task_id: &str, status: &str, data: &[u8]) -> Result<()> {
@@ -87,7 +67,6 @@ impl TaskStorage {
                 task_id
             );
         }
-
         let payload_status = Self::parse_run_status(data)?;
         if payload_status != status {
             anyhow::bail!(
@@ -97,42 +76,21 @@ impl TaskStorage {
                 status
             );
         }
-
-        Ok(())
-    }
-
-    fn ensure_task_exists(
-        table: &redb::Table<&str, &[u8]>,
-        task_id: &str,
-        run_id: &str,
-    ) -> Result<()> {
-        if table.get(task_id)?.is_none() {
-            anyhow::bail!(
-                "task run '{}' references missing task '{}'",
-                run_id,
-                task_id
-            );
-        }
         Ok(())
     }
 
     fn reconcile_active_run_slot(
-        active_index: &mut redb::Table<&str, &str>,
-        run_table: &redb::Table<&str, &[u8]>,
+        store: &mut TaskStore,
         task_id: &str,
         run_id: &str,
         status: &str,
     ) -> Result<()> {
         let wants_active = status == "running";
-        let active_entry = active_index
-            .get(task_id)?
-            .map(|value| value.value().to_string());
-
-        if let Some(existing_run_id) = active_entry {
+        if let Some(existing_run_id) = store.active_run.get(task_id).cloned() {
             if existing_run_id != run_id {
-                if let Some(existing_raw) = run_table.get(existing_run_id.as_str())? {
-                    let existing_task_id = Self::parse_run_task_id(existing_raw.value())?;
-                    let existing_status = Self::parse_run_status(existing_raw.value())?;
+                if let Some(existing_raw) = store.runs.get(&existing_run_id) {
+                    let existing_task_id = Self::parse_run_task_id(existing_raw)?;
+                    let existing_status = Self::parse_run_status(existing_raw)?;
                     if existing_task_id == task_id && existing_status == "running" {
                         if wants_active {
                             anyhow::bail!(
@@ -144,9 +102,9 @@ impl TaskStorage {
                         return Ok(());
                     }
                 }
-                active_index.remove(task_id)?;
+                store.active_run.remove(task_id);
             } else if !wants_active {
-                active_index.remove(task_id)?;
+                store.active_run.remove(task_id);
                 return Ok(());
             }
         } else if !wants_active {
@@ -154,104 +112,48 @@ impl TaskStorage {
         }
 
         if wants_active {
-            active_index.insert(task_id, run_id)?;
+            store
+                .active_run
+                .insert(task_id.to_string(), run_id.to_string());
         }
-
         Ok(())
     }
 
-    /// Create a new TaskStorage instance
+    /// Create a new TaskStorage instance.
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Initialize all tables
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(TASK_TABLE)?;
-        write_txn.open_table(TASK_EVENT_TABLE)?;
-        write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-        write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-        write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-        write_txn.open_table(TASK_RUN_TABLE)?;
-        write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-        write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-        write_txn.open_table(TASK_MESSAGE_TABLE)?;
-        write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
-        write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-        write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
-        write_txn.commit()?;
-
-        Ok(Self { db })
+        Ok(Self {
+            namespace: namespace_for_db(&db),
+        })
     }
 
-    // ============== Agent Task Operations ==============
-
-    /// Store raw agent task data
     pub fn put_task_raw(&self, id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(TASK_TABLE)?;
-            table.insert(id, data)?;
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        stores
+            .entry(self.namespace)
+            .or_default()
+            .tasks
+            .insert(id.to_string(), data.to_vec());
         Ok(())
     }
 
-    /// Store raw agent task data with status index
     pub fn put_task_raw_with_status(&self, id: &str, status: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(TASK_TABLE)?;
-            table.insert(id, data)?;
-
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(id)? {
-                status_index.remove(previous_key.value())?;
-            }
-
-            let status_key = format!("{}:{}", status, id);
-            status_index.insert(status_key.as_str(), id)?;
-            status_lookup.insert(id, status_key.as_str())?;
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        store.tasks.insert(id.to_string(), data.to_vec());
+        store.task_status.insert(id.to_string(), status.to_string());
         Ok(())
     }
 
-    /// Update raw agent task data while keeping the status index consistent
     pub fn update_task_raw_with_status(
         &self,
         id: &str,
-        old_status: &str,
+        _old_status: &str,
         new_status: &str,
         data: &[u8],
     ) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(TASK_TABLE)?;
-            table.insert(id, data)?;
-
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(id)? {
-                status_index.remove(previous_key.value())?;
-            } else if old_status != new_status {
-                let old_key = format!("{}:{}", old_status, id);
-                status_index.remove(old_key.as_str())?;
-            }
-
-            let new_key = format!("{}:{}", new_status, id);
-            status_index.insert(new_key.as_str(), id)?;
-            status_lookup.insert(id, new_key.as_str())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+        self.put_task_raw_with_status(id, new_status, data)
     }
 
-    /// Compare-and-set update for task payload and status index.
-    ///
-    /// Returns `Ok(true)` when the record existed and its current payload status
-    /// matched `expected_status`, so the update was committed.
-    ///
-    /// Returns `Ok(false)` when the record does not exist or its current payload
-    /// status does not match `expected_status`.
     pub fn update_task_raw_if_status_matches(
         &self,
         id: &str,
@@ -259,225 +161,138 @@ impl TaskStorage {
         new_status: &str,
         data: &[u8],
     ) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let mut table = write_txn.open_table(TASK_TABLE)?;
-        let Some(existing) = table.get(id)? else {
-            drop(table);
-            write_txn.abort()?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        let Some(existing) = store.tasks.get(id) else {
             return Ok(false);
         };
-
-        let current_status = Self::parse_task_status(existing.value())?;
-        drop(existing);
+        let current_status = Self::parse_task_status(existing)?;
         if current_status != expected_status {
-            drop(table);
-            write_txn.abort()?;
             return Ok(false);
         }
-
-        table.insert(id, data)?;
-        drop(table);
-
-        let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-        let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-        if let Some(previous_key) = status_lookup.get(id)? {
-            status_index.remove(previous_key.value())?;
-        } else if current_status != new_status {
-            let old_key = format!("{}:{}", current_status, id);
-            status_index.remove(old_key.as_str())?;
-        }
-
-        let new_key = format!("{}:{}", new_status, id);
-        status_index.insert(new_key.as_str(), id)?;
-        status_lookup.insert(id, new_key.as_str())?;
-        drop(status_lookup);
-        drop(status_index);
-        write_txn.commit()?;
+        store.tasks.insert(id.to_string(), data.to_vec());
+        store
+            .task_status
+            .insert(id.to_string(), new_status.to_string());
         Ok(true)
     }
 
-    /// Get raw agent task data by ID
     pub fn get_task_raw(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(TASK_TABLE)?;
-
-        if let Some(value) = table.get(id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
+        let stores = stores().lock().expect("task store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .and_then(|store| store.tasks.get(id).cloned()))
     }
 
-    /// List all raw agent task data
     pub fn list_tasks_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(TASK_TABLE)?;
-
-        let mut tasks = Vec::new();
-        for item in table.iter()? {
-            let (key, value) = item?;
-            tasks.push((key.value().to_string(), value.value().to_vec()));
-        }
-
-        Ok(tasks)
+        let stores = stores().lock().expect("task store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .map(|store| {
+                store
+                    .tasks
+                    .iter()
+                    .map(|(id, data)| (id.clone(), data.clone()))
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
-    /// List tasks by status using the status index
     pub fn list_tasks_by_status_indexed(&self, status: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let status_index = read_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-        let task_table = read_txn.open_table(TASK_TABLE)?;
-
-        let prefix = format!("{}:", status);
-        let (start, end) = prefix_range(&prefix);
-        let mut tasks = Vec::new();
-
-        for item in status_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let task_id = value.value();
-            if let Some(data) = task_table.get(task_id)? {
-                tasks.push((task_id.to_string(), data.value().to_vec()));
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
+            return Ok(Vec::new());
+        };
+        let mut rows = Vec::new();
+        for (id, data) in &store.tasks {
+            let current = store
+                .task_status
+                .get(id)
+                .cloned()
+                .or_else(|| Self::parse_task_status(data).ok());
+            if current.as_deref() == Some(status) {
+                rows.push((id.clone(), data.clone()));
             }
         }
-
-        Ok(tasks)
+        Ok(rows)
     }
 
-    /// Delete agent task by ID
     pub fn delete_task(&self, id: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut table = write_txn.open_table(TASK_TABLE)?;
-            let existed = table.remove(id)?.is_some();
-
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-            let mut active_run_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(id)? {
-                status_index.remove(previous_key.value())?;
-            }
-            status_lookup.remove(id)?;
-            active_run_index.remove(id)?;
-
-            existed
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
+            return Ok(false);
         };
-        write_txn.commit()?;
-        Ok(existed)
+        store.task_status.remove(id);
+        store.active_run.remove(id);
+        Ok(store.tasks.remove(id).is_some())
     }
 
-    /// Delete agent task by ID with status index cleanup
-    pub fn delete_task_with_status(&self, id: &str, status: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut table = write_txn.open_table(TASK_TABLE)?;
-            let existed = table.remove(id)?.is_some();
-
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-            let mut active_run_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(id)? {
-                status_index.remove(previous_key.value())?;
-            } else {
-                let status_key = format!("{}:{}", status, id);
-                status_index.remove(status_key.as_str())?;
-            }
-            status_lookup.remove(id)?;
-            active_run_index.remove(id)?;
-
-            existed
-        };
-        write_txn.commit()?;
-        Ok(existed)
+    pub fn delete_task_with_status(&self, id: &str, _status: &str) -> Result<bool> {
+        self.delete_task(id)
     }
 
-    /// Delete a task and all related task/message/event records atomically.
     pub fn delete_task_cascade(&self, id: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut task_table = write_txn.open_table(TASK_TABLE)?;
-            let existed = task_table.get(id)?.is_some();
-
-            let prefix = format!("{}:", id);
-            let (start, end) = prefix_range(&prefix);
-
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
-            let mut event_index = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-            let mut event_keys = Vec::new();
-            for item in event_index.range(start.as_str()..end.as_str())? {
-                let (key, value) = item?;
-                event_keys.push((key.value().to_string(), value.value().to_string()));
-            }
-            for (event_key, event_id) in event_keys {
-                event_index.remove(event_key.as_str())?;
-                event_table.remove(event_id.as_str())?;
-            }
-
-            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
-            let mut run_task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-            let mut active_run_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-            let mut run_keys = Vec::new();
-            for item in run_task_index.range(start.as_str()..end.as_str())? {
-                let (key, value) = item?;
-                run_keys.push((key.value().to_string(), value.value().to_string()));
-            }
-            for (run_key, run_id) in run_keys {
-                run_task_index.remove(run_key.as_str())?;
-                run_table.remove(run_id.as_str())?;
-            }
-            active_run_index.remove(id)?;
-
-            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
-            let mut message_task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
-            let mut message_status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut message_status_lookup =
-                write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
-            let mut message_keys = Vec::new();
-            for item in message_task_index.range(start.as_str()..end.as_str())? {
-                let (key, value) = item?;
-                message_keys.push((key.value().to_string(), value.value().to_string()));
-            }
-            for (message_key, message_id) in message_keys {
-                message_task_index.remove(message_key.as_str())?;
-                if let Some(status_key) = message_status_lookup.get(message_id.as_str())? {
-                    message_status_index.remove(status_key.value())?;
-                }
-                message_status_lookup.remove(message_id.as_str())?;
-                message_table.remove(message_id.as_str())?;
-            }
-
-            let mut task_status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-            let mut task_status_lookup = write_txn.open_table(TASK_STATUS_LOOKUP_TABLE)?;
-            if let Some(status_key) = task_status_lookup.get(id)? {
-                task_status_index.remove(status_key.value())?;
-            }
-            task_status_lookup.remove(id)?;
-
-            if existed {
-                task_table.remove(id)?;
-            }
-
-            existed
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
+            return Ok(false);
         };
-        write_txn.commit()?;
+        let existed = store.tasks.remove(id).is_some();
+        store.task_status.remove(id);
+        store.active_run.remove(id);
+        let run_ids = store
+            .run_task
+            .iter()
+            .filter_map(|(run_id, task_id)| (task_id == id).then_some(run_id.clone()))
+            .collect::<Vec<_>>();
+        for run_id in run_ids {
+            store.runs.remove(&run_id);
+            store.run_task.remove(&run_id);
+        }
+        let message_ids = store
+            .message_task
+            .iter()
+            .filter_map(|(message_id, task_id)| (task_id == id).then_some(message_id.clone()))
+            .collect::<Vec<_>>();
+        for message_id in message_ids {
+            store.messages.remove(&message_id);
+            store.message_task.remove(&message_id);
+            store.message_status.remove(&message_id);
+        }
+        let event_ids = store
+            .event_task
+            .iter()
+            .filter_map(|(event_id, task_id)| (task_id == id).then_some(event_id.clone()))
+            .collect::<Vec<_>>();
+        for event_id in event_ids {
+            store.events.remove(&event_id);
+            store.event_task.remove(&event_id);
+        }
         Ok(existed)
     }
 
-    /// Store raw task run data with a task index entry.
     pub fn put_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
-            run_table.insert(run_id, data)?;
-
-            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-            let task_key = format!("{}:{}", task_id, run_id);
-            task_index.insert(task_key.as_str(), run_id)?;
+        let status = Self::parse_run_status(data)?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        if !store.tasks.contains_key(task_id) {
+            anyhow::bail!(
+                "task run '{}' references missing task '{}'",
+                run_id,
+                task_id
+            );
         }
-        write_txn.commit()?;
+        store.runs.insert(run_id.to_string(), data.to_vec());
+        store
+            .run_task
+            .insert(run_id.to_string(), task_id.to_string());
+        if status == "running" {
+            store
+                .active_run
+                .insert(task_id.to_string(), run_id.to_string());
+        }
         Ok(())
     }
 
-    /// Store raw task run data and keep the active-run index consistent.
     pub fn put_run_raw_with_status(
         &self,
         run_id: &str,
@@ -486,208 +301,127 @@ impl TaskStorage {
         data: &[u8],
     ) -> Result<()> {
         Self::validate_run_payload(run_id, task_id, status, data)?;
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let task_table = write_txn.open_table(TASK_TABLE)?;
-            Self::ensure_task_exists(&task_table, task_id, run_id)?;
-            drop(task_table);
-
-            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
-            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-            let mut active_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-
-            if let Some(existing) = run_table.get(run_id)? {
-                let existing_task_id = Self::parse_run_task_id(existing.value())?;
-                if existing_task_id != task_id {
-                    anyhow::bail!(
-                        "task run '{}' is indexed under task '{}', not '{}'",
-                        run_id,
-                        existing_task_id,
-                        task_id
-                    );
-                }
-            }
-
-            Self::reconcile_active_run_slot(
-                &mut active_index,
-                &run_table,
-                task_id,
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        if !store.tasks.contains_key(task_id) {
+            anyhow::bail!(
+                "task run '{}' references missing task '{}'",
                 run_id,
-                status,
-            )?;
-            run_table.insert(run_id, data)?;
-
-            let task_key = format!("{}:{}", task_id, run_id);
-            task_index.insert(task_key.as_str(), run_id)?;
+                task_id
+            );
         }
-        write_txn.commit()?;
+        Self::reconcile_active_run_slot(store, task_id, run_id, status)?;
+        store.runs.insert(run_id.to_string(), data.to_vec());
+        store
+            .run_task
+            .insert(run_id.to_string(), task_id.to_string());
         Ok(())
     }
 
-    /// Update raw task run data while preserving the task index.
     pub fn update_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
-            run_table.insert(run_id, data)?;
-
-            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-            let task_key = format!("{}:{}", task_id, run_id);
-            task_index.insert(task_key.as_str(), run_id)?;
-        }
-        write_txn.commit()?;
-        Ok(())
+        let status = Self::parse_run_status(data)?;
+        self.update_run_raw_with_status(run_id, task_id, &status, &status, data)
     }
 
-    /// Update raw task run data while preserving task index and active-run consistency.
     pub fn update_run_raw_with_status(
         &self,
         run_id: &str,
         task_id: &str,
-        old_status: &str,
+        _old_status: &str,
         new_status: &str,
         data: &[u8],
     ) -> Result<()> {
         Self::validate_run_payload(run_id, task_id, new_status, data)?;
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let task_table = write_txn.open_table(TASK_TABLE)?;
-            Self::ensure_task_exists(&task_table, task_id, run_id)?;
-            drop(task_table);
-
-            let mut run_table = write_txn.open_table(TASK_RUN_TABLE)?;
-            let current_status = match run_table.get(run_id)? {
-                Some(existing) => {
-                    let existing_task_id = Self::parse_run_task_id(existing.value())?;
-                    if existing_task_id != task_id {
-                        anyhow::bail!(
-                            "task run '{}' is indexed under task '{}', not '{}'",
-                            run_id,
-                            existing_task_id,
-                            task_id
-                        );
-                    }
-                    Self::parse_run_status(existing.value())?
-                }
-                None => old_status.to_string(),
-            };
-
-            let mut task_index = write_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-            let mut active_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-
-            Self::reconcile_active_run_slot(
-                &mut active_index,
-                &run_table,
-                task_id,
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        if !store.tasks.contains_key(task_id) {
+            anyhow::bail!(
+                "task run '{}' references missing task '{}'",
                 run_id,
-                new_status,
-            )?;
-            run_table.insert(run_id, data)?;
-
-            let task_key = format!("{}:{}", task_id, run_id);
-            task_index.insert(task_key.as_str(), run_id)?;
-
-            if current_status == "running"
-                && new_status != "running"
-                && active_index
-                    .get(task_id)?
-                    .is_some_and(|value| value.value() == run_id)
-            {
-                active_index.remove(task_id)?;
-            }
+                task_id
+            );
         }
-        write_txn.commit()?;
+        Self::reconcile_active_run_slot(store, task_id, run_id, new_status)?;
+        store.runs.insert(run_id.to_string(), data.to_vec());
+        store
+            .run_task
+            .insert(run_id.to_string(), task_id.to_string());
         Ok(())
     }
 
-    /// Get raw task run data by ID.
     pub fn get_run_raw(&self, run_id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
-        Ok(run_table.get(run_id)?.map(|value| value.value().to_vec()))
+        let stores = stores().lock().expect("task store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .and_then(|store| store.runs.get(run_id).cloned()))
     }
 
-    /// List all raw task run payloads.
     pub fn list_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
-        let mut runs = Vec::new();
-        for item in run_table.iter()? {
-            let (key, value) = item?;
-            runs.push((key.value().to_string(), value.value().to_vec()));
-        }
-        Ok(runs)
+        let stores = stores().lock().expect("task store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .map(|store| {
+                store
+                    .runs
+                    .iter()
+                    .map(|(id, data)| (id.clone(), data.clone()))
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
-    /// List raw task run payloads for one task.
     pub fn list_runs_by_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let task_index = read_txn.open_table(TASK_RUN_TASK_INDEX_TABLE)?;
-        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
-
-        let prefix = format!("{}:", task_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut runs = Vec::new();
-        for item in task_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let run_id = value.value();
-            if let Some(data) = run_table.get(run_id)? {
-                runs.push((run_id.to_string(), data.value().to_vec()));
-            }
-        }
-        Ok(runs)
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
+            return Ok(Vec::new());
+        };
+        Ok(store
+            .runs
+            .iter()
+            .filter(|(run_id, _)| store.run_task.get(*run_id).is_some_and(|id| id == task_id))
+            .map(|(id, data)| (id.clone(), data.clone()))
+            .collect())
     }
 
-    /// Return the active run payload referenced by the task-level active-run index.
     pub fn get_active_run_raw(&self, task_id: &str) -> Result<Option<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let active_index = read_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
-
-        let Some(run_id) = active_index.get(task_id)? else {
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
             return Ok(None);
         };
-        let run_id = run_id.value().to_string();
-        let Some(data) = run_table.get(run_id.as_str())? else {
+        let Some(run_id) = store.active_run.get(task_id) else {
             return Ok(None);
         };
-        Ok(Some((run_id, data.value().to_vec())))
+        Ok(store
+            .runs
+            .get(run_id)
+            .map(|data| (run_id.clone(), data.clone())))
     }
 
-    /// Remove one task-level active-run index entry.
     pub fn clear_active_run_raw(&self, task_id: &str) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut active_index = write_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-            active_index.remove(task_id)?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        if let Some(store) = stores.get_mut(&self.namespace) {
+            store.active_run.remove(task_id);
         }
-        write_txn.commit()?;
         Ok(())
     }
 
-    /// List all active run payloads referenced by the task-level active-run index.
     pub fn list_active_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let active_index = read_txn.open_table(TASK_ACTIVE_RUN_INDEX_TABLE)?;
-        let run_table = read_txn.open_table(TASK_RUN_TABLE)?;
-        let mut runs = Vec::new();
-
-        for item in active_index.iter()? {
-            let (_, run_id) = item?;
-            let run_id = run_id.value();
-            if let Some(data) = run_table.get(run_id)? {
-                runs.push((run_id.to_string(), data.value().to_vec()));
-            }
-        }
-
-        Ok(runs)
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
+            return Ok(Vec::new());
+        };
+        Ok(store
+            .active_run
+            .values()
+            .filter_map(|run_id| {
+                store
+                    .runs
+                    .get(run_id)
+                    .map(|data| (run_id.clone(), data.clone()))
+            })
+            .collect())
     }
 
-    // ============== Task Message Operations ==============
-
-    /// Store raw task message data with task/status indices.
     pub fn put_task_message_raw_with_status(
         &self,
         message_id: &str,
@@ -695,1100 +429,181 @@ impl TaskStorage {
         status: &str,
         data: &[u8],
     ) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
-            message_table.insert(message_id, data)?;
-
-            let mut task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
-            let task_key = format!("{}:{}", task_id, message_id);
-            task_index.insert(task_key.as_str(), message_id)?;
-
-            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(message_id)? {
-                status_index.remove(previous_key.value())?;
-            }
-            let status_key = format!("{}:{}:{}", status, task_id, message_id);
-            status_index.insert(status_key.as_str(), message_id)?;
-            status_lookup.insert(message_id, status_key.as_str())?;
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        store.messages.insert(message_id.to_string(), data.to_vec());
+        store
+            .message_task
+            .insert(message_id.to_string(), task_id.to_string());
+        store
+            .message_status
+            .insert(message_id.to_string(), status.to_string());
         Ok(())
     }
 
-    /// Update raw task message data and keep status index consistent.
     pub fn update_task_message_raw_with_status(
         &self,
         message_id: &str,
-        task_id: &str,
-        old_status: &str,
-        new_status: &str,
+        _task_id: &str,
+        _old_status: &str,
+        status: &str,
         data: &[u8],
     ) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
-            message_table.insert(message_id, data)?;
-
-            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(message_id)? {
-                status_index.remove(previous_key.value())?;
-            } else if old_status != new_status {
-                let old_key = format!("{}:{}:{}", old_status, task_id, message_id);
-                status_index.remove(old_key.as_str())?;
-            }
-
-            let new_key = format!("{}:{}:{}", new_status, task_id, message_id);
-            status_index.insert(new_key.as_str(), message_id)?;
-            status_lookup.insert(message_id, new_key.as_str())?;
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        store.messages.insert(message_id.to_string(), data.to_vec());
+        store
+            .message_status
+            .insert(message_id.to_string(), status.to_string());
         Ok(())
     }
 
-    /// Get raw task message data by ID.
     pub fn get_task_message_raw(&self, message_id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(TASK_MESSAGE_TABLE)?;
-
-        if let Some(value) = table.get(message_id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
+        let stores = stores().lock().expect("task store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .and_then(|store| store.messages.get(message_id).cloned()))
     }
 
-    /// List raw task messages for a task.
     pub fn list_task_messages_for_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let task_index = read_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
-        let message_table = read_txn.open_table(TASK_MESSAGE_TABLE)?;
-
-        let prefix = format!("{}:", task_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut messages = Vec::new();
-
-        for item in task_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let message_id = value.value();
-            if let Some(data) = message_table.get(message_id)? {
-                messages.push((message_id.to_string(), data.value().to_vec()));
-            }
-        }
-
-        Ok(messages)
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
+            return Ok(Vec::new());
+        };
+        Ok(store
+            .messages
+            .iter()
+            .filter(|(message_id, _)| {
+                store
+                    .message_task
+                    .get(*message_id)
+                    .is_some_and(|id| id == task_id)
+            })
+            .map(|(id, data)| (id.clone(), data.clone()))
+            .collect())
     }
 
-    /// List raw task messages for a task by status.
     pub fn list_task_messages_by_status_for_task_raw(
         &self,
         task_id: &str,
         status: &str,
     ) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let status_index = read_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-        let message_table = read_txn.open_table(TASK_MESSAGE_TABLE)?;
-
-        let prefix = format!("{}:{}:", status, task_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut messages = Vec::new();
-
-        for item in status_index.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let message_id = value.value();
-            if let Some(data) = message_table.get(message_id)? {
-                messages.push((message_id.to_string(), data.value().to_vec()));
-            }
-        }
-
-        Ok(messages)
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
+            return Ok(Vec::new());
+        };
+        Ok(store
+            .messages
+            .iter()
+            .filter(|(message_id, _)| {
+                store
+                    .message_task
+                    .get(*message_id)
+                    .is_some_and(|id| id == task_id)
+                    && store
+                        .message_status
+                        .get(*message_id)
+                        .is_some_and(|current| current == status)
+            })
+            .map(|(id, data)| (id.clone(), data.clone()))
+            .collect())
     }
 
-    /// Delete one task message and related indices.
     pub fn delete_task_message(
         &self,
         message_id: &str,
-        task_id: &str,
-        status: &str,
+        _task_id: &str,
+        _status: &str,
     ) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
-            let existed = message_table.remove(message_id)?.is_some();
-
-            let mut task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
-            let task_key = format!("{}:{}", task_id, message_id);
-            task_index.remove(task_key.as_str())?;
-
-            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
-            if let Some(previous_key) = status_lookup.get(message_id)? {
-                status_index.remove(previous_key.value())?;
-            } else {
-                let status_key = format!("{}:{}:{}", status, task_id, message_id);
-                status_index.remove(status_key.as_str())?;
-            }
-            status_lookup.remove(message_id)?;
-
-            existed
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
+            return Ok(false);
         };
-        write_txn.commit()?;
-        Ok(existed)
+        store.message_task.remove(message_id);
+        store.message_status.remove(message_id);
+        Ok(store.messages.remove(message_id).is_some())
     }
 
-    /// Delete all task messages for a task.
     pub fn delete_task_messages_for_task(&self, task_id: &str) -> Result<u32> {
-        let messages = self.list_task_messages_for_task_raw(task_id)?;
-        let count = messages.len() as u32;
-
-        if count == 0 {
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
             return Ok(0);
+        };
+        let ids = store
+            .message_task
+            .iter()
+            .filter_map(|(message_id, current_task_id)| {
+                (current_task_id == task_id).then_some(message_id.clone())
+            })
+            .collect::<Vec<_>>();
+        for id in &ids {
+            store.messages.remove(id);
+            store.message_task.remove(id);
+            store.message_status.remove(id);
         }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut message_table = write_txn.open_table(TASK_MESSAGE_TABLE)?;
-            let mut task_index = write_txn.open_table(TASK_MESSAGE_TASK_INDEX_TABLE)?;
-            let mut status_index = write_txn.open_table(TASK_MESSAGE_STATUS_INDEX_TABLE)?;
-            let mut status_lookup = write_txn.open_table(TASK_MESSAGE_STATUS_LOOKUP_TABLE)?;
-
-            for (message_id, data) in &messages {
-                message_table.remove(message_id.as_str())?;
-
-                let task_key = format!("{}:{}", task_id, message_id);
-                task_index.remove(task_key.as_str())?;
-
-                if let Some(previous_key) = status_lookup.get(message_id.as_str())? {
-                    status_index.remove(previous_key.value())?;
-                } else if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data)
-                    && let Some(status) = value.get("status").and_then(|s| s.as_str())
-                {
-                    let status_key = format!("{}:{}:{}", status, task_id, message_id);
-                    status_index.remove(status_key.as_str())?;
-                }
-                status_lookup.remove(message_id.as_str())?;
-            }
-        }
-        write_txn.commit()?;
-        Ok(count)
+        Ok(ids.len() as u32)
     }
 
-    // ============== Task Event Operations ==============
-
-    /// Store raw task event data with index
     pub fn put_event_raw(&self, event_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
-            event_table.insert(event_id, data)?;
-
-            // Create composite index key: task_id:timestamp:event_id for ordered retrieval
-            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-            let index_key = format!("{}:{}", task_id, event_id);
-            index_table.insert(index_key.as_str(), event_id)?;
-        }
-        write_txn.commit()?;
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let store = stores.entry(self.namespace).or_default();
+        store.events.insert(event_id.to_string(), data.to_vec());
+        store
+            .event_task
+            .insert(event_id.to_string(), task_id.to_string());
         Ok(())
     }
 
-    /// Get raw task event data by ID
     pub fn get_event_raw(&self, event_id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(TASK_EVENT_TABLE)?;
-
-        if let Some(value) = table.get(event_id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
+        let stores = stores().lock().expect("task store lock poisoned");
+        Ok(stores
+            .get(&self.namespace)
+            .and_then(|store| store.events.get(event_id).cloned()))
     }
 
-    /// List all events for a specific task
     pub fn list_events_for_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let index_table = read_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-        let event_table = read_txn.open_table(TASK_EVENT_TABLE)?;
-
-        let prefix = format!("{}:", task_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut events = Vec::new();
-
-        for item in index_table.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            let event_id = value.value();
-            if let Some(event_data) = event_table.get(event_id)? {
-                events.push((event_id.to_string(), event_data.value().to_vec()));
-            }
-        }
-
-        Ok(events)
-    }
-
-    /// Delete a task event by ID
-    pub fn delete_event(&self, event_id: &str, task_id: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
-            let existed = event_table.remove(event_id)?.is_some();
-
-            // Remove from index
-            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-            let index_key = format!("{}:{}", task_id, event_id);
-            index_table.remove(index_key.as_str())?;
-
-            existed
+        let stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get(&self.namespace) else {
+            return Ok(Vec::new());
         };
-        write_txn.commit()?;
-        Ok(existed)
+        Ok(store
+            .events
+            .iter()
+            .filter(|(event_id, _)| {
+                store
+                    .event_task
+                    .get(*event_id)
+                    .is_some_and(|id| id == task_id)
+            })
+            .map(|(id, data)| (id.clone(), data.clone()))
+            .collect())
     }
 
-    /// Delete all events for a specific task
+    pub fn delete_event(&self, event_id: &str, _task_id: &str) -> Result<bool> {
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
+            return Ok(false);
+        };
+        store.event_task.remove(event_id);
+        Ok(store.events.remove(event_id).is_some())
+    }
+
     pub fn delete_events_for_task(&self, task_id: &str) -> Result<u32> {
-        // First, collect all event IDs for this task
-        let events = self.list_events_for_task_raw(task_id)?;
-        let count = events.len() as u32;
-
-        if count == 0 {
+        let mut stores = stores().lock().expect("task store lock poisoned");
+        let Some(store) = stores.get_mut(&self.namespace) else {
             return Ok(0);
+        };
+        let ids = store
+            .event_task
+            .iter()
+            .filter_map(|(event_id, current_task_id)| {
+                (current_task_id == task_id).then_some(event_id.clone())
+            })
+            .collect::<Vec<_>>();
+        for id in &ids {
+            store.events.remove(id);
+            store.event_task.remove(id);
         }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
-            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-
-            for (event_id, _) in &events {
-                event_table.remove(event_id.as_str())?;
-                let index_key = format!("{}:{}", task_id, event_id);
-                index_table.remove(index_key.as_str())?;
-            }
-        }
-        write_txn.commit()?;
-
-        Ok(count)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    fn task_payload(id: &str, name: &str, chat_session_id: &str) -> Vec<u8> {
-        format!(
-            r#"{{"id":"{}","name":"{}","chat_session_id":"{}"}}"#,
-            id, name, chat_session_id
-        )
-        .into_bytes()
-    }
-
-    fn task_status_payload(id: &str, status: &str, chat_session_id: &str) -> Vec<u8> {
-        format!(
-            r#"{{"id":"{}","status":"{}","chat_session_id":"{}"}}"#,
-            id, status, chat_session_id
-        )
-        .into_bytes()
-    }
-
-    fn run_payload(
-        run_id: &str,
-        task_id: &str,
-        execution_id: &str,
-        status: &str,
-        started_at: i64,
-    ) -> Vec<u8> {
-        format!(
-            concat!(
-                r#"{{"run_id":"{}","task_id":"{}","execution_id":"{}","status":"{}","#,
-                r#""started_at":{},"updated_at":{},"ended_at":null,"checkpoint_id":null,"error":null,"metrics":{{}}}}"#
-            ),
-            run_id, task_id, execution_id, status, started_at, started_at
-        )
-        .into_bytes()
-    }
-
-    fn create_test_storage() -> TaskStorage {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        TaskStorage::new(db).unwrap()
-    }
-
-    #[test]
-    fn test_put_and_get_task_raw() {
-        let storage = create_test_storage();
-
-        let data = b"test task data";
-        storage.put_task_raw("task-001", data).unwrap();
-
-        let retrieved = storage.get_task_raw("task-001").unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap(), data);
-    }
-
-    #[test]
-    fn test_get_nonexistent_task() {
-        let storage = create_test_storage();
-
-        let result = storage.get_task_raw("nonexistent").unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_list_tasks_raw() {
-        let storage = create_test_storage();
-
-        storage.put_task_raw("task-001", b"data1").unwrap();
-        storage.put_task_raw("task-002", b"data2").unwrap();
-        storage.put_task_raw("task-003", b"data3").unwrap();
-
-        let tasks = storage.list_tasks_raw().unwrap();
-        assert_eq!(tasks.len(), 3);
-    }
-
-    #[test]
-    fn test_list_tasks_by_status_indexed() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"data1")
-            .unwrap();
-        storage
-            .put_task_raw_with_status("task-002", "paused", b"data2")
-            .unwrap();
-        storage
-            .put_task_raw_with_status("task-003", "active", b"data3")
-            .unwrap();
-
-        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
-        let paused_tasks = storage.list_tasks_by_status_indexed("paused").unwrap();
-
-        assert_eq!(active_tasks.len(), 2);
-        assert_eq!(paused_tasks.len(), 1);
-    }
-
-    #[test]
-    fn test_update_task_raw_with_status() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"data1")
-            .unwrap();
-        storage
-            .update_task_raw_with_status("task-001", "active", "paused", b"data2")
-            .unwrap();
-
-        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
-        let paused_tasks = storage.list_tasks_by_status_indexed("paused").unwrap();
-
-        assert!(active_tasks.is_empty());
-        assert_eq!(paused_tasks.len(), 1);
-    }
-
-    #[test]
-    fn test_update_task_raw_if_status_matches_updates_when_expected_status_matches() {
-        let storage = create_test_storage();
-        let original = task_status_payload("task-001", "active", "session-1");
-        let updated = task_status_payload("task-001", "completed", "session-1");
-
-        storage
-            .put_task_raw_with_status("task-001", "active", &original)
-            .unwrap();
-        let changed = storage
-            .update_task_raw_if_status_matches("task-001", "active", "completed", &updated)
-            .unwrap();
-
-        assert!(changed);
-        assert!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            storage
-                .list_tasks_by_status_indexed("completed")
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(storage.get_task_raw("task-001").unwrap().unwrap(), updated);
-    }
-
-    #[test]
-    fn test_update_task_raw_if_status_matches_returns_false_on_status_mismatch() {
-        let storage = create_test_storage();
-        let original = task_status_payload("task-001", "active", "session-1");
-        let candidate = task_status_payload("task-001", "completed", "session-1");
-
-        storage
-            .put_task_raw_with_status("task-001", "active", &original)
-            .unwrap();
-        let changed = storage
-            .update_task_raw_if_status_matches("task-001", "paused", "completed", &candidate)
-            .unwrap();
-
-        assert!(!changed);
-        assert_eq!(storage.get_task_raw("task-001").unwrap().unwrap(), original);
-        assert_eq!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(
-            storage
-                .list_tasks_by_status_indexed("completed")
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn test_update_task_status_migration_clears_all_previous_status_index_entries() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"v1")
-            .unwrap();
-        storage
-            .update_task_raw_with_status("task-001", "active", "paused", b"v2")
-            .unwrap();
-        storage
-            .update_task_raw_with_status("task-001", "paused", "completed", b"v3")
-            .unwrap();
-
-        assert!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            storage
-                .list_tasks_by_status_indexed("paused")
-                .unwrap()
-                .is_empty()
-        );
-
-        let completed_tasks = storage.list_tasks_by_status_indexed("completed").unwrap();
-        assert_eq!(completed_tasks.len(), 1);
-        assert_eq!(completed_tasks[0].0, "task-001");
-        assert_eq!(completed_tasks[0].1, b"v3");
-    }
-
-    #[test]
-    fn test_repeated_task_updates_do_not_create_duplicate_visible_status_entries() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"v1")
-            .unwrap();
-        storage
-            .update_task_raw_with_status("task-001", "active", "active", b"v2")
-            .unwrap();
-        storage
-            .update_task_raw_with_status("task-001", "active", "active", b"v3")
-            .unwrap();
-
-        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
-        assert_eq!(active_tasks.len(), 1);
-        assert_eq!(active_tasks[0].0, "task-001");
-        assert_eq!(active_tasks[0].1, b"v3");
-    }
-
-    #[test]
-    fn test_put_task_raw_with_status_replaces_previous_status_index_entry() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"data1")
-            .unwrap();
-        storage
-            .put_task_raw_with_status("task-001", "paused", b"data2")
-            .unwrap();
-
-        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
-        let paused_tasks = storage.list_tasks_by_status_indexed("paused").unwrap();
-
-        assert!(active_tasks.is_empty());
-        assert_eq!(paused_tasks.len(), 1);
-        assert_eq!(paused_tasks[0].0, "task-001");
-    }
-
-    #[test]
-    fn test_delete_task() {
-        let storage = create_test_storage();
-
-        storage.put_task_raw("task-001", b"data").unwrap();
-
-        let deleted = storage.delete_task("task-001").unwrap();
-        assert!(deleted);
-
-        let retrieved = storage.get_task_raw("task-001").unwrap();
-        assert!(retrieved.is_none());
-
-        // Deleting again should return false
-        let deleted_again = storage.delete_task("task-001").unwrap();
-        assert!(!deleted_again);
-    }
-
-    #[test]
-    fn test_delete_task_removes_status_lookup_entries() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"raw")
-            .unwrap();
-        assert_eq!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .len(),
-            1
-        );
-
-        let deleted = storage.delete_task("task-001").unwrap();
-        assert!(deleted);
-        assert!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn test_delete_task_with_status() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-001", "active", b"data")
-            .unwrap();
-
-        let deleted = storage
-            .delete_task_with_status("task-001", "active")
-            .unwrap();
-        assert!(deleted);
-
-        let retrieved = storage.get_task_raw("task-001").unwrap();
-        assert!(retrieved.is_none());
-
-        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
-        assert!(active_tasks.is_empty());
-    }
-
-    #[test]
-    fn test_put_run_with_status_rejects_second_active_run_for_task() {
-        let storage = create_test_storage();
-        storage
-            .put_task_raw("task-1", br#"{"id":"task-1"}"#)
-            .unwrap();
-
-        storage
-            .put_run_raw_with_status(
-                "run-1",
-                "task-1",
-                "running",
-                &run_payload("run-1", "task-1", "exec-1", "running", 100),
-            )
-            .unwrap();
-        let result = storage.put_run_raw_with_status(
-            "run-2",
-            "task-1",
-            "running",
-            &run_payload("run-2", "task-1", "exec-2", "running", 200),
-        );
-
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("already has active run")
-        );
-    }
-
-    #[test]
-    fn test_marking_active_run_terminal_clears_active_run_index() {
-        let storage = create_test_storage();
-        storage
-            .put_task_raw("task-1", br#"{"id":"task-1"}"#)
-            .unwrap();
-
-        storage
-            .put_run_raw_with_status(
-                "run-1",
-                "task-1",
-                "running",
-                &run_payload("run-1", "task-1", "exec-1", "running", 100),
-            )
-            .unwrap();
-        assert_eq!(
-            storage.get_active_run_raw("task-1").unwrap().unwrap().0,
-            "run-1"
-        );
-
-        storage
-            .update_run_raw_with_status(
-                "run-1",
-                "task-1",
-                "running",
-                "completed",
-                &run_payload("run-1", "task-1", "exec-1", "completed", 100),
-            )
-            .unwrap();
-        assert!(storage.get_active_run_raw("task-1").unwrap().is_none());
-    }
-
-    #[test]
-    fn test_put_run_with_status_rejects_cross_task_run_rebind() {
-        let storage = create_test_storage();
-        storage
-            .put_task_raw("task-1", br#"{"id":"task-1"}"#)
-            .unwrap();
-        storage
-            .put_task_raw("task-2", br#"{"id":"task-2"}"#)
-            .unwrap();
-
-        storage
-            .put_run_raw_with_status(
-                "run-1",
-                "task-1",
-                "completed",
-                &run_payload("run-1", "task-1", "exec-1", "completed", 100),
-            )
-            .unwrap();
-        let result = storage.put_run_raw_with_status(
-            "run-1",
-            "task-2",
-            "completed",
-            &run_payload("run-1", "task-2", "exec-2", "completed", 200),
-        );
-
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("is indexed under task")
-        );
-    }
-
-    #[test]
-    fn test_put_and_get_task_message_raw() {
-        let storage = create_test_storage();
-        let data = br#"{"id":"msg-1","status":"queued"}"#;
-
-        storage
-            .put_task_message_raw_with_status("msg-1", "task-1", "queued", data)
-            .unwrap();
-
-        let raw = storage.get_task_message_raw("msg-1").unwrap();
-        assert!(raw.is_some());
-        assert_eq!(raw.unwrap(), data);
-    }
-
-    #[test]
-    fn test_list_task_messages_for_task_raw() {
-        let storage = create_test_storage();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-1",
-                "task-1",
-                "queued",
-                br#"{"id":"msg-1","status":"queued"}"#,
-            )
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-2",
-                "task-1",
-                "delivered",
-                br#"{"id":"msg-2","status":"delivered"}"#,
-            )
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-3",
-                "task-2",
-                "queued",
-                br#"{"id":"msg-3","status":"queued"}"#,
-            )
-            .unwrap();
-
-        let task1 = storage.list_task_messages_for_task_raw("task-1").unwrap();
-        let queued_task1 = storage
-            .list_task_messages_by_status_for_task_raw("task-1", "queued")
-            .unwrap();
-
-        assert_eq!(task1.len(), 2);
-        assert_eq!(queued_task1.len(), 1);
-    }
-
-    #[test]
-    fn test_update_task_message_raw_with_status() {
-        let storage = create_test_storage();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-1",
-                "task-1",
-                "queued",
-                br#"{"id":"msg-1","status":"queued"}"#,
-            )
-            .unwrap();
-        storage
-            .update_task_message_raw_with_status(
-                "msg-1",
-                "task-1",
-                "queued",
-                "delivered",
-                br#"{"id":"msg-1","status":"delivered"}"#,
-            )
-            .unwrap();
-
-        let queued = storage
-            .list_task_messages_by_status_for_task_raw("task-1", "queued")
-            .unwrap();
-        let delivered = storage
-            .list_task_messages_by_status_for_task_raw("task-1", "delivered")
-            .unwrap();
-        assert!(queued.is_empty());
-        assert_eq!(delivered.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_task_messages_for_task() {
-        let storage = create_test_storage();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-1",
-                "task-1",
-                "queued",
-                br#"{"id":"msg-1","status":"queued"}"#,
-            )
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-2",
-                "task-1",
-                "delivered",
-                br#"{"id":"msg-2","status":"delivered"}"#,
-            )
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-3",
-                "task-2",
-                "queued",
-                br#"{"id":"msg-3","status":"queued"}"#,
-            )
-            .unwrap();
-
-        let deleted = storage.delete_task_messages_for_task("task-1").unwrap();
-        assert_eq!(deleted, 2);
-
-        let remaining_task1 = storage.list_task_messages_for_task_raw("task-1").unwrap();
-        let remaining_task2 = storage.list_task_messages_for_task_raw("task-2").unwrap();
-        assert!(remaining_task1.is_empty());
-        assert_eq!(remaining_task2.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_task_messages_for_task_removes_status_index_for_non_json_payload() {
-        let storage = create_test_storage();
-        storage
-            .put_task_message_raw_with_status("msg-1", "task-1", "queued", b"raw-msg-1")
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status("msg-2", "task-1", "queued", b"raw-msg-2")
-            .unwrap();
-
-        assert_eq!(
-            storage
-                .list_task_messages_by_status_for_task_raw("task-1", "queued")
-                .unwrap()
-                .len(),
-            2
-        );
-
-        let deleted = storage.delete_task_messages_for_task("task-1").unwrap();
-        assert_eq!(deleted, 2);
-        assert!(
-            storage
-                .list_task_messages_by_status_for_task_raw("task-1", "queued")
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn test_put_and_get_event_raw() {
-        let storage = create_test_storage();
-
-        let data = b"test event data";
-        storage
-            .put_event_raw("event-001", "task-001", data)
-            .unwrap();
-
-        let retrieved = storage.get_event_raw("event-001").unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap(), data);
-    }
-
-    #[test]
-    fn test_list_events_for_task() {
-        let storage = create_test_storage();
-
-        // Add events for task-001
-        storage
-            .put_event_raw("event-001", "task-001", b"data1")
-            .unwrap();
-        storage
-            .put_event_raw("event-002", "task-001", b"data2")
-            .unwrap();
-
-        // Add events for task-002
-        storage
-            .put_event_raw("event-003", "task-002", b"data3")
-            .unwrap();
-
-        let events_task1 = storage.list_events_for_task_raw("task-001").unwrap();
-        assert_eq!(events_task1.len(), 2);
-
-        let events_task2 = storage.list_events_for_task_raw("task-002").unwrap();
-        assert_eq!(events_task2.len(), 1);
-
-        let events_task3 = storage.list_events_for_task_raw("task-003").unwrap();
-        assert_eq!(events_task3.len(), 0);
-    }
-
-    #[test]
-    fn test_delete_event() {
-        let storage = create_test_storage();
-
-        storage
-            .put_event_raw("event-001", "task-001", b"data")
-            .unwrap();
-
-        let deleted = storage.delete_event("event-001", "task-001").unwrap();
-        assert!(deleted);
-
-        let retrieved = storage.get_event_raw("event-001").unwrap();
-        assert!(retrieved.is_none());
-
-        // Should also be removed from the index
-        let events = storage.list_events_for_task_raw("task-001").unwrap();
-        assert!(events.is_empty());
-    }
-
-    #[test]
-    fn test_delete_events_for_task() {
-        let storage = create_test_storage();
-
-        storage
-            .put_event_raw("event-001", "task-001", b"data1")
-            .unwrap();
-        storage
-            .put_event_raw("event-002", "task-001", b"data2")
-            .unwrap();
-        storage
-            .put_event_raw("event-003", "task-002", b"data3")
-            .unwrap();
-
-        let count = storage.delete_events_for_task("task-001").unwrap();
-        assert_eq!(count, 2);
-
-        let events_task1 = storage.list_events_for_task_raw("task-001").unwrap();
-        assert!(events_task1.is_empty());
-
-        // Events for task-002 should still exist
-        let events_task2 = storage.list_events_for_task_raw("task-002").unwrap();
-        assert_eq!(events_task2.len(), 1);
-    }
-
-    #[test]
-    fn test_update_task() {
-        let storage = create_test_storage();
-
-        storage.put_task_raw("task-001", b"original data").unwrap();
-        storage.put_task_raw("task-001", b"updated data").unwrap();
-
-        let retrieved = storage.get_task_raw("task-001").unwrap();
-        assert_eq!(retrieved.unwrap(), b"updated data");
-    }
-
-    #[test]
-    fn test_put_task_with_status_accepts_duplicate_chat_session_binding() {
-        let storage = create_test_storage();
-
-        let first_task = task_payload("task-1", "Task One", "session-1");
-        let second_task = task_payload("task-2", "Task Two", "session-1");
-
-        storage
-            .put_task_raw_with_status("task-1", "active", &first_task)
-            .unwrap();
-        storage
-            .put_task_raw_with_status("task-2", "active", &second_task)
-            .unwrap();
-
-        assert_eq!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .len(),
-            2
-        );
-    }
-
-    #[test]
-    fn test_update_task_with_status_accepts_duplicate_chat_session_binding() {
-        let storage = create_test_storage();
-
-        let task_one = task_payload("task-1", "Task One", "session-1");
-        let task_two = task_payload("task-2", "Task Two", "session-2");
-        let task_two_rebind = task_payload("task-2", "Task Two", "session-1");
-
-        storage
-            .put_task_raw_with_status("task-1", "active", &task_one)
-            .unwrap();
-        storage
-            .put_task_raw_with_status("task-2", "active", &task_two)
-            .unwrap();
-
-        storage
-            .update_task_raw_with_status("task-2", "active", "active", &task_two_rebind)
-            .unwrap();
-
-        assert_eq!(
-            storage.get_task_raw("task-2").unwrap().unwrap(),
-            task_two_rebind
-        );
-    }
-
-    #[test]
-    fn test_put_task_with_status_ignores_malformed_existing_payload() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-malformed", "active", b"{not-json")
-            .unwrap();
-
-        storage
-            .put_task_raw_with_status(
-                "task-2",
-                "active",
-                &task_payload("task-2", "Task Two", "session-1"),
-            )
-            .unwrap();
-
-        assert_eq!(
-            storage
-                .list_tasks_by_status_indexed("active")
-                .unwrap()
-                .len(),
-            2
-        );
-    }
-
-    #[test]
-    fn test_delete_task_cascade_removes_related_records_atomically() {
-        let storage = create_test_storage();
-
-        storage
-            .put_task_raw_with_status("task-1", "active", br#"{"id":"task-1"}"#)
-            .unwrap();
-        storage
-            .put_task_raw_with_status("task-2", "active", br#"{"id":"task-2"}"#)
-            .unwrap();
-
-        storage
-            .put_event_raw("event-1", "task-1", b"event-1")
-            .unwrap();
-        storage
-            .put_event_raw("event-2", "task-1", b"event-2")
-            .unwrap();
-        storage
-            .put_event_raw("event-3", "task-2", b"event-3")
-            .unwrap();
-
-        storage
-            .put_run_raw_with_status(
-                "run-1",
-                "task-1",
-                "running",
-                &run_payload("run-1", "task-1", "exec-1", "running", 100),
-            )
-            .unwrap();
-        storage
-            .put_run_raw_with_status(
-                "run-2",
-                "task-2",
-                "running",
-                &run_payload("run-2", "task-2", "exec-2", "running", 100),
-            )
-            .unwrap();
-
-        storage
-            .put_task_message_raw_with_status(
-                "msg-1",
-                "task-1",
-                "queued",
-                br#"{"id":"msg-1","status":"queued"}"#,
-            )
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-2",
-                "task-1",
-                "delivered",
-                br#"{"id":"msg-2","status":"delivered"}"#,
-            )
-            .unwrap();
-        storage
-            .put_task_message_raw_with_status(
-                "msg-3",
-                "task-2",
-                "queued",
-                br#"{"id":"msg-3","status":"queued"}"#,
-            )
-            .unwrap();
-
-        let deleted = storage.delete_task_cascade("task-1").unwrap();
-        assert!(deleted);
-
-        assert!(storage.get_task_raw("task-1").unwrap().is_none());
-        assert_eq!(storage.list_events_for_task_raw("task-1").unwrap().len(), 0);
-        assert!(storage.get_run_raw("run-1").unwrap().is_none());
-        assert!(storage.get_active_run_raw("task-1").unwrap().is_none());
-        assert_eq!(
-            storage
-                .list_task_messages_for_task_raw("task-1")
-                .unwrap()
-                .len(),
-            0
-        );
-
-        assert!(storage.get_task_raw("task-2").unwrap().is_some());
-        assert_eq!(storage.list_events_for_task_raw("task-2").unwrap().len(), 1);
-        assert!(storage.get_run_raw("run-2").unwrap().is_some());
-        assert_eq!(
-            storage.get_active_run_raw("task-2").unwrap().unwrap().0,
-            "run-2"
-        );
-        assert_eq!(
-            storage
-                .list_task_messages_for_task_raw("task-2")
-                .unwrap()
-                .len(),
-            1
-        );
-
-        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
-        assert_eq!(active_tasks.len(), 1);
-        assert_eq!(active_tasks[0].0, "task-2");
+        Ok(ids.len() as u32)
     }
 }

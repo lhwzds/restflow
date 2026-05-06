@@ -29,7 +29,6 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow, bail};
 use redb::Database;
 use regex::Regex;
-use restflow_storage::SimpleStorage;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 const MAX_REGEX_PATTERN_LEN: usize = 512;
@@ -245,13 +244,13 @@ impl SecurityAmendment {
 
 #[derive(Debug, Clone)]
 pub struct SecurityAmendmentStore {
-    inner: restflow_storage::SecurityAmendmentStorage,
+    rules: Arc<RwLock<HashMap<String, SecurityAmendment>>>,
 }
 
 impl SecurityAmendmentStore {
-    pub fn new(db: Arc<Database>) -> Result<Self> {
+    pub fn new(_db: Arc<Database>) -> Result<Self> {
         Ok(Self {
-            inner: restflow_storage::SecurityAmendmentStorage::new(db)?,
+            rules: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -292,8 +291,10 @@ impl SecurityAmendmentStore {
             created_at_ms: chrono::Utc::now().timestamp_millis(),
         };
 
-        let payload = serde_json::to_vec(&rule)?;
-        self.inner.put_raw(&rule.id, &payload)?;
+        self.rules
+            .write()
+            .map_err(|_| anyhow!("Security amendment store lock poisoned"))?
+            .insert(rule.id.clone(), rule.clone());
 
         Ok((rule, warnings))
     }
@@ -311,12 +312,13 @@ impl SecurityAmendmentStore {
     }
 
     pub fn list_rules(&self) -> Result<Vec<SecurityAmendment>> {
-        let raw_entries = self.inner.list_raw()?;
-        let mut rules = Vec::new();
-        for (_, bytes) in raw_entries {
-            let rule: SecurityAmendment = serde_json::from_slice(&bytes)?;
-            rules.push(rule);
-        }
+        let mut rules = self
+            .rules
+            .read()
+            .map_err(|_| anyhow!("Security amendment store lock poisoned"))?
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         rules.sort_by_key(|rule| std::cmp::Reverse(rule.created_at_ms));
         Ok(rules)
     }

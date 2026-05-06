@@ -5,73 +5,50 @@ use crate::define_simple_storage;
 
 define_simple_storage! {
     /// Low-level agent storage with byte-level API
-    pub struct AgentStorage { table: "agents" }
+    pub struct AgentStorage { store: "agent" }
 }
 
 impl AgentStorage {
     /// Delete an agent atomically - returns (existed, resolved_id).
-    ///
-    /// This operation is atomic - the ID resolution and delete happen
-    /// within the same write transaction to prevent TOCTOU race conditions.
     pub fn delete_atomically(&self, id_or_prefix: &str) -> anyhow::Result<(bool, Option<String>)> {
-        use redb::ReadableTable;
-
         let id = id_or_prefix.trim();
         if id.is_empty() {
             anyhow::bail!("Agent ID is empty");
         }
 
-        let write_txn = self.db.begin_write()?;
-        let (existed, resolved_id) = {
-            let mut table = write_txn.open_table(Self::TABLE)?;
+        if self.delete(id)? {
+            return Ok((true, Some(id.to_string())));
+        }
 
-            // First try exact match within the write transaction
-            if table.get(id)?.is_some() {
-                table.remove(id)?;
-                (true, Some(id.to_string()))
-            } else {
-                // Try prefix resolution within the same transaction
-                let matches: Vec<String> = table
-                    .iter()?
-                    .filter_map(|item| {
-                        item.ok().and_then(|(key, _)| {
-                            let key_str = key.value().to_string();
-                            if key_str.starts_with(id) {
-                                Some(key_str)
-                            } else {
-                                None
-                            }
-                        })
-                    })
-                    .collect();
+        let matches = self
+            .list_raw()?
+            .into_iter()
+            .map(|(key, _)| key)
+            .filter(|key| key.starts_with(id))
+            .collect::<Vec<_>>();
 
-                match matches.len() {
-                    0 => (false, None),
-                    1 => {
-                        let resolved = matches.into_iter().next().unwrap();
-                        table.remove(resolved.as_str())?;
-                        (true, Some(resolved))
-                    }
-                    _ => {
-                        let preview = matches
-                            .iter()
-                            .take(5)
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        anyhow::bail!(
-                            "Agent ID prefix '{}' is ambiguous ({} matches: {})",
-                            id,
-                            matches.len(),
-                            preview
-                        )
-                    }
-                }
+        match matches.len() {
+            0 => Ok((false, None)),
+            1 => {
+                let resolved = matches.into_iter().next().unwrap();
+                self.delete(&resolved)?;
+                Ok((true, Some(resolved)))
             }
-        };
-        write_txn.commit()?;
-
-        Ok((existed, resolved_id))
+            _ => {
+                let preview = matches
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "Agent ID prefix '{}' is ambiguous ({} matches: {})",
+                    id,
+                    matches.len(),
+                    preview
+                )
+            }
+        }
     }
 }
 

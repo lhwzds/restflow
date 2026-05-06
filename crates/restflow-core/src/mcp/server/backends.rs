@@ -71,24 +71,6 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
-        crate::services::skills::create_skill(&self.core, skill)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
-        crate::services::skills::update_skill(&self.core, &skill.id, &skill)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<(), String> {
-        crate::services::skills::delete_skill(&self.core, id)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
     async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {
         crate::services::agent::list_agents(&self.core)
             .await
@@ -389,27 +371,6 @@ impl McpBackend for IpcBackend {
         let mut client = self.client.lock().await;
         client
             .get_skill_reference(skill_id.to_string(), ref_id.to_string())
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
-        let mut client = self.client.lock().await;
-        client.create_skill(skill).await.map_err(|e| e.to_string())
-    }
-
-    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
-        let mut client = self.client.lock().await;
-        client
-            .update_skill(skill.id.clone(), skill)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<(), String> {
-        let mut client = self.client.lock().await;
-        client
-            .delete_skill(id.to_string())
             .await
             .map_err(|e| e.to_string())
     }

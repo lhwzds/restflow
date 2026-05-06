@@ -385,19 +385,19 @@ pub enum AgentCommands {
         #[arg(short, long)]
         name: String,
 
-        #[arg(long)]
+        #[arg(long, hide = true)]
         provider: Option<String>,
 
-        #[arg(short, long)]
+        #[arg(short, long, hide = true)]
         model: Option<String>,
 
         #[arg(long)]
         prompt: Option<String>,
 
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, hide = true)]
         codex_execution_mode: Option<CodexExecutionModeArg>,
 
-        #[arg(long)]
+        #[arg(long, hide = true)]
         codex_reasoning_effort: Option<String>,
     },
 
@@ -408,16 +408,16 @@ pub enum AgentCommands {
         #[arg(short, long)]
         name: Option<String>,
 
-        #[arg(long)]
+        #[arg(long, hide = true)]
         provider: Option<String>,
 
-        #[arg(short, long)]
+        #[arg(short, long, hide = true)]
         model: Option<String>,
 
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, hide = true)]
         codex_execution_mode: Option<CodexExecutionModeArg>,
 
-        #[arg(long)]
+        #[arg(long, hide = true)]
         codex_reasoning_effort: Option<String>,
     },
 
@@ -464,48 +464,6 @@ pub enum SkillCommands {
     /// Show skill details
     Show { id: String },
 
-    /// Create skill
-    #[command(hide = true)]
-    Create {
-        #[arg(short, long)]
-        name: String,
-    },
-
-    /// Update skill
-    #[command(hide = true)]
-    Update {
-        /// Skill ID
-        id: String,
-
-        /// New name
-        #[arg(short, long)]
-        name: Option<String>,
-
-        /// New description
-        #[arg(short, long)]
-        description: Option<String>,
-
-        /// New content (markdown)
-        #[arg(short, long)]
-        content: Option<String>,
-
-        /// Content from file
-        #[arg(long)]
-        content_file: Option<String>,
-
-        /// Tags (comma-separated)
-        #[arg(long)]
-        tags: Option<String>,
-    },
-
-    /// Delete skill
-    #[command(hide = true)]
-    Delete { id: String },
-
-    /// Import skill from file
-    #[command(hide = true)]
-    Import { path: String },
-
     /// Export skill to file
     #[command(hide = true)]
     Export {
@@ -513,25 +471,6 @@ pub enum SkillCommands {
 
         #[arg(short, long)]
         output: Option<String>,
-    },
-
-    /// Search marketplace
-    #[command(hide = true)]
-    Search { query: String },
-
-    /// Install a skill from marketplace, git, local path, or package sources
-    #[command(hide = true)]
-    Install {
-        /// Source: marketplace id, git URL, local path, or .skill package
-        source: String,
-
-        /// Subpath within a git repository
-        #[arg(long)]
-        path: Option<String>,
-
-        /// Install scope (must be `user`)
-        #[arg(long, default_value = "user")]
-        scope: String,
     },
 }
 

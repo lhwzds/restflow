@@ -42,12 +42,12 @@ mod tests {
     use crate::services::session::SessionService;
     use crate::storage::MemoryStorage;
     use crate::storage::Storage;
+    use crate::test_support::RestflowTestEnv;
     use restflow_traits::store::UnifiedMemorySearch;
-    use tempfile::tempdir;
 
-    fn setup() -> (UnifiedMemorySearchAdapter, MemoryStorage, tempfile::TempDir) {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+    fn setup() -> (UnifiedMemorySearchAdapter, MemoryStorage, RestflowTestEnv) {
+        let state = RestflowTestEnv::new();
+        let db_path = state.db_path("test.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         let memory_storage = storage.memory.clone();
         let session_service = SessionService::new(
@@ -60,7 +60,7 @@ mod tests {
         (
             UnifiedMemorySearchAdapter::new(engine),
             memory_storage,
-            temp_dir,
+            state,
         )
     }
 

@@ -1,14 +1,12 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
 use crate::cli::{AgentCommands, CodexExecutionModeArg};
-use crate::commands::utils::{
-    format_timestamp, parse_model, parse_model_for_provider, parse_provider, short_id,
-};
+use crate::commands::utils::{format_timestamp, short_id};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::models::{AgentNode, CodexCliExecutionMode, ModelRef};
+use restflow_core::models::AgentNode;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -139,26 +137,16 @@ async fn create_agent(
     codex_reasoning_effort: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut agent_node = match (provider, model) {
-        (Some(provider), Some(model)) => {
-            let provider = parse_provider(&provider)?;
-            AgentNode::with_model(parse_model_for_provider(provider, &model)?)
-        }
-        (Some(provider), None) => {
-            let provider = parse_provider(&provider)?;
-            AgentNode::with_model(provider.flagship_model())
-        }
-        (None, Some(model)) => AgentNode::with_model(parse_model(&model)?),
-        (None, None) => AgentNode::new(),
-    };
+    reject_agent_model_options(
+        provider.as_deref(),
+        model.as_deref(),
+        codex_execution_mode.as_ref(),
+        codex_reasoning_effort.as_deref(),
+    )?;
+
+    let mut agent_node = AgentNode::new();
     if let Some(prompt) = prompt {
         agent_node = agent_node.with_prompt(prompt);
-    }
-    if let Some(mode) = codex_execution_mode {
-        agent_node = agent_node.with_codex_cli_execution_mode(to_codex_mode(mode));
-    }
-    if let Some(effort) = codex_reasoning_effort {
-        agent_node = agent_node.with_codex_cli_reasoning_effort(effort);
     }
 
     let created = executor.create_agent(name.to_string(), agent_node).await?;
@@ -182,44 +170,14 @@ async fn update_agent(
     codex_reasoning_effort: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut existing = executor.get_agent(id).await?;
+    let existing = executor.get_agent(id).await?;
 
-    let parsed_model = match (provider, model) {
-        (Some(provider), Some(model)) => {
-            let provider = parse_provider(&provider)?;
-            Some(parse_model_for_provider(provider, &model)?)
-        }
-        (Some(provider), None) => {
-            let provider = parse_provider(&provider)?;
-            match existing
-                .agent
-                .resolved_model_ref()
-                .map(|model_ref| model_ref.model)
-            {
-                Some(current) => current
-                    .remap_provider(provider)
-                    .or(Some(provider.flagship_model())),
-                None => Some(provider.flagship_model()),
-            }
-        }
-        (None, Some(model)) => Some(parse_model(&model)?),
-        (None, None) => None,
-    };
-
-    if let Some(parsed) = parsed_model {
-        existing.agent.model_ref = Some(ModelRef::from_model(parsed));
-        // Clear codex-related fields when switching to non-Codex model
-        if !parsed.is_codex_cli() {
-            existing.agent.codex_cli_reasoning_effort = None;
-            existing.agent.codex_cli_execution_mode = None;
-        }
-    }
-    if let Some(mode) = codex_execution_mode {
-        existing.agent.codex_cli_execution_mode = Some(to_codex_mode(mode));
-    }
-    if let Some(effort) = codex_reasoning_effort {
-        existing.agent.codex_cli_reasoning_effort = Some(effort);
-    }
+    reject_agent_model_options(
+        provider.as_deref(),
+        model.as_deref(),
+        codex_execution_mode.as_ref(),
+        codex_reasoning_effort.as_deref(),
+    )?;
 
     let updated = executor
         .update_agent(id, name, Some(existing.agent))
@@ -255,9 +213,21 @@ fn format_tools(tools: &Option<Vec<String>>) -> String {
     }
 }
 
-fn to_codex_mode(mode: CodexExecutionModeArg) -> CodexCliExecutionMode {
-    match mode {
-        CodexExecutionModeArg::Safe => CodexCliExecutionMode::Safe,
-        CodexExecutionModeArg::Bypass => CodexCliExecutionMode::Bypass,
+fn reject_agent_model_options(
+    provider: Option<&str>,
+    model: Option<&str>,
+    codex_execution_mode: Option<&CodexExecutionModeArg>,
+    codex_reasoning_effort: Option<&str>,
+) -> Result<()> {
+    if provider.is_none()
+        && model.is_none()
+        && codex_execution_mode.is_none()
+        && codex_reasoning_effort.is_none()
+    {
+        return Ok(());
     }
+
+    bail!(
+        "Agent files no longer persist model or auth settings. Configure the runtime model separately instead of using --provider, --model, --codex-execution-mode, or --codex-reasoning-effort on agent commands."
+    )
 }

@@ -1281,19 +1281,11 @@ mod tests {
             Some(memory_storage),
         );
 
-        let prompts_dir = temp_dir.path().join("state").join("agents");
-        std::fs::create_dir_all(&prompts_dir).expect("prompts dir");
-        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
+        let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
+        unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
         agent_storage
             .create_agent("svc-agent".to_string(), AgentNode::default())
             .expect("create agent");
-        unsafe {
-            match prev_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-            }
-        }
 
         let agent_id = agent_storage
             .list_agents()
@@ -1302,6 +1294,12 @@ mod tests {
             .next()
             .expect("agent present")
             .id;
+        unsafe {
+            match prev_disable_file_catalog {
+                Some(value) => std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", value),
+                None => std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG"),
+            }
+        }
         let mut session = ChatSession::new(agent_id, ModelId::Gpt5.as_serialized_str().to_string())
             .with_name("Convert Me");
         session.add_message(ChatMessage::user("continue this task"));
@@ -1319,19 +1317,17 @@ mod tests {
         temp_dir: &tempfile::TempDir,
         name: &str,
     ) -> String {
-        let _guard = prompt_files::agents_dir_env_lock();
-        let prompts_dir = temp_dir.path().join("state").join("agents");
-        std::fs::create_dir_all(&prompts_dir).expect("prompts dir");
-        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
+        let _ = temp_dir;
+        let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
+        unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
         let agent = service
             .agents
             .create_agent(name.to_string(), AgentNode::default())
             .expect("create agent");
         unsafe {
-            match prev_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
+            match prev_disable_file_catalog {
+                Some(value) => std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", value),
+                None => std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG"),
             }
         }
         agent.id

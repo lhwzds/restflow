@@ -512,6 +512,10 @@ async fn assess_agent_node(
         return Ok(finalize_assessment(assessment));
     }
 
+    if matches!(intent, OperationAssessmentIntent::Save) {
+        return Ok(finalize_assessment(assessment));
+    }
+
     match resolve_model_from_stored_credentials(context, auth_manager).await? {
         Some(model) => {
             let model_ref = ModelRef::from_model(model);
@@ -1312,7 +1316,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_task_convert_session_approval_id_is_bound_to_session() {
+    async fn assess_task_convert_session_save_allows_model_less_agent() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1384,13 +1388,14 @@ mod tests {
         .await
         .expect("second assessment");
 
-        assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
-        assert_eq!(second_assessment.status, OperationAssessmentStatus::Warning);
-        assert_ne!(first_assessment.approval_id, second_assessment.approval_id);
+        assert_eq!(first_assessment.status, OperationAssessmentStatus::Ok);
+        assert_eq!(second_assessment.status, OperationAssessmentStatus::Ok);
+        assert_eq!(first_assessment.approval_id, None);
+        assert_eq!(second_assessment.approval_id, None);
     }
 
     #[tokio::test]
-    async fn assess_task_convert_session_approval_id_is_stable_for_same_session() {
+    async fn assess_task_convert_session_save_is_stable_for_model_less_agent() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1435,8 +1440,9 @@ mod tests {
             .await
             .expect("second assessment");
 
-        assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
+        assert_eq!(first_assessment.status, OperationAssessmentStatus::Ok);
         assert_eq!(first_assessment.approval_id, second_assessment.approval_id);
+        assert_eq!(first_assessment.approval_id, None);
     }
 
     #[tokio::test]

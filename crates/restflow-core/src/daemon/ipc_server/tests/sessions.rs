@@ -496,6 +496,38 @@ async fn persist_ipc_user_message_if_needed_deduplicates_latest_user_turn() {
 }
 
 #[tokio::test]
+async fn record_turn_event_in_session_store_persists_tool_events() {
+    let (core, _temp) = create_test_core().await;
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    core.storage.chat_sessions.create(&session).unwrap();
+
+    record_turn_event_in_session_store(
+        &core,
+        &session.id,
+        "turn-1",
+        crate::models::ChatTurnEventKind::ToolCall {
+            call_id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: "pwd".to_string(),
+        },
+    )
+    .unwrap();
+
+    let stored = core
+        .storage
+        .chat_sessions
+        .get(&session.id)
+        .unwrap()
+        .expect("session");
+    assert_eq!(stored.turns.len(), 1);
+    assert_eq!(stored.turns[0].events.len(), 1);
+    assert!(matches!(
+        stored.turns[0].events[0].kind,
+        crate::models::ChatTurnEventKind::ToolCall { .. }
+    ));
+}
+
+#[tokio::test]
 async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
     let (core, _temp) = create_test_core().await;
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());

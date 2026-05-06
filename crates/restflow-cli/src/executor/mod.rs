@@ -35,9 +35,6 @@ pub trait CommandExecutor: Send + Sync {
 
     async fn list_skills(&self) -> Result<Vec<Skill>>;
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>>;
-    async fn create_skill(&self, skill: Skill) -> Result<()>;
-    async fn update_skill(&self, id: &str, skill: Skill) -> Result<()>;
-    async fn delete_skill(&self, id: &str) -> Result<()>;
 
     async fn search_memory(
         &self,

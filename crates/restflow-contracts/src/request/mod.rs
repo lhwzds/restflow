@@ -34,19 +34,9 @@ pub enum IpcRequest {
     GetSkill {
         id: String,
     },
-    CreateSkill {
-        skill: Skill,
-    },
-    UpdateSkill {
-        id: String,
-        skill: Skill,
-    },
     GetSkillReference {
         skill_id: String,
         ref_id: String,
-    },
-    DeleteSkill {
-        id: String,
     },
 
     ListTasks {

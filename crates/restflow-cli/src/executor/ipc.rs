@@ -94,32 +94,6 @@ impl CommandExecutor for IpcExecutor {
             .await
     }
 
-    async fn create_skill(&self, skill: Skill) -> Result<()> {
-        let skill = to_contract(skill)?;
-        let _: OkResponse = self
-            .request_typed(IpcRequest::CreateSkill { skill })
-            .await?;
-        Ok(())
-    }
-
-    async fn update_skill(&self, id: &str, skill: Skill) -> Result<()> {
-        let skill = to_contract(skill)?;
-        let _: OkResponse = self
-            .request_typed(IpcRequest::UpdateSkill {
-                id: id.to_string(),
-                skill,
-            })
-            .await?;
-        Ok(())
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<()> {
-        let _: OkResponse = self
-            .request_typed(IpcRequest::DeleteSkill { id: id.to_string() })
-            .await?;
-        Ok(())
-    }
-
     async fn search_memory(
         &self,
         query: String,

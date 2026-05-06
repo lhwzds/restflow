@@ -16,6 +16,14 @@ pub async fn list_skills(_core: &Arc<AppCore>) -> Result<Vec<Skill>> {
     list_available_skills()
 }
 
+/// Root directory for the skrun catalog RestFlow exposes.
+pub fn skill_catalog_root() -> Result<PathBuf> {
+    if let Some(root) = std::env::var_os("SKRUN_SKILLS_DIR") {
+        return Ok(PathBuf::from(root));
+    }
+    crate::paths::user_skills_dir()
+}
+
 /// List the skrun-managed skill catalog visible to runtime validation and preflight.
 pub fn list_available_skills() -> Result<Vec<Skill>> {
     SkrunSkillProvider::default()
@@ -36,30 +44,6 @@ pub async fn get_skill(_core: &Arc<AppCore>, id: &str) -> Result<Option<Skill>> 
     SkrunSkillProvider::default()
         .try_get_skill_model(id)
         .map_err(|error| anyhow!("skrun skill catalog unavailable: {error}"))
-}
-
-/// RestFlow no longer persists skills. Use skrun for skill creation.
-pub async fn create_skill(_core: &Arc<AppCore>, skill: Skill) -> Result<()> {
-    anyhow::bail!(
-        "RestFlow no longer persists skills in storage; create skill '{}' through skrun",
-        skill.id
-    )
-}
-
-/// RestFlow no longer persists skills. Use skrun for skill updates.
-pub async fn update_skill(_core: &Arc<AppCore>, id: &str, _skill: &Skill) -> Result<()> {
-    anyhow::bail!(
-        "RestFlow no longer persists skills in storage; update skill '{}' through skrun",
-        id
-    )
-}
-
-/// RestFlow no longer persists skills. Use skrun for skill removal.
-pub async fn delete_skill(_core: &Arc<AppCore>, id: &str) -> Result<()> {
-    anyhow::bail!(
-        "RestFlow no longer persists skills in storage; remove skill '{}' through skrun",
-        id
-    )
 }
 
 /// Check if a skill exists.
@@ -342,16 +326,6 @@ mod tests {
             .expect("team skrun skill should be readable");
         assert_eq!(team.name, "Team");
         assert!(team.content.contains("spawn_subagent_batch"));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_create_update_delete_skill_reject_storage_writes() {
-        let (core, _env) = create_test_core().await;
-        let skill = create_test_skill("test-skill", "Test Skill");
-
-        assert!(create_skill(&core, skill.clone()).await.is_err());
-        assert!(update_skill(&core, "test-skill", &skill).await.is_err());
-        assert!(delete_skill(&core, "test-skill").await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]

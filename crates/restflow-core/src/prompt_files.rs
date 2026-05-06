@@ -52,6 +52,7 @@ pub fn load_agent_prompt_for_agent(
             prompt_file: None,
         });
     };
+    let content = strip_optional_frontmatter(&content).unwrap_or(content);
 
     Ok(LoadedAgentPrompt {
         content: if content.trim().is_empty() {
@@ -61,6 +62,16 @@ pub fn load_agent_prompt_for_agent(
         },
         prompt_file: Some(extract_prompt_file_name(&path)?),
     })
+}
+
+fn strip_optional_frontmatter(content: &str) -> Option<String> {
+    let rest = content.strip_prefix("---\n")?;
+    let (_, body) = rest.split_once("\n---")?;
+    let body = body
+        .strip_prefix("\n\n")
+        .or_else(|| body.strip_prefix('\n'))
+        .unwrap_or(body);
+    Some(body.to_string())
 }
 
 fn read_prompt_file_if_exists(path: &Path) -> Result<Option<String>> {
@@ -131,7 +142,7 @@ fn resolve_agents_dir() -> Result<PathBuf> {
     Ok(crate::paths::ensure_restflow_dir()?.join(AGENTS_DIR))
 }
 
-fn ensure_agents_dir() -> Result<PathBuf> {
+pub(crate) fn ensure_agents_dir() -> Result<PathBuf> {
     let dir = resolve_agents_dir()?;
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create agents directory: {}", dir.display()))?;
@@ -272,7 +283,7 @@ fn unique_prompt_path(agents_dir: &std::path::Path, agent_name: &str) -> Result<
     );
 }
 
-fn sanitize_agent_file_stem(name: &str) -> String {
+pub(crate) fn sanitize_agent_file_stem(name: &str) -> String {
     let mut stem = String::with_capacity(name.len());
     let mut last_dash = false;
     for ch in name.trim().chars() {

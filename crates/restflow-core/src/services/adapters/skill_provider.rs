@@ -1,13 +1,31 @@
 //! SkillProvider implementation for the skrun-managed skill catalog.
 
 use crate::models::Skill;
-use restflow_traits::skill::{
-    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillSource, SkillUpdate,
-};
+use restflow_traits::skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
 use skrun::{ArtifactKind, SkillArtifact};
 use std::path::PathBuf;
 
 const SKRUN_TOOL_NAME: &str = "run_skill";
+
+fn validate_skill_id(skill_id: &str) -> Result<(), String> {
+    if skill_id.is_empty() {
+        return Err("skill id cannot be empty".to_string());
+    }
+    if !skill_id
+        .chars()
+        .all(|item| item.is_ascii_alphanumeric() || item == '-' || item == '_')
+    {
+        return Err("skill id must contain only ASCII letters, numbers, '-' or '_'".to_string());
+    }
+    if !skill_id
+        .chars()
+        .next()
+        .is_some_and(|item| item.is_ascii_alphanumeric())
+    {
+        return Err("skill id must start with an ASCII letter or number".to_string());
+    }
+    Ok(())
+}
 
 fn skill_info(skill: Skill) -> SkillInfo {
     SkillInfo {
@@ -15,6 +33,9 @@ fn skill_info(skill: Skill) -> SkillInfo {
         name: skill.name,
         description: skill.description,
         tags: skill.tags,
+        kind: skill.kind,
+        executable: skill.executable,
+        suggested_tools: skill.suggested_tools,
         source: skill.source,
         read_only: skill.read_only,
         source_ref: skill.source_ref,
@@ -26,6 +47,9 @@ fn skill_content(skill: Skill) -> SkillContent {
         id: skill.id,
         name: skill.name,
         content: skill.content,
+        kind: skill.kind,
+        executable: skill.executable,
+        suggested_tools: skill.suggested_tools,
         source: skill.source,
         read_only: skill.read_only,
         source_ref: skill.source_ref,
@@ -71,6 +95,8 @@ fn skrun_artifact_to_model(record: SkillArtifact) -> Skill {
         record.tags,
         content,
     );
+    skill.kind = Some(kind.to_string());
+    skill.executable = executable;
     skill.source = SkillSource::External;
     skill.read_only = true;
     skill.version = Some(record.version.clone());
@@ -108,7 +134,9 @@ impl SkrunSkillProvider {
     fn root(&self) -> Result<PathBuf, String> {
         match &self.root {
             Some(root) => Ok(root.clone()),
-            None => skrun::default_skills_dir().map_err(|error| error.to_string()),
+            None => {
+                crate::services::skills::skill_catalog_root().map_err(|error| error.to_string())
+            }
         }
     }
 
@@ -134,16 +162,33 @@ impl SkrunSkillProvider {
     }
 
     pub fn try_get_skill_model(&self, id: &str) -> Result<Option<Skill>, String> {
+        validate_skill_id(id)?;
         let root = self.root()?;
         let skill_root = root.join(id);
         if !skill_root.exists() {
             return Ok(None);
         }
 
-        skrun::load_artifact(skill_root)
-            .map(skrun_artifact_to_model)
-            .map(Some)
-            .map_err(|error| error.to_string())
+        let root = root.canonicalize().map_err(|error| error.to_string())?;
+        let skill_root = skill_root
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        if !skill_root.starts_with(&root) {
+            return Err(format!(
+                "skill id '{}' resolves outside the skill catalog",
+                id
+            ));
+        }
+
+        let artifact = skrun::load_artifact(skill_root).map_err(|error| error.to_string())?;
+        if artifact.id != id {
+            return Err(format!(
+                "skill artifact id mismatch: requested '{}', found '{}'",
+                id, artifact.id
+            ));
+        }
+
+        Ok(Some(skrun_artifact_to_model(artifact)))
     }
 
     pub fn get_skill_model(&self, id: &str) -> Option<Skill> {
@@ -175,35 +220,10 @@ impl SkillProvider for SkrunSkillProvider {
         self.get_skill_model(id).map(skill_content)
     }
 
-    fn create_skill(&self, _: SkillRecord) -> Result<SkillRecord, String> {
-        Err("RestFlow does not persist skills; install or edit skills through skrun".to_string())
-    }
-
-    fn update_skill(&self, id: &str, _: SkillUpdate) -> Result<SkillRecord, String> {
-        Err(format!(
-            "RestFlow does not persist skill '{}'; update it through skrun",
-            id
-        ))
-    }
-
-    fn delete_skill(&self, id: &str) -> Result<bool, String> {
-        Err(format!(
-            "RestFlow does not persist skill '{}'; remove it through skrun",
-            id
-        ))
-    }
-
     fn export_skill(&self, id: &str) -> Result<String, String> {
         self.get_skill_model(id)
             .map(|skill| skill.to_markdown())
             .ok_or_else(|| format!("Skill {} not found", id))
-    }
-
-    fn import_skill(&self, id: &str, _: &str, _: bool) -> Result<SkillRecord, String> {
-        Err(format!(
-            "RestFlow does not import skill '{}'; install it through skrun",
-            id
-        ))
     }
 }
 
@@ -260,5 +280,32 @@ mod tests {
         let provider = SkrunSkillProvider::new(dir.path().join("missing"));
         assert!(provider.try_list_skill_models().unwrap().is_empty());
         assert!(provider.try_get_skill_model("team").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_rejects_path_like_skill_id() {
+        let dir = tempdir().unwrap();
+        let provider = SkrunSkillProvider::new(dir.path());
+
+        let error = provider
+            .try_get_skill_model("../outside")
+            .expect_err("path-like skill id should be rejected");
+
+        assert!(error.contains("must contain only ASCII letters"));
+    }
+
+    #[test]
+    fn test_get_rejects_artifact_id_mismatch() {
+        let dir = tempdir().unwrap();
+        let artifact =
+            SkillArtifact::markdown("actual", "Actual", "0.1.0", "# Actual\n\nUse this.");
+        skrun::save_artifact(dir.path().join("alias"), &artifact).unwrap();
+        let provider = SkrunSkillProvider::new(dir.path());
+
+        let error = provider
+            .try_get_skill_model("alias")
+            .expect_err("artifact id mismatch should be rejected");
+
+        assert!(error.contains("artifact id mismatch"));
     }
 }

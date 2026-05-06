@@ -78,18 +78,6 @@ impl CommandExecutor for DirectExecutor {
         skills_service::get_skill(&self.core, id).await
     }
 
-    async fn create_skill(&self, skill: Skill) -> Result<()> {
-        skills_service::create_skill(&self.core, skill).await
-    }
-
-    async fn update_skill(&self, id: &str, skill: Skill) -> Result<()> {
-        skills_service::update_skill(&self.core, id, &skill).await
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<()> {
-        skills_service::delete_skill(&self.core, id).await
-    }
-
     async fn search_memory(
         &self,
         query: String,

@@ -112,7 +112,6 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "glob",
         "grep",
         "load_skill",
-        "run_skill",
     ]
     .into_iter()
     .map(str::to_string)
@@ -312,7 +311,8 @@ pub fn registry_from_allowlist_with_security_gate(
                 };
             }
             "run_skill" => {
-                let mut tool = RunSkillTool::new();
+                let mut tool =
+                    RunSkillTool::new().with_root(crate::services::skills::skill_catalog_root()?);
                 if let Some(gate) = security_gate.clone() {
                     tool = tool.with_security(
                         gate,
@@ -580,7 +580,6 @@ mod tests {
                 "glob",
                 "grep",
                 "load_skill",
-                "run_skill",
             ]
         );
         assert!(!names.contains(&"http_request".to_string()));
@@ -610,8 +609,8 @@ mod tests {
 
     #[test]
     fn test_manage_tasks_tool_registered_with_storage() {
-        let dir = tempdir().expect("temp dir should be created");
-        let db_path = dir.path().join("registry-tools.db");
+        let state = RestflowTestEnv::new();
+        let db_path = state.db_path("registry-tools.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
         let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
@@ -706,7 +705,7 @@ mod tests {
     #[test]
     fn test_main_agent_default_tools_exclude_external_and_management_tools() {
         let tools = main_agent_default_tool_names();
-        assert!(tools.iter().any(|name| name == "run_skill"));
+        assert!(!tools.iter().any(|name| name == "run_skill"));
         assert!(!tools.iter().any(|name| name == "python"));
         assert!(!tools.iter().any(|name| name == "browser"));
         assert!(!tools.iter().any(|name| name == "transcribe"));
@@ -828,22 +827,11 @@ mod tests {
         let db_path = dir.path().join("registry-bg-runtime.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
-        let prompts_dir = dir.path().join("agents");
-        std::fs::create_dir_all(&prompts_dir).expect("prompts dir should be created");
-
-        let previous_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
         let agent_id = storage
             .agents
             .create_agent("Runtime Owner".to_string(), AgentNode::default())
             .expect("agent should be created")
             .id;
-        unsafe {
-            match previous_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-            }
-        }
 
         let names = vec!["manage_tasks".to_string()];
         let registry =

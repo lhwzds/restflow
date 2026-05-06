@@ -10,7 +10,7 @@ define_simple_storage! {
     ///
     /// Key format is defined by restflow-core wrapper and should be stable:
     /// `{channel}:{account_or_star}:{conversation_id}`.
-    pub struct ChannelSessionBindingStorage { table: "channel_session_bindings" }
+    pub struct ChannelSessionBindingStorage { store: "channel-session-binding" }
 }
 
 #[cfg(test)]

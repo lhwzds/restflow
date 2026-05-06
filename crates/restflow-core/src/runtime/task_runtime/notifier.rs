@@ -245,13 +245,13 @@ fn sanitize_telegram_error(raw: &str, bot_token: &str) -> String {
 mod tests {
     use super::*;
     use crate::models::TaskSchedule;
-    use tempfile::tempdir;
+    use crate::test_support::RestflowTestEnv;
 
-    fn create_test_secrets() -> (Arc<SecretStorage>, tempfile::TempDir) {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+    fn create_test_secrets() -> (Arc<SecretStorage>, RestflowTestEnv) {
+        let state = RestflowTestEnv::new();
+        let db_path = state.db_path("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        (Arc::new(SecretStorage::new(db).unwrap()), temp_dir)
+        (Arc::new(SecretStorage::new(db).unwrap()), state)
     }
 
     fn create_test_task() -> Task {

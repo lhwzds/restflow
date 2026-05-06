@@ -14,7 +14,7 @@ pub mod task_runtime;
 pub mod terminal_session;
 
 use anyhow::Result;
-use redb::Database;
+use redb::{Database, TableHandle};
 use restflow_storage::MemoryIndex;
 use std::path::Path;
 use std::sync::Arc;
@@ -69,6 +69,7 @@ impl Storage {
     /// Create a new storage instance with custom secret storage configuration.
     pub fn with_secret_config(path: &str, secret_config: SecretStorageConfig) -> Result<Self> {
         let db = Arc::new(Database::create(path)?);
+        purge_non_secret_redb_tables(&db)?;
 
         let config = ConfigStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
@@ -122,5 +123,46 @@ impl Storage {
     /// Get a reference to the underlying database.
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
+    }
+}
+
+fn purge_non_secret_redb_tables(db: &Arc<Database>) -> Result<()> {
+    const SECRETS_TABLE: &str = "secrets";
+
+    let write_txn = db.begin_write()?;
+    let normal_tables = write_txn.list_tables()?.collect::<Vec<_>>();
+    for table in normal_tables {
+        if table.name() != SECRETS_TABLE {
+            write_txn.delete_table(table)?;
+        }
+    }
+
+    let multimap_tables = write_txn.list_multimap_tables()?.collect::<Vec<_>>();
+    for table in multimap_tables {
+        write_txn.delete_multimap_table(table)?;
+    }
+
+    write_txn.commit()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use redb::ReadableDatabase;
+
+    #[test]
+    fn fresh_storage_initializes_only_secret_table() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("restflow.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let read_txn = storage.get_db().begin_read().unwrap();
+        let tables = read_txn
+            .list_tables()
+            .unwrap()
+            .map(|table| table.name().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(tables, vec!["secrets".to_string()]);
     }
 }

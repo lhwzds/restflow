@@ -68,7 +68,8 @@ pub use execution_trace::{
 pub use chat_session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
     ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary,
-    ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
+    ChatSessionUpdate, ChatTurn, ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus,
+    ExecutionStepInfo, MessageExecution,
 };
 pub use restflow_storage::Secret;
 pub use restflow_traits::skill::SkillSource;

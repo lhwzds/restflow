@@ -9,6 +9,3 @@
 // - get_skill: Get a skill by ID (CLI: `skill show`)
 // - get_skill_context: Get skill content with execution context (No CLI needed - AI only)
 // - get_skill_reference: Load deep reference content (No CLI needed - use `skill show`)
-// - create_skill: Create a new skill (CLI: `skill create`)
-// - update_skill: Update an existing skill (CLI: `skill update`)
-// - delete_skill: Delete a skill (CLI: `skill delete`)

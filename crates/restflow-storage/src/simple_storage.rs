@@ -1,154 +1,176 @@
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
+use std::sync::{Mutex, OnceLock};
 
-/// Trait for simple key-value storage modules.
-///
-/// Provides default implementations for common CRUD operations.
-/// Implementors only need to specify the table definition and database reference.
+type StoreKey = (usize, &'static str);
+type StoreMap = HashMap<StoreKey, BTreeMap<String, Vec<u8>>>;
+
+fn simple_stores() -> &'static Mutex<StoreMap> {
+    static STORES: OnceLock<Mutex<StoreMap>> = OnceLock::new();
+    STORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn namespace_for_db(db: &Arc<redb::Database>) -> usize {
+    type NamespaceRegistry = HashMap<usize, (Weak<redb::Database>, usize)>;
+
+    static NEXT_NAMESPACE: AtomicUsize = AtomicUsize::new(1);
+    static REGISTRY: OnceLock<Mutex<NamespaceRegistry>> = OnceLock::new();
+
+    let ptr = Arc::as_ptr(db) as usize;
+    let mut registry = REGISTRY
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .expect("storage namespace registry lock poisoned");
+
+    if let Some((weak, namespace)) = registry.get(&ptr)
+        && weak.upgrade().is_some()
+    {
+        return *namespace;
+    }
+
+    let namespace = NEXT_NAMESPACE.fetch_add(1, Ordering::Relaxed);
+    registry.insert(ptr, (Arc::downgrade(db), namespace));
+    namespace
+}
+
+/// Trait for simple in-process key-value storage modules.
 pub trait SimpleStorage: Send + Sync {
-    /// The table definition for this storage type.
-    const TABLE: TableDefinition<'static, &'static str, &'static [u8]>;
+    /// Logical store name for this storage type.
+    const STORE: &'static str;
 
-    /// Get reference to the database.
-    fn db(&self) -> &Arc<Database>;
+    /// Process-local namespace derived from the owning database handle.
+    fn namespace(&self) -> usize;
+
+    /// Get reference to the database handle that owns this namespace.
+    fn db(&self) -> &std::sync::Arc<redb::Database>;
 
     /// Insert only if key doesn't exist (atomic check-and-insert).
-    ///
-    /// Returns `Ok(true)` if the key was inserted (didn't exist before).
-    /// Returns `Ok(false)` if the key already existed (no modification made).
-    ///
-    /// This operation is atomic - the existence check and insert happen
-    /// in a single write transaction, preventing TOCTOU race conditions.
     fn insert_if_absent(&self, id: &str, data: &[u8]) -> Result<bool> {
-        let write_txn = self.db().begin_write()?;
-        let inserted = {
-            let mut table = write_txn.open_table(Self::TABLE)?;
-            let existed = table.get(id)?.is_some();
-            if !existed {
-                table.insert(id, data)?;
-            }
-            !existed
-        };
-        write_txn.commit()?;
-        Ok(inserted)
+        let mut stores = simple_stores().lock().expect("simple store lock poisoned");
+        let store = stores.entry((self.namespace(), Self::STORE)).or_default();
+        if store.contains_key(id) {
+            return Ok(false);
+        }
+        store.insert(id.to_string(), data.to_vec());
+        Ok(true)
     }
 
     /// Store raw bytes by ID.
     fn put_raw(&self, id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db().begin_write()?;
-        {
-            let mut table = write_txn.open_table(Self::TABLE)?;
-            table.insert(id, data)?;
-        }
-        write_txn.commit()?;
+        let mut stores = simple_stores().lock().expect("simple store lock poisoned");
+        stores
+            .entry((self.namespace(), Self::STORE))
+            .or_default()
+            .insert(id.to_string(), data.to_vec());
         Ok(())
     }
 
     /// Get raw bytes by ID.
     fn get_raw(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db().begin_read()?;
-        let table = read_txn.open_table(Self::TABLE)?;
-        if let Some(value) = table.get(id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
+        let stores = simple_stores().lock().expect("simple store lock poisoned");
+        Ok(stores
+            .get(&(self.namespace(), Self::STORE))
+            .and_then(|store| store.get(id).cloned()))
     }
 
     /// List all entries as (id, data) pairs.
     fn list_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db().begin_read()?;
-        let table = read_txn.open_table(Self::TABLE)?;
-        let mut items = Vec::new();
-        for item in table.iter()? {
-            let (key, value) = item?;
-            items.push((key.value().to_string(), value.value().to_vec()));
-        }
-        Ok(items)
+        let stores = simple_stores().lock().expect("simple store lock poisoned");
+        Ok(stores
+            .get(&(self.namespace(), Self::STORE))
+            .map(|store| {
+                store
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Delete by ID, returns true if existed.
     fn delete(&self, id: &str) -> Result<bool> {
-        let write_txn = self.db().begin_write()?;
-        let existed = {
-            let mut table = write_txn.open_table(Self::TABLE)?;
-            table.remove(id)?.is_some()
-        };
-        write_txn.commit()?;
-        Ok(existed)
+        let mut stores = simple_stores().lock().expect("simple store lock poisoned");
+        Ok(stores
+            .get_mut(&(self.namespace(), Self::STORE))
+            .is_some_and(|store| store.remove(id).is_some()))
     }
 
     /// Delete multiple IDs in one transaction.
     fn delete_many(&self, ids: &[String]) -> Result<usize> {
-        if ids.is_empty() {
+        let mut stores = simple_stores().lock().expect("simple store lock poisoned");
+        let Some(store) = stores.get_mut(&(self.namespace(), Self::STORE)) else {
             return Ok(0);
-        }
-
-        let write_txn = self.db().begin_write()?;
+        };
         let mut deleted = 0usize;
-        {
-            let mut table = write_txn.open_table(Self::TABLE)?;
-            for id in ids {
-                if table.remove(id.as_str())?.is_some() {
-                    deleted += 1;
-                }
+        for id in ids {
+            if store.remove(id).is_some() {
+                deleted += 1;
             }
         }
-        write_txn.commit()?;
         Ok(deleted)
     }
 
     /// Check if ID exists.
     fn exists(&self, id: &str) -> Result<bool> {
-        let read_txn = self.db().begin_read()?;
-        let table = read_txn.open_table(Self::TABLE)?;
-        Ok(table.get(id)?.is_some())
+        let stores = simple_stores().lock().expect("simple store lock poisoned");
+        Ok(stores
+            .get(&(self.namespace(), Self::STORE))
+            .is_some_and(|store| store.contains_key(id)))
     }
 
     /// Check which IDs exist in a single read transaction.
-    fn exists_many(&self, ids: &[&str]) -> Result<std::collections::HashSet<String>> {
-        let read_txn = self.db().begin_read()?;
-        let table = read_txn.open_table(Self::TABLE)?;
-        let mut found = std::collections::HashSet::new();
-        for &id in ids {
-            if table.get(id)?.is_some() {
-                found.insert(id.to_string());
-            }
-        }
+    fn exists_many(&self, ids: &[&str]) -> Result<HashSet<String>> {
+        let stores = simple_stores().lock().expect("simple store lock poisoned");
+        let Some(store) = stores.get(&(self.namespace(), Self::STORE)) else {
+            return Ok(HashSet::new());
+        };
+        let found = ids
+            .iter()
+            .copied()
+            .filter(|id| store.contains_key(*id))
+            .map(str::to_string)
+            .collect();
         Ok(found)
     }
 
     /// Count all entries.
     fn count(&self) -> Result<usize> {
-        let read_txn = self.db().begin_read()?;
-        let table = read_txn.open_table(Self::TABLE)?;
-        Ok(table.len()? as usize)
+        let stores = simple_stores().lock().expect("simple store lock poisoned");
+        Ok(stores
+            .get(&(self.namespace(), Self::STORE))
+            .map(BTreeMap::len)
+            .unwrap_or_default())
     }
 }
 
 /// Macro to generate a simple storage struct with common implementations.
 #[macro_export]
 macro_rules! define_simple_storage {
-    ( $(#[$meta:meta])* $vis:vis struct $name:ident { table: $table_name:literal } ) => {
+    ( $(#[$meta:meta])* $vis:vis struct $name:ident { store: $store_name:literal } ) => {
         $(#[$meta])*
         #[derive(Debug, Clone)]
         $vis struct $name {
             db: std::sync::Arc<redb::Database>,
+            namespace: usize,
         }
 
         impl $name {
             pub fn new(db: std::sync::Arc<redb::Database>) -> anyhow::Result<Self> {
-                let write_txn = db.begin_write()?;
-                write_txn.open_table(<Self as $crate::SimpleStorage>::TABLE)?;
-                write_txn.commit()?;
-                Ok(Self { db })
+                Ok(Self {
+                    namespace: $crate::simple_storage::namespace_for_db(&db),
+                    db,
+                })
             }
         }
 
         impl $crate::SimpleStorage for $name {
-            const TABLE: redb::TableDefinition<'static, &'static str, &'static [u8]> =
-                redb::TableDefinition::new($table_name);
+            const STORE: &'static str = $store_name;
+
+            fn namespace(&self) -> usize {
+                self.namespace
+            }
 
             fn db(&self) -> &std::sync::Arc<redb::Database> {
                 &self.db

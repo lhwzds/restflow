@@ -88,7 +88,6 @@ impl ShellController {
             ShellEffect::DeleteSession { session_id } => {
                 self.delete_session_actions(session_id).await
             }
-            ShellEffect::DeleteSkill { skill_id } => self.delete_skill_actions(skill_id).await,
             ShellEffect::ListSkillsForMention => self.skill_mention_picker_actions().await,
             ShellEffect::ListSessionsInline => self.session_picker_actions().await,
             ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
@@ -547,16 +546,6 @@ impl ShellController {
                 "Skill not found: {skill_id}"
             ))]),
         }
-    }
-
-    async fn delete_skill_actions(&self, skill_id: String) -> Result<Vec<ShellAction>> {
-        self.client.delete_skill(&skill_id).await?;
-        let skills = self.sorted_skill_items().await?;
-        Ok(vec![ShellAction::SkillDeleted {
-            status: format!("Deleted skill {skill_id}"),
-            skill_id,
-            skills,
-        }])
     }
 
     async fn provider_picker_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {

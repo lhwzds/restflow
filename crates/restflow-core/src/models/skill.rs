@@ -35,6 +35,12 @@ pub struct Skill {
     pub description: Option<String>,
     /// Optional tags for categorization
     pub tags: Option<Vec<String>>,
+    /// skrun artifact kind when this skill comes from the executable skill catalog
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Whether this skill can be executed through run_skill
+    #[serde(default)]
+    pub executable: bool,
     /// Optional trigger phrases that auto-activate this skill from user input
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggers: Vec<String>,
@@ -111,6 +117,8 @@ impl Skill {
             name,
             description,
             tags,
+            kind: None,
+            executable: false,
             triggers: Vec::new(),
             content,
             folder_path: None,

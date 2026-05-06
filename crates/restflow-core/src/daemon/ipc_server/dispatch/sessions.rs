@@ -305,8 +305,11 @@ impl IpcServer {
         IpcResponse::success(SteerResponse { steered })
     }
 
-    pub(super) async fn handle_cancel_chat_session_stream(stream_id: String) -> IpcResponse {
-        let canceled = cancel_chat_stream(&stream_id).await;
+    pub(super) async fn handle_cancel_chat_session_stream(
+        core: &Arc<AppCore>,
+        stream_id: String,
+    ) -> IpcResponse {
+        let canceled = cancel_chat_stream(core, &stream_id).await;
         IpcResponse::success(CancelResponse { canceled })
     }
 

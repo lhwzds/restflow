@@ -93,9 +93,6 @@ pub trait McpBackend: Send + Sync {
         skill_id: &str,
         ref_id: &str,
     ) -> Result<Option<String>, String>;
-    async fn create_skill(&self, skill: Skill) -> Result<(), String>;
-    async fn update_skill(&self, skill: Skill) -> Result<(), String>;
-    async fn delete_skill(&self, id: &str) -> Result<(), String>;
 
     async fn list_agents(&self) -> Result<Vec<StoredAgent>, String>;
     async fn get_agent(&self, id: &str) -> Result<StoredAgent, String>;
@@ -559,6 +556,7 @@ impl RestFlowMcpServer {
         }]
     }
 
+    #[allow(dead_code)]
     async fn skill_validation_warnings(&self, skill: &Skill) -> Vec<ValidationError> {
         let tool_names = self
             .backend
@@ -576,6 +574,7 @@ impl RestFlowMcpServer {
         crate::services::skills::validate_skill_complete(skill, &tool_names, &skill_ids)
     }
 
+    #[allow(dead_code)]
     fn format_validation_warnings(errors: &[ValidationError]) -> Option<String> {
         if errors.is_empty() {
             return None;
@@ -651,21 +650,6 @@ impl ServerHandler for RestFlowMcpServer {
                 "get_skill_reference",
                 "Load the full content of a specific skill reference by skill_id and ref_id.",
                 schema_for_type::<GetSkillReferenceParams>(),
-            ),
-            Tool::new(
-                "create_skill",
-                "Create a new skill in RestFlow. Provide a name, optional description, optional tags, and the markdown content.",
-                schema_for_type::<CreateSkillParams>(),
-            ),
-            Tool::new(
-                "update_skill",
-                "Update an existing skill in RestFlow. Provide the skill ID and the fields to update.",
-                schema_for_type::<UpdateSkillParams>(),
-            ),
-            Tool::new(
-                "delete_skill",
-                "Delete a skill from RestFlow by its ID.",
-                schema_for_type::<DeleteSkillParams>(),
             ),
             Tool::new(
                 "list_agents",
@@ -785,30 +769,6 @@ impl ServerHandler for RestFlowMcpServer {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
                 self.handle_get_skill_reference(params).await
-            }
-            "create_skill" => {
-                let params: CreateSkillParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_create_skill(params).await
-            }
-            "update_skill" => {
-                let params: UpdateSkillParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_update_skill(params).await
-            }
-            "delete_skill" => {
-                let params: DeleteSkillParams =
-                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
-                        .map_err(|e| {
-                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
-                        })?;
-                self.handle_delete_skill(params).await
             }
             "list_agents" => self.handle_list_agents().await,
             "get_agent" => {

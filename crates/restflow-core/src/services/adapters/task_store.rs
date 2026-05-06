@@ -746,22 +746,17 @@ mod tests {
             bg_storage.clone(),
             Some(memory_storage),
         );
-        let prompts_dir = temp_dir.path().join("state").join("agents");
-        std::fs::create_dir_all(&prompts_dir).unwrap();
-        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
-
+        let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
+        unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
         // Create a default agent for referencing
         let agent = crate::models::AgentNode::default();
         agent_storage
             .create_agent("test-agent".to_string(), agent)
             .unwrap();
-
-        // Restore env var immediately after agent creation
         unsafe {
-            match prev_agents_dir {
-                Some(v) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, v),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
+            match prev_disable_file_catalog {
+                Some(value) => std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", value),
+                None => std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG"),
             }
         }
 
