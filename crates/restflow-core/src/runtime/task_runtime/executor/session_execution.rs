@@ -181,6 +181,24 @@ impl AgentRuntimeExecutor {
             .collect()
     }
 
+    fn session_state_for_execution(
+        system_prompt: String,
+        session: &ChatSession,
+        max_messages: usize,
+        input_mode: SessionInputMode,
+        user_input: &str,
+        max_iterations: usize,
+    ) -> restflow_ai::AgentState {
+        let mut state =
+            restflow_ai::AgentState::new(uuid::Uuid::new_v4().to_string(), max_iterations);
+        state.add_message(Message::system(system_prompt));
+        for message in Self::session_history_messages(session, max_messages, input_mode) {
+            state.add_message(message);
+        }
+        state.add_message(Message::user(user_input.to_string()));
+        state
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn execute_session_with_client(
         &self,
@@ -305,48 +323,29 @@ impl AgentRuntimeExecutor {
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }
-        let history_messages = Self::session_history_messages(session, max_history, input_mode);
+        let state = Self::session_state_for_execution(
+            system_prompt,
+            session,
+            max_history,
+            input_mode,
+            user_input,
+            agent_defaults.max_iterations,
+        );
         let force_non_stream = should_force_non_stream(model);
-        let result = if history_messages.is_empty() {
-            if force_non_stream {
-                if let Some(mut emitter) = emitter {
-                    agent.run_with_emitter(config, emitter.as_mut()).await?
-                } else {
-                    agent.run(config).await?
-                }
-            } else if let Some(mut emitter) = emitter {
-                #[allow(deprecated)]
-                {
-                    agent.execute_streaming(config, emitter.as_mut()).await?
-                }
-            } else {
-                agent.run(config).await?
-            }
-        } else {
-            let mut state = restflow_ai::AgentState::new(
-                uuid::Uuid::new_v4().to_string(),
-                agent_defaults.max_iterations,
-            );
-            state.add_message(Message::system(system_prompt));
-            for message in history_messages {
-                state.add_message(message);
-            }
-            state.add_message(Message::user(user_input.to_string()));
-            if force_non_stream {
-                if let Some(mut emitter) = emitter {
-                    agent
-                        .run_from_state_with_emitter(config, state, emitter.as_mut())
-                        .await?
-                } else {
-                    agent.run_from_state(config, state).await?
-                }
-            } else if let Some(mut emitter) = emitter {
+        let result = if force_non_stream {
+            if let Some(mut emitter) = emitter {
                 agent
-                    .execute_from_state(config, state, emitter.as_mut())
+                    .run_from_state_with_emitter(config, state, emitter.as_mut())
                     .await?
             } else {
                 agent.run_from_state(config, state).await?
             }
+        } else if let Some(mut emitter) = emitter {
+            agent
+                .execute_from_state(config, state, emitter.as_mut())
+                .await?
+        } else {
+            agent.run_from_state(config, state).await?
         };
         if !result.success {
             return Err(anyhow!(
@@ -871,6 +870,45 @@ mod tests {
         );
 
         assert!(history.is_empty());
+    }
+
+    #[test]
+    fn session_state_for_execution_uses_latest_user_after_canceled_tool_turn() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::user("run stale tool"));
+        session.record_turn_user_message("turn-1", "run stale tool");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"command\":\"sleep 20; echo stale\"}".to_string(),
+            },
+        );
+        session.cancel_turn("turn-1");
+        session.add_message(ChatMessage::user("latest request only"));
+        session.record_turn_user_message("turn-2", "latest request only");
+
+        let state = AgentRuntimeExecutor::session_state_for_execution(
+            "system prompt".to_string(),
+            &session,
+            20,
+            SessionInputMode::PersistedInSession,
+            "latest request only",
+            4,
+        );
+
+        assert_eq!(state.messages.len(), 2);
+        assert_eq!(state.messages[0].role, Role::System);
+        assert_eq!(state.messages[0].content, "system prompt");
+        assert_eq!(state.messages[1].role, Role::User);
+        assert_eq!(state.messages[1].content, "latest request only");
+        assert!(
+            state
+                .messages
+                .iter()
+                .all(|message| !message.content.contains("stale"))
+        );
     }
 
     #[test]
