@@ -13,6 +13,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
+use restflow_traits::ToolOutput;
 use restflow_traits::store::is_task_management_tool_name;
 
 use crate::agent::reviewer::{ToolCallReviewer, ToolReviewRequest};
@@ -53,6 +54,30 @@ fn spec_needs_default_model(value: &Value) -> bool {
         .unwrap_or(false);
 
     !has_agent && !has_model && !has_provider
+}
+
+fn serialize_tool_output_for_emitter(output: &ToolOutput) -> String {
+    let mut value = output.result.clone();
+    if !output.success
+        && let Some(error) = output
+            .error
+            .as_deref()
+            .filter(|error| !error.trim().is_empty())
+    {
+        match &mut value {
+            Value::Object(map) => {
+                map.entry("error".to_string())
+                    .or_insert_with(|| Value::String(error.to_string()));
+            }
+            _ => {
+                value = json!({
+                    "error": error,
+                    "result": value,
+                });
+            }
+        }
+    }
+    serde_json::to_string(&value).unwrap_or_else(|_| output.error.clone().unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -536,11 +561,7 @@ impl AgentExecutor {
             self.active_tool_calls.remove(&id);
 
             let (result_str, success) = match &result {
-                Ok(o) if o.success => (serde_json::to_string(&o.result).unwrap_or_default(), true),
-                Ok(o) => (
-                    format!("Error: {}", o.error.clone().unwrap_or_default()),
-                    false,
-                ),
+                Ok(output) => (serialize_tool_output_for_emitter(output), output.success),
                 Err(error) => (format!("Error: {}", error), false),
             };
             emitter

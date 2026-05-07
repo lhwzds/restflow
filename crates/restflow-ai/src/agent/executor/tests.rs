@@ -474,6 +474,40 @@ impl Tool for NonRetryableTool {
     }
 }
 
+struct StructuredFailureTool;
+
+#[async_trait]
+impl Tool for StructuredFailureTool {
+    fn name(&self) -> &str {
+        "structured_failure_tool"
+    }
+
+    fn description(&self) -> &str {
+        "Returns a failed structured result"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type":"object"})
+    }
+
+    async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
+        Ok(ToolOutput {
+            success: false,
+            result: serde_json::json!({
+                "exit_code": 7,
+                "stdout": "out\n",
+                "stderr": "err\n",
+                "duration_ms": 42,
+                "truncated": false,
+            }),
+            error: Some("Command exited with code 7".to_string()),
+            error_category: Some(ToolErrorCategory::Execution),
+            retryable: Some(false),
+            retry_after_ms: None,
+        })
+    }
+}
+
 type ToolStartRecord = (String, String, String);
 type ToolResultRecord = (String, String, String, bool);
 type LlmCallRecord = (
@@ -1202,6 +1236,52 @@ async fn test_executor_skips_retry_for_non_retryable_errors() {
         .unwrap();
     assert!(result.success);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_failed_tool_emitter_keeps_structured_result() {
+    let responses = vec![
+        CompletionResponse {
+            content: Some("try tool".to_string()),
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "structured_failure_tool".to_string(),
+                arguments: serde_json::json!({}),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: None,
+        },
+        CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        },
+    ];
+
+    let mock_llm = Arc::new(MockLlmClient::new(responses));
+    let mut registry = ToolRegistry::new();
+    registry.register(StructuredFailureTool);
+    let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+    let mut emitter = CapturingEmitter::new();
+
+    let result = executor
+        .run_with_emitter(AgentConfig::new("structured failure test"), &mut emitter)
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    let tool_results = emitter.tool_results.lock().await;
+    assert_eq!(tool_results.len(), 1);
+    assert_eq!(tool_results[0].0, "call_1");
+    assert_eq!(tool_results[0].1, "structured_failure_tool");
+    assert!(!tool_results[0].3);
+
+    let value: Value = serde_json::from_str(&tool_results[0].2).unwrap();
+    assert_eq!(value["exit_code"], 7);
+    assert_eq!(value["stdout"], "out\n");
+    assert_eq!(value["stderr"], "err\n");
+    assert_eq!(value["error"], "Command exited with code 7");
 }
 
 #[tokio::test]
