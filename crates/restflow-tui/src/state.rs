@@ -1972,6 +1972,28 @@ mod tests {
     }
 
     #[test]
+    fn stream_frames_preserve_text_split_across_repeated_prefix_boundary() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "STREAM_CANCEL_TEST_1\nST".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "REAM_CANCEL_TEST_2\nST".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "REAM_CANCEL_TEST_3".to_string(),
+        });
+
+        let cells = state.transcript_cells_for_render();
+        assert_eq!(cells[1].kind, TranscriptCellKind::Assistant);
+        assert_eq!(
+            cells[1].body,
+            "STREAM_CANCEL_TEST_1\nSTREAM_CANCEL_TEST_2\nSTREAM_CANCEL_TEST_3"
+        );
+    }
+
+    #[test]
     fn canceled_stream_ignores_late_frames() {
         let mut state = AppState::empty();
         state.push_local_user_message("hi".to_string());

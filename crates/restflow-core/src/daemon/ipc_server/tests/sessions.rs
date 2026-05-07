@@ -943,6 +943,40 @@ async fn ipc_stream_emitter_persists_assistant_segments_before_tools() {
 }
 
 #[tokio::test]
+async fn ipc_stream_emitter_persists_partial_assistant_segment_on_drop() {
+    let (core, _temp) = create_test_core().await;
+    let mut session = ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+    let turn_id = "turn-stream-cancel".to_string();
+    session.record_turn_user_message(&turn_id, "cancel stream");
+    core.storage.chat_sessions.create(&session).unwrap();
+    let (tx, _rx) = mpsc::unbounded_channel::<StreamFrame>();
+    let mut emitter = IpcStreamEmitter::new(
+        core.clone(),
+        session.id.clone(),
+        turn_id.clone(),
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    );
+
+    emitter.emit_text_delta("partial answer").await;
+    drop(emitter);
+
+    let stored = SessionService::from_storage(&core.storage)
+        .get_session_view(&session.id)
+        .unwrap()
+        .expect("stored session");
+    let turn = stored
+        .turns
+        .iter()
+        .find(|turn| turn.id == turn_id)
+        .expect("stored turn");
+    assert!(matches!(
+        &turn.events[1].kind,
+        ChatTurnEventKind::AssistantMessage { content } if content == "partial answer"
+    ));
+}
+
+#[tokio::test]
 async fn execute_chat_session_returns_not_found_for_missing_session() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

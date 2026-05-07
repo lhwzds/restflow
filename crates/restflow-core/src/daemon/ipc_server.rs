@@ -214,6 +214,12 @@ impl IpcStreamEmitter {
     }
 }
 
+impl Drop for IpcStreamEmitter {
+    fn drop(&mut self) {
+        self.persist_assistant_segment();
+    }
+}
+
 struct SessionReplySender {
     buffered_messages: Arc<Mutex<VecDeque<String>>>,
     stream_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
