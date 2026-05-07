@@ -23,12 +23,46 @@ use crate::tools::{ToolErrorCategory, ToolRegistry};
 
 use super::{AgentExecutor, MAX_TOOL_RETRIES};
 
+fn non_dynamic_text(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.is_empty() || matches!(value, "dynamic" | "swappable") {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn spec_needs_default_model(value: &Value) -> bool {
+    let Some(map) = value.as_object() else {
+        return false;
+    };
+    let has_agent = map
+        .get("agent")
+        .and_then(Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let has_model = map
+        .get("model")
+        .and_then(Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let has_provider = map
+        .get("provider")
+        .and_then(Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+
+    !has_agent && !has_model && !has_provider
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ToolInvocationContext<'a> {
     pub parent_run_id: Option<&'a str>,
     pub chat_session_id: Option<&'a str>,
     pub trace_session_id: Option<&'a str>,
     pub trace_scope_id: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub provider: Option<&'a str>,
 }
 
 impl<'a> ToolInvocationContext<'a> {
@@ -52,6 +86,12 @@ pub(crate) struct ToolExecutionOptions<'a> {
 impl AgentExecutor {
     fn is_subagent_spawn_tool(tool_name: &str) -> bool {
         tool_name == "spawn_subagent" || tool_name == "spawn_subagent_batch"
+    }
+
+    fn uses_runtime_policy(tool_name: &str) -> bool {
+        Self::is_subagent_spawn_tool(tool_name)
+            || matches!(tool_name, "wait_subagents" | "list_subagents")
+            || is_task_management_tool_name(tool_name)
     }
 
     fn inject_spawn_parent_run_id(tool_name: &str, args: &mut Value, parent_run_id: Option<&str>) {
@@ -93,6 +133,45 @@ impl AgentExecutor {
                 "trace_scope_id".to_string(),
                 Value::String(trace_scope_id.to_string()),
             );
+        }
+    }
+
+    fn inject_spawn_model_provider(
+        tool_name: &str,
+        args: &mut Value,
+        model: Option<&str>,
+        provider: Option<&str>,
+    ) {
+        if !Self::is_subagent_spawn_tool(tool_name) {
+            return;
+        }
+        let (Some(model), Some(provider)) = (non_dynamic_text(model), non_dynamic_text(provider))
+        else {
+            return;
+        };
+        let Some(map) = args.as_object_mut() else {
+            return;
+        };
+
+        if tool_name == "spawn_subagent_batch" {
+            let Some(specs) = map.get_mut("specs").and_then(Value::as_array_mut) else {
+                return;
+            };
+            for spec in specs {
+                if spec_needs_default_model(spec)
+                    && let Some(spec_map) = spec.as_object_mut()
+                {
+                    spec_map.insert("model".to_string(), Value::String(model.to_string()));
+                    spec_map.insert("provider".to_string(), Value::String(provider.to_string()));
+                }
+            }
+            return;
+        }
+
+        let value = Value::Object(map.clone());
+        if spec_needs_default_model(&value) {
+            map.insert("model".to_string(), Value::String(model.to_string()));
+            map.insert("provider".to_string(), Value::String(provider.to_string()));
         }
     }
 
@@ -348,6 +427,12 @@ impl AgentExecutor {
                 context.trace_session_id,
                 context.trace_scope_id,
             );
+            Self::inject_spawn_model_provider(
+                &call.name,
+                &mut args,
+                context.model,
+                context.provider,
+            );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let arguments = serde_json::to_string(&args).unwrap_or_default();
@@ -386,6 +471,12 @@ impl AgentExecutor {
                 context.trace_session_id,
                 context.trace_scope_id,
             );
+            Self::inject_spawn_model_provider(
+                &call.name,
+                &mut args,
+                context.model,
+                context.provider,
+            );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let tool_call_id = call.id.clone();
@@ -403,7 +494,9 @@ impl AgentExecutor {
                     .acquire()
                     .await
                     .map_err(|_| AiError::Tool("Tool concurrency semaphore closed".to_string()))?;
-                if let Some(reviewer) = reviewer {
+                if let Some(reviewer) = reviewer
+                    && !Self::uses_runtime_policy(&name)
+                {
                     match reviewer
                         .review_tool_call(ToolReviewRequest {
                             messages: review_messages,

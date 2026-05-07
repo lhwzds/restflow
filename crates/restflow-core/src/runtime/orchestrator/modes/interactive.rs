@@ -40,6 +40,7 @@ pub async fn run_with_session(
             steer_rx,
             telemetry_context: None,
             stream_display_mode: StreamDisplayMode::Buffered,
+            workspace_root: None,
         },
     )
     .await

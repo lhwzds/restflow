@@ -9,6 +9,8 @@ const RESTFLOW_GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
 const RESTFLOW_WORKSPACE_CONFIG_ENV: &str = "RESTFLOW_WORKSPACE_CONFIG";
 const RESTFLOW_MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
 const RESTFLOW_AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
+const TEST_MASTER_KEY_HEX: &str =
+    "1111111111111111111111111111111111111111111111111111111111111111";
 
 const ENV_KEYS: &[&str] = &[
     RESTFLOW_DIR_ENV,
@@ -72,7 +74,7 @@ impl RestflowTestEnv {
             std::env::set_var(RESTFLOW_DIR_ENV, root.path());
             std::env::set_var(RESTFLOW_GLOBAL_CONFIG_ENV, &global_config);
             std::env::set_var(RESTFLOW_WORKSPACE_CONFIG_ENV, &workspace_config);
-            std::env::remove_var(RESTFLOW_MASTER_KEY_ENV);
+            std::env::set_var(RESTFLOW_MASTER_KEY_ENV, TEST_MASTER_KEY_HEX);
             std::env::remove_var(RESTFLOW_AGENTS_DIR_ENV);
         }
 

@@ -210,6 +210,8 @@ pub struct AgentDefaults {
     pub process_session_ttl_secs: u64,
     /// Default approval timeout for security checks in seconds.
     pub approval_timeout_secs: u64,
+    /// Whether to run an auxiliary LLM review before tool execution.
+    pub auto_review_tools: bool,
     /// Maximum ReAct loop iterations per agent run.
     pub max_iterations: usize,
     /// Maximum nesting depth for sub-agents.
@@ -256,6 +258,7 @@ impl Default for AgentDefaults {
             browser_timeout_secs: DEFAULT_AGENT_BROWSER_TIMEOUT_SECS,
             process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
             approval_timeout_secs: DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS,
+            auto_review_tools: false,
             max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
             max_depth: DEFAULT_SUBAGENT_MAX_DEPTH,
             subagent_timeout_secs: DEFAULT_SUBAGENT_TIMEOUT_SECS,
@@ -838,6 +841,7 @@ struct AgentDefaultsOverride {
     pub browser_timeout_secs: Option<u64>,
     pub process_session_ttl_secs: Option<u64>,
     pub approval_timeout_secs: Option<u64>,
+    pub auto_review_tools: Option<bool>,
     pub max_iterations: Option<usize>,
     pub max_depth: Option<usize>,
     pub subagent_timeout_secs: Option<u64>,
@@ -880,6 +884,9 @@ impl AgentDefaultsOverride {
         }
         if let Some(value) = self.approval_timeout_secs {
             agent.approval_timeout_secs = value;
+        }
+        if let Some(value) = self.auto_review_tools {
+            agent.auto_review_tools = value;
         }
         if let Some(value) = self.max_iterations {
             agent.max_iterations = value;
@@ -1894,6 +1901,7 @@ mod tests {
             config.agent.approval_timeout_secs,
             DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS
         );
+        assert!(!config.agent.auto_review_tools);
 
         config.agent.tool_timeout_secs = 180;
         config.agent.llm_timeout_secs = Some(900);
@@ -1904,6 +1912,7 @@ mod tests {
         config.agent.browser_timeout_secs = 180;
         config.agent.process_session_ttl_secs = 7_200;
         config.agent.approval_timeout_secs = 450;
+        config.agent.auto_review_tools = true;
         ctx.storage.update_config(config).unwrap();
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
@@ -1916,6 +1925,7 @@ mod tests {
         assert_eq!(retrieved.agent.browser_timeout_secs, 180);
         assert_eq!(retrieved.agent.process_session_ttl_secs, 7_200);
         assert_eq!(retrieved.agent.approval_timeout_secs, 450);
+        assert!(retrieved.agent.auto_review_tools);
     }
 
     #[test]
@@ -2164,6 +2174,7 @@ llm_timeout_secs = 660
 browser_timeout_secs = 240
 process_session_ttl_secs = 5400
 approval_timeout_secs = 420
+auto_review_tools = true
 max_wall_clock_secs = 7200
 fallback_models = ["alpha", "beta"]
 "#,
@@ -2177,6 +2188,7 @@ fallback_models = ["alpha", "beta"]
         assert_eq!(effective.agent.browser_timeout_secs, 240);
         assert_eq!(effective.agent.process_session_ttl_secs, 5400);
         assert_eq!(effective.agent.approval_timeout_secs, 420);
+        assert!(effective.agent.auto_review_tools);
         assert_eq!(effective.agent.max_wall_clock_secs, Some(7200));
         assert_eq!(
             effective.agent.fallback_models,

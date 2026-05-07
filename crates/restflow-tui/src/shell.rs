@@ -1,4 +1,5 @@
 use std::io::{Result as IoResult, Stdout, Write};
+use std::path::Path;
 
 use crossterm::cursor::MoveTo;
 use crossterm::queue;
@@ -10,6 +11,8 @@ use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use restflow_core::models::SkillSource;
+use restflow_core::models::{ChatTurnEventKind, ChatTurnStatus};
+use serde_json::Value;
 
 use crate::render::render_shell_bottom_viewport;
 use crate::scrollback::ScrollbackWriter;
@@ -108,15 +111,18 @@ impl ShellRenderer {
                 .map(|previous| previous.top.min(viewport.top))
                 .unwrap_or(viewport.top);
             self.clear_rows_from(clear_from, size.1, size.0)?;
-            self.scrollback
-                .insert_pending(&mut self.stdout, viewport.top, size.0)?;
-            self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+            let inserted =
+                self.scrollback
+                    .insert_pending(&mut self.stdout, viewport.top, size.0)?;
+            if !inserted {
+                self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+            }
             self.redraw_viewport_full(&viewport, size.0)?;
         } else {
             let inserted =
                 self.scrollback
                     .insert_pending(&mut self.stdout, viewport.top, size.0)?;
-            if inserted {
+            if !inserted {
                 self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             }
             match self.last_viewport.clone() {
@@ -161,7 +167,7 @@ impl ShellRenderer {
         let inserted = self
             .scrollback
             .insert_pending(&mut self.stdout, viewport.top, size.0)?;
-        if inserted {
+        if !inserted {
             self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
         }
 
@@ -379,7 +385,9 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
             cells.push(cell.clone());
             while let Some(entry) = runtime.peek() {
                 if entry.base_cell_index == index {
-                    cells.push(entry.cell.clone());
+                    if !should_hide_stable_runtime_cell(state, &entry.cell) {
+                        cells.push(entry.cell.clone());
+                    }
                     runtime.next();
                 } else {
                     break;
@@ -390,7 +398,9 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
 
         while let Some(entry) = runtime.peek() {
             if entry.base_cell_index == index {
-                cells.push(entry.cell.clone());
+                if !should_hide_stable_runtime_cell(state, &entry.cell) {
+                    cells.push(entry.cell.clone());
+                }
                 runtime.next();
             } else {
                 break;
@@ -401,9 +411,44 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
     }
 
     for entry in runtime {
-        cells.push(entry.cell.clone());
+        if !should_hide_stable_runtime_cell(state, &entry.cell) {
+            cells.push(entry.cell.clone());
+        }
+    }
+    if let Some(index) = running_active_turn_start_index(state, &cells) {
+        cells.truncate(index);
     }
     cells
+}
+
+fn should_hide_stable_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
+    !state.is_streaming && cell.kind == TranscriptCellKind::Subagent
+}
+
+fn running_active_turn_start_index(state: &AppState, cells: &[TranscriptCell]) -> Option<usize> {
+    let active_user = state
+        .active_turn
+        .as_ref()?
+        .cells
+        .iter()
+        .find(|cell| cell.kind == TranscriptCellKind::User)?
+        .body
+        .trim_end();
+    let turn = state.thread.session.as_ref()?.turns.last()?;
+    if turn.status != ChatTurnStatus::Running {
+        return None;
+    }
+    if !turn.events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
+        )
+    }) {
+        return None;
+    }
+    cells.iter().rposition(|cell| {
+        cell.kind == TranscriptCellKind::User && cell.body.trim_end() == active_user
+    })
 }
 
 fn visible_history_tail_lines(
@@ -424,13 +469,35 @@ fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<
 }
 
 fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-    let mut cells = state
-        .active_turn
-        .as_ref()
-        .map(|turn| turn.cells.clone())
-        .unwrap_or_default();
-    if let Some(work_cell) = state.work_summary_notice() {
+    let Some(active_turn) = state.active_turn.as_ref() else {
+        return Vec::new();
+    };
+    let has_assistant_cell = active_turn
+        .cells
+        .iter()
+        .any(|cell| cell.kind == TranscriptCellKind::Assistant && !cell.body.trim().is_empty());
+    let work_cell = state.work_summary_notice();
+    if !state.is_streaming && !has_assistant_cell {
+        let activity_cells = work_cell
+            .into_iter()
+            .chain(state.task_activity_cell.iter().cloned())
+            .collect::<Vec<_>>();
+        if activity_cells.is_empty() {
+            return Vec::new();
+        }
+        return active_turn
+            .cells
+            .iter()
+            .cloned()
+            .chain(activity_cells)
+            .collect();
+    }
+    let mut cells = active_turn.cells.clone();
+    if let Some(work_cell) = work_cell {
         cells.push(work_cell);
+    }
+    if let Some(task_cell) = state.task_activity_cell.as_ref() {
+        cells.push(task_cell.clone());
     }
     cells
 }
@@ -718,8 +785,13 @@ fn build_run_picker_lines(
                 task_id,
                 title,
                 status,
+                latest_run_id,
+                next_run_at,
                 ..
             } => {
+                let next_run = next_run_at
+                    .map(|value| format!(" · next {value}"))
+                    .unwrap_or_default();
                 lines.extend(wrap_styled_line(
                     Line::from(vec![
                         Span::styled(
@@ -732,7 +804,7 @@ fn build_run_picker_lines(
                         ),
                         Span::styled("background task · ", muted_style()),
                         Span::styled(title.clone(), title_style),
-                        Span::styled(format!(" · {status}"), muted_style()),
+                        Span::styled(format!(" · {status}{next_run}"), muted_style()),
                     ]),
                     width,
                 ));
@@ -743,12 +815,22 @@ fn build_run_picker_lines(
                     ]),
                     width,
                 ));
+                if let Some(run_id) = latest_run_id {
+                    lines.extend(wrap_styled_line(
+                        Line::from(vec![
+                            Span::styled("    run: ", muted_style()),
+                            Span::styled(run_id.clone(), muted_style()),
+                        ]),
+                        width,
+                    ));
+                }
             }
             WorkPickerItem::Run {
                 run_id,
                 kind,
                 title,
                 status,
+                ..
             } => {
                 lines.extend(wrap_styled_line(
                     Line::from(vec![
@@ -1468,16 +1550,16 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
         }
 
         match cell.kind {
-            TranscriptCellKind::Tool => {
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent => {
                 let title = format_title(cell);
                 let summary = summarize_tool_body(cell.body.as_str());
                 let line = if summary.is_empty() {
-                    styled_line(title, tool_title_style())
+                    styled_line(title, cell_title_style(cell))
                 } else {
                     Line::from(vec![
-                        Span::styled(title, tool_title_style()),
+                        Span::styled(title, cell_title_style(cell)),
                         Span::raw(" "),
-                        Span::styled(summary, tool_body_style()),
+                        Span::styled(summary, cell_body_style(cell)),
                     ])
                 };
                 lines.extend(wrap_styled_line(line, width));
@@ -1519,7 +1601,9 @@ fn is_cell_prefix(previous: &[TranscriptCell], current: &[TranscriptCell]) -> bo
 
 fn should_render_cell(cell: &TranscriptCell) -> bool {
     match cell.kind {
-        TranscriptCellKind::Tool => !summarize_tool_body(cell.body.as_str()).is_empty(),
+        TranscriptCellKind::Tool | TranscriptCellKind::Subagent => {
+            !summarize_tool_body(cell.body.as_str()).is_empty()
+        }
         TranscriptCellKind::Assistant => cell.is_active || !cell.body.trim().is_empty(),
         TranscriptCellKind::User | TranscriptCellKind::System | TranscriptCellKind::Notice => {
             !cell.body.trim().is_empty()
@@ -1540,6 +1624,7 @@ fn cell_title_style(cell: &TranscriptCell) -> Style {
         }
         TranscriptCellKind::System | TranscriptCellKind::Notice => muted_style(),
         TranscriptCellKind::Tool => tool_title_style(),
+        TranscriptCellKind::Subagent => subagent_title_style(),
     }
 }
 
@@ -1551,6 +1636,7 @@ fn cell_body_style(cell: &TranscriptCell) -> Style {
         }
         TranscriptCellKind::System | TranscriptCellKind::Notice => muted_style(),
         TranscriptCellKind::Tool => tool_body_style(),
+        TranscriptCellKind::Subagent => subagent_body_style(),
         TranscriptCellKind::Assistant => Style::default(),
     }
 }
@@ -1559,6 +1645,16 @@ fn tool_title_style() -> Style {
     Style::default()
         .fg(Color::Cyan)
         .add_modifier(Modifier::BOLD)
+}
+
+fn subagent_title_style() -> Style {
+    Style::default()
+        .fg(Color::Magenta)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn subagent_body_style() -> Style {
+    Style::default().fg(Color::LightMagenta)
 }
 
 fn tool_body_style() -> Style {
@@ -1638,6 +1734,10 @@ fn normalize_body_lines(body: &str) -> Vec<String> {
 }
 
 fn summarize_tool_body(body: &str) -> String {
+    if let Some(summary) = summarize_structured_tool_body(body) {
+        return truncate_tool_summary(&summary);
+    }
+
     let compact = body
         .lines()
         .map(str::trim)
@@ -1648,11 +1748,454 @@ fn summarize_tool_body(body: &str) -> String {
         return String::new();
     }
 
-    let mut summary = compact.chars().take(TOOL_SUMMARY_LIMIT).collect::<String>();
-    if compact.chars().count() > TOOL_SUMMARY_LIMIT {
+    truncate_tool_summary(&compact)
+}
+
+fn truncate_tool_summary(value: &str) -> String {
+    let mut summary = value.chars().take(TOOL_SUMMARY_LIMIT).collect::<String>();
+    if value.chars().count() > TOOL_SUMMARY_LIMIT {
         summary.push('…');
     }
     summary
+}
+
+fn summarize_structured_tool_body(body: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(input) = json_after_tool_label(body, "Input:")
+        && let Some(summary) = summarize_tool_input_json(&input)
+    {
+        parts.push(summary);
+    }
+    match json_after_tool_label(body, "Output:") {
+        Some(output) => {
+            if let Some(summary) = summarize_tool_output_json(&output) {
+                parts.push(summary);
+            }
+        }
+        None => {
+            if let Some(output) = text_after_tool_label(body, "Output:") {
+                parts.push(format!("Output: {}", compact_tool_text(output)));
+            }
+        }
+    }
+    match json_after_tool_label(body, "Error:") {
+        Some(error) => {
+            if let Some(summary) = summarize_tool_error_json(&error) {
+                parts.push(summary);
+            }
+        }
+        None => {
+            if let Some(error) = text_after_tool_label(body, "Error:") {
+                parts.push(format!("Error: {}", compact_tool_text(error)));
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
+}
+
+fn json_after_tool_label(body: &str, label: &str) -> Option<Value> {
+    let start = body.find(label)? + label.len();
+    let rest = body[start..].trim_start();
+    let end = ["\nInput:", "\nOutput:", "\nError:"]
+        .iter()
+        .filter_map(|marker| rest.find(marker))
+        .min()
+        .unwrap_or(rest.len());
+    serde_json::from_str(rest[..end].trim()).ok()
+}
+
+fn text_after_tool_label<'a>(body: &'a str, label: &str) -> Option<&'a str> {
+    let start = body.find(label)? + label.len();
+    let rest = body[start..].trim_start();
+    let end = ["\nInput:", "\nOutput:", "\nError:"]
+        .iter()
+        .filter_map(|marker| rest.find(marker))
+        .min()
+        .unwrap_or(rest.len());
+    let value = rest[..end].trim();
+    (!value.is_empty()).then_some(value)
+}
+
+fn compact_tool_text(value: &str) -> String {
+    value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn summarize_tool_input_json(value: &Value) -> Option<String> {
+    if let Some(summary) = summarize_task_input_json(value) {
+        return Some(summary);
+    }
+
+    if let Some(command) = value
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(format!("Input: $ {}", compact_command(command)));
+    }
+
+    if let Some(pattern) = value
+        .get("pattern")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let target = value
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(compact_tool_path)
+            .unwrap_or_else(|| "workspace".to_string());
+        let mode = value
+            .get("output_mode")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        return Some(match mode {
+            Some("files_with_matches") => format!("Input: grep files in {target} · {pattern}"),
+            Some("count") => format!("Input: grep count in {target} · {pattern}"),
+            _ => format!("Input: grep {target} · {pattern}"),
+        });
+    }
+
+    if let Some(patch) = value
+        .get("patch")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && let Some(summary) = summarize_patch_input(patch)
+    {
+        return Some(summary);
+    }
+
+    let path = value
+        .get("file_path")
+        .or_else(|| value.get("path"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let path = compact_tool_path(path);
+    if let Some(edits) = value.get("edits").and_then(Value::as_array) {
+        return Some(format!(
+            "Input: edit {path} · {} {}",
+            edits.len(),
+            replacement_label(edits.len())
+        ));
+    }
+    if value.get("old_string").is_some() && value.get("new_string").is_some() {
+        return Some(format!("Input: edit {path} · 1 replacement"));
+    }
+    if let Some(action) = value
+        .get("action")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(format!("Input: {action} {path}"));
+    }
+    None
+}
+
+fn summarize_tool_output_json(value: &Value) -> Option<String> {
+    if let Some(summary) = summarize_bash_result_json("Output", value) {
+        return Some(summary);
+    }
+
+    if let Some(summary) = summarize_task_output_json(value) {
+        return Some(summary);
+    }
+
+    if let Some(match_count) = value.get("match_count").and_then(Value::as_u64) {
+        let label = count_label(match_count, "match", "matches");
+        return Some(format!("Output: {match_count} {label}"));
+    }
+    if let Some(total) = value.get("total").and_then(Value::as_u64) {
+        if value.get("files").and_then(Value::as_array).is_some() {
+            let label = count_label(total, "matching file", "matching files");
+            return Some(format!("Output: {total} {label}"));
+        }
+        if value.get("counts").and_then(Value::as_array).is_some() {
+            let label = count_label(total, "file with matches", "files with matches");
+            return Some(format!("Output: {total} {label}"));
+        }
+    }
+
+    if let Some(results) = value.get("results").and_then(Value::as_array)
+        && let Some(summary) = summarize_patch_results(results)
+    {
+        return Some(summary);
+    }
+
+    let has_edit_result =
+        value.get("edits_applied").is_some() || value.get("lines_changed").is_some();
+    let path = value
+        .get("path")
+        .or_else(|| value.get("file_path"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let path = compact_tool_path(path);
+    if !has_edit_result {
+        return None;
+    }
+    let edits = value
+        .get("edits_applied")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(1);
+    let mut summary = format!(
+        "Output: edited {path} · {edits} {}",
+        replacement_label(edits)
+    );
+    if let Some(lines_changed) = value.get("lines_changed").and_then(Value::as_u64) {
+        let label = if lines_changed == 1 { "line" } else { "lines" };
+        summary.push_str(&format!(" · {lines_changed} {label} changed"));
+    }
+    Some(summary)
+}
+
+fn summarize_task_input_json(value: &Value) -> Option<String> {
+    let operation = value
+        .get("operation")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let label = task_operation_input_label(operation);
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(short_tool_id);
+    let target = name
+        .map(compact_tool_text)
+        .or(id)
+        .unwrap_or_else(|| "task".to_string());
+    Some(format!("Input: {label} {target}"))
+}
+
+fn summarize_task_output_json(value: &Value) -> Option<String> {
+    let status = value
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let result = value.get("result")?;
+    let task = result.get("task").unwrap_or(result);
+    task.get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let task_status = task
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or(status)
+        .unwrap_or("updated");
+    let id = task
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(short_tool_id);
+    let label = match status {
+        Some("preview") => "previewed task",
+        Some("deleted") => "deleted task",
+        _ => "task",
+    };
+    let mut summary = format!("Output: {label} · {task_status}");
+    if let Some(id) = id {
+        summary.push_str(&format!(" · {id}"));
+    }
+    Some(summary)
+}
+
+fn task_operation_input_label(operation: &str) -> &'static str {
+    match operation {
+        "create" => "create task",
+        "update" => "update task",
+        "delete" => "delete task",
+        "convert_session" => "convert session",
+        "promote_to_background" => "promote background task",
+        "run_batch" => "run task batch",
+        "start" => "start task",
+        "pause" => "pause task",
+        "resume" => "resume task",
+        "stop" => "stop task",
+        "run_now" => "run task",
+        _ => "manage task",
+    }
+}
+
+fn short_tool_id(value: &str) -> String {
+    value.chars().take(8).collect()
+}
+
+fn summarize_tool_error_json(value: &Value) -> Option<String> {
+    summarize_bash_result_json("Error", value).or_else(|| {
+        if value.get("pending_approval").and_then(Value::as_bool) == Some(true) {
+            Some("Error: approval required".to_string())
+        } else if value.get("blocked").and_then(Value::as_bool) == Some(true) {
+            Some("Error: blocked by policy".to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn summarize_bash_result_json(label: &str, value: &Value) -> Option<String> {
+    let exit_code = value.get("exit_code").and_then(Value::as_i64)?;
+    let mut parts = vec![format!("{label}: exit {exit_code}")];
+    if let Some(duration_ms) = value.get("duration_ms").and_then(Value::as_u64) {
+        parts.push(format!("{duration_ms}ms"));
+    }
+    if let Some(stdout_lines) = output_line_count(value.get("stdout").and_then(Value::as_str)) {
+        parts.push(format!(
+            "{stdout_lines} stdout {}",
+            line_label(stdout_lines)
+        ));
+    }
+    if let Some(stderr_lines) = output_line_count(value.get("stderr").and_then(Value::as_str)) {
+        parts.push(format!(
+            "{stderr_lines} stderr {}",
+            line_label(stderr_lines)
+        ));
+    }
+    if value.get("truncated").and_then(Value::as_bool) == Some(true) {
+        parts.push("truncated".to_string());
+    }
+    Some(parts.join(" · "))
+}
+
+fn output_line_count(value: Option<&str>) -> Option<usize> {
+    let count = value?
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    (count > 0).then_some(count)
+}
+
+fn line_label(count: usize) -> &'static str {
+    if count == 1 { "line" } else { "lines" }
+}
+
+fn count_label(count: u64, singular: &'static str, plural: &'static str) -> &'static str {
+    if count == 1 { singular } else { plural }
+}
+
+fn summarize_patch_input(patch: &str) -> Option<String> {
+    let operations = patch
+        .lines()
+        .filter_map(parse_patch_header)
+        .collect::<Vec<_>>();
+    if operations.is_empty() {
+        return None;
+    }
+    let files = compact_patch_file_list(operations.iter().map(|(_, path)| path.as_str()));
+    Some(format!(
+        "Input: patch {} {} · {files}",
+        operations.len(),
+        file_label(operations.len())
+    ))
+}
+
+fn parse_patch_header(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    let (operation, path) = trimmed
+        .strip_prefix("*** Update File: ")
+        .map(|path| ("update", path))
+        .or_else(|| {
+            trimmed
+                .strip_prefix("*** Add File: ")
+                .map(|path| ("add", path))
+        })
+        .or_else(|| {
+            trimmed
+                .strip_prefix("*** Delete File: ")
+                .map(|path| ("delete", path))
+        })?;
+    let path = path.trim();
+    if path.is_empty() {
+        return None;
+    }
+    Some((operation.to_string(), compact_tool_path(path)))
+}
+
+fn summarize_patch_results(results: &[Value]) -> Option<String> {
+    let files = results
+        .iter()
+        .filter_map(Value::as_str)
+        .filter_map(parse_patch_result_file)
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Output: patched {} {} · {}",
+        files.len(),
+        file_label(files.len()),
+        compact_patch_file_list(files.iter().map(String::as_str))
+    ))
+}
+
+fn parse_patch_result_file(result: &str) -> Option<String> {
+    let (_, path) = result.split_once(':')?;
+    let path = path.trim();
+    if path.is_empty() {
+        return None;
+    }
+    Some(compact_tool_path(path))
+}
+
+fn compact_patch_file_list<'a>(paths: impl Iterator<Item = &'a str>) -> String {
+    let paths = paths.collect::<Vec<_>>();
+    let mut listed = paths.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+    let remaining = paths.len().saturating_sub(3);
+    if remaining > 0 {
+        listed.push_str(&format!(" +{remaining} more"));
+    }
+    listed
+}
+
+fn file_label(count: usize) -> &'static str {
+    if count == 1 { "file" } else { "files" }
+}
+
+fn compact_command(command: &str) -> String {
+    command.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn replacement_label(count: usize) -> &'static str {
+    if count == 1 {
+        "replacement"
+    } else {
+        "replacements"
+    }
+}
+
+fn compact_tool_path(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| path.to_string())
 }
 
 fn footer_status_line(state: &AppState) -> String {
@@ -2033,8 +2576,12 @@ mod tests {
         ProviderPickerItem, SkillPickerItem, TaskPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
-    use restflow_contracts::StreamFrame;
-    use restflow_core::models::{ChatSessionSummary, RunKind, RunSummary, Skill, SkillSource};
+    use restflow_contracts::{StreamFrame, TaskStreamEvent};
+    use restflow_core::models::{
+        ChatSession, ChatSessionSummary, ChatTurnEventKind, ExecutionThread, ExecutionTimeline,
+        ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, ExecutionTraceStats,
+        LifecycleTrace, RunKind, RunSummary, Skill, SkillSource,
+    };
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
@@ -2044,6 +2591,254 @@ mod tests {
     fn tool_summary_compacts_and_truncates_multiline_content() {
         let summary = summarize_tool_body(" \n {\"ok\": true}\n\nsecond line");
         assert_eq!(summary, "{\"ok\": true} second line");
+    }
+
+    #[test]
+    fn tool_summary_formats_edit_input_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}",
+            serde_json::json!({
+                "file_path": "README.md",
+                "old_string": "status=pending",
+                "new_string": "status=done"
+            })
+        ));
+
+        assert_eq!(summary, "Input: edit README.md · 1 replacement");
+    }
+
+    #[test]
+    fn tool_summary_formats_file_read_without_claiming_edit() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "action": "read",
+                "path": "README.md"
+            }),
+            serde_json::json!({
+                "path": "/private/tmp/work/README.md",
+                "content": "# Title\n"
+            })
+        ));
+
+        assert_eq!(summary, "Input: read README.md");
+        assert!(!summary.contains("edited"));
+    }
+
+    #[test]
+    fn tool_summary_formats_successful_bash_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "command": "cargo   test  -p restflow-tui"
+            }),
+            serde_json::json!({
+                "exit_code": 0,
+                "stdout": "ok\n",
+                "stderr": "",
+                "truncated": false,
+                "duration_ms": 42
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: $ cargo test -p restflow-tui Output: exit 0 · 42ms · 1 stdout line"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_task_create_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "operation": "create",
+                "name": "BG_TASK_PANEL_REAL_20260506_DELETE_ME",
+                "agent_id": "agent-1",
+                "schedule": {
+                    "type": "interval",
+                    "interval_ms": 3600000,
+                    "start_at": null
+                }
+            }),
+            serde_json::json!({
+                "status": "executed",
+                "result": {
+                    "id": "b244bf7c-b07a-4c9c-9415-c3b1a4d6d19f",
+                    "name": "BG_TASK_PANEL_REAL_20260506_DELETE_ME",
+                    "status": "active"
+                }
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: create task BG_TASK_PANEL_REAL_20260506_DELETE_ME Output: task · active · b244bf7c"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_failed_bash_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nError: {}",
+            serde_json::json!({
+                "command": "cargo test"
+            }),
+            serde_json::json!({
+                "exit_code": 101,
+                "stdout": "",
+                "stderr": "failed\nsecond\n",
+                "truncated": true,
+                "duration_ms": 900
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: $ cargo test Error: exit 101 · 900ms · 2 stderr lines · truncated"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_multiedit_input_and_output_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "file_path": "README.md",
+                "edits": [
+                    {"old_string": "a", "new_string": "b"},
+                    {"old_string": "c", "new_string": "d"}
+                ]
+            }),
+            serde_json::json!({
+                "message": "2 edits applied to README.md (0 lines changed)",
+                "path": "README.md",
+                "edits_applied": 2,
+                "lines_changed": 0
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: edit README.md · 2 replacements Output: edited README.md · 2 replacements · 0 lines changed"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_grep_content_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "pattern": "status=pending",
+                "path": "README.md",
+                "output_mode": "content"
+            }),
+            serde_json::json!({
+                "output": "1:status=pending",
+                "match_count": 1
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: grep README.md · status=pending Output: 1 match"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_grep_files_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "pattern": "status=",
+                "path": "/private/tmp/work",
+                "output_mode": "files_with_matches"
+            }),
+            serde_json::json!({
+                "files": ["/private/tmp/work/README.md", "/private/tmp/work/TODO.md"],
+                "total": 2
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: grep files in work · status= Output: 2 matching files"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_grep_count_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "pattern": "TODO",
+                "output_mode": "count"
+            }),
+            serde_json::json!({
+                "counts": [
+                    {"file": "/private/tmp/work/README.md", "count": 3}
+                ],
+                "total": 1
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: grep count in workspace · TODO Output: 1 file with matches"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_patch_input_and_output_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nOutput: {}",
+            serde_json::json!({
+                "patch": "*** Update File: README.md\n-old\n+new\n*** Add File: notes/TODO.md\n+todo"
+            }),
+            serde_json::json!({
+                "results": [
+                    "Updated: /private/tmp/work/README.md",
+                    "Created: /private/tmp/work/notes/TODO.md"
+                ]
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: patch 2 files · README.md, TODO.md Output: patched 2 files · README.md, TODO.md"
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_patch_plain_text_error() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nError: {}",
+            serde_json::json!({
+                "patch": "*** Update File: README.md\n-status=pending\n+status=patch_checked"
+            }),
+            "File README.md has not been read. Read it before patching."
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: patch 1 file · README.md Error: File README.md has not been read. Read it before patching."
+        );
+    }
+
+    #[test]
+    fn tool_summary_formats_large_patch_without_raw_patch_text() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}",
+            serde_json::json!({
+                "patch": "*** Update File: a.txt\n-a\n+b\n*** Update File: b.txt\n-a\n+b\n*** Delete File: c.txt\n*** Add File: d.txt\n+d"
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: patch 4 files · a.txt, b.txt, c.txt +1 more"
+        );
+        assert!(!summary.contains("*** Update File"));
     }
 
     #[test]
@@ -2439,6 +3234,26 @@ mod tests {
     }
 
     #[test]
+    fn stable_history_hides_non_streaming_team_runtime_cells() {
+        let mut state = AppState::empty();
+        state.runtime_cells.push(AnchoredRuntimeCell {
+            base_cell_index: 0,
+            cell: TranscriptCell {
+                kind: TranscriptCellKind::Subagent,
+                title: "Subagent".to_string(),
+                subtitle: Some("#call-team".to_string()),
+                body: "Starting 1 subagent".to_string(),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            },
+        });
+
+        let cells = build_stable_history_cells(&state);
+
+        assert!(cells.is_empty());
+    }
+
+    #[test]
     fn stable_history_keeps_runtime_cells_between_user_and_final_assistant() {
         let mut state = AppState::empty();
         state.conversation_cells.push(TranscriptCell {
@@ -2521,6 +3336,55 @@ mod tests {
                 TranscriptCellKind::Tool,
                 TranscriptCellKind::Assistant,
             ]
+        );
+    }
+
+    #[test]
+    fn stable_history_excludes_running_active_turn_from_session_projection() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.record_turn_user_message("turn-1", "previous");
+        session.complete_turn_with_assistant_message("turn-1", "done");
+        session.record_turn_user_message("turn-2", "current");
+        session.record_turn_event(
+            "turn-2",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "file".to_string(),
+                arguments: "{}".to_string(),
+            },
+        );
+        let mut state = AppState::empty();
+        state.set_current_session(session);
+        state.push_local_user_message("current".to_string());
+
+        let cells = build_stable_history_cells(&state);
+
+        assert_eq!(
+            cells
+                .iter()
+                .map(|cell| cell.body.as_str())
+                .collect::<Vec<_>>(),
+            vec!["previous", "done"]
+        );
+    }
+
+    #[test]
+    fn stable_history_keeps_previous_same_text_when_active_turn_is_not_persisted() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.record_turn_user_message("turn-1", "repeat");
+        session.complete_turn_with_assistant_message("turn-1", "done");
+        let mut state = AppState::empty();
+        state.set_current_session(session);
+        state.push_local_user_message("repeat".to_string());
+
+        let cells = build_stable_history_cells(&state);
+
+        assert_eq!(
+            cells
+                .iter()
+                .map(|cell| cell.body.as_str())
+                .collect::<Vec<_>>(),
+            vec!["repeat", "done"]
         );
     }
 
@@ -2693,6 +3557,7 @@ mod tests {
             name: "Daily digest".to_string(),
             status: "Active".to_string(),
             next_run_at: None,
+            latest_run_id: None,
         }];
         state.open_task_picker();
 
@@ -2714,11 +3579,56 @@ mod tests {
     #[test]
     fn message_viewport_shows_background_tasks_and_subagent_runs() {
         let mut state = AppState::empty();
+        state.push_local_user_message("coordinate live work".to_string());
+        state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "run-1".to_string(),
+        });
         state.tasks = vec![TaskPickerItem {
             task_id: "task-1".to_string(),
             name: "Daily digest".to_string(),
             status: "Active".to_string(),
             next_run_at: None,
+            latest_run_id: Some("run-task-1".to_string()),
+        }];
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-task".to_string(),
+            name: "manage_tasks".to_string(),
+            arguments: serde_json::json!({"operation":"promote_to_background"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-task".to_string(),
+            success: true,
+            result: serde_json::json!({
+                "status": "executed",
+                "result": {
+                    "task": {
+                        "id": "task-1"
+                    }
+                }
+            })
+            .to_string(),
+        });
+        state.thread.runs = vec![RunSummary {
+            id: "run-1".to_string(),
+            kind: RunKind::WorkspaceRun,
+            container_id: "session-1".to_string(),
+            root_run_id: Some("run-1".to_string()),
+            title: "Workspace run".to_string(),
+            subtitle: None,
+            status: "running".to_string(),
+            updated_at: 1,
+            started_at: Some(1),
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-1".to_string()),
+            task_id: None,
+            parent_run_id: None,
+            agent_id: Some("agent-1".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
         }];
         state.thread.child_runs = vec![RunSummary {
             id: "child-1".to_string(),
@@ -2745,11 +3655,388 @@ mod tests {
 
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
-        assert!(text.contains("Work"));
+        assert!(text.contains("Activity"));
+        assert!(text.contains("Current turn activity"));
         assert!(text.contains("background task"));
         assert!(text.contains("Daily digest"));
-        assert!(text.contains("subagent run"));
+        assert!(text.contains("team"));
         assert!(text.contains("child-1"));
+        assert!(!text.contains("Workspace run"));
+        assert!(!text.contains("Open a run with"));
+    }
+
+    #[test]
+    fn message_viewport_hides_unrelated_background_task_after_manage_tasks_call() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("create a background task".to_string());
+        state.tasks = vec![
+            TaskPickerItem {
+                task_id: "task-1".to_string(),
+                name: "Created task".to_string(),
+                status: "Active".to_string(),
+                next_run_at: None,
+                latest_run_id: Some("run-task-1".to_string()),
+            },
+            TaskPickerItem {
+                task_id: "task-2".to_string(),
+                name: "Unrelated task".to_string(),
+                status: "Active".to_string(),
+                next_run_at: None,
+                latest_run_id: Some("run-task-2".to_string()),
+            },
+        ];
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-task".to_string(),
+            name: "manage_tasks".to_string(),
+            arguments: serde_json::json!({"operation":"create","name":"Created task"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-task".to_string(),
+            success: true,
+            result: serde_json::json!({
+                "status": "executed",
+                "result": {
+                    "id": "task-1"
+                }
+            })
+            .to_string(),
+        });
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(text.contains("create a background task"));
+        assert!(text.contains("Created task"));
+        assert!(!text.contains("Unrelated task"));
+    }
+
+    #[test]
+    fn message_viewport_hides_background_tasks_unrelated_to_current_turn() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("edit a file".to_string());
+        state.tasks = vec![TaskPickerItem {
+            task_id: "task-1".to_string(),
+            name: "Daily digest".to_string(),
+            status: "Active".to_string(),
+            next_run_at: None,
+            latest_run_id: Some("run-task-1".to_string()),
+        }];
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(!text.contains("Current turn activity"));
+        assert!(!text.contains("background task"));
+        assert!(!text.contains("Daily digest"));
+    }
+
+    #[test]
+    fn message_viewport_hides_unrelated_running_runs_during_active_turn() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("edit a file".to_string());
+        state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "run-current".to_string(),
+        });
+        state.thread.child_runs = vec![RunSummary {
+            id: "child-1".to_string(),
+            kind: RunKind::SubagentRun,
+            container_id: "session-1".to_string(),
+            root_run_id: Some("run-other".to_string()),
+            title: "Other subagent run".to_string(),
+            subtitle: None,
+            status: "running".to_string(),
+            updated_at: 2,
+            started_at: Some(2),
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("child-1".to_string()),
+            task_id: None,
+            parent_run_id: Some("run-other".to_string()),
+            agent_id: Some("agent-2".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
+        }];
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(!text.contains("Current turn activity"));
+        assert!(!text.contains("Other subagent run"));
+        assert!(!text.contains("child-1"));
+    }
+
+    #[test]
+    fn message_viewport_shows_task_stream_activity_during_active_turn_without_persisting_it() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run a background check".to_string());
+        state.apply_task_event(TaskStreamEvent::progress(
+            "task-1",
+            "Compiling",
+            Some(50),
+            Some("main.rs".to_string()),
+        ));
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+        let stable = super::build_stable_history_cells(&state);
+
+        assert!(text.contains("run a background check"));
+        assert!(text.contains("Task"));
+        assert!(text.contains("#task-1"));
+        assert!(text.contains("Compiling"));
+        assert!(text.contains("main.rs"));
+        assert!(stable.is_empty());
+        assert!(state.runtime_cells.is_empty());
+    }
+
+    #[test]
+    fn message_viewport_hides_task_stream_activity_when_agent_is_idle() {
+        let mut state = AppState::empty();
+        state.apply_task_event(TaskStreamEvent::progress(
+            "task-1",
+            "Compiling",
+            Some(50),
+            Some("main.rs".to_string()),
+        ));
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(text.is_empty());
+        assert!(state.task_activity_cell.is_none());
+        assert!(state.runtime_cells.is_empty());
+    }
+
+    #[test]
+    fn message_viewport_drops_task_stream_activity_when_task_finishes() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run build task".to_string());
+        state.apply_task_event(TaskStreamEvent::started(
+            "task-1", "Build", "agent-1", "api",
+        ));
+        assert!(
+            line_texts(&super::build_message_lines(&state, 100, 12))
+                .join("\n")
+                .contains("run build task")
+        );
+        assert!(
+            line_texts(&super::build_message_lines(&state, 100, 12))
+                .join("\n")
+                .contains("Build")
+        );
+
+        state.apply_task_event(TaskStreamEvent::completed("task-1", "Done", 1200));
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+        assert!(text.is_empty());
+        assert!(state.task_activity_cell.is_none());
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.status.contains("completed"));
+    }
+
+    #[test]
+    fn message_viewport_hides_work_notice_when_agent_is_idle() {
+        let mut state = AppState::empty();
+        state.tasks = vec![TaskPickerItem {
+            task_id: "task-1".to_string(),
+            name: "Daily digest".to_string(),
+            status: "Active".to_string(),
+            next_run_at: None,
+            latest_run_id: None,
+        }];
+        state.thread.child_runs = vec![RunSummary {
+            id: "child-1".to_string(),
+            kind: RunKind::SubagentRun,
+            container_id: "session-1".to_string(),
+            root_run_id: Some("run-1".to_string()),
+            title: "Subagent run".to_string(),
+            subtitle: None,
+            status: "running".to_string(),
+            updated_at: 2,
+            started_at: Some(2),
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("child-1".to_string()),
+            task_id: None,
+            parent_run_id: Some("run-1".to_string()),
+            agent_id: Some("agent-2".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
+        }];
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(!text.contains("Activity"));
+        assert!(!text.contains("Daily digest"));
+        assert!(!text.contains("subagent run"));
+    }
+
+    #[test]
+    fn message_viewport_does_not_keep_open_run_focus_as_a_live_block() {
+        let mut state = AppState::empty();
+        let focus = RunSummary {
+            id: "run-1".to_string(),
+            kind: RunKind::WorkspaceRun,
+            container_id: "session-1".to_string(),
+            root_run_id: None,
+            title: "Workspace run".to_string(),
+            subtitle: Some("checking current migration".to_string()),
+            status: "run_completed".to_string(),
+            updated_at: 2,
+            started_at: Some(1),
+            ended_at: Some(2),
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-1".to_string()),
+            task_id: None,
+            parent_run_id: None,
+            agent_id: Some("agent-1".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: Some("deepseek-chat".to_string()),
+            provider: Some("deepseek".to_string()),
+            event_count: 1,
+        };
+        let thread = ExecutionThread {
+            focus,
+            timeline: ExecutionTimeline {
+                events: vec![ExecutionTraceEvent {
+                    id: "event-1".to_string(),
+                    task_id: String::new(),
+                    agent_id: "agent-1".to_string(),
+                    category: ExecutionTraceCategory::Lifecycle,
+                    source: ExecutionTraceSource::Runtime,
+                    timestamp: 2,
+                    subflow_path: Vec::new(),
+                    run_id: Some("run-1".to_string()),
+                    parent_run_id: None,
+                    session_id: Some("session-1".to_string()),
+                    turn_id: None,
+                    requested_model: None,
+                    effective_model: Some("deepseek-chat".to_string()),
+                    provider: Some("deepseek".to_string()),
+                    attempt: None,
+                    llm_call: None,
+                    tool_call: None,
+                    model_switch: None,
+                    lifecycle: Some(LifecycleTrace {
+                        status: "run_completed".to_string(),
+                        message: Some("done".to_string()),
+                        error: None,
+                        ai_duration_ms: Some(10),
+                    }),
+                    message: None,
+                    metric_sample: None,
+                    provider_health: None,
+                    log_record: None,
+                }],
+                stats: ExecutionTraceStats {
+                    total_events: 1,
+                    lifecycle_count: 1,
+                    ..ExecutionTraceStats::default()
+                },
+            },
+        };
+        state.thread.set_run_focus(
+            "run-1".to_string(),
+            thread,
+            vec![RunSummary {
+                id: "child-1".to_string(),
+                kind: RunKind::SubagentRun,
+                container_id: "session-1".to_string(),
+                root_run_id: Some("run-1".to_string()),
+                title: "Subagent run".to_string(),
+                subtitle: None,
+                status: "run_completed".to_string(),
+                updated_at: 2,
+                started_at: Some(1),
+                ended_at: Some(2),
+                session_id: Some("session-1".to_string()),
+                run_id: Some("child-1".to_string()),
+                task_id: None,
+                parent_run_id: Some("run-1".to_string()),
+                agent_id: Some("agent-2".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                effective_model: None,
+                provider: None,
+                event_count: 1,
+            }],
+        );
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 14)).join("\n");
+
+        assert!(text.is_empty());
+        assert!(!text.contains("Run"));
+        assert!(!text.contains("Workspace run"));
+        assert!(!text.contains("child-1"));
+    }
+
+    #[test]
+    fn message_viewport_drops_activity_notice_when_turn_finishes() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("coordinate live work".to_string());
+        state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "run-1".to_string(),
+        });
+        state.thread.child_runs = vec![RunSummary {
+            id: "child-1".to_string(),
+            kind: RunKind::SubagentRun,
+            container_id: "session-1".to_string(),
+            root_run_id: Some("run-1".to_string()),
+            title: "Subagent run".to_string(),
+            subtitle: None,
+            status: "running".to_string(),
+            updated_at: 2,
+            started_at: Some(2),
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("child-1".to_string()),
+            task_id: None,
+            parent_run_id: Some("run-1".to_string()),
+            agent_id: Some("agent-2".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
+        }];
+
+        let active_text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+        assert!(active_text.contains("Activity"));
+        assert!(active_text.contains("Current turn activity"));
+        assert!(active_text.contains("child-1"));
+
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        let completed_text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+        assert!(completed_text.is_empty());
+        assert!(!completed_text.contains("Current turn activity"));
+        assert!(!completed_text.contains("child-1"));
+    }
+
+    #[test]
+    fn message_viewport_hides_completed_tool_only_live_turn() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("coordinate team".to_string());
+        state.start_assistant_typing();
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-team".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({"specs":[{"task":"reply ok"}]}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-team".to_string(),
+            success: true,
+            result: serde_json::json!({"status":"completed"}).to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+
+        assert!(text.is_empty());
+        assert!(!text.contains("Team"));
+        assert!(!text.contains("call-team"));
     }
 
     #[test]

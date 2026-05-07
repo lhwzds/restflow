@@ -1,5 +1,7 @@
 use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
-use restflow_core::models::{ChatRole, ChatSession, ChatTurnEventKind};
+use restflow_core::models::{ChatRole, ChatSession, ChatTurnEventKind, ChatTurnStatus};
+use serde_json::Value;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -50,6 +52,7 @@ pub enum TranscriptCellKind {
     System,
     Notice,
     Tool,
+    Subagent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,7 +105,11 @@ impl TranscriptCell {
 
     pub fn finalize(&mut self) -> bool {
         match self.kind {
-            TranscriptCellKind::Assistant | TranscriptCellKind::Tool if self.is_active => {
+            TranscriptCellKind::Assistant
+            | TranscriptCellKind::Tool
+            | TranscriptCellKind::Subagent
+                if self.is_active =>
+            {
                 self.is_active = false;
                 if self.kind == TranscriptCellKind::Assistant {
                     self.subtitle = None;
@@ -116,7 +123,10 @@ impl TranscriptCell {
     }
 
     pub fn tool_call_id(&self) -> Option<&str> {
-        if self.kind != TranscriptCellKind::Tool {
+        if !matches!(
+            self.kind,
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+        ) {
             return None;
         }
         let subtitle = self.subtitle.as_deref()?.strip_prefix('#')?;
@@ -124,11 +134,19 @@ impl TranscriptCell {
     }
 
     pub fn merge_tool_result(&mut self, success: bool, result: &str) -> bool {
-        if self.kind != TranscriptCellKind::Tool {
+        if !matches!(
+            self.kind,
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+        ) {
             return false;
         }
         let call_id = self.tool_call_id().map(ToOwned::to_owned);
         let label = if success { "Output" } else { "Error" };
+        let rendered_result = if self.kind == TranscriptCellKind::Subagent {
+            summarize_team_tool_result(success, result)
+        } else {
+            result.trim().to_string()
+        };
         let marker = format!("\n{label}:");
         let base = self
             .body
@@ -137,9 +155,9 @@ impl TranscriptCell {
             .map(|index| self.body[..index].trim_end().to_string())
             .unwrap_or_else(|| self.body.trim_end().to_string());
         self.body = if base.is_empty() {
-            format!("{label}: {}", result.trim())
+            format!("{label}: {rendered_result}")
         } else {
-            format!("{base}{marker} {}", result.trim())
+            format!("{base}{marker} {rendered_result}")
         };
         self.is_active = false;
         if let Some(call_id) = call_id {
@@ -170,40 +188,73 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
             .turns
             .iter()
             .flat_map(|turn| {
-                turn.events.iter().map(|event| match &event.kind {
-                    ChatTurnEventKind::UserMessage { content } => ShellMessage::UserMessage {
-                        content: content.clone(),
-                    },
-                    ChatTurnEventKind::AssistantMessage { content } => {
-                        ShellMessage::AssistantMessage {
-                            content: content.clone(),
+                let hide_team_activity = matches!(
+                    turn.status,
+                    ChatTurnStatus::Completed | ChatTurnStatus::Canceled | ChatTurnStatus::Failed
+                );
+                let team_call_ids = if hide_team_activity {
+                    turn.events
+                        .iter()
+                        .filter_map(|event| match &event.kind {
+                            ChatTurnEventKind::ToolCall { call_id, name, .. }
+                                if is_team_tool_name(name) =>
+                            {
+                                Some(call_id.clone())
+                            }
+                            _ => None,
+                        })
+                        .collect::<HashSet<_>>()
+                } else {
+                    HashSet::new()
+                };
+                turn.events
+                    .iter()
+                    .filter_map(move |event| match &event.kind {
+                        ChatTurnEventKind::UserMessage { content } => {
+                            Some(ShellMessage::UserMessage {
+                                content: content.clone(),
+                            })
                         }
-                    }
-                    ChatTurnEventKind::ToolCall {
-                        call_id,
-                        name,
-                        arguments,
-                    } => ShellMessage::ToolCall {
-                        call_id: call_id.clone(),
-                        name: name.clone(),
-                        arguments: arguments.clone(),
-                    },
-                    ChatTurnEventKind::ToolResult {
-                        call_id,
-                        success,
-                        result,
-                    } => ShellMessage::ToolResult {
-                        call_id: call_id.clone(),
-                        success: *success,
-                        result: result.clone(),
-                    },
-                    ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
-                        content: message.clone(),
-                    },
-                    ChatTurnEventKind::Canceled => ShellMessage::InfoNotice {
-                        content: "Turn canceled".to_string(),
-                    },
-                })
+                        ChatTurnEventKind::AssistantMessage { content } => {
+                            Some(ShellMessage::AssistantMessage {
+                                content: content.clone(),
+                            })
+                        }
+                        ChatTurnEventKind::ToolCall { name, .. }
+                            if hide_team_activity && is_team_tool_name(name) =>
+                        {
+                            None
+                        }
+                        ChatTurnEventKind::ToolCall {
+                            call_id,
+                            name,
+                            arguments,
+                        } => Some(ShellMessage::ToolCall {
+                            call_id: call_id.clone(),
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        }),
+                        ChatTurnEventKind::ToolResult {
+                            call_id,
+                            success,
+                            result,
+                        } if hide_team_activity && team_call_ids.contains(call_id) => None,
+                        ChatTurnEventKind::ToolResult {
+                            call_id,
+                            success,
+                            result,
+                        } => Some(ShellMessage::ToolResult {
+                            call_id: call_id.clone(),
+                            success: *success,
+                            result: result.clone(),
+                        }),
+                        ChatTurnEventKind::Error { message } => Some(ShellMessage::ErrorNotice {
+                            content: message.clone(),
+                        }),
+                        ChatTurnEventKind::Canceled => Some(ShellMessage::InfoNotice {
+                            content: "Turn canceled".to_string(),
+                        }),
+                    })
             })
             .collect();
     }
@@ -225,11 +276,32 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
         .collect()
 }
 
+fn is_team_tool_name(name: &str) -> bool {
+    matches!(
+        name,
+        "spawn_subagent_batch" | "spawn_subagent" | "wait_subagents"
+    )
+}
+
 pub fn transcript_cells(messages: &[ShellMessage], assistant_name: &str) -> Vec<TranscriptCell> {
-    messages
-        .iter()
-        .map(|message| cell_from_message(message, assistant_name))
-        .collect()
+    let mut cells: Vec<TranscriptCell> = Vec::new();
+    for message in messages {
+        if let ShellMessage::ToolResult {
+            call_id,
+            success,
+            result,
+        } = message
+            && let Some(cell) = cells
+                .iter_mut()
+                .rev()
+                .find(|cell| cell.tool_call_id() == Some(call_id.as_str()))
+        {
+            let _ = cell.merge_tool_result(*success, result);
+            continue;
+        }
+        cells.push(cell_from_message(message, assistant_name));
+    }
+    cells
 }
 
 pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> TranscriptCell {
@@ -270,14 +342,32 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
             call_id,
             name,
             arguments,
-        } => TranscriptCell {
-            kind: TranscriptCellKind::Tool,
-            title: format!("Tool · {name}"),
-            subtitle: Some(format!("#{call_id}")),
-            body: format!("Input: {}", arguments.trim()),
-            group: message.group(),
-            is_active: false,
-        },
+        } => {
+            let is_team_tool = matches!(
+                name.as_str(),
+                "spawn_subagent_batch" | "spawn_subagent" | "wait_subagents"
+            );
+            TranscriptCell {
+                kind: if is_team_tool {
+                    TranscriptCellKind::Subagent
+                } else {
+                    TranscriptCellKind::Tool
+                },
+                title: if is_team_tool {
+                    "Subagent".to_string()
+                } else {
+                    format!("Tool · {name}")
+                },
+                subtitle: Some(format!("#{call_id}")),
+                body: if is_team_tool {
+                    summarize_team_tool_call(name, arguments)
+                } else {
+                    format!("Input: {}", arguments.trim())
+                },
+                group: message.group(),
+                is_active: false,
+            }
+        }
         ShellMessage::ToolResult {
             call_id,
             success,
@@ -323,6 +413,167 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
             is_active: false,
         },
     }
+}
+
+fn summarize_team_tool_call(name: &str, arguments: &str) -> String {
+    let Ok(value) = serde_json::from_str::<Value>(arguments) else {
+        return format!("Starting team\nInput: {}", arguments.trim());
+    };
+
+    if name == "wait_subagents" {
+        let count = value
+            .get("task_ids")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        return format!("Waiting for {count} subagent{}", plural_suffix(count));
+    }
+
+    let mut specs = value
+        .get("specs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if specs.is_empty() && name == "spawn_subagent" {
+        specs.push(value.clone());
+    }
+    let mut count = 0usize;
+    let mut lines = Vec::new();
+    for (index, spec) in specs.iter().enumerate() {
+        let spec_count = spec
+            .get("tasks")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .or_else(|| {
+                spec.get("count")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+            })
+            .unwrap_or(1);
+        count += spec_count;
+
+        let name = spec
+            .get("inline_name")
+            .or_else(|| spec.get("agent"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("worker {}", index + 1));
+        let task = spec
+            .get("task")
+            .or_else(|| {
+                spec.get("tasks")
+                    .and_then(Value::as_array)
+                    .and_then(|tasks| tasks.first())
+            })
+            .or_else(|| value.get("task"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("delegated work");
+        lines.push(format!("- {name}: {}", truncate_for_notice(task, 90)));
+    }
+
+    if count == 0 {
+        count = 1;
+    }
+    let mut body = vec![format!("Starting {count} subagent{}", plural_suffix(count))];
+    body.extend(lines.into_iter().take(6));
+    body.join("\n")
+}
+
+fn summarize_team_tool_result(success: bool, result: &str) -> String {
+    if !success {
+        return result.trim().to_string();
+    }
+    let Ok(value) = serde_json::from_str::<Value>(result) else {
+        return result.trim().to_string();
+    };
+
+    let status = value
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("completed");
+    let count = value
+        .get("spawned_count")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .or_else(|| {
+            value
+                .get("task_ids")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+        })
+        .or_else(|| value.get("results").and_then(Value::as_array).map(Vec::len))
+        .or_else(|| {
+            if value.get("task_id").is_some()
+                || value.get("output").is_some()
+                || value.get("agent").is_some()
+            {
+                Some(1)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+    let mut lines = vec![format!("{status} {count} subagent{}", plural_suffix(count))];
+
+    if let Some(results) = value.get("results").and_then(Value::as_array) {
+        for item in results.iter().take(6) {
+            push_subagent_result_line(&mut lines, item);
+        }
+    } else if value.get("task_id").is_some()
+        || value.get("output").is_some()
+        || value.get("agent").is_some()
+    {
+        push_subagent_result_line(&mut lines, &value);
+    }
+
+    lines.join("\n")
+}
+
+fn push_subagent_result_line(lines: &mut Vec<String>, item: &Value) {
+    let task_id = item
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(short_id)
+        .or_else(|| {
+            item.get("agent")
+                .and_then(Value::as_str)
+                .map(|value| truncate_for_notice(value.trim(), 24))
+        })
+        .unwrap_or_else(|| "subagent".to_string());
+    let item_status = item
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("completed");
+    let output = item
+        .get("output")
+        .or_else(|| item.get("error"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(item_status);
+    lines.push(format!("- {task_id}: {}", truncate_for_notice(output, 90)));
+}
+
+fn plural_suffix(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
+}
+
+fn short_id(value: &str) -> String {
+    value.chars().take(8).collect()
+}
+
+fn truncate_for_notice(value: &str, max_chars: usize) -> String {
+    let mut text = value.replace('\n', " ");
+    if text.chars().count() <= max_chars {
+        return text;
+    }
+    text = text.chars().take(max_chars.saturating_sub(1)).collect();
+    text.push('…');
+    text
 }
 
 pub fn message_from_stream_frame(frame: &StreamFrame) -> Option<ShellMessage> {
@@ -563,6 +814,215 @@ mod tests {
             transcript[3],
             ShellMessage::AssistantMessage { .. }
         ));
+    }
+
+    #[test]
+    fn messages_from_session_hides_completed_team_activity() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.record_turn_user_message("turn-1", "coordinate team");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-team".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: serde_json::json!({"specs":[{"task":"reply ok"}]}).to_string(),
+            },
+        );
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolResult {
+                call_id: "call-team".to_string(),
+                success: true,
+                result: serde_json::json!({"status":"completed"}).to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("turn-1", "team done");
+
+        let transcript = messages_from_session(&session);
+
+        assert_eq!(transcript.len(), 2);
+        assert!(matches!(transcript[0], ShellMessage::UserMessage { .. }));
+        assert!(matches!(
+            transcript[1],
+            ShellMessage::AssistantMessage { .. }
+        ));
+    }
+
+    #[test]
+    fn transcript_cells_merge_tool_result_into_tool_call() {
+        let cells = transcript_cells(
+            &[
+                ShellMessage::UserMessage {
+                    content: "run pwd".to_string(),
+                },
+                ShellMessage::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: "{\"command\":\"pwd\"}".to_string(),
+                },
+                ShellMessage::ToolResult {
+                    call_id: "call-1".to_string(),
+                    success: true,
+                    result: "/tmp".to_string(),
+                },
+                ShellMessage::AssistantMessage {
+                    content: "done".to_string(),
+                },
+            ],
+            "Agent",
+        );
+
+        assert_eq!(cells.len(), 3);
+        assert_eq!(cells[1].kind, TranscriptCellKind::Tool);
+        assert_eq!(cells[1].title, "Tool · bash");
+        assert_eq!(cells[1].tool_call_id(), Some("call-1"));
+        assert!(cells[1].body.contains("Input:"));
+        assert!(cells[1].body.contains("Output: /tmp"));
+    }
+
+    #[test]
+    fn transcript_cells_render_subagent_batch_as_team_block() {
+        let cells = transcript_cells(
+            &[
+                ShellMessage::ToolCall {
+                    call_id: "call-team".to_string(),
+                    name: "spawn_subagent_batch".to_string(),
+                    arguments: serde_json::json!({
+                        "specs": [
+                            {
+                                "inline_name": "Team A",
+                                "tasks": ["return TEAM_A_OK"]
+                            },
+                            {
+                                "inline_name": "Team B",
+                                "tasks": ["return TEAM_B_OK"]
+                            }
+                        ],
+                        "wait": true
+                    })
+                    .to_string(),
+                },
+                ShellMessage::ToolResult {
+                    call_id: "call-team".to_string(),
+                    success: true,
+                    result: serde_json::json!({
+                        "status": "completed",
+                        "spawned_count": 2,
+                        "results": [
+                            {
+                                "task_id": "82f897d4-582c",
+                                "status": "completed",
+                                "output": "TEAM_A_OK"
+                            },
+                            {
+                                "task_id": "c7bf01aa-1234",
+                                "status": "completed",
+                                "output": "TEAM_B_OK"
+                            }
+                        ]
+                    })
+                    .to_string(),
+                },
+            ],
+            "Agent",
+        );
+
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].kind, TranscriptCellKind::Subagent);
+        assert_eq!(cells[0].title, "Subagent");
+        assert!(cells[0].body.contains("Starting 2 subagents"));
+        assert!(cells[0].body.contains("- Team A: return TEAM_A_OK"));
+        assert!(cells[0].body.contains("Output: completed 2 subagents"));
+        assert!(cells[0].body.contains("- 82f897d4: TEAM_A_OK"));
+        assert!(!cells[0].body.contains("\"specs\""));
+    }
+
+    #[test]
+    fn transcript_cells_render_single_subagent_result_count() {
+        let cells = transcript_cells(
+            &[
+                ShellMessage::ToolCall {
+                    call_id: "call-team".to_string(),
+                    name: "spawn_subagent".to_string(),
+                    arguments: serde_json::json!({
+                        "inline_name": "panel-check",
+                        "task": "reply SUBAGENT_PANEL_OK",
+                        "wait": true
+                    })
+                    .to_string(),
+                },
+                ShellMessage::ToolResult {
+                    call_id: "call-team".to_string(),
+                    success: true,
+                    result: serde_json::json!({
+                        "agent": "panel-check",
+                        "duration_ms": 6246,
+                        "output": "SUBAGENT_PANEL_OK",
+                        "status": "completed",
+                        "task_id": "3f181f52-c11e-4338-823a-b7a1855f7159"
+                    })
+                    .to_string(),
+                },
+            ],
+            "Agent",
+        );
+
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].kind, TranscriptCellKind::Subagent);
+        assert_eq!(cells[0].title, "Subagent");
+        assert!(cells[0].body.contains("Starting 1 subagent"));
+        assert!(
+            cells[0]
+                .body
+                .contains("- panel-check: reply SUBAGENT_PANEL_OK")
+        );
+        assert!(cells[0].body.contains("Output: completed 1 subagent"));
+        assert!(cells[0].body.contains("- 3f181f52: SUBAGENT_PANEL_OK"));
+        assert!(!cells[0].body.contains("completed 0 subagents"));
+    }
+
+    #[test]
+    fn transcript_cells_render_wait_subagents_as_team_block() {
+        let cells = transcript_cells(
+            &[
+                ShellMessage::ToolCall {
+                    call_id: "call-wait".to_string(),
+                    name: "wait_subagents".to_string(),
+                    arguments: serde_json::json!({
+                        "task_ids": ["task-a", "task-b"],
+                        "timeout_secs": 30
+                    })
+                    .to_string(),
+                },
+                ShellMessage::ToolResult {
+                    call_id: "call-wait".to_string(),
+                    success: true,
+                    result: serde_json::json!({
+                        "results": [
+                            {
+                                "task_id": "task-a",
+                                "status": "completed",
+                                "output": "TEAM_A_OK"
+                            },
+                            {
+                                "task_id": "task-b",
+                                "status": "completed",
+                                "output": "TEAM_B_OK"
+                            }
+                        ]
+                    })
+                    .to_string(),
+                },
+            ],
+            "Agent",
+        );
+
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].kind, TranscriptCellKind::Subagent);
+        assert_eq!(cells[0].title, "Subagent");
+        assert!(cells[0].body.contains("Waiting for 2 subagents"));
+        assert!(cells[0].body.contains("Output: completed 2 subagents"));
+        assert!(cells[0].body.contains("- task-a: TEAM_A_OK"));
     }
 
     #[test]

@@ -5,7 +5,6 @@ use super::state::{
     AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
     SkillPickerItem, TaskPickerItem,
 };
-use super::transcript::ShellMessage;
 use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary,
@@ -65,6 +64,12 @@ pub enum ShellAction {
         task_id: String,
         status: String,
     },
+    RunPickerLoaded {
+        tasks: Vec<TaskPickerItem>,
+        runs: Vec<RunSummary>,
+        child_runs: Vec<RunSummary>,
+        status: String,
+    },
     TaskPickerLoaded {
         tasks: Vec<TaskPickerItem>,
         status: String,
@@ -102,11 +107,11 @@ pub enum ShellAction {
         model_name: String,
         status: String,
     },
-    MessageAppended(ShellMessage),
     StatusUpdated(String),
     DaemonStarted {
         agent: Option<Box<StoredAgent>>,
         session: Option<Box<ChatSession>>,
+        pending_session: Option<PendingSessionState>,
         status: String,
     },
     DaemonStopped {
@@ -126,6 +131,7 @@ pub enum ShellAction {
     SubmitText {
         text: String,
     },
+    Quit,
     RefreshTick,
     Error(String),
 }
@@ -158,15 +164,23 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
     match action {
         ShellAction::Ui(action) => reduce_ui(state, action, &mut output),
         ShellAction::StreamFrame(frame) => {
-            let should_reload_session =
-                matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
-            state.apply_stream_frame(frame);
-            if should_reload_session && state.current_session_id().is_some() {
+            let should_reload_session = matches!(
+                frame,
+                StreamFrame::ToolResult { .. } | StreamFrame::Done { .. } | StreamFrame::Error(_)
+            );
+            let could_reload_session = should_reload_active_session(state);
+            let applied = state.apply_stream_frame(frame);
+            if applied
+                && should_reload_session
+                && (could_reload_session || should_reload_active_session(state))
+            {
                 output.effects.push(ShellEffect::ReloadCurrentSession);
             }
         }
         ShellAction::SessionEvent(event) => {
-            let refresh_current = state.current_session_id() == Some(session_id_of(&event));
+            let refresh_current = state.active_refresh_session_id() == Some(session_id_of(&event))
+                || (state.active_turn_has_tool_call()
+                    && (state.is_streaming || state.active_turn.is_some()));
             let is_message_added = matches!(event, ChatSessionEvent::MessageAdded { .. });
             state.apply_session_event(event);
             if !is_message_added {
@@ -175,6 +189,8 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 } else {
                     ShellEffect::RefreshState
                 });
+            } else if refresh_current && (state.is_streaming || state.active_turn.is_some()) {
+                output.effects.push(ShellEffect::ReloadCurrentSession);
             }
         }
         ShellAction::TaskEvent(event) => {
@@ -222,6 +238,8 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             if let Some(session) = session {
                 state.refresh_current_session(*session);
                 state.set_session_runs_and_child_runs(runs, child_runs);
+            } else if state.is_streaming || state.active_turn.is_some() {
+                state.set_session_runs_and_child_runs(runs, child_runs);
             } else {
                 state.clear_current_session("The active session is no longer available.");
             }
@@ -248,7 +266,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.push_local_user_message(message.clone());
             state.start_assistant_typing();
             state.status = "Sending message...".to_string();
-            output.effects.push(submit_message_effect(message));
+            output.effects.push(submit_message_effect(state, message));
         }
         ShellAction::RunOpened {
             session,
@@ -267,6 +285,21 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         ShellAction::TaskControlCompleted { task_id, status } => {
             state.status = format!("Task {task_id} -> {status}");
             state.clear_overlay();
+        }
+        ShellAction::RunPickerLoaded {
+            tasks,
+            runs,
+            child_runs,
+            status,
+        } => {
+            state.tasks = tasks;
+            if state.current_session_id().is_some() {
+                state.set_session_runs_and_child_runs(runs, child_runs);
+            } else {
+                state.clear_thread_runs();
+            }
+            state.open_run_picker();
+            state.status = status;
         }
         ShellAction::TaskPickerLoaded { tasks, status } => {
             state.tasks = tasks;
@@ -334,11 +367,11 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                         .to_string();
             }
         }
-        ShellAction::MessageAppended(message) => state.push_message(message),
         ShellAction::StatusUpdated(status) => state.status = status,
         ShellAction::DaemonStarted {
             agent,
             session,
+            pending_session,
             status,
         } => {
             state.exit_startup();
@@ -349,6 +382,8 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             }
             if let Some(session) = session {
                 state.set_current_session(*session);
+            } else if let Some(pending_session) = pending_session {
+                state.set_pending_session(Some(pending_session));
             } else if let Some(agent) = agent.as_ref() {
                 state.set_pending_session(Some(PendingSessionState::from_agent(agent)));
             }
@@ -394,9 +429,14 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.status = "Select task action".to_string();
         }
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
+        ShellAction::Quit => output.should_quit = true,
         ShellAction::RefreshTick => {
             if !state.is_startup_mode() {
-                output.effects.push(ShellEffect::RefreshState);
+                if should_reload_active_session(state) {
+                    output.effects.push(ShellEffect::ReloadCurrentSession);
+                } else {
+                    output.effects.push(ShellEffect::RefreshState);
+                }
             }
         }
         ShellAction::Error(message) => {
@@ -421,17 +461,25 @@ fn session_id_of(event: &ChatSessionEvent) -> &str {
     }
 }
 
+fn should_reload_active_session(state: &AppState) -> bool {
+    (state.active_refresh_session_id().is_some() || state.active_turn_has_tool_call())
+        && (state.is_streaming || state.active_turn.is_some())
+}
+
 fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
-            if let Some(stream_id) = state.current_stream_id.clone()
-                && state.is_streaming
-            {
+            if state.is_streaming || state.active_turn.is_some() {
+                let stream_id = state.current_stream_id.clone();
                 state.cancel_active_response();
                 state.push_info("Canceled current response.");
-                state.status = "Canceling response...".to_string();
-                output.effects.push(ShellEffect::CancelStream { stream_id });
+                if let Some(stream_id) = stream_id {
+                    state.status = "Canceling response...".to_string();
+                    output.effects.push(ShellEffect::CancelStream { stream_id });
+                } else {
+                    state.status = "Canceled current response.".to_string();
+                }
             } else if state.overlay.is_some() {
                 state.clear_overlay();
                 if matches!(state.composer.mode(), ComposerMode::Command) {
@@ -680,7 +728,7 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
         state.push_local_user_message(text.clone());
         state.start_assistant_typing();
         state.status = "Sending message...".to_string();
-        output.effects.push(submit_message_effect(text));
+        output.effects.push(submit_message_effect(state, text));
     }
 }
 
@@ -719,11 +767,10 @@ fn sync_composer_overlay(state: &mut AppState, output: &mut ReducerOutput) {
     }
 }
 
-fn submit_message_effect(message: String) -> ShellEffect {
-    ShellEffect::SubmitMessage {
-        message,
-        stream_id: uuid::Uuid::new_v4().to_string(),
-    }
+fn submit_message_effect(state: &mut AppState, message: String) -> ShellEffect {
+    let stream_id = uuid::Uuid::new_v4().to_string();
+    state.begin_stream(stream_id.clone());
+    ShellEffect::SubmitMessage { message, stream_id }
 }
 
 fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
@@ -735,6 +782,7 @@ fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
         SlashCommand::SwitchModel { .. } => "Switching model...",
         SlashCommand::ListTasks => "Loading tasks...",
         SlashCommand::ListSessions => "Loading sessions...",
+        SlashCommand::Quit => "Exiting...",
         _ => "Running command...",
     }
 }
@@ -746,7 +794,7 @@ mod tests {
     };
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
-    use crate::state::{AppState, PendingSessionState, SkillPickerItem};
+    use crate::state::{AppState, PendingSessionState, SkillPickerItem, TaskPickerItem};
     use restflow_contracts::{ChatSessionEvent, StreamFrame};
     use restflow_core::models::{ChatSession, ChatSessionSummary, Skill, SkillSource};
 
@@ -862,6 +910,37 @@ mod tests {
         ));
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
+    }
+
+    #[test]
+    fn run_picker_loaded_opens_transient_overlay_without_history() {
+        let mut state = AppState::empty();
+
+        let output = reduce(
+            &mut state,
+            ShellAction::RunPickerLoaded {
+                tasks: vec![TaskPickerItem {
+                    task_id: "task-1".to_string(),
+                    name: "Digest".to_string(),
+                    status: "Completed".to_string(),
+                    next_run_at: None,
+                    latest_run_id: Some("run-1".to_string()),
+                }],
+                runs: Vec::new(),
+                child_runs: Vec::new(),
+                status: "Work picker opened.".to_string(),
+            },
+        );
+
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::RunPicker { selected: 0 })
+        ));
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert_eq!(state.tasks[0].latest_run_id.as_deref(), Some("run-1"));
     }
 
     #[test]
@@ -1046,7 +1125,7 @@ mod tests {
         assert_eq!(state.composer.draft(), "/resume");
         assert!(matches!(
             state.overlay,
-            Some(crate::state::OverlayState::CommandPicker { selected: 3 })
+            Some(crate::state::OverlayState::CommandPicker { selected: 4 })
         ));
     }
 
@@ -1244,6 +1323,32 @@ mod tests {
     }
 
     #[test]
+    fn submit_text_routes_quit_slash_command() {
+        let mut state = AppState::empty();
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "/quit".to_string(),
+            },
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ExecuteSlashCommand(SlashCommand::Quit)]
+        ));
+        assert!(!output.should_quit);
+        assert_eq!(state.status, "Exiting...");
+    }
+
+    #[test]
+    fn quit_action_exits_shell() {
+        let mut state = AppState::empty();
+        let output = reduce(&mut state, ShellAction::Quit);
+
+        assert!(output.should_quit);
+    }
+
+    #[test]
     fn help_overlay_does_not_append_runtime_info() {
         let mut state = AppState::empty();
 
@@ -1299,9 +1404,43 @@ mod tests {
                 .as_deref()
                 .is_some_and(|text| text.contains("typing"))
         );
+        assert!(state.is_streaming);
         assert!(matches!(
             output.effects.as_slice(),
             [ShellEffect::SubmitMessage { message, stream_id }] if message == "hi" && !stream_id.is_empty()
+        ));
+        match output.effects.as_slice() {
+            [ShellEffect::SubmitMessage { stream_id, .. }] => {
+                assert_eq!(state.current_stream_id.as_deref(), Some(stream_id.as_str()));
+            }
+            _ => unreachable!("asserted submit effect above"),
+        }
+    }
+
+    #[test]
+    fn esc_after_submit_cancels_before_start_frame() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "hi".to_string(),
+            },
+        );
+        let stream_id = match output.effects.as_slice() {
+            [ShellEffect::SubmitMessage { stream_id, .. }] => stream_id.clone(),
+            _ => panic!("expected submit effect"),
+        };
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert_eq!(state.status, "Canceling response...");
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CancelStream { stream_id: canceled }] if canceled == &stream_id
         ));
     }
 
@@ -1348,10 +1487,17 @@ mod tests {
         assert_eq!(active_turn.cells[0].body, "hi");
         assert!(active_turn.cells.last().is_some_and(|cell| cell.is_active));
         assert_eq!(state.status, "Sending message...");
+        assert!(state.is_streaming);
         assert!(matches!(
             output.effects.as_slice(),
             [ShellEffect::SubmitMessage { message, stream_id }] if message == "hi" && !stream_id.is_empty()
         ));
+        match output.effects.as_slice() {
+            [ShellEffect::SubmitMessage { stream_id, .. }] => {
+                assert_eq!(state.current_stream_id.as_deref(), Some(stream_id.as_str()));
+            }
+            _ => unreachable!("asserted submit effect above"),
+        }
     }
 
     #[test]
@@ -1528,6 +1674,27 @@ mod tests {
     }
 
     #[test]
+    fn esc_clears_active_turn_even_without_stream_id() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run tool".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"cmd": "sleep 10"}),
+        });
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(output.effects.is_empty());
+        assert!(state.active_turn.is_none());
+        assert!(state.runtime_cells.iter().any(|entry| {
+            entry.cell.kind == crate::transcript::TranscriptCellKind::Tool
+                && entry.cell.tool_call_id() == Some("call-1")
+        }));
+        assert_eq!(state.status, "Canceled current response.");
+    }
+
+    #[test]
     fn esc_with_draft_cancels_active_stream_before_clearing_composer() {
         let mut state = AppState::empty();
         state.is_streaming = true;
@@ -1582,7 +1749,7 @@ mod tests {
     }
 
     #[test]
-    fn message_added_event_does_not_reload_current_session() {
+    fn message_added_event_does_not_reload_idle_current_session() {
         let mut state = AppState::empty();
         let session = ChatSession::new("agent-1".to_string(), "model".to_string());
         let session_id = session.id.clone();
@@ -1597,6 +1764,85 @@ mod tests {
         );
 
         assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn message_added_event_reloads_current_session_when_active_turn_is_visible() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session);
+        state.push_local_user_message("run a team".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
+        });
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionEvent(ChatSessionEvent::MessageAdded {
+                session_id,
+                source: "ipc".to_string(),
+            }),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn message_added_event_reloads_when_visible_tool_turn_lost_session_anchor() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run a team".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
+        });
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionEvent(ChatSessionEvent::MessageAdded {
+                session_id: "session-1".to_string(),
+                source: "ipc".to_string(),
+            }),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn stream_tool_result_reloads_when_visible_tool_turn_lost_session_anchor() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run a team".to_string());
+        reduce(
+            &mut state,
+            ShellAction::StreamFrame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
+            }),
+        );
+
+        let output = reduce(
+            &mut state,
+            ShellAction::StreamFrame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                result: "completed".to_string(),
+                success: true,
+            }),
+        );
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
     }
 
     #[test]
@@ -1616,6 +1862,97 @@ mod tests {
             output.effects.as_slice(),
             [ShellEffect::ReloadCurrentSession]
         ));
+    }
+
+    #[test]
+    fn refresh_tick_reloads_current_session_while_active_turn_waits_for_persistence() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hi".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "done".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        assert!(!state.is_streaming);
+        assert!(state.active_turn.is_some());
+
+        let output = reduce(&mut state, ShellAction::RefreshTick);
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn refresh_tick_uses_active_turn_session_when_thread_session_is_missing() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hi".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "done".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+        state.thread.clear_session();
+
+        let output = reduce(&mut state, ShellAction::RefreshTick);
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn refresh_tick_reloads_visible_tool_turn_without_session_anchor() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run a team".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
+        });
+
+        let output = reduce(&mut state, ShellAction::RefreshTick);
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::ReloadCurrentSession]
+        ));
+    }
+
+    #[test]
+    fn active_reload_miss_does_not_clear_visible_turn() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session);
+        state.push_local_user_message("edit a file".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "edit".to_string(),
+            arguments: serde_json::json!({"file_path":"check.txt"}),
+        });
+
+        let output = reduce(
+            &mut state,
+            ShellAction::CurrentSessionReloaded {
+                session: None,
+                runs: Vec::new(),
+                child_runs: Vec::new(),
+            },
+        );
+
+        assert!(output.effects.is_empty());
+        assert_eq!(state.current_session_id(), Some(session_id.as_str()));
+        assert!(state.active_turn.is_some());
+        assert!(!state.conversation_cells.iter().any(|cell| {
+            cell.body
+                .contains("The active session is no longer available")
+        }));
     }
 
     #[test]

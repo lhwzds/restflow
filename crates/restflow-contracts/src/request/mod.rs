@@ -116,6 +116,8 @@ pub enum IpcRequest {
     },
     SearchSessions {
         query: String,
+        agent_id: Option<String>,
+        limit: Option<usize>,
     },
     AddMessage {
         session_id: String,
@@ -129,11 +131,13 @@ pub enum IpcRequest {
     ExecuteChatSession {
         session_id: String,
         user_input: Option<String>,
+        workspace_root: Option<String>,
     },
     ExecuteChatSessionStream {
         session_id: String,
         user_input: Option<String>,
         stream_id: String,
+        workspace_root: Option<String>,
     },
     SteerChatSessionStream {
         session_id: String,
@@ -260,10 +264,12 @@ pub enum IpcRequest {
     },
     DeleteTask {
         id: String,
+        approval_id: Option<String>,
     },
     ControlTask {
         id: String,
         action: String,
+        approval_id: Option<String>,
     },
     GetTaskProgress {
         id: String,
@@ -1152,10 +1158,14 @@ pub struct AgentSettings {
     pub browser_timeout_secs: u64,
     pub process_session_ttl_secs: u64,
     pub approval_timeout_secs: u64,
+    #[serde(default)]
+    pub auto_review_tools: bool,
     pub max_iterations: usize,
     pub max_depth: usize,
-    pub child_run_timeout_secs: u64,
-    pub max_parallel_child_runs: usize,
+    #[serde(alias = "child_run_timeout_secs")]
+    pub subagent_timeout_secs: u64,
+    #[serde(alias = "max_parallel_child_runs")]
+    pub max_parallel_subagents: usize,
     pub max_tool_calls: usize,
     pub max_tool_concurrency: usize,
     pub max_tool_result_length: usize,

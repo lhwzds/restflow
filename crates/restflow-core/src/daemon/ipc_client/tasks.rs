@@ -38,14 +38,28 @@ impl IpcClient {
             .await
     }
 
-    pub async fn delete_task(&mut self, id: String) -> Result<DeleteWithIdResponse> {
-        self.request_typed(IpcRequest::DeleteTask { id }).await
+    pub async fn delete_task(
+        &mut self,
+        id: String,
+        approval_id: Option<String>,
+    ) -> Result<DeleteWithIdResponse> {
+        self.request_typed(IpcRequest::DeleteTask { id, approval_id })
+            .await
     }
 
-    pub async fn control_task(&mut self, id: String, action: TaskControlAction) -> Result<Task> {
+    pub async fn control_task(
+        &mut self,
+        id: String,
+        action: TaskControlAction,
+        approval_id: Option<String>,
+    ) -> Result<Task> {
         let action = to_contract(action)?;
-        self.request_typed(IpcRequest::ControlTask { id, action })
-            .await
+        self.request_typed(IpcRequest::ControlTask {
+            id,
+            action,
+            approval_id,
+        })
+        .await
     }
 
     pub async fn get_task_history(&mut self, id: String) -> Result<Vec<TaskEvent>> {

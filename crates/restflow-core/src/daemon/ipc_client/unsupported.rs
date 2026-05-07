@@ -75,11 +75,17 @@ impl IpcClient {
     pub async fn delete_task(
         &mut self,
         _id: String,
+        _approval_id: Option<String>,
     ) -> Result<restflow_contracts::DeleteWithIdResponse> {
         Self::unsupported()
     }
 
-    pub async fn control_task(&mut self, _id: String, _action: TaskControlAction) -> Result<Task> {
+    pub async fn control_task(
+        &mut self,
+        _id: String,
+        _action: TaskControlAction,
+        _approval_id: Option<String>,
+    ) -> Result<Task> {
         Self::unsupported()
     }
 
@@ -105,10 +111,15 @@ impl IpcClient {
         fn rename_session(&mut self, _id: String, _name: String) -> ChatSession;
         fn archive_session(&mut self, _id: String) -> bool;
         fn delete_session(&mut self, _id: String) -> bool;
-        fn search_sessions(&mut self, _query: String) -> Vec<ChatSessionSummary>;
+        fn search_sessions(&mut self, _query: String, _agent_id: Option<String>, _limit: Option<usize>) -> Vec<ChatSessionSummary>;
         fn add_message(&mut self, _session_id: String, _role: ChatRole, _content: String) -> ChatSession;
         fn append_message(&mut self, _session_id: String, _message: ChatMessage) -> ChatSession;
-        fn execute_chat_session(&mut self, _session_id: String, _user_input: Option<String>) -> ChatSession;
+        fn execute_chat_session(
+            &mut self,
+            _session_id: String,
+            _user_input: Option<String>,
+            _workspace_root: Option<String>,
+        ) -> ChatSession;
         fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
         fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;

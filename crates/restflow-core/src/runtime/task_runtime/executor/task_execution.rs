@@ -179,6 +179,10 @@ impl AgentRuntimeExecutor {
             config = config.with_temperature(temp as f32);
         }
         config = Self::apply_llm_timeout(config, agent_defaults.llm_timeout_secs);
+        if agent_defaults.auto_review_tools {
+            config = config
+                .with_tool_call_reviewer(Arc::new(LlmToolCallReviewer::new(swappable.clone())));
+        }
         if let Some(model_routing) = agent_node.model_routing.as_ref() {
             config = config.with_model_routing(AiModelRoutingConfig::from(model_routing));
             if model_routing.enabled {

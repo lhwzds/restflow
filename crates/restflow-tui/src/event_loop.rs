@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event};
@@ -20,7 +20,6 @@ const TYPING_ANIMATION_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug)]
 pub enum AppEvent {
-    Terminal(Event),
     StreamFrame(StreamFrame),
     SessionEvent(ChatSessionEvent),
     TaskEvent(TaskStreamEvent),
@@ -68,13 +67,15 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     let mut renderer = ShellRenderer::new();
     renderer.purge_screen()?;
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let _input_handle = spawn_input_thread(tx.clone());
+    let (terminal_tx, mut terminal_rx) = mpsc::unbounded_channel();
+    let _input_handle = spawn_input_thread(terminal_tx);
     let mut session_stream_handle = if state.is_startup_mode() {
         None
     } else {
         Some(controller.spawn_session_events(tx.clone()))
     };
     let mut selected_task_stream: Option<(String, tokio::task::JoinHandle<()>)> = None;
+    let mut pending_terminal_events = VecDeque::new();
     let mut pending_events = VecDeque::new();
     let mut render_request = RenderRequest::full();
 
@@ -117,26 +118,43 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     let mut tick = tokio::time::interval(Duration::from_secs(3));
     let mut render_tick = tokio::time::interval(RENDER_FRAME_INTERVAL);
     let mut typing_tick = tokio::time::interval(TYPING_ANIMATION_INTERVAL);
+    let mut last_active_refresh = Instant::now();
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     render_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     typing_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
-            _ = typing_tick.tick() => {
-                if state.update_active_typing_indicator() {
-                    render_request.merge(RenderRequest::viewport());
+            biased;
+
+            maybe_event = next_terminal_event(&mut terminal_rx, &mut pending_terminal_events) => {
+                let Some(event) = maybe_event else { break; };
+                let actions = collect_terminal_action_batch(event, &mut terminal_rx, &mut pending_terminal_events);
+                let result = process_actions(&controller, &mut renderer, &mut state, actions, tx.clone()).await?;
+                if result.should_quit {
+                    break;
                 }
-            }
-            _ = render_tick.tick() => {
-                if render_request.full {
+                render_request.merge(result.render_request);
+                if result.immediate_render {
                     renderer.sync(&mut state)?;
                     render_request = RenderRequest::default();
-                } else if render_request.viewport {
-                    renderer.sync_viewport_only(&mut state)?;
+                }
+            }
+            maybe_event = next_event(&mut rx, &mut pending_events) => {
+                let Some(event) = maybe_event else { break; };
+                let actions = VecDeque::from([app_event_to_action(event)]);
+                let result = process_actions(&controller, &mut renderer, &mut state, actions, tx.clone()).await?;
+                if result.should_quit {
+                    break;
+                }
+                render_request.merge(result.render_request);
+                if result.immediate_render {
+                    renderer.sync(&mut state)?;
                     render_request = RenderRequest::default();
                 }
             }
             _ = tick.tick() => {
+                last_active_refresh = Instant::now();
                 let result = process_actions(
                     &controller,
                     &mut renderer,
@@ -154,16 +172,36 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
                     render_request = RenderRequest::default();
                 }
             }
-            maybe_event = next_event(&mut rx, &mut pending_events) => {
-                let Some(event) = maybe_event else { break; };
-                let actions = collect_action_batch(event, &mut rx, &mut pending_events);
-                let result = process_actions(&controller, &mut renderer, &mut state, actions, tx.clone()).await?;
-                if result.should_quit {
-                    break;
+            _ = typing_tick.tick() => {
+                if state.update_active_typing_indicator() {
+                    render_request.merge(RenderRequest::viewport());
                 }
-                render_request.merge(result.render_request);
-                if result.immediate_render {
+                if should_refresh_active_from_animation(&state, last_active_refresh) {
+                    last_active_refresh = Instant::now();
+                    let result = process_actions(
+                        &controller,
+                        &mut renderer,
+                        &mut state,
+                        VecDeque::from([ShellAction::RefreshTick]),
+                        tx.clone(),
+                    )
+                    .await?;
+                    if result.should_quit {
+                        break;
+                    }
+                    render_request.merge(result.render_request);
+                    if result.immediate_render {
+                        renderer.sync(&mut state)?;
+                        render_request = RenderRequest::default();
+                    }
+                }
+            }
+            _ = render_tick.tick() => {
+                if render_request.full {
                     renderer.sync(&mut state)?;
+                    render_request = RenderRequest::default();
+                } else if render_request.viewport {
+                    renderer.sync_viewport_only(&mut state)?;
                     render_request = RenderRequest::default();
                 }
             }
@@ -183,13 +221,13 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     Ok(())
 }
 
-fn spawn_input_thread(tx: mpsc::UnboundedSender<AppEvent>) -> thread::JoinHandle<()> {
+fn spawn_input_thread(tx: mpsc::UnboundedSender<Event>) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
             if let Ok(true) = event::poll(Duration::from_millis(100)) {
                 match event::read() {
                     Ok(event) => {
-                        if tx.send(AppEvent::Terminal(event)).is_err() {
+                        if tx.send(event).is_err() {
                             break;
                         }
                     }
@@ -198,6 +236,17 @@ fn spawn_input_thread(tx: mpsc::UnboundedSender<AppEvent>) -> thread::JoinHandle
             }
         }
     })
+}
+
+async fn next_terminal_event(
+    rx: &mut mpsc::UnboundedReceiver<Event>,
+    pending_events: &mut VecDeque<Event>,
+) -> Option<Event> {
+    if let Some(event) = pending_events.pop_front() {
+        Some(event)
+    } else {
+        rx.recv().await
+    }
 }
 
 async fn next_event(
@@ -211,12 +260,12 @@ async fn next_event(
     }
 }
 
-fn collect_action_batch(
-    first_event: AppEvent,
-    rx: &mut mpsc::UnboundedReceiver<AppEvent>,
-    pending_events: &mut VecDeque<AppEvent>,
+fn collect_terminal_action_batch(
+    first_event: Event,
+    rx: &mut mpsc::UnboundedReceiver<Event>,
+    pending_events: &mut VecDeque<Event>,
 ) -> VecDeque<ShellAction> {
-    let first_action = app_event_to_action(first_event);
+    let first_action = ShellAction::Ui(map_event(first_event));
     if !is_batchable_input_action(&first_action) {
         return VecDeque::from([first_action]);
     }
@@ -224,21 +273,15 @@ fn collect_action_batch(
     let mut actions = VecDeque::from([first_action]);
     while actions.len() < MAX_BATCHED_INPUT_EVENTS {
         match rx.try_recv() {
-            Ok(event) => match event {
-                AppEvent::Terminal(event) => {
-                    let action = ShellAction::Ui(map_event(event.clone()));
-                    if is_batchable_input_action(&action) {
-                        actions.push_back(action);
-                    } else {
-                        pending_events.push_back(AppEvent::Terminal(event));
-                        break;
-                    }
-                }
-                other => {
-                    pending_events.push_back(other);
+            Ok(event) => {
+                let action = ShellAction::Ui(map_event(event.clone()));
+                if is_batchable_input_action(&action) {
+                    actions.push_back(action);
+                } else {
+                    pending_events.push_back(event);
                     break;
                 }
-            },
+            }
             Err(_) => break,
         }
     }
@@ -247,7 +290,6 @@ fn collect_action_batch(
 
 fn app_event_to_action(event: AppEvent) -> ShellAction {
     match event {
-        AppEvent::Terminal(event) => ShellAction::Ui(map_event(event)),
         AppEvent::StreamFrame(frame) => ShellAction::StreamFrame(frame),
         AppEvent::SessionEvent(event) => ShellAction::SessionEvent(event),
         AppEvent::TaskEvent(event) => ShellAction::TaskEvent(event),
@@ -294,8 +336,10 @@ async fn process_actions(
         pending.extend(result.actions);
 
         for effect in result.effects {
-            output.render_request.merge(RenderRequest::full());
-            output.immediate_render = true;
+            if effect_requires_pre_render(&effect) {
+                output.render_request.merge(RenderRequest::full());
+                output.immediate_render = true;
+            }
             if matches!(effect, ShellEffect::ClearScreen) {
                 renderer.clear_screen()?;
                 continue;
@@ -307,7 +351,11 @@ async fn process_actions(
                 output.immediate_render = false;
             }
 
-            let followup_actions = controller.execute_effect(effect, state, tx.clone()).await?;
+            let followup_actions = match controller.execute_effect(effect, state, tx.clone()).await
+            {
+                Ok(actions) => actions,
+                Err(error) => vec![ShellAction::Error(error.to_string())],
+            };
             pending.extend(followup_actions);
         }
     }
@@ -316,7 +364,10 @@ async fn process_actions(
 }
 
 fn render_request_for_action(action: &ShellAction) -> RenderRequest {
-    if matches!(action, ShellAction::Ui(Action::Noop)) {
+    if matches!(
+        action,
+        ShellAction::Ui(Action::Noop) | ShellAction::RefreshTick
+    ) {
         RenderRequest::default()
     } else if is_batchable_input_action(action) {
         RenderRequest::viewport()
@@ -328,16 +379,29 @@ fn render_request_for_action(action: &ShellAction) -> RenderRequest {
 fn action_requires_immediate_render(action: &ShellAction) -> bool {
     !matches!(
         action,
-        ShellAction::Ui(
-            Action::InputChar(_)
-                | Action::InputBackspace
-                | Action::MoveLeft
-                | Action::MoveRight
-                | Action::Newline
-                | Action::Paste(_)
-                | Action::Noop
-        )
+        ShellAction::RefreshTick
+            | ShellAction::Ui(
+                Action::InputChar(_)
+                    | Action::InputBackspace
+                    | Action::MoveLeft
+                    | Action::MoveRight
+                    | Action::Newline
+                    | Action::Paste(_)
+                    | Action::Noop
+            )
     )
+}
+
+fn effect_requires_pre_render(effect: &ShellEffect) -> bool {
+    !matches!(
+        effect,
+        ShellEffect::RefreshState | ShellEffect::ReloadCurrentSession
+    )
+}
+
+fn should_refresh_active_from_animation(state: &AppState, last_refresh: Instant) -> bool {
+    (state.is_streaming || state.active_turn.is_some())
+        && last_refresh.elapsed() >= Duration::from_secs(1)
 }
 
 fn sync_task_subscription(
@@ -394,19 +458,20 @@ mod tests {
 
     use super::*;
 
-    fn key(code: KeyCode) -> AppEvent {
-        AppEvent::Terminal(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+    fn key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
     #[test]
-    fn collect_action_batch_drains_contiguous_input_events() {
+    fn collect_terminal_action_batch_drains_contiguous_input_events() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_events = VecDeque::new();
         tx.send(key(KeyCode::Char('b'))).unwrap();
         tx.send(key(KeyCode::Char('c'))).unwrap();
         tx.send(key(KeyCode::Enter)).unwrap();
 
-        let actions = collect_action_batch(key(KeyCode::Char('a')), &mut rx, &mut pending_events);
+        let actions =
+            collect_terminal_action_batch(key(KeyCode::Char('a')), &mut rx, &mut pending_events);
 
         let input = actions
             .into_iter()
@@ -418,16 +483,17 @@ mod tests {
         assert_eq!(input, "abc");
         assert!(matches!(
             pending_events.pop_front(),
-            Some(AppEvent::Terminal(Event::Key(event))) if event.code == KeyCode::Enter
+            Some(Event::Key(event)) if event.code == KeyCode::Enter
         ));
     }
 
     #[test]
-    fn collect_action_batch_does_not_batch_submit_first() {
+    fn collect_terminal_action_batch_does_not_batch_submit_first() {
         let (_tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_events = VecDeque::new();
 
-        let actions = collect_action_batch(key(KeyCode::Enter), &mut rx, &mut pending_events);
+        let actions =
+            collect_terminal_action_batch(key(KeyCode::Enter), &mut rx, &mut pending_events);
 
         assert_eq!(actions.len(), 1);
         assert!(matches!(
@@ -438,12 +504,13 @@ mod tests {
     }
 
     #[test]
-    fn collect_action_batch_stops_before_non_terminal_event() {
+    fn collect_terminal_action_batch_stops_before_non_batchable_terminal_event() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_events = VecDeque::new();
-        tx.send(AppEvent::Error("boom".to_string())).unwrap();
+        tx.send(key(KeyCode::Enter)).unwrap();
 
-        let actions = collect_action_batch(key(KeyCode::Char('a')), &mut rx, &mut pending_events);
+        let actions =
+            collect_terminal_action_batch(key(KeyCode::Char('a')), &mut rx, &mut pending_events);
 
         assert_eq!(actions.len(), 1);
         assert!(matches!(
@@ -452,7 +519,7 @@ mod tests {
         ));
         assert!(matches!(
             pending_events.pop_front(),
-            Some(AppEvent::Error(message)) if message == "boom"
+            Some(Event::Key(event)) if event.code == KeyCode::Enter
         ));
     }
 
@@ -465,6 +532,40 @@ mod tests {
         assert!(request.viewport);
         assert!(!request.full);
         assert!(!action_requires_immediate_render(&action));
+    }
+
+    #[test]
+    fn refresh_tick_is_not_dirty_by_itself() {
+        let action = ShellAction::RefreshTick;
+        let request = render_request_for_action(&action);
+
+        assert_eq!(request, RenderRequest::default());
+        assert!(!action_requires_immediate_render(&action));
+    }
+
+    #[test]
+    fn animation_tick_can_drive_active_refresh_when_interval_is_due() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run live work".to_string());
+        let last_refresh = Instant::now() - Duration::from_secs(2);
+
+        assert!(should_refresh_active_from_animation(&state, last_refresh));
+    }
+
+    #[test]
+    fn animation_tick_does_not_refresh_idle_state() {
+        let state = AppState::empty();
+        let last_refresh = Instant::now() - Duration::from_secs(2);
+
+        assert!(!should_refresh_active_from_animation(&state, last_refresh));
+    }
+
+    #[test]
+    fn background_refresh_effects_do_not_pre_render() {
+        assert!(!effect_requires_pre_render(&ShellEffect::RefreshState));
+        assert!(!effect_requires_pre_render(
+            &ShellEffect::ReloadCurrentSession
+        ));
     }
 
     #[test]

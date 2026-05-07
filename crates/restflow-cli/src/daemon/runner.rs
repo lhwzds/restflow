@@ -11,6 +11,7 @@ use restflow_core::runtime::{
     StorageBackedSubagentLookup, TaskRunner, TaskRunnerConfig, TaskRunnerHandle,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
+use restflow_core::services::session::SessionService;
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::{AgentDefaults, AuthProfileStorage, SecretStorage, SystemConfig};
 use std::sync::Arc;
@@ -105,7 +106,8 @@ impl CliTaskRunner {
                 Arc::new(NoopHeartbeatEmitter),
                 steer_registry,
             )
-            .with_event_emitter(event_emitter),
+            .with_event_emitter(event_emitter)
+            .with_session_service(SessionService::from_storage(&storage)),
         );
 
         let handle = runner.clone().start();

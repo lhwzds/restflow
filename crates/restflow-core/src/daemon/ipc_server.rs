@@ -53,7 +53,8 @@ mod dispatch;
 mod runtime;
 
 use self::runtime::{
-    execute_chat_session, latest_assistant_payload, record_turn_event_in_session_store,
+    ExecuteChatSessionRequest, execute_chat_session, latest_assistant_payload,
+    record_turn_event_in_session_store,
 };
 
 #[cfg(unix)]
@@ -149,6 +150,7 @@ struct IpcStreamEmitter {
     turn_id: String,
     tx: mpsc::UnboundedSender<StreamFrame>,
     has_text_streamed: Arc<AtomicBool>,
+    assistant_segment: String,
 }
 
 impl IpcStreamEmitter {
@@ -165,6 +167,28 @@ impl IpcStreamEmitter {
             turn_id,
             tx,
             has_text_streamed,
+            assistant_segment: String::new(),
+        }
+    }
+
+    fn persist_assistant_segment(&mut self) {
+        let content = self.assistant_segment.trim_end().to_string();
+        self.assistant_segment.clear();
+        if content.trim().is_empty() {
+            return;
+        }
+        if let Err(error) = record_turn_event_in_session_store(
+            &self.core,
+            &self.session_id,
+            &self.turn_id,
+            ChatTurnEventKind::AssistantMessage { content },
+        ) {
+            warn!(
+                session_id = %self.session_id,
+                turn_id = %self.turn_id,
+                error = %error,
+                "Failed to persist streamed assistant segment"
+            );
         }
     }
 }
@@ -251,6 +275,7 @@ impl StreamEmitter for IpcStreamEmitter {
             return;
         }
         self.has_text_streamed.store(true, Ordering::Relaxed);
+        self.assistant_segment.push_str(text);
         let _ = self.tx.send(StreamFrame::Data {
             content: text.to_string(),
         });
@@ -259,6 +284,7 @@ impl StreamEmitter for IpcStreamEmitter {
     async fn emit_thinking_delta(&mut self, _text: &str) {}
 
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        self.persist_assistant_segment();
         if let Err(error) = record_turn_event_in_session_store(
             &self.core,
             &self.session_id,
@@ -310,7 +336,9 @@ impl StreamEmitter for IpcStreamEmitter {
         });
     }
 
-    async fn emit_complete(&mut self) {}
+    async fn emit_complete(&mut self) {
+        self.persist_assistant_segment();
+    }
 }
 
 impl IpcServer {
@@ -448,9 +476,16 @@ impl IpcServer {
                 session_id,
                 user_input,
                 stream_id,
+                workspace_root,
             } => {
-                Self::open_execute_chat_session_stream(core, session_id, user_input, stream_id)
-                    .await
+                Self::open_execute_chat_session_stream(
+                    core,
+                    session_id,
+                    user_input,
+                    stream_id,
+                    workspace_root,
+                )
+                .await
             }
             IpcRequest::SubscribeTaskEvents { task_id } => {
                 Self::open_task_event_stream(task_id).await
@@ -465,6 +500,7 @@ impl IpcServer {
         session_id: String,
         user_input: Option<String>,
         stream_id: String,
+        workspace_root: Option<String>,
     ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = if stream_id.trim().is_empty() {
             Uuid::new_v4().to_string()
@@ -526,6 +562,7 @@ impl IpcServer {
         let worker_session_id = session_id.clone();
         let worker_session_registry_id = session_id.clone();
         let worker_user_input = user_input.clone();
+        let worker_workspace_root = workspace_root.clone();
         let worker_core = core.clone();
         let handle = tokio::spawn(async move {
             let has_text_streamed = Arc::new(AtomicBool::new(false));
@@ -538,12 +575,15 @@ impl IpcServer {
             );
             let result = execute_chat_session(
                 &worker_core,
-                worker_session_id,
-                worker_user_input,
-                worker_turn_id,
-                Some(tx.clone()),
-                Some(Box::new(emitter)),
-                Some(steer_rx),
+                ExecuteChatSessionRequest {
+                    session_id: worker_session_id,
+                    user_input: worker_user_input,
+                    turn_id: worker_turn_id,
+                    workspace_root: worker_workspace_root,
+                    ack_frame_tx: Some(tx.clone()),
+                    emitter: Some(Box::new(emitter)),
+                    steer_rx: Some(steer_rx),
+                },
             )
             .await;
 

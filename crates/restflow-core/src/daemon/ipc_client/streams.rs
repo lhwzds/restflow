@@ -30,6 +30,7 @@ impl IpcClient {
         session_id: String,
         user_input: Option<String>,
         stream_id: String,
+        workspace_root: Option<String>,
         mut on_frame: F,
     ) -> Result<()>
     where
@@ -39,6 +40,7 @@ impl IpcClient {
             session_id,
             user_input,
             stream_id,
+            workspace_root,
         })
         .await?;
 

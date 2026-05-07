@@ -688,6 +688,10 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_secrets() -> (Arc<SecretStorage>, TempDir) {
+        let _env = crate::test_support::RestflowTestEnv::new();
+        unsafe {
+            std::env::set_var("RESTFLOW_MASTER_KEY", "11".repeat(32));
+        }
         let dir = TempDir::new().unwrap();
         let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
         let secrets = Arc::new(SecretStorage::new(db).unwrap());

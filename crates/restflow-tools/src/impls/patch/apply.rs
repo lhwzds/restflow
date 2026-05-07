@@ -29,10 +29,13 @@ fn find_hunk_position(lines: &[String], hunk: &Hunk) -> Result<usize> {
     if search_lines.is_empty() {
         return Err(anyhow!("Hunk has no searchable context"));
     }
+    if search_lines.len() > lines.len() {
+        return Err(anyhow!("Could not find matching context for hunk"));
+    }
 
     let mut first_match: Option<usize> = None;
 
-    for i in 0..=lines.len().saturating_sub(search_lines.len()) {
+    for i in 0..=lines.len() - search_lines.len() {
         let mut matched = true;
         for (offset, expected) in search_lines.iter().enumerate() {
             if lines[i + offset] != *expected {

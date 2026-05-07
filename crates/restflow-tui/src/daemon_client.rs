@@ -220,6 +220,18 @@ impl TuiDaemonClient {
             .await
     }
 
+    pub async fn list_runs_for_task(&self, task_id: &str) -> Result<Vec<RunSummary>> {
+        let mut client = self.connect().await?;
+        client
+            .list_runs(RunListQuery {
+                container: ExecutionContainerRef {
+                    kind: ExecutionContainerKind::Task,
+                    id: task_id.to_string(),
+                },
+            })
+            .await
+    }
+
     pub async fn get_execution_run_thread(&self, run_id: &str) -> Result<ExecutionThread> {
         let mut client = self.connect().await?;
         client
@@ -246,6 +258,7 @@ impl TuiDaemonClient {
             .request_typed(IpcRequest::ControlTask {
                 id: task_id.to_string(),
                 action: action.to_string(),
+                approval_id: None,
             })
             .await
     }
@@ -317,6 +330,9 @@ impl TuiDaemonClient {
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
+        let workspace_root = std::env::current_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned());
         tokio::spawn(async move {
             let mut ipc = match client.connect().await {
                 Ok(ipc) => ipc,
@@ -325,12 +341,16 @@ impl TuiDaemonClient {
                     return;
                 }
             };
+            let mut saw_terminal_frame = false;
             let result = ipc
                 .execute_chat_session_stream(
                     session_id.clone(),
                     Some(input),
                     stream_id,
+                    workspace_root,
                     |frame: StreamFrame| {
+                        saw_terminal_frame =
+                            matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
                         tx.send(AppEvent::StreamFrame(frame))
                             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
                         Ok(())
@@ -338,7 +358,9 @@ impl TuiDaemonClient {
                 )
                 .await;
 
-            if let Err(error) = result {
+            if let Err(error) = result
+                && !saw_terminal_frame
+            {
                 let _ = tx.send(AppEvent::Error(format!("Chat stream failed: {error}")));
             }
         })

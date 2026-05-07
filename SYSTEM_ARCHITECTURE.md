@@ -128,10 +128,10 @@ Agent run
     └── created as an ephemeral child run with parent_run_id
 ```
 
-The TUI may present both as one Work view, but it must keep the domain split:
-background tasks are durable triggers and subagents are ephemeral child runs.
-Do not add a separate persisted subagent store or merge subagents into task
-storage.
+The TUI may present both in one command overlay for navigation, but it must keep
+the domain split: background tasks are durable triggers and subagents are
+ephemeral child runs. Do not add a separate persisted subagent store or merge
+subagents into task storage.
 
 ### 4.4 Tool Trace Flow
 
@@ -167,6 +167,7 @@ storage.
 - `restflow-core` owns the daemon, durable background/task runtime, and client-facing execution services.
 - `restflow-core::runtime::subagent` is adapter-only and must stay limited to definition lookup and storage-backed registry wiring.
 - `restflow-tools` owns tool implementations and template/payload adapters, not daemon runtime ownership.
+- The main TUI agent exposes `manage_tasks` so durable background work can be created, run, and inspected from the TUI entrypoint.
 - Team-style coordination is guidance from the `team` skrun skill executed through `spawn_subagent_batch`; Task/Run history remains the only durable execution state.
 
 ### Auxiliary Reviewer Agent Gate
@@ -396,6 +397,33 @@ The TUI should remain a client of:
 - runtime event contracts
 - skill catalog reads
 - explicit runtime actions exposed by the daemon
+
+TUI runtime activity has three presentation levels:
+
+```text
+Message panel, active turn only
+├── live assistant text
+├── running tool call/result summaries
+├── focused task stream progress
+└── Activity notice for current subagent/background runs
+
+Command overlays
+├── /task for durable task controls
+├── /run for run and child-run navigation
+└── /resume for saved session navigation
+
+Durable history
+├── session messages and turn events owned by daemon storage
+└── no TUI-owned task, run, or subagent state
+```
+
+The active message panel is the only place where transient run progress belongs
+while an agent turn is executing. Task, run, and subagent activity must be
+visible there during execution instead of being hidden only behind slash
+commands. The same activity must not become a permanent global overlay: once the
+turn or stream reaches a terminal state, the TUI should clear active progress
+cells and leave detailed inspection to the persisted session history and the
+`/task` or `/run` views.
 
 ## 6. Deployment Model
 

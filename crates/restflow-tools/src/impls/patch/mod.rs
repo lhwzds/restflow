@@ -67,7 +67,7 @@ impl Tool for PatchTool {
             "properties": {
                 "patch": {
                     "type": "string",
-                    "description": "Patch text using *** Update/Add/Delete File headers"
+                    "description": "Patch text using *** Update/Add/Delete File headers. Update blocks accept either simple context/-old/+new lines or unified diff hunks with @@ headers."
                 }
             },
             "required": ["patch"]

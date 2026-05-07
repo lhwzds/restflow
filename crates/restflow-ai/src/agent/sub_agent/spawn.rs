@@ -801,6 +801,7 @@ async fn execute_subagent_entry(
     if let Some(orchestrator) = invocation.bridge.orchestrator.clone() {
         execute_subagent_with_orchestrator(
             orchestrator,
+            invocation.llm_client,
             agent_def,
             task,
             execution,
@@ -824,20 +825,36 @@ async fn execute_subagent_entry(
 
 async fn execute_subagent_with_orchestrator(
     orchestrator: Arc<dyn AgentOrchestrator>,
+    llm_client: Arc<dyn LlmClient>,
     agent_def: SubagentDefSnapshot,
     task: String,
     execution: ResolvedSubagentExecution,
     request: SpawnRequest,
     bridge: &SubagentExecutionBridge,
 ) -> Result<AgentResult> {
+    let inline_subagent = if request.agent_id.is_none()
+        && request.inline.is_none()
+        && request.model.is_none()
+        && request.model_provider.is_none()
+    {
+        Some(InlineSubagentConfig::default())
+    } else {
+        request.inline.clone()
+    };
+    let model = request
+        .model
+        .clone()
+        .or_else(|| Some(llm_client.model().to_string()));
+    let provider =
+        resolve_plan_provider(&request, bridge).or_else(|| Some(llm_client.provider().to_string()));
     let plan = ExecutionPlan {
         mode: Some(ExecutionMode::Subagent),
         agent_id: request.agent_id.clone(),
-        inline_subagent: request.inline.clone(),
+        inline_subagent,
         input: Some(task.clone()),
         timeout_secs: Some(execution.effective_limits.timeout_secs),
-        model: request.model.clone(),
-        provider: resolve_plan_provider(&request, bridge),
+        model,
+        provider,
         max_iterations: Some(execution.effective_limits.max_iterations as u32),
         parent_run_id: request.parent_run_id.clone(),
         trace_session_id: Some(execution.trace_context.session_id.clone()),
@@ -1308,6 +1325,64 @@ mod tests {
         let result = result.result.expect("temporary subagent payload");
         assert!(result.success);
         assert_eq!(handle.agent_name, TEMPORARY_SUBAGENT_NAME);
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_orchestrator_uses_temporary_selector_when_omitted() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::empty());
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps("mock", vec![]));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let orchestrator = Arc::new(MockOrchestrator::default());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: None,
+                inline: None,
+                task: "temporary task".to_string(),
+                timeout_secs: Some(10),
+                max_iterations: None,
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_run_id: Some("parent-1".to_string()),
+                trace_session_id: None,
+                trace_scope_id: None,
+                run_id: None,
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: None,
+                orchestrator: Some(orchestrator.clone()),
+                telemetry_sink: None,
+            },
+        )
+        .expect("spawn should succeed without explicit selector");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("temporary subagent result should be available");
+        assert!(result.result.expect("subagent result payload").success);
+
+        let plans = orchestrator.plans.lock().expect("plans lock");
+        assert_eq!(plans.len(), 1);
+        assert!(plans[0].agent_id.is_none());
+        assert!(plans[0].inline_subagent.is_some());
+        assert_eq!(plans[0].model.as_deref(), Some("mock"));
+        assert_eq!(plans[0].provider.as_deref(), Some("mock"));
+        assert_eq!(plans[0].input.as_deref(), Some("temporary task"));
     }
 
     #[tokio::test]

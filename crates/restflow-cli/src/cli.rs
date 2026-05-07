@@ -665,6 +665,10 @@ pub enum SessionCommands {
         /// Agent ID to filter by
         #[arg(long)]
         agent: Option<String>,
+
+        /// Maximum number of matching sessions to return
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
     },
 }
 
@@ -797,6 +801,10 @@ pub enum TaskCommands {
     Delete {
         /// Task ID
         id: String,
+
+        /// Approval ID returned by a prior confirmation_required response
+        #[arg(long)]
+        approval_id: Option<String>,
     },
 
     /// Control a task (start, pause, resume, stop, run_now)
@@ -807,6 +815,10 @@ pub enum TaskCommands {
         /// Action: start, pause, resume, stop, run_now
         #[arg(short, long)]
         action: String,
+
+        /// Approval ID returned by a prior confirmation_required response
+        #[arg(long)]
+        approval_id: Option<String>,
     },
 
     /// Show task progress

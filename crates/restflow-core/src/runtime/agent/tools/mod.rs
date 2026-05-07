@@ -111,10 +111,27 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "glob",
         "grep",
         "load_skill",
+        "run_skill",
+        MANAGE_TASKS_TOOL_NAME,
+        "spawn_subagent",
+        "spawn_subagent_batch",
+        "wait_subagents",
+        "list_subagents",
     ]
     .into_iter()
     .map(str::to_string)
     .collect()
+}
+
+pub const SUBAGENT_TOOL_NAMES: &[&str] = &[
+    "spawn_subagent",
+    "spawn_subagent_batch",
+    "wait_subagents",
+    "list_subagents",
+];
+
+pub fn is_subagent_tool_name(name: &str) -> bool {
+    SUBAGENT_TOOL_NAMES.contains(&name)
 }
 
 /// Merge the default main-agent tools with agent-specific additions.
@@ -243,7 +260,11 @@ pub fn registry_from_allowlist_with_security_gate(
         match raw_name.as_str() {
             // --- Simple tools (no storage required) ---
             "bash" => {
-                let config = bash_config.clone().unwrap_or_default();
+                let mut config = bash_config.clone().unwrap_or_default();
+                if config.working_dir.is_none() {
+                    config.working_dir =
+                        workspace_root.map(|path| path.to_string_lossy().into_owned());
+                }
                 builder = register_bash_execution_tool(
                     builder,
                     config,
@@ -547,7 +568,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_main_agent_default_tools_keep_management_out_of_default_surface() {
+    fn test_main_agent_default_tools_keep_narrow_management_surface() {
         let names = main_agent_default_tool_names();
         assert_eq!(
             names,
@@ -560,6 +581,12 @@ mod tests {
                 "glob",
                 "grep",
                 "load_skill",
+                "run_skill",
+                "manage_tasks",
+                "spawn_subagent",
+                "spawn_subagent_batch",
+                "wait_subagents",
+                "list_subagents",
             ]
         );
         assert!(!names.contains(&"http_request".to_string()));
@@ -573,7 +600,7 @@ mod tests {
         assert!(!names.contains(&"discord".to_string()));
         assert!(!names.contains(&"slack".to_string()));
         assert!(!names.contains(&"skill".to_string()));
-        assert!(!names.contains(&"manage_tasks".to_string()));
+        assert!(names.contains(&"manage_tasks".to_string()));
         assert!(!names.contains(&"manage_agents".to_string()));
         assert!(!names.contains(&"manage_sessions".to_string()));
         assert!(!names.contains(&"manage_marketplace".to_string()));
@@ -584,7 +611,6 @@ mod tests {
         assert!(!names.contains(&"manage_config".to_string()));
         assert!(!names.contains(&"manage_secrets".to_string()));
         assert!(!names.contains(&"task_list".to_string()));
-        assert!(!names.contains(&"manage_tasks".to_string()));
     }
 
     #[test]
@@ -685,7 +711,8 @@ mod tests {
     #[test]
     fn test_main_agent_default_tools_exclude_external_and_management_tools() {
         let tools = main_agent_default_tool_names();
-        assert!(!tools.iter().any(|name| name == "run_skill"));
+        assert!(tools.iter().any(|name| name == "load_skill"));
+        assert!(tools.iter().any(|name| name == "run_skill"));
         assert!(!tools.iter().any(|name| name == "python"));
         assert!(!tools.iter().any(|name| name == "browser"));
         assert!(!tools.iter().any(|name| name == "transcribe"));
@@ -738,6 +765,32 @@ mod tests {
             .await
             .unwrap();
         assert!(!grep_result.success);
+    }
+
+    #[tokio::test]
+    async fn test_bash_uses_workspace_root_as_default_workdir() {
+        let dir = tempdir().expect("temp dir should be created");
+        let names = vec!["bash".to_string()];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None, Some(dir.path()))
+                .unwrap();
+
+        let result = registry
+            .get("bash")
+            .unwrap()
+            .execute(serde_json::json!({
+                "command": "pwd"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "{result:?}");
+        let expected_root = std::fs::canonicalize(dir.path()).expect("temp dir should resolve");
+        let expected_stdout = format!("{}\n", expected_root.display());
+        assert_eq!(
+            result.result.get("stdout").and_then(|value| value.as_str()),
+            Some(expected_stdout.as_str())
+        );
     }
 
     #[test]
@@ -803,8 +856,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_manage_tasks_runtime_registry_injects_store_assessor() {
-        let dir = tempdir().expect("temp dir should be created");
-        let db_path = dir.path().join("registry-bg-runtime.db");
+        let env = RestflowTestEnv::new();
+        let db_path = env.db_path("registry-bg-runtime.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
         let agent_id = storage

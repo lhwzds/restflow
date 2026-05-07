@@ -177,14 +177,25 @@ impl CommandExecutor for IpcExecutor {
         client.list_sessions().await
     }
 
-    async fn list_full_sessions(&self) -> Result<Vec<ChatSession>> {
-        let mut client = self.client.lock().await;
-        client.list_full_sessions().await
-    }
-
     async fn get_session(&self, id: &str) -> Result<ChatSession> {
         let mut client = self.client.lock().await;
         client.get_session(id.to_string()).await
+    }
+
+    async fn search_sessions(
+        &self,
+        query: &str,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<ChatSessionSummary>> {
+        let mut client = self.client.lock().await;
+        client
+            .search_sessions(
+                query.to_string(),
+                agent_id.map(ToOwned::to_owned),
+                Some(limit.max(1)),
+            )
+            .await
     }
 
     async fn create_session(
@@ -235,14 +246,27 @@ impl CommandExecutor for IpcExecutor {
         client.update_task(id.to_string(), patch).await
     }
 
-    async fn delete_task(&self, id: &str) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    async fn delete_task(
+        &self,
+        id: &str,
+        approval_id: Option<&str>,
+    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
         let mut client = self.client.lock().await;
-        client.delete_task(id.to_string()).await
+        client
+            .delete_task(id.to_string(), approval_id.map(ToOwned::to_owned))
+            .await
     }
 
-    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task> {
+    async fn control_task(
+        &self,
+        id: &str,
+        action: TaskControlAction,
+        approval_id: Option<&str>,
+    ) -> Result<Task> {
         let mut client = self.client.lock().await;
-        client.control_task(id.to_string(), action).await
+        client
+            .control_task(id.to_string(), action, approval_id.map(ToOwned::to_owned))
+            .await
     }
 
     async fn get_task_progress(

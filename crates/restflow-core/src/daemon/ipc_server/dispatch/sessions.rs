@@ -1,11 +1,10 @@
 use super::super::runtime::{
-    cancel_chat_stream, execute_chat_session, resolve_agent_id, steer_chat_stream,
+    ExecuteChatSessionRequest, cancel_chat_stream, execute_chat_session, resolve_agent_id,
+    steer_chat_stream,
 };
 use super::super::*;
 use crate::services::execution_console::{ExecutionConsoleService, ExecutionThreadError};
-use crate::telemetry::{
-    get_execution_metrics, get_execution_timeline, get_provider_health, query_execution_logs,
-};
+use crate::telemetry::{get_execution_metrics, get_provider_health, query_execution_logs};
 use restflow_contracts::{ArchiveResponse, CancelResponse, DeleteResponse, SteerResponse};
 use uuid::Uuid;
 
@@ -60,14 +59,8 @@ impl IpcServer {
 
     pub(super) async fn handle_list_sessions(core: &Arc<AppCore>) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match session_service.list_session_views(None, None, false) {
-            Ok(sessions) => {
-                let summaries = sessions
-                    .iter()
-                    .map(ChatSessionSummary::from)
-                    .collect::<Vec<_>>();
-                IpcResponse::success(summaries)
-            }
+        match session_service.list_session_summaries(None, None, false) {
+            Ok(summaries) => IpcResponse::success(summaries),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -104,7 +97,7 @@ impl IpcServer {
 
     pub(super) async fn handle_count_sessions(core: &Arc<AppCore>) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match session_service.list_session_views(None, None, false) {
+        match session_service.list_session_summaries(None, None, false) {
             Ok(sessions) => IpcResponse::success(sessions.len()),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -222,9 +215,20 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_search_sessions(core: &Arc<AppCore>, query: String) -> IpcResponse {
+    pub(super) async fn handle_search_sessions(
+        core: &Arc<AppCore>,
+        query: String,
+        agent_id: Option<String>,
+        limit: Option<usize>,
+    ) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match session_service.search_session_views(&query, None, None, false, usize::MAX) {
+        match session_service.search_session_views(
+            &query,
+            agent_id.as_deref(),
+            None,
+            false,
+            limit.unwrap_or(20).max(1),
+        ) {
             Ok(sessions) => {
                 let matches: Vec<ChatSessionSummary> =
                     sessions.iter().map(ChatSessionSummary::from).collect();
@@ -268,15 +272,19 @@ impl IpcServer {
         core: &Arc<AppCore>,
         session_id: String,
         user_input: Option<String>,
+        workspace_root: Option<String>,
     ) -> IpcResponse {
         match execute_chat_session(
             core,
-            session_id,
-            user_input,
-            Uuid::new_v4().to_string(),
-            None,
-            None,
-            None,
+            ExecuteChatSessionRequest {
+                session_id,
+                user_input,
+                turn_id: Uuid::new_v4().to_string(),
+                workspace_root,
+                ack_frame_tx: None,
+                emitter: None,
+                steer_rx: None,
+            },
         )
         .await
         {
@@ -344,23 +352,8 @@ impl IpcServer {
         if run_id.is_empty() {
             return IpcResponse::error(400, "run_id is required");
         }
-        match get_execution_timeline(
-            &core.storage.execution_traces,
-            &crate::models::ExecutionTraceQuery {
-                task_id: None,
-                run_id: Some(run_id.to_string()),
-                parent_run_id: None,
-                session_id: None,
-                turn_id: None,
-                agent_id: None,
-                category: None,
-                source: None,
-                from_timestamp: None,
-                to_timestamp: None,
-                limit: Some(200),
-                offset: Some(0),
-            },
-        ) {
+        let service = ExecutionConsoleService::from_storage(&core.storage);
+        match service.get_execution_run_timeline(run_id) {
             Ok(timeline) => IpcResponse::success(timeline),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

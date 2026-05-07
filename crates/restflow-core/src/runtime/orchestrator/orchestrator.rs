@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -37,6 +38,7 @@ pub struct InteractiveSessionRequest<'a> {
     pub emitter: Option<Box<dyn StreamEmitter>>,
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     pub stream_display_mode: StreamDisplayMode,
+    pub workspace_root: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -131,6 +133,7 @@ impl AgentOrchestratorImpl {
             emitter,
             steer_rx,
             stream_display_mode,
+            workspace_root,
         } = request;
         self.kernel
             .backend()
@@ -163,6 +166,7 @@ impl AgentOrchestratorImpl {
                         steer_rx,
                         telemetry_context: Some(run_handle.cloned_context()),
                         stream_display_mode,
+                        workspace_root,
                     },
                 ),
             )
@@ -187,6 +191,7 @@ impl AgentOrchestratorImpl {
                     steer_rx,
                     telemetry_context: Some(run_handle.cloned_context()),
                     stream_display_mode,
+                    workspace_root,
                 },
             )
             .await
@@ -530,6 +535,7 @@ mod tests {
                 emitter: None,
                 steer_rx: None,
                 stream_display_mode: StreamDisplayMode::Buffered,
+                workspace_root: None,
             })
             .await
             .expect("traced interactive run should succeed");
@@ -578,6 +584,7 @@ mod tests {
                 emitter: None,
                 steer_rx: None,
                 stream_display_mode: StreamDisplayMode::Buffered,
+                workspace_root: None,
             })
             .await
             .expect("traced interactive run should succeed");
@@ -752,6 +759,7 @@ mod tests {
                 emitter: None,
                 steer_rx: None,
                 stream_display_mode: StreamDisplayMode::Buffered,
+                workspace_root: None,
             })
             .await
             .expect("traced interactive run should succeed");
@@ -898,6 +906,7 @@ mod tests {
                 emitter: None,
                 steer_rx: None,
                 stream_display_mode: StreamDisplayMode::Buffered,
+                workspace_root: None,
             })
             .await
             .expect_err("interactive run should time out");

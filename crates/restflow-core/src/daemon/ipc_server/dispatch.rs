@@ -119,7 +119,11 @@ impl IpcServer {
             }
             IpcRequest::ArchiveSession { id } => Self::handle_archive_session(core, id).await,
             IpcRequest::DeleteSession { id } => Self::handle_delete_session(core, id).await,
-            IpcRequest::SearchSessions { query } => Self::handle_search_sessions(core, query).await,
+            IpcRequest::SearchSessions {
+                query,
+                agent_id,
+                limit,
+            } => Self::handle_search_sessions(core, query, agent_id, limit).await,
             IpcRequest::AddMessage {
                 session_id,
                 role,
@@ -138,7 +142,11 @@ impl IpcServer {
             IpcRequest::ExecuteChatSession {
                 session_id,
                 user_input,
-            } => Self::handle_execute_chat_session(core, session_id, user_input).await,
+                workspace_root,
+            } => {
+                Self::handle_execute_chat_session(core, session_id, user_input, workspace_root)
+                    .await
+            }
             IpcRequest::ExecuteChatSessionStream { .. } => {
                 Self::handle_execute_chat_session_stream_unsupported().await
             }
@@ -283,9 +291,15 @@ impl IpcServer {
                 Ok(patch) => Self::handle_update_task(core, id, patch).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::DeleteTask { id } => Self::handle_delete_task(core, id).await,
-            IpcRequest::ControlTask { id, action } => match from_contract(action) {
-                Ok(action) => Self::handle_control_task(core, id, action).await,
+            IpcRequest::DeleteTask { id, approval_id } => {
+                Self::handle_delete_task(core, id, approval_id).await
+            }
+            IpcRequest::ControlTask {
+                id,
+                action,
+                approval_id,
+            } => match from_contract(action) {
+                Ok(action) => Self::handle_control_task(core, id, action, approval_id).await,
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::GetTaskProgress { id, event_limit } => {

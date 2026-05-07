@@ -163,6 +163,59 @@ pub enum SessionLogEvent {
     },
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum SessionLogSummaryEvent {
+    SessionMeta {
+        id: String,
+        updated_at: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        provider: Option<String>,
+        #[serde(default)]
+        agent_id: Option<String>,
+        #[serde(default)]
+        skill_id: Option<String>,
+        #[serde(default)]
+        source_channel: Option<String>,
+        #[serde(default)]
+        source_conversation_id: Option<String>,
+        #[serde(default)]
+        archived_at: Option<String>,
+    },
+    Message {
+        time: String,
+        role: SessionMessageRole,
+        text: String,
+    },
+    Reasoning {
+        time: String,
+    },
+    ToolCall {
+        time: String,
+        tool: String,
+    },
+    ToolResult {
+        time: String,
+        tool: String,
+        #[serde(default)]
+        status: Option<String>,
+    },
+    TurnEvent {
+        time: String,
+        turn_id: String,
+    },
+    Compact {
+        time: String,
+    },
+    Usage {
+        time: String,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionMeta {
     pub id: String,
@@ -633,6 +686,23 @@ impl FileSessionStore {
         read_session_file(&path).map(Some)
     }
 
+    pub fn get_by_turn_id(&self, turn_id: &str) -> Result<Option<FileSession>> {
+        let turn_id = turn_id.trim();
+        if turn_id.is_empty() {
+            return Ok(None);
+        }
+        for path in self.session_paths()? {
+            match session_file_contains_turn_id(&path, turn_id) {
+                Ok(true) => return read_session_file(&path).map(Some),
+                Ok(false) => {}
+                Err(err) => {
+                    tracing::warn!(path = %path.display(), error = %err, "Skipping invalid session file")
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub fn delete(&self, id: &str) -> Result<bool> {
         let Some(path) = self.find_session_path(id)? else {
             return Ok(false);
@@ -656,11 +726,32 @@ impl FileSessionStore {
     }
 
     pub fn list_summaries(&self) -> Result<Vec<ChatSessionSummary>> {
-        Ok(self
-            .list()?
-            .into_iter()
-            .map(|session| ChatSessionSummary::from(&session.to_chat_session()))
-            .collect())
+        let mut summaries = Vec::new();
+        for path in self.session_paths()? {
+            match read_session_summary_file(&path) {
+                Ok(summary) if summary.archived_at.is_none() => summaries.push(summary),
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::warn!(path = %path.display(), error = %err, "Skipping invalid session file")
+                }
+            }
+        }
+        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+        Ok(summaries)
+    }
+
+    pub fn list_summaries_all(&self) -> Result<Vec<ChatSessionSummary>> {
+        let mut summaries = Vec::new();
+        for path in self.session_paths()? {
+            match read_session_summary_file(&path) {
+                Ok(summary) => summaries.push(summary),
+                Err(err) => {
+                    tracing::warn!(path = %path.display(), error = %err, "Skipping invalid session file")
+                }
+            }
+        }
+        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+        Ok(summaries)
     }
 
     pub fn search(&self, query: &str) -> Result<Vec<FileSession>> {
@@ -732,6 +823,11 @@ impl FileSessionStore {
                 paths.push(path.to_path_buf());
             }
         }
+        paths.sort_by(|left, right| {
+            file_modified_ms(right)
+                .cmp(&file_modified_ms(left))
+                .then_with(|| left.cmp(right))
+        });
         Ok(paths)
     }
 }
@@ -756,6 +852,190 @@ pub fn read_session_file(path: &Path) -> Result<FileSession> {
         events.push(event);
     }
     FileSession::from_events(events)
+}
+
+fn read_session_summary_file(path: &Path) -> Result<ChatSessionSummary> {
+    let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let reader = BufReader::new(file);
+    let mut meta: Option<SessionLogSummaryEvent> = None;
+    let mut latest_time: Option<String> = None;
+    let mut message_count: u32 = 0;
+    let mut last_message_preview: Option<String> = None;
+    let mut first_user_message: Option<String> = None;
+
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.with_context(|| format!("failed to read {}", path.display()))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event: SessionLogSummaryEvent = serde_json::from_str(&line)
+            .with_context(|| format!("invalid JSONL at {}:{}", path.display(), index + 1))?;
+        if matches!(event, SessionLogSummaryEvent::SessionMeta { .. }) && meta.is_none() {
+            latest_time = summary_event_time(&event).map(ToOwned::to_owned);
+            meta = Some(event);
+            continue;
+        }
+        if let Some(time) = summary_event_time(&event)
+            && latest_time
+                .as_deref()
+                .map(|current| parse_time_ms(time) >= parse_time_ms(current))
+                .unwrap_or(true)
+        {
+            latest_time = Some(time.to_string());
+        }
+        if let Some(preview) = summary_event_preview(&event) {
+            message_count = message_count.saturating_add(1);
+            if first_user_message.is_none()
+                && let SessionLogSummaryEvent::Message {
+                    role: SessionMessageRole::User,
+                    text,
+                    ..
+                } = &event
+            {
+                first_user_message = Some(text.clone());
+            }
+            last_message_preview = Some(preview);
+        }
+    }
+
+    let Some(SessionLogSummaryEvent::SessionMeta {
+        id,
+        updated_at,
+        title,
+        model,
+        provider,
+        agent_id,
+        skill_id,
+        source_channel,
+        source_conversation_id,
+        archived_at,
+    }) = meta
+    else {
+        return Err(anyhow!("first session line is not session_meta"));
+    };
+
+    let name = title
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            first_user_message
+                .as_deref()
+                .map(session_title_from_message)
+        })
+        .unwrap_or_else(|| "Imported Chat".to_string());
+    let updated_at = latest_time
+        .as_deref()
+        .map(parse_time_ms)
+        .unwrap_or_else(|| parse_time_ms(&updated_at));
+    Ok(ChatSessionSummary {
+        id,
+        name,
+        agent_id: agent_id.unwrap_or_else(|| "default".to_string()),
+        provider: provider.unwrap_or_default(),
+        model: model.unwrap_or_else(|| "unknown".to_string()),
+        skill_id,
+        message_count,
+        updated_at,
+        last_message_preview,
+        source_channel: source_channel.as_deref().and_then(session_source_from_str),
+        source_conversation_id,
+        archived_at: archived_at.as_deref().map(parse_time_ms),
+    })
+}
+
+fn session_file_contains_turn_id(path: &Path, turn_id: &str) -> Result<bool> {
+    let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let reader = BufReader::new(file);
+    let encoded_turn_id = serde_json::to_string(turn_id)?;
+    let compact_needle = format!("\"turn_id\":{encoded_turn_id}");
+    let spaced_needle = format!("\"turn_id\": {encoded_turn_id}");
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.with_context(|| format!("failed to read {}", path.display()))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.contains(&compact_needle) || line.contains(&spaced_needle) {
+            return Ok(true);
+        }
+        if !line.contains("\"turn_id\"") {
+            continue;
+        }
+        let event: SessionLogSummaryEvent = serde_json::from_str(&line)
+            .with_context(|| format!("invalid JSONL at {}:{}", path.display(), index + 1))?;
+        if let SessionLogSummaryEvent::TurnEvent {
+            turn_id: event_turn_id,
+            ..
+        } = event
+            && event_turn_id == turn_id
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn file_modified_ms(path: &Path) -> i64 {
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or_default()
+}
+
+fn summary_event_time(event: &SessionLogSummaryEvent) -> Option<&str> {
+    match event {
+        SessionLogSummaryEvent::SessionMeta { updated_at, .. }
+        | SessionLogSummaryEvent::Message {
+            time: updated_at, ..
+        }
+        | SessionLogSummaryEvent::Reasoning { time: updated_at }
+        | SessionLogSummaryEvent::ToolCall {
+            time: updated_at, ..
+        }
+        | SessionLogSummaryEvent::ToolResult {
+            time: updated_at, ..
+        }
+        | SessionLogSummaryEvent::TurnEvent {
+            time: updated_at, ..
+        }
+        | SessionLogSummaryEvent::Compact { time: updated_at }
+        | SessionLogSummaryEvent::Usage { time: updated_at } => Some(updated_at.as_str()),
+    }
+}
+
+fn summary_event_preview(event: &SessionLogSummaryEvent) -> Option<String> {
+    match event {
+        SessionLogSummaryEvent::Message { text, .. } => Some(truncate_summary_preview(text)),
+        SessionLogSummaryEvent::Reasoning { .. } => Some("[reasoning]".to_string()),
+        SessionLogSummaryEvent::ToolCall { tool, .. } => Some(format!("[tool_call:{tool}]")),
+        SessionLogSummaryEvent::ToolResult { tool, status, .. } => Some(format!(
+            "[tool_result:{}:{}]",
+            tool,
+            status.as_deref().unwrap_or("completed")
+        )),
+        SessionLogSummaryEvent::Compact { .. } => Some("[compact]".to_string()),
+        SessionLogSummaryEvent::SessionMeta { .. }
+        | SessionLogSummaryEvent::TurnEvent { .. }
+        | SessionLogSummaryEvent::Usage { .. } => None,
+    }
+}
+
+fn truncate_summary_preview(text: &str) -> String {
+    let preview: String = text.chars().take(50).collect();
+    if text.chars().count() > 50 {
+        format!("{}...", preview)
+    } else {
+        preview
+    }
+}
+
+fn session_title_from_message(text: &str) -> String {
+    let title: String = text.chars().take(30).collect();
+    if text.chars().count() > 30 {
+        format!("{}...", title)
+    } else {
+        title
+    }
 }
 
 pub fn stable_session_id(events: &[SessionLogEvent]) -> String {
@@ -1022,6 +1302,65 @@ mod tests {
     }
 
     #[test]
+    fn lists_file_session_summaries_without_full_session_hydration() {
+        let dir = tempdir().unwrap();
+        let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let mut meta = SessionMeta::new(
+            "session-1".to_string(),
+            "2026-05-03T00:00:00.000Z".to_string(),
+            "2026-05-03T00:00:00.000Z".to_string(),
+        );
+        meta.provider = Some("codex".to_string());
+        meta.model = Some("gpt-5.4".to_string());
+        meta.agent_id = Some("agent-1".to_string());
+        let session = FileSession::new(
+            meta.clone(),
+            vec![
+                meta.into_event(),
+                SessionLogEvent::Message {
+                    id: "msg-1".to_string(),
+                    time: "2026-05-03T00:00:01.000Z".to_string(),
+                    role: SessionMessageRole::User,
+                    text: "hello from a lightweight summary".to_string(),
+                    execution: None,
+                    media: None,
+                    transcript: None,
+                },
+                SessionLogEvent::ToolResult {
+                    id: "tool-1".to_string(),
+                    time: "2026-05-03T00:00:02.000Z".to_string(),
+                    tool: "bash".to_string(),
+                    output: Some(
+                        "large output does not need to hydrate into a chat message".repeat(8),
+                    ),
+                    status: Some("completed".to_string()),
+                    error: None,
+                    exit_code: Some(0),
+                    duration_ms: Some(10),
+                },
+            ],
+        );
+        store.write_session(&session, false).unwrap();
+
+        let summaries = store.list_summaries().unwrap();
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "session-1");
+        assert_eq!(summaries[0].agent_id, "agent-1");
+        assert_eq!(summaries[0].provider, "codex");
+        assert_eq!(summaries[0].model, "gpt-5.4");
+        assert_eq!(summaries[0].message_count, 2);
+        assert_eq!(
+            summaries[0].updated_at,
+            parse_time_ms("2026-05-03T00:00:02.000Z")
+        );
+        assert_eq!(
+            summaries[0].last_message_preview.as_deref(),
+            Some("[tool_result:bash:completed]")
+        );
+    }
+
+    #[test]
     fn skips_existing_session_without_force() {
         let dir = tempdir().unwrap();
         let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
@@ -1111,6 +1450,36 @@ mod tests {
             reloaded.turns[0].events[1].kind,
             ChatTurnEventKind::ToolCall { .. }
         ));
+    }
+
+    #[test]
+    fn finds_file_session_by_turn_id_without_hydrating_every_file() {
+        let dir = tempdir().unwrap();
+        let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+
+        let mut other_session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        other_session.id = "session-other".to_string();
+        other_session.record_turn_user_message("turn-other", "ignore me");
+        store
+            .write_session(&FileSession::from_chat_session(&other_session), false)
+            .unwrap();
+
+        let mut target_session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        target_session.id = "session-target".to_string();
+        target_session.record_turn_user_message("turn-target", "find me");
+        store
+            .write_session(&FileSession::from_chat_session(&target_session), false)
+            .unwrap();
+
+        let loaded = store.get_by_turn_id("turn-target").unwrap().unwrap();
+        assert_eq!(loaded.meta.id, "session-target");
+        assert_eq!(
+            loaded.to_chat_session().turns[0].events[0].kind,
+            ChatTurnEventKind::UserMessage {
+                content: "find me".to_string()
+            }
+        );
+        assert!(store.get_by_turn_id("missing-turn").unwrap().is_none());
     }
 
     #[test]

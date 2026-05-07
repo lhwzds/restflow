@@ -1,25 +1,13 @@
 use anyhow::{Result, bail};
 use comfy_table::{Cell, Table};
-use serde::Serialize;
 use serde_json::json;
 use std::sync::Arc;
 
 use crate::cli::SessionCommands;
-use crate::commands::utils::{format_timestamp, preview_text, short_id};
+use crate::commands::utils::{format_timestamp, short_id};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::models::chat_session::{ChatRole, ChatSession};
-
-#[derive(Debug, Serialize)]
-struct SessionSearchResult {
-    id: String,
-    name: String,
-    agent_id: String,
-    model: String,
-    updated_at: i64,
-    match_count: usize,
-    preview: Option<String>,
-}
+use restflow_core::models::chat_session::ChatRole;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -33,9 +21,11 @@ pub async fn run(
             create_session(executor, &agent, &model, format).await
         }
         SessionCommands::Delete { id } => delete_session(executor, &id, format).await,
-        SessionCommands::Search { query, agent } => {
-            search_sessions(executor, &query, agent.as_deref(), format).await
-        }
+        SessionCommands::Search {
+            query,
+            agent,
+            limit,
+        } => search_sessions(executor, &query, agent.as_deref(), limit, format).await,
     }
 }
 
@@ -158,6 +148,7 @@ async fn search_sessions(
     executor: Arc<dyn CommandExecutor>,
     query: &str,
     agent: Option<&str>,
+    limit: usize,
     format: OutputFormat,
 ) -> Result<()> {
     let normalized = query.trim().to_lowercase();
@@ -165,34 +156,9 @@ async fn search_sessions(
         bail!("Search query cannot be empty");
     }
 
-    let sessions = executor.list_full_sessions().await?;
-
-    let sessions: Vec<_> = if let Some(agent_id) = agent {
-        sessions
-            .into_iter()
-            .filter(|session| session.agent_id == agent_id)
-            .collect()
-    } else {
-        sessions
-    };
-
-    let mut results = Vec::new();
-    for session in sessions {
-        let (match_count, preview) = count_matches(&session, &normalized);
-        if match_count > 0 {
-            results.push(SessionSearchResult {
-                id: session.id,
-                name: session.name,
-                agent_id: session.agent_id,
-                model: session.model,
-                updated_at: session.updated_at,
-                match_count,
-                preview,
-            });
-        }
-    }
-
-    results.sort_by_key(|result| std::cmp::Reverse(result.match_count));
+    let results = executor
+        .search_sessions(&normalized, agent, limit.max(1))
+        .await?;
 
     if format.is_json() {
         return print_json(&results);
@@ -207,37 +173,15 @@ async fn search_sessions(
         println!("{}. {} ({})", index + 1, result.name, result.id);
         println!("   Agent: {}", result.agent_id);
         println!("   Model: {}", result.model);
-        println!("   Matches: {}", result.match_count);
+        println!("   Messages: {}", result.message_count);
         println!("   Updated: {}", format_timestamp(Some(result.updated_at)));
-        if let Some(ref preview) = result.preview {
+        if let Some(ref preview) = result.last_message_preview {
             println!("   Preview: {}", preview);
         }
         println!();
     }
 
     Ok(())
-}
-
-fn count_matches(session: &ChatSession, query: &str) -> (usize, Option<String>) {
-    let mut count = 0;
-    let mut preview = None;
-
-    if session.name.to_lowercase().contains(query) {
-        count += 1;
-        preview = Some(preview_text(&session.name, 80));
-    }
-
-    for message in &session.messages {
-        let content = message.content.to_lowercase();
-        if content.contains(query) {
-            count += 1;
-            if preview.is_none() {
-                preview = Some(preview_text(&message.content, 120));
-            }
-        }
-    }
-
-    (count, preview)
 }
 
 async fn resolve_session_id_optional(

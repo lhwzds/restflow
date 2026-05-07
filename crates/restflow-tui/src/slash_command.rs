@@ -21,6 +21,7 @@ impl TaskControlAction {
 pub enum SlashCommand {
     Daemon,
     NewChat,
+    Quit,
     Start,
     Stop,
     Help,
@@ -61,6 +62,11 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         command: "/new",
         args: "",
         description: "Start a new chat",
+    },
+    SlashCommandSpec {
+        command: "/quit",
+        args: "",
+        description: "Exit RestFlow",
     },
     SlashCommandSpec {
         command: "/help",
@@ -105,6 +111,7 @@ Ctrl-C exits.\n\n\
 Slash commands:\n\
 /daemon\n\
 /new\n\
+/quit\n\
 /help\n\
 /resume\n\
 /skill\n\
@@ -123,6 +130,7 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
             _ => bail!("Usage: /daemon [start|stop]"),
         },
         "/new" | "/clear" => Ok(SlashCommand::NewChat),
+        "/quit" | "/exit" => Ok(SlashCommand::Quit),
         "/start" => Ok(SlashCommand::Start),
         "/stop" => Ok(SlashCommand::Stop),
         "/help" => Ok(SlashCommand::Help),
@@ -322,6 +330,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_quit_aliases() {
+        assert_eq!(
+            parse_slash_command("/quit").expect("parse"),
+            SlashCommand::Quit
+        );
+        assert_eq!(
+            parse_slash_command("/exit").expect("parse"),
+            SlashCommand::Quit
+        );
+    }
+
+    #[test]
     fn rejects_team_as_slash_command() {
         let error = parse_slash_command("/team").expect_err("team is a skill mention");
         assert!(error.to_string().contains("Unknown command: /team"));
@@ -348,7 +368,9 @@ mod tests {
 
         assert!(specs.contains(&("/daemon", "")));
         assert!(specs.contains(&("/new", "")));
+        assert!(specs.contains(&("/quit", "")));
         assert!(!specs.contains(&("/clear", "")));
+        assert!(!specs.contains(&("/exit", "")));
         assert!(!specs.contains(&("/start", "")));
         assert!(!specs.contains(&("/stop", "")));
         assert!(specs.contains(&("/help", "")));

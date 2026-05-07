@@ -12,6 +12,7 @@ use crate::models::{
 use anyhow::Result;
 use redb::Database;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
@@ -101,6 +102,15 @@ impl TaskStorage {
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
             inner: RawTaskStorage::new(db.clone())?,
+            execution_traces,
+        })
+    }
+
+    /// Create a new TaskStorage instance backed by a JSON snapshot file.
+    pub fn new_file_backed(db: Arc<Database>, file_path: impl Into<PathBuf>) -> Result<Self> {
+        let execution_traces = ExecutionTraceStorage::new(db.clone())?;
+        Ok(Self {
+            inner: RawTaskStorage::new_file_backed(db.clone(), file_path)?,
             execution_traces,
         })
     }

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
+use super::SUBAGENT_TOOL_NAMES;
 use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
@@ -87,6 +88,9 @@ pub(crate) fn populate_known_tools_from_registry(
             "manage_tasks",
         ] {
             known.insert(name.to_string());
+        }
+        for name in SUBAGENT_TOOL_NAMES {
+            known.insert((*name).to_string());
         }
     }
 }

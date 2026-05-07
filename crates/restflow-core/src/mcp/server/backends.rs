@@ -415,14 +415,14 @@ impl McpBackend for IpcBackend {
         &self,
         request: TaskDeleteRequest,
     ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        if request.preview || request.approval_id.is_some() {
-            return Err(
-                "Preview and confirmation replay are no longer available for IPC task deletions."
-                    .to_string(),
-            );
+        if request.preview {
+            return Err("Preview is no longer available for IPC task deletions.".to_string());
         }
         let result = self
-            .request_typed(IpcRequest::DeleteTask { id: request.id })
+            .request_typed(IpcRequest::DeleteTask {
+                id: request.id,
+                approval_id: request.approval_id,
+            })
             .await?;
         Ok(TaskCommandOutcome::Executed { result })
     }
@@ -432,6 +432,7 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::ControlTask {
             id: id.to_string(),
             action,
+            approval_id: None,
         })
         .await
     }
@@ -562,13 +563,8 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn core_backend_task_mutations_use_command_service_resolution() {
-        let _env_lock = crate::prompt_files::agents_dir_env_lock();
-        let temp_dir = tempfile::tempdir().expect("temp dir");
-        let agents_dir = tempfile::tempdir().expect("agents dir");
-        unsafe {
-            std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_dir.path());
-        }
-        let db_path = temp_dir.path().join("mcp-core-backend.db");
+        let env = crate::test_support::RestflowTestEnv::new();
+        let db_path = env.db_path("mcp-core-backend.db");
         let core = Arc::new(
             AppCore::new(db_path.to_str().expect("db path"))
                 .await

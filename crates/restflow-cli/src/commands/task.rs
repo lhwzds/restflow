@@ -89,8 +89,14 @@ pub async fn run(
             )
             .await
         }
-        TaskCommands::Delete { id } => delete_task(executor, &id, format).await,
-        TaskCommands::Control { id, action } => control_task(executor, &id, &action, format).await,
+        TaskCommands::Delete { id, approval_id } => {
+            delete_task(executor, &id, approval_id.as_deref(), format).await
+        }
+        TaskCommands::Control {
+            id,
+            action,
+            approval_id,
+        } => control_task(executor, &id, &action, approval_id.as_deref(), format).await,
         TaskCommands::Progress { id, limit } => show_progress(executor, &id, limit, format).await,
         TaskCommands::RunLog { id, run_id, limit } => {
             show_run_log(executor, &id, run_id.as_deref(), limit, format).await
@@ -311,9 +317,10 @@ async fn update_task(
 async fn delete_task(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
+    approval_id: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
-    let result: DeleteWithIdResponse = executor.delete_task(id).await?;
+    let result: DeleteWithIdResponse = executor.delete_task(id, approval_id).await?;
 
     if format.is_json() {
         return print_json(&result);
@@ -327,10 +334,13 @@ async fn control_task(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
     action: &str,
+    approval_id: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     let parsed_action = parse_control_action(action)?;
-    let task = executor.control_task(id, parsed_action.clone()).await?;
+    let task = executor
+        .control_task(id, parsed_action.clone(), approval_id)
+        .await?;
 
     if format.is_json() {
         return print_json(&task);

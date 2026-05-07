@@ -59,7 +59,7 @@ impl AgentStoreAdapter {
                     .read()
                     .map(|set| set.contains(normalized))
                     .unwrap_or(false);
-                if !is_known {
+                if !is_known && !crate::runtime::agent::tools::is_subagent_tool_name(normalized) {
                     errors.push(crate::models::ValidationError::new(
                         "tools",
                         format!("unknown tool: {}", normalized),
@@ -291,6 +291,25 @@ mod tests {
         assert!(result.is_err());
         let err_msg = format!("{:?}", result.unwrap_err());
         assert!(err_msg.contains("unknown tool"));
+    }
+
+    #[test]
+    fn test_validate_subagent_tools_accepted() {
+        let (adapter, _env) = setup();
+        let result = adapter.create_agent(AgentCreateRequest {
+            name: "Subagent Tools".to_string(),
+            agent: ContractAgentNode {
+                tools: Some(vec![
+                    "bash".to_string(),
+                    "spawn_subagent_batch".to_string(),
+                    "wait_subagents".to_string(),
+                    "list_subagents".to_string(),
+                ]),
+                ..ContractAgentNode::default()
+            },
+        });
+
+        assert!(result.is_ok());
     }
 
     #[test]

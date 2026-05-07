@@ -1,19 +1,23 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use chrono::{Local, TimeZone};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::models::{
-    ChatSession, ChatSessionSource, ExecutionContainerKind, ExecutionContainerSummary,
-    ExecutionThread, ExecutionTraceEvent, ExecutionTraceQuery, RunKind, RunListQuery, RunSummary,
-    Task,
+    ChatRole, ChatSession, ChatSessionSource, ChatTurn, ChatTurnEventKind, ChatTurnStatus,
+    ExecutionContainerKind, ExecutionContainerSummary, ExecutionThread, ExecutionTimeline,
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
+    LifecycleTrace, MessageTrace, RunKind, RunListQuery, RunSummary, Task, TaskRun, ToolCallPhase,
+    ToolCallTrace,
 };
 use crate::services::session::SessionService;
 use crate::services::session_policy::{EffectiveSessionSource, SessionPolicy};
 use crate::storage::Storage;
-use crate::telemetry::get_execution_timeline;
+use crate::telemetry::{execution_trace_stats_for_events, get_execution_timeline};
 
 #[derive(Debug, Error)]
 pub enum ExecutionThreadError {
@@ -57,6 +61,16 @@ struct LatestRunProjection {
 struct RootRunContext {
     container_id: String,
     root_run_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SubagentResultProjection {
+    task_id: String,
+    agent: Option<String>,
+    task: Option<String>,
+    status: String,
+    output: Option<String>,
+    duration_ms: Option<i64>,
 }
 
 impl ExecutionConsoleService {
@@ -139,14 +153,56 @@ impl ExecutionConsoleService {
         self.get_run_thread(run_id)
     }
 
+    pub fn get_execution_run_timeline(
+        &self,
+        run_id: &str,
+    ) -> std::result::Result<ExecutionTimeline, ExecutionThreadError> {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return Err(ExecutionThreadError::InvalidQuery);
+        }
+
+        let timeline = get_execution_timeline(
+            &self.storage.execution_traces,
+            &ExecutionTraceQuery {
+                run_id: Some(run_id.to_string()),
+                limit: Some(usize::MAX),
+                ..ExecutionTraceQuery::default()
+            },
+        )
+        .map_err(ExecutionThreadError::from)?;
+        if !timeline.events.is_empty() {
+            return Ok(timeline);
+        }
+
+        match self.get_run_thread(run_id) {
+            Ok(thread) => Ok(thread.timeline),
+            Err(ExecutionThreadError::RunNotFound(_)) => Ok(timeline),
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn list_child_runs(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
         let parent_run_id = parent_run_id.trim();
         if parent_run_id.is_empty() {
             return Ok(Vec::new());
         }
 
-        let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
+        let seed_events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             parent_run_id: Some(parent_run_id.to_string()),
+            limit: Some(usize::MAX),
+            ..ExecutionTraceQuery::default()
+        })?;
+
+        let child_run_ids = seed_events
+            .iter()
+            .filter_map(|event| event.run_id.clone())
+            .collect::<HashSet<_>>();
+        if child_run_ids.is_empty() {
+            return self.list_session_child_runs(parent_run_id);
+        }
+
+        let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             limit: Some(usize::MAX),
             ..ExecutionTraceQuery::default()
         })?;
@@ -156,13 +212,16 @@ impl ExecutionConsoleService {
             let Some(run_id) = event.run_id.clone() else {
                 continue;
             };
+            if !child_run_ids.contains(&run_id) {
+                continue;
+            }
             groups.entry(run_id).or_default().push(event);
         }
 
         let mut sessions = groups
             .into_iter()
             .map(|(run_id, mut events)| -> Result<RunSummary> {
-                events.sort_by_key(|event| event.timestamp);
+                sort_trace_events(&mut events);
                 let root = self.resolve_root_run_context(
                     &run_id,
                     events
@@ -322,6 +381,7 @@ impl ExecutionConsoleService {
     }
 
     fn list_task_runs(&self, task: &Task) -> Result<Vec<RunSummary>> {
+        let task_runs = self.storage.tasks.list_task_runs(&task.id)?;
         let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             task_id: Some(task.id.clone()),
             limit: Some(usize::MAX),
@@ -342,7 +402,7 @@ impl ExecutionConsoleService {
         let mut runs = groups
             .into_iter()
             .map(|(run_id, mut run_events)| {
-                run_events.sort_by_key(|event| event.timestamp);
+                sort_trace_events(&mut run_events);
                 self.build_run_summary(
                     &run_id,
                     &task.id,
@@ -362,6 +422,16 @@ impl ExecutionConsoleService {
                 )
             })
             .collect::<Vec<_>>();
+        let traced_run_ids = runs
+            .iter()
+            .filter_map(|run| run.run_id.clone())
+            .collect::<HashSet<_>>();
+        runs.extend(
+            task_runs
+                .iter()
+                .filter(|run| !traced_run_ids.contains(&run.run_id))
+                .map(|run| self.build_task_run_summary(task, run)),
+        );
 
         runs.sort_by(|left, right| {
             right
@@ -370,6 +440,31 @@ impl ExecutionConsoleService {
                 .then_with(|| left.id.cmp(&right.id))
         });
         Ok(runs)
+    }
+
+    fn build_task_run_summary(&self, task: &Task, run: &TaskRun) -> RunSummary {
+        RunSummary {
+            id: run.run_id.clone(),
+            kind: RunKind::TaskRun,
+            container_id: task.id.clone(),
+            root_run_id: Some(run.run_id.clone()),
+            title: format_run_title(run.started_at),
+            subtitle: Some(task.name.clone()),
+            status: run.status.as_str().to_string(),
+            updated_at: run.updated_at,
+            started_at: Some(run.started_at),
+            ended_at: run.ended_at,
+            session_id: Some(task.chat_session_id.clone()),
+            run_id: Some(run.run_id.clone()),
+            task_id: Some(task.id.clone()),
+            parent_run_id: None,
+            agent_id: Some(task.agent_id.clone()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
+        }
     }
 
     fn list_session_runs(
@@ -400,7 +495,7 @@ impl ExecutionConsoleService {
         let mut runs = groups
             .into_iter()
             .map(|(run_id, mut run_events)| {
-                run_events.sort_by_key(|event| event.timestamp);
+                sort_trace_events(&mut run_events);
                 self.build_run_summary(
                     &run_id,
                     container_id,
@@ -421,6 +516,25 @@ impl ExecutionConsoleService {
                 )
             })
             .collect::<Vec<_>>();
+
+        let traced_run_ids = runs
+            .iter()
+            .filter_map(|run| run.run_id.clone())
+            .collect::<HashSet<_>>();
+        runs.extend(session.turns.iter().filter_map(|turn| {
+            if traced_run_ids.contains(&turn.id) {
+                return None;
+            }
+            Some(build_turn_run_summary(
+                session,
+                turn,
+                container_id,
+                kind,
+                source_channel,
+                source_conversation_id.clone(),
+                subtitle.clone(),
+            ))
+        }));
 
         runs.sort_by(|left, right| {
             right
@@ -493,12 +607,182 @@ impl ExecutionConsoleService {
         )
         .map_err(ExecutionThreadError::from)?;
         if timeline.events.is_empty() {
-            return Err(ExecutionThreadError::RunNotFound(run_id.to_string()));
+            return self.get_turn_thread(run_id);
         }
         let focus = self
             .build_focus_for_run(run_id, &timeline.events)
             .map_err(ExecutionThreadError::from)?;
         Ok(ExecutionThread { focus, timeline })
+    }
+
+    fn get_turn_thread(
+        &self,
+        run_id: &str,
+    ) -> std::result::Result<ExecutionThread, ExecutionThreadError> {
+        let session_service = SessionService::from_storage(&self.storage);
+        let policy = SessionPolicy::from_storage(&self.storage);
+        let sessions = session_service
+            .list_session_views(None, None, true)
+            .map_err(ExecutionThreadError::from)?;
+
+        for session in sessions {
+            let Some(turn) = session.turns.iter().find(|turn| turn.id == run_id) else {
+                continue;
+            };
+            let (kind, container_id, subtitle, source_channel, source_conversation_id) =
+                if let Some(task) = policy
+                    .bound_task(&session.id)
+                    .map_err(ExecutionThreadError::from)?
+                {
+                    (RunKind::TaskRun, task.id, Some(task.name), None, None)
+                } else {
+                    let (source, conversation_id) = session_service
+                        .effective_source(&session)
+                        .map_err(ExecutionThreadError::from)?;
+                    (
+                        RunKind::WorkspaceRun,
+                        session.id.clone(),
+                        Some(session.name.clone()),
+                        Some(source),
+                        conversation_id,
+                    )
+                };
+            let focus = build_turn_run_summary(
+                &session,
+                turn,
+                &container_id,
+                kind,
+                source_channel,
+                source_conversation_id,
+                subtitle,
+            );
+            let events = turn_execution_trace_events(&session, turn, &container_id);
+            let stats = execution_trace_stats_for_events(&events);
+            return Ok(ExecutionThread {
+                focus,
+                timeline: ExecutionTimeline { events, stats },
+            });
+        }
+
+        if let Some(thread) = self.find_session_subagent_thread(run_id)? {
+            return Ok(thread);
+        }
+        if let Some(thread) = self.find_task_run_record_thread(run_id)? {
+            return Ok(thread);
+        }
+
+        Err(ExecutionThreadError::RunNotFound(run_id.to_string()))
+    }
+
+    fn find_task_run_record_thread(
+        &self,
+        run_id: &str,
+    ) -> std::result::Result<Option<ExecutionThread>, ExecutionThreadError> {
+        let Some(task_run) = self
+            .storage
+            .tasks
+            .get_task_run(run_id)
+            .map_err(ExecutionThreadError::from)?
+        else {
+            return Ok(None);
+        };
+        let Some(task) = self
+            .storage
+            .tasks
+            .get_task(&task_run.task_id)
+            .map_err(ExecutionThreadError::from)?
+        else {
+            return Ok(None);
+        };
+
+        let session_service = SessionService::from_storage(&self.storage);
+        let mut events = session_service
+            .get_session_view(&task.chat_session_id)
+            .map_err(ExecutionThreadError::from)?
+            .and_then(|session| {
+                session
+                    .turns
+                    .iter()
+                    .max_by_key(|turn| turn.updated_at)
+                    .map(|turn| turn_execution_trace_events(&session, turn, &task.id))
+            })
+            .unwrap_or_default();
+        if events.is_empty()
+            && let Some(session) = session_service
+                .get_session_view(&task.chat_session_id)
+                .map_err(ExecutionThreadError::from)?
+        {
+            events = legacy_message_trace_events(&session, &task, &task_run.run_id);
+        }
+        for event in &mut events {
+            event.run_id = Some(task_run.run_id.clone());
+            event.session_id = Some(task.chat_session_id.clone());
+            event.task_id = task.id.clone();
+            event.agent_id = task.agent_id.clone();
+        }
+
+        let stats = execution_trace_stats_for_events(&events);
+        let mut focus = self.build_task_run_summary(&task, &task_run);
+        focus.event_count = events.len() as u64;
+        Ok(Some(ExecutionThread {
+            focus,
+            timeline: ExecutionTimeline { events, stats },
+        }))
+    }
+
+    fn list_session_child_runs(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
+        let session_service = SessionService::from_storage(&self.storage);
+        let Some(session) = session_service.get_session_view_by_turn_id(parent_run_id)? else {
+            return Ok(Vec::new());
+        };
+        let mut runs = Vec::new();
+        let Some(turn) = session.turns.iter().find(|turn| turn.id == parent_run_id) else {
+            return Ok(Vec::new());
+        };
+        for (event_timestamp, projection) in subagent_results_for_turn(turn) {
+            runs.push(subagent_result_run_summary(
+                &session,
+                turn,
+                event_timestamp,
+                &projection,
+            ));
+        }
+        runs.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(runs)
+    }
+
+    fn find_session_subagent_thread(
+        &self,
+        run_id: &str,
+    ) -> std::result::Result<Option<ExecutionThread>, ExecutionThreadError> {
+        let session_service = SessionService::from_storage(&self.storage);
+        let sessions = session_service
+            .list_session_views(None, None, true)
+            .map_err(ExecutionThreadError::from)?;
+        for session in sessions {
+            for turn in &session.turns {
+                for (event_timestamp, projection) in subagent_results_for_turn(turn) {
+                    if projection.task_id != run_id {
+                        continue;
+                    }
+                    let focus =
+                        subagent_result_run_summary(&session, turn, event_timestamp, &projection);
+                    let events =
+                        subagent_result_trace_events(&session, turn, event_timestamp, &projection);
+                    let stats = execution_trace_stats_for_events(&events);
+                    return Ok(Some(ExecutionThread {
+                        focus,
+                        timeline: ExecutionTimeline { events, stats },
+                    }));
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn load_run_events(&self, run_id: &str) -> Result<Vec<ExecutionTraceEvent>> {
@@ -507,11 +791,7 @@ impl ExecutionConsoleService {
             limit: Some(usize::MAX),
             ..ExecutionTraceQuery::default()
         })?;
-        events.sort_by(|left, right| {
-            left.timestamp
-                .cmp(&right.timestamp)
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        sort_trace_events(&mut events);
         Ok(events)
     }
 
@@ -679,6 +959,445 @@ impl ExecutionConsoleService {
     }
 }
 
+fn build_turn_run_summary(
+    session: &ChatSession,
+    turn: &ChatTurn,
+    container_id: &str,
+    kind: RunKind,
+    source_channel: Option<ChatSessionSource>,
+    source_conversation_id: Option<String>,
+    subtitle: Option<String>,
+) -> RunSummary {
+    RunSummary {
+        id: turn.id.clone(),
+        kind,
+        container_id: container_id.to_string(),
+        root_run_id: Some(turn.id.clone()),
+        title: format_run_title(turn.started_at),
+        subtitle,
+        status: chat_turn_status_label(turn.status).to_string(),
+        updated_at: turn.updated_at,
+        started_at: Some(turn.started_at),
+        ended_at: turn.completed_at,
+        session_id: Some(session.id.clone()),
+        run_id: Some(turn.id.clone()),
+        task_id: None,
+        parent_run_id: None,
+        agent_id: Some(session.agent_id.clone()),
+        source_channel,
+        source_conversation_id,
+        effective_model: Some(session.model.clone()),
+        provider: Some(session.provider.clone()),
+        event_count: turn.events.len() as u64,
+    }
+}
+
+fn subagent_results_for_turn(turn: &ChatTurn) -> Vec<(i64, SubagentResultProjection)> {
+    let mut projections = Vec::new();
+    for event in &turn.events {
+        let ChatTurnEventKind::ToolResult {
+            success: true,
+            result,
+            ..
+        } = &event.kind
+        else {
+            continue;
+        };
+        projections.extend(
+            parse_subagent_result_projections(result)
+                .into_iter()
+                .map(|projection| (event.timestamp, projection)),
+        );
+    }
+    projections
+}
+
+fn parse_subagent_result_projections(result: &str) -> Vec<SubagentResultProjection> {
+    let Ok(value) = serde_json::from_str::<Value>(result) else {
+        return Vec::new();
+    };
+    let Some(results) = value.get("results").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    results
+        .iter()
+        .filter_map(|entry| {
+            let task_id = entry
+                .get("task_id")
+                .and_then(Value::as_str)?
+                .trim()
+                .to_string();
+            if task_id.is_empty() {
+                return None;
+            }
+            Some(SubagentResultProjection {
+                task_id,
+                agent: entry
+                    .get("agent")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string),
+                task: entry
+                    .get("task")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string),
+                status: entry
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("completed")
+                    .to_string(),
+                output: entry
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string),
+                duration_ms: entry.get("duration_ms").and_then(Value::as_i64),
+            })
+        })
+        .collect()
+}
+
+fn subagent_result_run_summary(
+    session: &ChatSession,
+    turn: &ChatTurn,
+    event_timestamp: i64,
+    projection: &SubagentResultProjection,
+) -> RunSummary {
+    let terminal = is_terminal_run_status(&projection.status);
+    RunSummary {
+        id: projection.task_id.clone(),
+        kind: RunKind::SubagentRun,
+        container_id: session.id.clone(),
+        root_run_id: Some(turn.id.clone()),
+        title: projection
+            .agent
+            .as_deref()
+            .map(|agent| format!("Subagent run: {agent}"))
+            .unwrap_or_else(|| "Subagent run".to_string()),
+        subtitle: projection.task.clone().or_else(|| {
+            projection
+                .output
+                .as_ref()
+                .map(|output| compact_summary(output, 80))
+        }),
+        status: projection.status.clone(),
+        updated_at: event_timestamp,
+        started_at: Some(turn.started_at),
+        ended_at: terminal.then_some(event_timestamp),
+        session_id: Some(session.id.clone()),
+        run_id: Some(projection.task_id.clone()),
+        task_id: None,
+        parent_run_id: Some(turn.id.clone()),
+        agent_id: Some(session.agent_id.clone()),
+        source_channel: session.source_channel,
+        source_conversation_id: session.source_conversation_id.clone(),
+        effective_model: Some(session.model.clone()),
+        provider: Some(session.provider.clone()),
+        event_count: if projection.output.is_some() { 2 } else { 1 },
+    }
+}
+
+fn subagent_result_trace_events(
+    session: &ChatSession,
+    turn: &ChatTurn,
+    event_timestamp: i64,
+    projection: &SubagentResultProjection,
+) -> Vec<ExecutionTraceEvent> {
+    let mut events = vec![ExecutionTraceEvent {
+        id: format!("{}:lifecycle", projection.task_id),
+        task_id: projection.task_id.clone(),
+        agent_id: session.agent_id.clone(),
+        category: ExecutionTraceCategory::Lifecycle,
+        source: ExecutionTraceSource::Runtime,
+        timestamp: event_timestamp,
+        subflow_path: Vec::new(),
+        run_id: Some(projection.task_id.clone()),
+        parent_run_id: Some(turn.id.clone()),
+        session_id: Some(session.id.clone()),
+        turn_id: Some(turn.id.clone()),
+        requested_model: None,
+        effective_model: Some(session.model.clone()),
+        provider: Some(session.provider.clone()),
+        attempt: None,
+        llm_call: None,
+        tool_call: None,
+        model_switch: None,
+        lifecycle: Some(LifecycleTrace {
+            status: projection.status.clone(),
+            message: Some(
+                projection
+                    .agent
+                    .as_deref()
+                    .map(|agent| format!("Subagent {agent} {}", projection.status))
+                    .unwrap_or_else(|| format!("Subagent {}", projection.status)),
+            ),
+            error: None,
+            ai_duration_ms: projection.duration_ms,
+        }),
+        message: None,
+        metric_sample: None,
+        provider_health: None,
+        log_record: None,
+    }];
+    if let Some(output) = projection.output.as_ref() {
+        events.push(ExecutionTraceEvent {
+            id: format!("{}:message", projection.task_id),
+            task_id: projection.task_id.clone(),
+            agent_id: session.agent_id.clone(),
+            category: ExecutionTraceCategory::Message,
+            source: ExecutionTraceSource::Runtime,
+            timestamp: event_timestamp,
+            subflow_path: Vec::new(),
+            run_id: Some(projection.task_id.clone()),
+            parent_run_id: Some(turn.id.clone()),
+            session_id: Some(session.id.clone()),
+            turn_id: Some(turn.id.clone()),
+            requested_model: None,
+            effective_model: Some(session.model.clone()),
+            provider: Some(session.provider.clone()),
+            attempt: None,
+            llm_call: None,
+            tool_call: None,
+            model_switch: None,
+            lifecycle: None,
+            message: Some(MessageTrace {
+                role: "assistant".to_string(),
+                content_preview: Some(output.clone()),
+                tool_call_count: None,
+            }),
+            metric_sample: None,
+            provider_health: None,
+            log_record: None,
+        });
+    }
+    events
+}
+
+fn is_terminal_run_status(status: &str) -> bool {
+    matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "completed" | "failed" | "canceled" | "cancelled" | "interrupted" | "timed_out"
+    )
+}
+
+fn compact_summary(value: &str, max_chars: usize) -> String {
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if value.chars().count() <= max_chars {
+        return value;
+    }
+    let keep = max_chars.saturating_sub(3);
+    let mut output = value.chars().take(keep).collect::<String>();
+    output.push_str("...");
+    output
+}
+
+fn turn_execution_trace_events(
+    session: &ChatSession,
+    turn: &ChatTurn,
+    container_id: &str,
+) -> Vec<ExecutionTraceEvent> {
+    turn.events
+        .iter()
+        .map(|event| {
+            let (category, lifecycle, message, tool_call) = match &event.kind {
+                ChatTurnEventKind::UserMessage { content } => (
+                    ExecutionTraceCategory::Message,
+                    None,
+                    Some(MessageTrace {
+                        role: "user".to_string(),
+                        content_preview: Some(content.clone()),
+                        tool_call_count: None,
+                    }),
+                    None,
+                ),
+                ChatTurnEventKind::AssistantMessage { content } => (
+                    ExecutionTraceCategory::Message,
+                    None,
+                    Some(MessageTrace {
+                        role: "assistant".to_string(),
+                        content_preview: Some(content.clone()),
+                        tool_call_count: None,
+                    }),
+                    None,
+                ),
+                ChatTurnEventKind::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
+                } => (
+                    ExecutionTraceCategory::ToolCall,
+                    None,
+                    None,
+                    Some(ToolCallTrace {
+                        phase: ToolCallPhase::Started,
+                        tool_call_id: call_id.clone(),
+                        tool_name: name.clone(),
+                        input: Some(arguments.clone()),
+                        input_summary: None,
+                        output: None,
+                        output_ref: None,
+                        success: None,
+                        error: None,
+                        duration_ms: None,
+                    }),
+                ),
+                ChatTurnEventKind::ToolResult {
+                    call_id,
+                    success,
+                    result,
+                } => (
+                    ExecutionTraceCategory::ToolCall,
+                    None,
+                    None,
+                    Some(ToolCallTrace {
+                        phase: ToolCallPhase::Completed,
+                        tool_call_id: call_id.clone(),
+                        tool_name: "tool".to_string(),
+                        input: None,
+                        input_summary: None,
+                        output: if *success { Some(result.clone()) } else { None },
+                        output_ref: None,
+                        success: Some(*success),
+                        error: if *success { None } else { Some(result.clone()) },
+                        duration_ms: None,
+                    }),
+                ),
+                ChatTurnEventKind::Error { message } => (
+                    ExecutionTraceCategory::Lifecycle,
+                    Some(LifecycleTrace {
+                        status: "failed".to_string(),
+                        message: Some(message.clone()),
+                        error: Some(message.clone()),
+                        ai_duration_ms: None,
+                    }),
+                    None,
+                    None,
+                ),
+                ChatTurnEventKind::Canceled => (
+                    ExecutionTraceCategory::Lifecycle,
+                    Some(LifecycleTrace {
+                        status: "canceled".to_string(),
+                        message: Some("Turn canceled".to_string()),
+                        error: None,
+                        ai_duration_ms: None,
+                    }),
+                    None,
+                    None,
+                ),
+            };
+            ExecutionTraceEvent {
+                id: event.id.clone(),
+                task_id: container_id.to_string(),
+                agent_id: session.agent_id.clone(),
+                category,
+                source: ExecutionTraceSource::Runtime,
+                timestamp: event.timestamp,
+                subflow_path: Vec::new(),
+                run_id: Some(turn.id.clone()),
+                parent_run_id: None,
+                session_id: Some(session.id.clone()),
+                turn_id: Some(turn.id.clone()),
+                requested_model: None,
+                effective_model: Some(session.model.clone()),
+                provider: Some(session.provider.clone()),
+                attempt: None,
+                llm_call: None,
+                tool_call,
+                model_switch: None,
+                lifecycle,
+                message,
+                metric_sample: None,
+                provider_health: None,
+                log_record: None,
+            }
+        })
+        .collect()
+}
+
+fn legacy_message_trace_events(
+    session: &ChatSession,
+    task: &Task,
+    run_id: &str,
+) -> Vec<ExecutionTraceEvent> {
+    session
+        .messages
+        .iter()
+        .filter_map(|message| {
+            let role = match message.role {
+                ChatRole::User => "user",
+                ChatRole::Assistant => "assistant",
+                ChatRole::System => return None,
+            };
+            Some(ExecutionTraceEvent {
+                id: message.id.clone(),
+                task_id: task.id.clone(),
+                agent_id: task.agent_id.clone(),
+                category: ExecutionTraceCategory::Message,
+                source: ExecutionTraceSource::Runtime,
+                timestamp: message.timestamp,
+                subflow_path: Vec::new(),
+                run_id: Some(run_id.to_string()),
+                parent_run_id: None,
+                session_id: Some(session.id.clone()),
+                turn_id: None,
+                requested_model: None,
+                effective_model: Some(session.model.clone()),
+                provider: Some(session.provider.clone()),
+                attempt: None,
+                llm_call: None,
+                tool_call: None,
+                model_switch: None,
+                lifecycle: None,
+                message: Some(MessageTrace {
+                    role: role.to_string(),
+                    content_preview: Some(message.content.clone()),
+                    tool_call_count: None,
+                }),
+                metric_sample: None,
+                provider_health: None,
+                log_record: None,
+            })
+        })
+        .collect()
+}
+
+fn chat_turn_status_label(status: ChatTurnStatus) -> &'static str {
+    match status {
+        ChatTurnStatus::Running => "running",
+        ChatTurnStatus::Completed => "completed",
+        ChatTurnStatus::Canceled => "canceled",
+        ChatTurnStatus::Failed => "failed",
+    }
+}
+
+fn sort_trace_events(events: &mut [ExecutionTraceEvent]) {
+    events.sort_by(compare_trace_events);
+}
+
+fn compare_trace_events(left: &ExecutionTraceEvent, right: &ExecutionTraceEvent) -> Ordering {
+    left.timestamp
+        .cmp(&right.timestamp)
+        .then_with(|| lifecycle_sort_rank(left).cmp(&lifecycle_sort_rank(right)))
+        .then_with(|| left.id.cmp(&right.id))
+}
+
+fn lifecycle_sort_rank(event: &ExecutionTraceEvent) -> u8 {
+    let Some(lifecycle) = event.lifecycle.as_ref() else {
+        return 1;
+    };
+    match lifecycle.status.to_ascii_lowercase().as_str() {
+        "running" | "started" | "starting" => 0,
+        "completed" | "failed" | "interrupted" | "cancelled" | "canceled" => 2,
+        _ => 1,
+    }
+}
+
 fn latest_lifecycle_status(events: &[ExecutionTraceEvent]) -> Option<String> {
     events.iter().rev().find_map(|event| {
         event
@@ -783,10 +1502,11 @@ mod tests {
     use super::*;
     use crate::models::{
         ChatMessage, ChatSession, ExecutionContainerRef, ExecutionMode, LifecycleTrace,
-        TaskSchedule, TaskSpec, execution_trace_builders,
+        TaskRunStatus, TaskSchedule, TaskSpec, execution_trace_builders,
     };
     use crate::storage::Storage;
     use crate::{ExecutionTraceCategory, ExecutionTraceSource};
+    use serde_json::json;
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -934,6 +1654,126 @@ mod tests {
     }
 
     #[test]
+    fn lists_workspace_runs_from_session_turns_when_trace_index_is_empty() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.name = "Workspace Session".to_string();
+        session.record_turn_user_message("turn-1", "run pwd");
+        session.record_turn_event(
+            "turn-1",
+            crate::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"command\":\"pwd\"}".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("turn-1", "done");
+        storage.chat_sessions.create(&session).expect("session");
+
+        let runs = service
+            .list_runs(&RunListQuery {
+                container: ExecutionContainerRef {
+                    kind: ExecutionContainerKind::Workspace,
+                    id: session.id.clone(),
+                },
+            })
+            .expect("workspace runs");
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_id.as_deref(), Some("turn-1"));
+        assert_eq!(runs[0].status, "completed");
+        assert_eq!(runs[0].event_count, 3);
+        assert_eq!(runs[0].container_id, session.id);
+    }
+
+    #[test]
+    fn opens_workspace_thread_from_session_turn_when_trace_index_is_empty() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.record_turn_user_message("turn-1", "hello");
+        session.complete_turn_with_assistant_message("turn-1", "hi");
+        storage.chat_sessions.create(&session).expect("session");
+
+        let thread = service
+            .get_execution_run_thread("turn-1")
+            .expect("turn thread");
+
+        assert_eq!(thread.focus.run_id.as_deref(), Some("turn-1"));
+        assert_eq!(thread.focus.status, "completed");
+        assert_eq!(thread.timeline.events.len(), 2);
+        assert_eq!(thread.timeline.stats.message_count, 2);
+    }
+
+    #[test]
+    fn opens_subagent_thread_from_parent_turn_tool_result_when_trace_index_is_empty() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        let session_id = session.id.clone();
+        session.record_turn_user_message("parent-run", "spawn workers");
+        session.record_turn_event(
+            "parent-run",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: "{}".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "parent-run",
+            ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: json!({
+                    "operation": "spawn",
+                    "results": [
+                        {
+                            "agent": "worker-A",
+                            "duration_ms": 25,
+                            "output": "EXACT_A_OK",
+                            "status": "completed",
+                            "task": "Reply with EXACT_A_OK",
+                            "task_id": "subagent-run-1"
+                        }
+                    ],
+                    "status": "completed"
+                })
+                .to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("parent-run", "done");
+        storage.chat_sessions.create(&session).expect("session");
+
+        let child_runs = service.list_child_runs("parent-run").expect("child runs");
+        assert_eq!(child_runs.len(), 1);
+        assert_eq!(child_runs[0].run_id.as_deref(), Some("subagent-run-1"));
+        assert_eq!(child_runs[0].parent_run_id.as_deref(), Some("parent-run"));
+        assert_eq!(child_runs[0].root_run_id.as_deref(), Some("parent-run"));
+        assert_eq!(child_runs[0].container_id, session_id);
+
+        let thread = service
+            .get_execution_run_thread("subagent-run-1")
+            .expect("subagent thread");
+        assert_eq!(thread.focus.run_id.as_deref(), Some("subagent-run-1"));
+        assert_eq!(thread.focus.parent_run_id.as_deref(), Some("parent-run"));
+        assert_eq!(thread.focus.status, "completed");
+        assert_eq!(thread.timeline.stats.lifecycle_count, 1);
+        assert_eq!(thread.timeline.stats.message_count, 1);
+        assert!(thread.timeline.events.iter().any(|event| {
+            event
+                .message
+                .as_ref()
+                .and_then(|message| message.content_preview.as_deref())
+                == Some("EXACT_A_OK")
+        }));
+    }
+
+    #[test]
     fn lists_task_runs_and_child_runs() {
         let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
@@ -999,6 +1839,274 @@ mod tests {
         assert_eq!(child_runs[0].container_id, task.id);
         assert_eq!(child_runs[0].parent_run_id.as_deref(), Some("run-parent"));
         assert_eq!(child_runs[0].root_run_id.as_deref(), Some("run-parent"));
+    }
+
+    #[test]
+    fn lists_task_runs_from_task_run_records_when_trace_index_is_empty() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let task = storage
+            .tasks
+            .create_task_from_spec(TaskSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+        storage
+            .tasks
+            .start_task_run(&task.id, "task-run-1", "exec-1", 100)
+            .expect("task run");
+        storage
+            .tasks
+            .mark_task_run_terminal(
+                "task-run-1",
+                TaskRunStatus::Completed,
+                200,
+                None,
+                Default::default(),
+            )
+            .expect("terminal task run");
+
+        let runs = service
+            .list_runs(&RunListQuery {
+                container: ExecutionContainerRef {
+                    kind: ExecutionContainerKind::Task,
+                    id: task.id.clone(),
+                },
+            })
+            .expect("task runs");
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_id.as_deref(), Some("task-run-1"));
+        assert_eq!(runs[0].status, "completed");
+        assert_eq!(
+            runs[0].session_id.as_deref(),
+            Some(task.chat_session_id.as_str())
+        );
+        assert_eq!(runs[0].task_id.as_deref(), Some(task.id.as_str()));
+    }
+
+    #[test]
+    fn opens_task_run_thread_from_task_run_record_when_trace_index_is_empty() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let task = storage
+            .tasks
+            .create_task_from_spec(TaskSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+        let mut session = ChatSession::new(task.agent_id.clone(), "gpt-5".to_string());
+        session.id = task.chat_session_id.clone();
+        session.record_turn_user_message("turn-1", "digest");
+        session.complete_turn_with_assistant_message("turn-1", "done");
+        storage.chat_sessions.create(&session).expect("session");
+        storage
+            .tasks
+            .start_task_run(&task.id, "task-run-1", "exec-1", 100)
+            .expect("task run");
+        storage
+            .tasks
+            .mark_task_run_terminal(
+                "task-run-1",
+                TaskRunStatus::Completed,
+                200,
+                None,
+                Default::default(),
+            )
+            .expect("terminal task run");
+
+        let thread = service
+            .get_execution_run_thread("task-run-1")
+            .expect("task run thread");
+
+        assert_eq!(thread.focus.run_id.as_deref(), Some("task-run-1"));
+        assert_eq!(thread.focus.status, "completed");
+        assert_eq!(thread.focus.task_id.as_deref(), Some(task.id.as_str()));
+        assert_eq!(thread.timeline.stats.message_count, 2);
+        assert!(
+            thread
+                .timeline
+                .events
+                .iter()
+                .all(|event| event.run_id.as_deref() == Some("task-run-1"))
+        );
+
+        let timeline = service
+            .get_execution_run_timeline("task-run-1")
+            .expect("task run timeline");
+        assert_eq!(timeline.stats.message_count, 2);
+        assert!(
+            timeline
+                .events
+                .iter()
+                .all(|event| event.run_id.as_deref() == Some("task-run-1"))
+        );
+    }
+
+    #[test]
+    fn task_run_timeline_projects_legacy_session_messages_when_turns_are_empty() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let task = storage
+            .tasks
+            .create_task_from_spec(TaskSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+        let mut session = ChatSession::new(task.agent_id.clone(), "gpt-5".to_string());
+        session.id = task.chat_session_id.clone();
+        session.add_message(ChatMessage::user("digest"));
+        session.add_message(ChatMessage::assistant("done"));
+        storage.chat_sessions.create(&session).expect("session");
+        storage
+            .tasks
+            .start_task_run(&task.id, "task-run-1", "exec-1", 100)
+            .expect("task run");
+        storage
+            .tasks
+            .mark_task_run_terminal(
+                "task-run-1",
+                TaskRunStatus::Completed,
+                200,
+                None,
+                Default::default(),
+            )
+            .expect("terminal task run");
+
+        let timeline = service
+            .get_execution_run_timeline("task-run-1")
+            .expect("task run timeline");
+
+        assert_eq!(timeline.stats.message_count, 2);
+        assert!(timeline.events.iter().any(|event| {
+            event
+                .message
+                .as_ref()
+                .and_then(|message| message.content_preview.as_deref())
+                == Some("done")
+        }));
+    }
+
+    #[test]
+    fn child_runs_include_terminal_events_without_parent_run_id() {
+        let (storage, _temp_dir) = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let task = storage
+            .tasks
+            .create_task_from_spec(TaskSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+
+        store_run_events(
+            &storage,
+            &task.id,
+            &task.chat_session_id,
+            "run-parent",
+            None,
+        );
+
+        let child_trace = restflow_ai::telemetry::RestflowTrace::new(
+            "run-child",
+            task.chat_session_id.clone(),
+            task.id.clone(),
+            "agent-1",
+        )
+        .with_parent_run_id(Some("run-parent".to_string()));
+        let child_start = execution_trace_builders::with_trace_context(
+            execution_trace_builders::lifecycle(
+                &task.id,
+                "agent-1",
+                LifecycleTrace {
+                    status: "running".to_string(),
+                    message: Some("started".to_string()),
+                    error: None,
+                    ai_duration_ms: None,
+                },
+            ),
+            &child_trace,
+        );
+        let child_terminal_trace = restflow_ai::telemetry::RestflowTrace::new(
+            "run-child",
+            task.chat_session_id.clone(),
+            task.id.clone(),
+            "agent-1",
+        );
+        let child_end = execution_trace_builders::with_trace_context(
+            execution_trace_builders::lifecycle(
+                &task.id,
+                "agent-1",
+                LifecycleTrace {
+                    status: "completed".to_string(),
+                    message: Some("done".to_string()),
+                    error: None,
+                    ai_duration_ms: Some(1200),
+                },
+            ),
+            &child_terminal_trace,
+        );
+        storage
+            .execution_traces
+            .store(&child_start)
+            .expect("child start");
+        storage
+            .execution_traces
+            .store(&child_end)
+            .expect("child end");
+
+        let child_runs = service.list_child_runs("run-parent").expect("child runs");
+        assert_eq!(child_runs.len(), 1);
+        assert_eq!(child_runs[0].run_id.as_deref(), Some("run-child"));
+        assert_eq!(child_runs[0].status, "completed");
+        assert!(child_runs[0].ended_at.is_some());
     }
 
     #[test]

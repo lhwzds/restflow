@@ -86,9 +86,18 @@ impl IpcClient {
         Ok(resp.deleted)
     }
 
-    pub async fn search_sessions(&mut self, query: String) -> Result<Vec<ChatSessionSummary>> {
-        self.request_typed(IpcRequest::SearchSessions { query })
-            .await
+    pub async fn search_sessions(
+        &mut self,
+        query: String,
+        agent_id: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<Vec<ChatSessionSummary>> {
+        self.request_typed(IpcRequest::SearchSessions {
+            query,
+            agent_id,
+            limit,
+        })
+        .await
     }
 
     pub async fn add_message(
@@ -123,10 +132,12 @@ impl IpcClient {
         &mut self,
         session_id: String,
         user_input: Option<String>,
+        workspace_root: Option<String>,
     ) -> Result<ChatSession> {
         self.request_typed(IpcRequest::ExecuteChatSession {
             session_id,
             user_input,
+            workspace_root,
         })
         .await
     }

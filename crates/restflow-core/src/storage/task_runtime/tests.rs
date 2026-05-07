@@ -1,5 +1,7 @@
 use super::*;
 use crate::models::{TaskRun, TaskRunStatus};
+use std::sync::Barrier;
+use std::thread;
 use tempfile::tempdir;
 
 fn create_test_storage() -> TaskStorage {
@@ -7,6 +9,93 @@ fn create_test_storage() -> TaskStorage {
     let db_path = temp_dir.path().join("test.db");
     let db = Arc::new(Database::create(db_path).unwrap());
     TaskStorage::new(db).unwrap()
+}
+
+#[test]
+fn test_file_backed_task_storage_survives_process_namespace_change() {
+    let temp_dir = tempdir().unwrap();
+    let task_store_path = temp_dir.path().join("tasks.json");
+
+    {
+        let db_path = temp_dir.path().join("first.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = TaskStorage::new_file_backed(db, task_store_path.clone()).unwrap();
+        storage
+            .create_task_from_spec(TaskSpec {
+                name: "File Backed Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("persist me".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                execution_mode: None,
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+    }
+
+    let db_path = temp_dir.path().join("second.db");
+    let db = Arc::new(Database::create(db_path).unwrap());
+    let storage = TaskStorage::new_file_backed(db, task_store_path).unwrap();
+    let tasks = storage.list_tasks().unwrap();
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].name, "File Backed Task");
+}
+
+#[test]
+fn test_file_backed_task_storage_serializes_parallel_creates() {
+    let temp_dir = tempdir().unwrap();
+    let task_store_path = temp_dir.path().join("tasks.json");
+    let db_path = temp_dir.path().join("tasks.db");
+    let db = Arc::new(Database::create(db_path).unwrap());
+    let storage = TaskStorage::new_file_backed(db, task_store_path).unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+
+    let handles = ["Parallel Task A", "Parallel Task B"]
+        .into_iter()
+        .map(|name| {
+            let storage = storage.clone();
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                storage
+                    .create_task_from_spec(TaskSpec {
+                        name: name.to_string(),
+                        agent_id: "agent-001".to_string(),
+                        chat_session_id: None,
+                        description: None,
+                        input: Some(name.to_string()),
+                        input_template: None,
+                        schedule: TaskSchedule::default(),
+                        execution_mode: None,
+                        timeout_secs: None,
+                        resource_limits: None,
+                        prerequisites: Vec::new(),
+                        continuation: None,
+                    })
+                    .unwrap();
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let tasks = storage.list_tasks().unwrap();
+    let names = tasks
+        .iter()
+        .map(|task| task.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+
+    assert_eq!(tasks.len(), 2);
+    assert!(names.contains("Parallel Task A"));
+    assert!(names.contains("Parallel Task B"));
 }
 
 // ============== Short ID Resolution Tests ==============

@@ -14,6 +14,7 @@ pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     pub telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
     pub stream_display_mode: StreamDisplayMode,
+    pub workspace_root: Option<std::path::PathBuf>,
 }
 
 impl AgentRuntimeExecutor {
@@ -151,6 +152,7 @@ impl AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
+        workspace_root: Option<std::path::PathBuf>,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let mentioned_skills = self.resolve_mentioned_skill_infos(user_input);
@@ -176,7 +178,7 @@ impl AgentRuntimeExecutor {
             agent_id,
             Some(bash_config),
             reply_sender,
-            None,
+            workspace_root.as_deref(),
         )?;
         let system_prompt = Self::append_mentioned_skill_directive(
             build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?,
@@ -239,6 +241,10 @@ impl AgentRuntimeExecutor {
             config = config.with_temperature(temp as f32);
         }
         config = Self::apply_llm_timeout(config, agent_defaults.llm_timeout_secs);
+        if agent_defaults.auto_review_tools {
+            config = config
+                .with_tool_call_reviewer(Arc::new(LlmToolCallReviewer::new(swappable.clone())));
+        }
         config = Self::apply_execution_context(config, &execution_context);
         config = config
             .with_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
@@ -248,6 +254,9 @@ impl AgentRuntimeExecutor {
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
+        if let Some(workspace_root) = workspace_root.as_ref() {
+            agent = agent.with_workspace_root(workspace_root.clone());
+        }
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }
@@ -339,6 +348,7 @@ impl AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
+        workspace_root: Option<std::path::PathBuf>,
     ) -> Result<SessionExecutionResult> {
         let model_specs = ModelId::build_model_specs();
         let api_keys = self
@@ -383,6 +393,7 @@ impl AgentRuntimeExecutor {
             steer_rx,
             telemetry_context,
             stream_display_mode,
+            workspace_root,
         )
         .await
     }
@@ -402,6 +413,7 @@ impl AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         telemetry_context: Option<restflow_ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
+        workspace_root: Option<std::path::PathBuf>,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
             return self
@@ -418,6 +430,7 @@ impl AgentRuntimeExecutor {
                     steer_rx,
                     telemetry_context,
                     stream_display_mode,
+                    workspace_root,
                 )
                 .await;
         }
@@ -441,6 +454,7 @@ impl AgentRuntimeExecutor {
                     steer_rx,
                     telemetry_context,
                     stream_display_mode,
+                    workspace_root,
                 )
                 .await;
         }
@@ -494,6 +508,7 @@ impl AgentRuntimeExecutor {
                     steer_rx.take(),
                     telemetry_context.clone(),
                     stream_display_mode,
+                    workspace_root.clone(),
                 )
                 .await
             {
@@ -584,6 +599,7 @@ impl AgentRuntimeExecutor {
                 steer_rx: None,
                 telemetry_context,
                 stream_display_mode: StreamDisplayMode::Buffered,
+                workspace_root: None,
             },
         )
         .await
@@ -604,6 +620,7 @@ impl AgentRuntimeExecutor {
             steer_rx,
             telemetry_context,
             stream_display_mode,
+            workspace_root,
         } = options;
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
@@ -672,6 +689,7 @@ impl AgentRuntimeExecutor {
                     .with_effective_model(model.as_serialized_str())
                     .with_provider(model.provider().as_canonical_str())
                     .with_attempt(current_attempt);
+                let workspace_root = workspace_root.clone();
                 async move {
                     if let Some(previous_model) = previous_model
                         && previous_model != model
@@ -704,6 +722,7 @@ impl AgentRuntimeExecutor {
                         steer_rx,
                         Some(telemetry_context),
                         stream_display_mode,
+                        workspace_root.clone(),
                     )
                     .await
                 }

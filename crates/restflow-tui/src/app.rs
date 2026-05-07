@@ -50,7 +50,7 @@ pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
             {
                 state.set_current_session(session);
             } else {
-                state.set_pending_session_from_agent(&agent);
+                state.set_pending_session(Some(controller.pending_session_for_agent(&agent).await));
             }
             state.status = "Connected to daemon".to_string();
         } else {

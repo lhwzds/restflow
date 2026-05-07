@@ -59,8 +59,13 @@ pub trait CommandExecutor: Send + Sync {
 
     // Session operations
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>>;
-    async fn list_full_sessions(&self) -> Result<Vec<ChatSession>>;
     async fn get_session(&self, id: &str) -> Result<ChatSession>;
+    async fn search_sessions(
+        &self,
+        query: &str,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<ChatSessionSummary>>;
     async fn create_session(
         &self,
         agent_id: Option<String>,
@@ -79,8 +84,17 @@ pub trait CommandExecutor: Send + Sync {
         request: TaskFromSessionRequest,
     ) -> Result<TaskConversionResult>;
     async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task>;
-    async fn delete_task(&self, id: &str) -> Result<restflow_contracts::DeleteWithIdResponse>;
-    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task>;
+    async fn delete_task(
+        &self,
+        id: &str,
+        approval_id: Option<&str>,
+    ) -> Result<restflow_contracts::DeleteWithIdResponse>;
+    async fn control_task(
+        &self,
+        id: &str,
+        action: TaskControlAction,
+        approval_id: Option<&str>,
+    ) -> Result<Task>;
     async fn get_task_progress(&self, id: &str, event_limit: Option<usize>)
     -> Result<TaskProgress>;
     async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;

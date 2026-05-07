@@ -25,6 +25,43 @@ const DEFAULT_TIMEOUT_SECS: u64 = 300;
 /// Maximum output size in bytes (100KB).
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 100_000;
 
+#[cfg(unix)]
+struct ProcessGroupGuard {
+    pgid: Option<Pid>,
+}
+
+#[cfg(unix)]
+impl ProcessGroupGuard {
+    fn new(process_group_id: Option<i32>) -> Self {
+        Self {
+            pgid: process_group_id.map(Pid::from_raw),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.pgid = None;
+    }
+
+    async fn terminate(&mut self) {
+        let Some(pgid) = self.pgid.take() else {
+            return;
+        };
+        let _ = killpg(pgid, Signal::SIGTERM);
+        sleep(Duration::from_millis(500)).await;
+        let _ = killpg(pgid, Signal::SIGKILL);
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if let Some(pgid) = self.pgid.take() {
+            let _ = killpg(pgid, Signal::SIGTERM);
+            let _ = killpg(pgid, Signal::SIGKILL);
+        }
+    }
+}
+
 /// Bash command execution tool.
 #[derive(Clone)]
 pub struct BashTool {
@@ -107,18 +144,19 @@ impl BashTool {
         let child = cmd.spawn()?;
         #[cfg(unix)]
         let process_group_id = child.id().map(|pid| pid as i32);
+        #[cfg(unix)]
+        let mut process_group_guard = ProcessGroupGuard::new(process_group_id);
 
         let output =
             match timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await {
-                Ok(result) => result?,
+                Ok(result) => {
+                    #[cfg(unix)]
+                    process_group_guard.disarm();
+                    result?
+                }
                 Err(_) => {
                     #[cfg(unix)]
-                    if let Some(process_group_id) = process_group_id {
-                        let pgid = Pid::from_raw(process_group_id);
-                        let _ = killpg(pgid, Signal::SIGTERM);
-                        sleep(Duration::from_millis(500)).await;
-                        let _ = killpg(pgid, Signal::SIGKILL);
-                    }
+                    process_group_guard.terminate().await;
 
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
@@ -479,6 +517,31 @@ mod tests {
 
         assert!(!output.success);
         assert!(output.error.as_ref().unwrap().contains("Timeout"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_bash_tool_abort_kills_process_group_side_effects() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("cancel_result.txt");
+        let tool = BashTool::new().with_workdir(temp.path().to_string_lossy().into_owned());
+        let handle = tokio::spawn(async move {
+            tool.execute(serde_json::json!({
+                "command": "sleep 1; echo SHOULD_NOT_FINISH > cancel_result.txt"
+            }))
+            .await
+        });
+
+        sleep(Duration::from_millis(100)).await;
+        handle.abort();
+        let error = handle.await.expect_err("bash task should be aborted");
+        assert!(error.is_cancelled());
+
+        sleep(Duration::from_secs(2)).await;
+        assert!(
+            !target.exists(),
+            "aborted bash command must not keep running after cancellation"
+        );
     }
 
     #[tokio::test]

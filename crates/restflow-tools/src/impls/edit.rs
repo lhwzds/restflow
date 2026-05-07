@@ -79,6 +79,30 @@ pub fn replace(
     Err(EditError::NotFound)
 }
 
+pub(crate) fn count_changed_lines(old_content: &str, new_content: &str) -> usize {
+    let old_lines: Vec<&str> = old_content.lines().collect();
+    let new_lines: Vec<&str> = new_content.lines().collect();
+    if old_lines.is_empty() || new_lines.is_empty() {
+        return old_lines.len().max(new_lines.len());
+    }
+
+    let mut previous = vec![0; new_lines.len() + 1];
+    let mut current = vec![0; new_lines.len() + 1];
+    for old_line in &old_lines {
+        for (new_index, new_line) in new_lines.iter().enumerate() {
+            current[new_index + 1] = if old_line == new_line {
+                previous[new_index] + 1
+            } else {
+                previous[new_index + 1].max(current[new_index])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+        current.fill(0);
+    }
+
+    old_lines.len().max(new_lines.len()) - previous[new_lines.len()]
+}
+
 /// Level 1: exact substring match.
 fn try_exact(
     content: &str,
@@ -500,9 +524,7 @@ impl Tool for EditTool {
         };
 
         // Count changed lines for summary
-        let old_line_count = content.lines().count();
-        let new_line_count = new_content.lines().count();
-        let lines_changed = new_line_count.abs_diff(old_line_count);
+        let lines_changed = count_changed_lines(&content, &new_content);
 
         // Write back
         if let Err(e) = fs::write(&path, &new_content).await {
@@ -632,8 +654,22 @@ mod tests {
             .unwrap();
 
         assert!(output.success);
+        assert_eq!(output.result["lines_changed"], 1);
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
         assert_eq!(content, "line1\nmodified\nline3\n");
+    }
+
+    #[test]
+    fn test_count_changed_lines_counts_same_length_replacements() {
+        assert_eq!(count_changed_lines("a\nb\nc\n", "a\nx\nc\n"), 1);
+        assert_eq!(count_changed_lines("a\nb\nc\n", "x\nb\ny\n"), 2);
+    }
+
+    #[test]
+    fn test_count_changed_lines_handles_insertions_and_deletions() {
+        assert_eq!(count_changed_lines("a\nb\nc\n", "x\na\nb\nc\n"), 1);
+        assert_eq!(count_changed_lines("a\nb\nc\n", "a\nc\n"), 1);
+        assert_eq!(count_changed_lines("a\nb\nc\n", "a\nx\ny\nc\n"), 2);
     }
 
     #[tokio::test]

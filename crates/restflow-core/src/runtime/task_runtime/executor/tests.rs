@@ -480,7 +480,7 @@ fn test_resolve_effective_tool_names_rejects_known_unassigned_skill_mention() {
           "version": "0.1.0",
           "kind": "markdown",
           "content": "# Manage Tasks",
-          "suggested_tools": ["manage_tasks"],
+          "suggested_tools": ["manage_agents"],
           "executable": false
         }]"##,
     );
@@ -493,7 +493,7 @@ fn test_resolve_effective_tool_names_rejects_known_unassigned_skill_mention() {
         .expect("invalid skill mentions should not fail the turn");
 
     assert!(tools.iter().any(|tool| tool == "load_skill"));
-    assert!(!tools.iter().any(|tool| tool == "manage_tasks"));
+    assert!(!tools.iter().any(|tool| tool == "manage_agents"));
 }
 
 #[tokio::test]

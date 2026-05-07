@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::edit::{EditError, replace};
+use super::edit::{EditError, count_changed_lines, replace};
 use super::file_tracker::FileTracker;
 use super::shared::{LSP_DIAGNOSTIC_TIMEOUT, MAX_LSP_DIAGNOSTIC_ERRORS};
 use crate::{Result, Tool, ToolOutput};
@@ -277,9 +277,7 @@ impl Tool for MultiEditTool {
         }
 
         // All edits succeeded; write once
-        let old_line_count = content.lines().count();
-        let new_line_count = current.lines().count();
-        let lines_changed = new_line_count.abs_diff(old_line_count);
+        let lines_changed = count_changed_lines(&content, &current);
 
         if let Err(e) = fs::write(&path, &current).await {
             return Ok(ToolOutput::error(format!("Cannot write file: {e}")));
@@ -338,6 +336,7 @@ mod tests {
             .unwrap();
 
         assert!(output.success);
+        assert_eq!(output.result["lines_changed"], 2);
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
         assert_eq!(content, "xxx\nbbb\nzzz\n");
     }

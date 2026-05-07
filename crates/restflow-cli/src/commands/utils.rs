@@ -16,13 +16,3 @@ pub fn format_timestamp(timestamp: Option<i64>) -> String {
 pub fn short_id(value: &str) -> String {
     value.chars().take(8).collect()
 }
-
-pub fn preview_text(input: &str, max_len: usize) -> String {
-    if input.len() <= max_len {
-        return input.to_string();
-    }
-
-    let mut preview = input.chars().take(max_len).collect::<String>();
-    preview.push('…');
-    preview
-}

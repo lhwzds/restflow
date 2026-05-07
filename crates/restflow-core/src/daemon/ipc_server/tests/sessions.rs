@@ -655,6 +655,44 @@ async fn delete_session_rejects_background_bound_workspace_session() {
 }
 
 #[tokio::test]
+async fn search_sessions_applies_agent_filter_and_limit() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    for index in 0..3 {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.rename(format!("match agent one {index}"));
+        session.add_message(ChatMessage::user("needle"));
+        core.storage.chat_sessions.create(&session).unwrap();
+    }
+    let mut other_agent = ChatSession::new("agent-2".to_string(), "gpt-5".to_string());
+    other_agent.rename("match agent two");
+    other_agent.add_message(ChatMessage::user("needle"));
+    core.storage.chat_sessions.create(&other_agent).unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::SearchSessions {
+            query: "needle".to_string(),
+            agent_id: Some("agent-1".to_string()),
+            limit: Some(2),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let sessions: Vec<crate::models::ChatSessionSummary> =
+                serde_json::from_value(value).expect("session summaries");
+            assert_eq!(sessions.len(), 2);
+            assert!(sessions.iter().all(|session| session.agent_id == "agent-1"));
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn switch_session_model_rejects_background_bound_workspace_session() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -832,6 +870,52 @@ async fn session_reply_sender_ignores_blank_messages() {
 }
 
 #[tokio::test]
+async fn ipc_stream_emitter_persists_assistant_segments_before_tools() {
+    let (core, _temp) = create_test_core().await;
+    let mut session = ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+    let turn_id = "turn-stream-segments".to_string();
+    session.record_turn_user_message(&turn_id, "run tools");
+    core.storage.chat_sessions.create(&session).unwrap();
+    let (tx, _rx) = mpsc::unbounded_channel::<StreamFrame>();
+    let mut emitter = IpcStreamEmitter::new(
+        core.clone(),
+        session.id.clone(),
+        turn_id.clone(),
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    );
+
+    emitter.emit_text_delta("Planning first.").await;
+    emitter
+        .emit_tool_call_start("call-1", "bash", "{\"command\":\"pwd\"}")
+        .await;
+    emitter.emit_text_delta("Done.").await;
+    emitter.emit_complete().await;
+
+    let stored = SessionService::from_storage(&core.storage)
+        .get_session_view(&session.id)
+        .unwrap()
+        .expect("stored session");
+    let turn = stored
+        .turns
+        .iter()
+        .find(|turn| turn.id == turn_id)
+        .expect("stored turn");
+    assert!(matches!(
+        &turn.events[1].kind,
+        ChatTurnEventKind::AssistantMessage { content } if content == "Planning first."
+    ));
+    assert!(matches!(
+        &turn.events[2].kind,
+        ChatTurnEventKind::ToolCall { call_id, .. } if call_id == "call-1"
+    ));
+    assert!(matches!(
+        &turn.events[3].kind,
+        ChatTurnEventKind::AssistantMessage { content } if content == "Done."
+    ));
+}
+
+#[tokio::test]
 async fn execute_chat_session_returns_not_found_for_missing_session() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -842,6 +926,7 @@ async fn execute_chat_session_returns_not_found_for_missing_session() {
         IpcRequest::ExecuteChatSession {
             session_id: "missing-session".to_string(),
             user_input: None,
+            workspace_root: None,
         },
     )
     .await;
@@ -869,6 +954,7 @@ async fn execute_chat_session_returns_bad_request_without_user_message() {
         IpcRequest::ExecuteChatSession {
             session_id: session.id.clone(),
             user_input: None,
+            workspace_root: None,
         },
     )
     .await;
@@ -898,6 +984,7 @@ async fn execute_chat_session_persists_voice_message_when_preprocess_fails() {
             user_input: Some(
                 "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm".to_string(),
             ),
+            workspace_root: None,
         },
     )
     .await;
@@ -963,6 +1050,7 @@ async fn execute_chat_session_returns_internal_error_for_malformed_session_paylo
         IpcRequest::ExecuteChatSession {
             session_id: "bad-session".to_string(),
             user_input: None,
+            workspace_root: None,
         },
     )
     .await;

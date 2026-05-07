@@ -29,9 +29,11 @@ The durable/ephemeral split belongs to the envelope around a run:
 - Background task: durable `TaskSpec`, schedule, controls, and repeated runs.
 - Sub-agent: ephemeral child run, `parent_run_id`, and no task storage row.
 
-TUI surfaces may show background tasks and sub-agent child runs in one Work
-view, but storage and daemon state must keep the durable task envelope separate
-from ephemeral child-run execution.
+TUI command overlays may show background tasks and sub-agent child runs
+together for navigation, but storage and daemon state must keep the durable task
+envelope separate from ephemeral child-run execution. During an active agent
+turn, their running state belongs in the message panel as transient activity,
+not as a separate durable UI state model.
 
 ## Layering Rules
 

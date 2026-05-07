@@ -91,8 +91,13 @@ pub(crate) fn check_agent_has_managed_sessions(
     let mut sources: BTreeSet<String> = BTreeSet::new();
 
     for session in sessions {
+        if session.is_archived() {
+            continue;
+        }
         let (source, _) = session_service.effective_source(&session)?;
-        if matches!(source, ChatSessionSource::Background) {
+        if matches!(source, ChatSessionSource::Background)
+            && session_service.bound_task(&session.id)?.is_some()
+        {
             sources.insert("background".to_string());
         }
     }
@@ -174,6 +179,10 @@ fn archive_agent_workspace_sessions(
     for session in session_service.list_session_views(Some(agent_id), None, true)? {
         if session_service.management_owner(&session)?.is_none() {
             let _ = session_service.archive_session(&session.id)?;
+        } else if session.source_channel == Some(ChatSessionSource::Background)
+            && session_service.bound_task(&session.id)?.is_none()
+        {
+            let _ = session_service.archive_managed_session(&session.id)?;
         }
     }
     Ok(())
@@ -492,6 +501,38 @@ mod tests {
             .unwrap()
             .expect("session should remain after archiving");
         assert!(archived_session.is_archived());
+    }
+
+    #[tokio::test]
+    async fn test_delete_agent_archives_orphan_background_sessions() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+
+        let agent_node = create_test_agent_node("Background owner");
+        let created = create_agent(&core, "Background Owner".to_string(), agent_node)
+            .await
+            .unwrap();
+
+        let mut session = ChatSession::new(
+            created.id.clone(),
+            ModelId::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("Orphan Background Session")
+        .with_source(ChatSessionSource::Background, "deleted-task".to_string());
+        session.updated_at = time_utils::now_ms();
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        delete_agent(&core, &created.id).await.unwrap();
+
+        let archived_session = core
+            .storage
+            .chat_sessions
+            .get(&session.id)
+            .unwrap()
+            .expect("background session should remain archived");
+        assert!(archived_session.is_archived());
+
+        let deleted_agent = core.storage.agents.get_agent(created.id).unwrap();
+        assert!(deleted_agent.is_none());
     }
 
     #[tokio::test]

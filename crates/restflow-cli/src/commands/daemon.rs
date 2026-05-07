@@ -28,10 +28,11 @@ pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
         mcp_port,
     };
 
+    let previous_pid = current_daemon_pid().await?;
     let was_running = stop_daemon_effective().await?;
     if was_running {
         println!("Sent stop signal to daemon");
-        wait_for_daemon_exit().await?;
+        wait_for_daemon_exit(previous_pid).await?;
     }
 
     // Clean stale artifacts that may remain after an unclean shutdown.
@@ -179,10 +180,11 @@ async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) ->
             mcp: true,
             mcp_port,
         };
+        let previous_pid = current_daemon_pid().await?;
         let was_running = stop_daemon_effective().await?;
         if was_running {
             println!("Sent stop signal to daemon");
-            wait_for_daemon_exit().await?;
+            wait_for_daemon_exit(previous_pid).await?;
         }
         // Clean stale artifacts that may remain after an unclean shutdown.
         let report = restflow_core::daemon::recovery::recover().await?;
@@ -426,6 +428,19 @@ async fn stop_daemon_effective() -> Result<bool> {
     Ok(false)
 }
 
+async fn current_daemon_pid() -> Result<Option<u32>> {
+    let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
+    Ok(daemon_snapshot_pid(&snapshot))
+}
+
+fn daemon_snapshot_pid(snapshot: &daemon_state::DaemonStatusSnapshot) -> Option<u32> {
+    match snapshot.daemon_status {
+        EffectiveDaemonStatus::Running { pid, .. } => pid,
+        EffectiveDaemonStatus::Stale { pid } => Some(pid),
+        EffectiveDaemonStatus::NotRunning => None,
+    }
+}
+
 fn send_terminate_signal(pid: u32) -> Result<()> {
     #[cfg(unix)]
     {
@@ -494,25 +509,26 @@ async fn status() -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_daemon_exit() -> Result<()> {
+async fn wait_for_daemon_exit(previous_pid: Option<u32>) -> Result<()> {
     let deadline = tokio::time::Instant::now() + DAEMON_STOP_TIMEOUT;
     loop {
         let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
-        if !snapshot.is_running() {
-            return Ok(());
+        let previous_process_alive = previous_pid.is_some_and(is_process_alive);
+        if !snapshot.is_running() && !previous_process_alive {
+            sleep(DAEMON_STOP_POLL_INTERVAL).await;
+            let confirmation = daemon_state::collect_daemon_status_snapshot(false).await?;
+            let previous_process_still_alive = previous_pid.is_some_and(is_process_alive);
+            if !confirmation.is_running() && !previous_process_still_alive {
+                return Ok(());
+            }
         }
         if tokio::time::Instant::now() >= deadline {
-            let detail = match snapshot.daemon_status {
-                EffectiveDaemonStatus::Running {
-                    pid: Some(pid),
-                    source,
-                } => format!("still running (pid={pid}, source={})", source.as_str()),
-                EffectiveDaemonStatus::Running { pid: None, source } => {
-                    format!("still running (pid=unknown, source={})", source.as_str())
-                }
-                EffectiveDaemonStatus::NotRunning => "status switched to not_running".to_string(),
-                EffectiveDaemonStatus::Stale { pid } => format!("stale pid={pid}"),
-            };
+            let mut detail = daemon_exit_wait_detail(&snapshot);
+            if let Some(pid) = previous_pid
+                && is_process_alive(pid)
+            {
+                detail.push_str(&format!("; previous pid={pid} still alive"));
+            }
             anyhow::bail!(
                 "Daemon did not stop within {}s: {}",
                 DAEMON_STOP_TIMEOUT.as_secs(),
@@ -520,6 +536,41 @@ async fn wait_for_daemon_exit() -> Result<()> {
             );
         }
         sleep(DAEMON_STOP_POLL_INTERVAL).await;
+    }
+}
+
+fn daemon_exit_wait_detail(snapshot: &daemon_state::DaemonStatusSnapshot) -> String {
+    match snapshot.daemon_status {
+        EffectiveDaemonStatus::Running {
+            pid: Some(pid),
+            source,
+        } => format!("still running (pid={pid}, source={})", source.as_str()),
+        EffectiveDaemonStatus::Running { pid: None, source } => {
+            format!("still running (pid=unknown, source={})", source.as_str())
+        }
+        EffectiveDaemonStatus::NotRunning => "status switched to not_running".to_string(),
+        EffectiveDaemonStatus::Stale { pid } => format!("stale pid={pid}"),
+    }
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+        let Ok(pid_i32) = i32::try_from(pid) else {
+            return false;
+        };
+        kill(Pid::from_raw(pid_i32), None).is_ok()
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
     }
 }
 
@@ -722,28 +773,6 @@ impl Drop for DaemonLockGuard {
 fn read_lock_pid(path: &std::path::Path) -> Option<u32> {
     let content = std::fs::read_to_string(path).ok()?;
     content.trim().parse::<u32>().ok()
-}
-
-#[cfg(not(unix))]
-fn is_process_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        use nix::sys::signal::kill;
-        use nix::unistd::Pid;
-        let Ok(pid_i32) = i32::try_from(pid) else {
-            return false;
-        };
-        kill(Pid::from_raw(pid_i32), None).is_ok()
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid)])
-            .output()
-            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
-            .unwrap_or(false)
-    }
 }
 
 #[cfg(test)]

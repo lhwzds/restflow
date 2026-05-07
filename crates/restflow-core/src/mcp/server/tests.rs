@@ -377,7 +377,7 @@ fn test_tool_definitions() {
     ];
 
     // Verify we have definitions for all expected tools
-    assert_eq!(expected_tools.len(), 12);
+    assert_eq!(expected_tools.len(), 9);
 }
 
 #[tokio::test]

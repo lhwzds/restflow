@@ -30,6 +30,16 @@ impl ExecuteChatSessionError {
     }
 }
 
+pub(super) struct ExecuteChatSessionRequest {
+    pub session_id: String,
+    pub user_input: Option<String>,
+    pub turn_id: String,
+    pub workspace_root: Option<String>,
+    pub ack_frame_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
+    pub emitter: Option<Box<dyn StreamEmitter>>,
+    pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+}
+
 pub(super) fn create_runtime_tool_registry_with_assessment(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
@@ -135,6 +145,7 @@ pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> 
                     "Failed to persist canceled chat turn"
                 );
             }
+            emit_canceled_run_trace(core, &session_id, stream_id).await;
         }
         true
     } else {
@@ -234,13 +245,17 @@ fn latest_turn_assistant_matches(
 
 pub(super) async fn execute_chat_session(
     core: &Arc<AppCore>,
-    session_id: String,
-    user_input: Option<String>,
-    turn_id: String,
-    ack_frame_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
-    emitter: Option<Box<dyn StreamEmitter>>,
-    steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    request: ExecuteChatSessionRequest,
 ) -> std::result::Result<ChatSession, ExecuteChatSessionError> {
+    let ExecuteChatSessionRequest {
+        session_id,
+        user_input,
+        turn_id,
+        workspace_root,
+        ack_frame_tx,
+        emitter,
+        steer_rx,
+    } = request;
     let mut session = load_chat_session_for_execution(core, &session_id)?;
 
     let explicit_user_input = user_input.as_deref();
@@ -321,6 +336,7 @@ pub(super) async fn execute_chat_session(
             emitter,
             steer_rx,
             stream_display_mode: StreamDisplayMode::Streaming,
+            workspace_root: workspace_root.map(std::path::PathBuf::from),
         })
         .await
     {
@@ -470,6 +486,12 @@ fn cancel_turn_in_session_store(
     session.cancel_turn(turn_id);
     session_service.save_existing_session(&session, "ipc")?;
     Ok(())
+}
+
+async fn emit_canceled_run_trace(core: &Arc<AppCore>, session_id: &str, turn_id: &str) {
+    let sink = crate::telemetry::build_core_telemetry_sink(core.storage.as_ref());
+    let trace = resolve_chat_stream_trace(core, session_id, turn_id);
+    crate::telemetry::emit_run_interrupted(&sink, trace, "canceled by user", None).await;
 }
 
 fn load_chat_session_for_execution(

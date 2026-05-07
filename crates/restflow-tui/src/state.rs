@@ -1,16 +1,16 @@
 use std::collections::HashSet;
 
 use chrono::Utc;
-use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
+use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
-    ChatSession, ChatSessionSummary, ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunKind,
-    RunSummary, Skill, SkillSource,
+    ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus, ExecutionThread,
+    ModelId, ModelMetadataDTO, Provider, RunKind, RunSummary, Skill, SkillSource,
 };
 use restflow_core::storage::agent::StoredAgent;
 
 use super::composer::ComposerState;
 use super::transcript::{
-    ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
+    MessageGroup, ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
     message_from_session_event, message_from_stream_frame, message_from_task_event,
     messages_from_session, transcript_cells,
 };
@@ -22,9 +22,12 @@ pub enum WorkPickerItem {
         title: String,
         status: String,
         next_run_at: Option<i64>,
+        latest_run_id: Option<String>,
     },
     Run {
         run_id: String,
+        root_run_id: Option<String>,
+        parent_run_id: Option<String>,
         kind: RunKind,
         title: String,
         status: String,
@@ -37,6 +40,7 @@ pub struct TaskPickerItem {
     pub name: String,
     pub status: String,
     pub next_run_at: Option<i64>,
+    pub latest_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,12 +274,18 @@ pub struct AppState {
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
     pub runtime_cells: Vec<AnchoredRuntimeCell>,
+    // Task activity is a transient live panel for focused background task streams.
+    pub task_activity_cell: Option<TranscriptCell>,
     // Active turn is the latest live viewport. Stable history comes from session projection only.
     pub active_turn: Option<ActiveTurn>,
+    active_turn_session_id: Option<String>,
     active_progress_started_at_ms: Option<i64>,
     active_assistant_stream_body: String,
     active_tool_call_ids: HashSet<String>,
     active_tool_result_ids: HashSet<String>,
+    canceled_stream_ids: HashSet<String>,
+    ignore_stream_frames: bool,
+    last_error_notice: Option<String>,
     pub overlay: Option<OverlayState>,
     pub composer: ComposerState,
     pub message_scroll_from_bottom: usize,
@@ -304,11 +314,16 @@ impl AppState {
             pending_session: None,
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
+            task_activity_cell: None,
             active_turn: None,
+            active_turn_session_id: None,
             active_progress_started_at_ms: None,
             active_assistant_stream_body: String::new(),
             active_tool_call_ids: HashSet::new(),
             active_tool_result_ids: HashSet::new(),
+            canceled_stream_ids: HashSet::new(),
+            ignore_stream_frames: false,
+            last_error_notice: None,
             overlay: None,
             composer: ComposerState::default(),
             message_scroll_from_bottom: 0,
@@ -327,6 +342,18 @@ impl AppState {
 
     pub fn current_session_id(&self) -> Option<&str> {
         self.thread.session_id()
+    }
+
+    pub fn active_refresh_session_id(&self) -> Option<&str> {
+        self.active_turn_session_id
+            .as_deref()
+            .or_else(|| self.current_session_id())
+    }
+
+    pub fn active_turn_has_tool_call(&self) -> bool {
+        self.active_turn
+            .as_ref()
+            .is_some_and(|turn| turn.cells.iter().any(|cell| cell.tool_call_id().is_some()))
     }
 
     pub fn focused_task_stream_id(&self) -> Option<&str> {
@@ -352,10 +379,6 @@ impl AppState {
 
     pub fn set_pending_session(&mut self, pending_session: Option<PendingSessionState>) {
         self.pending_session = pending_session;
-    }
-
-    pub fn set_pending_session_from_agent(&mut self, agent: &StoredAgent) {
-        self.pending_session = Some(PendingSessionState::from_agent(agent));
     }
 
     pub fn update_pending_session_model(
@@ -428,6 +451,7 @@ impl AppState {
         self.thread.set_session(session.clone());
         self.pending_session = None;
         self.runtime_cells.clear();
+        self.task_activity_cell = None;
         self.clear_active_response();
         self.reset_message_scroll();
         self.conversation_cells =
@@ -435,20 +459,158 @@ impl AppState {
     }
 
     pub fn refresh_current_session(&mut self, session: ChatSession) {
+        let current_turn_finished = self.current_stream_finished_in_session(&session)
+            || self.active_turn_finished_in_session(&session)
+            || self.active_turn_answered_in_session_messages(&session)
+            || (!self.is_streaming
+                && (self.active_turn_projected_in_session(&session)
+                    || self.pending_user_turn_persisted_in_session(&session)));
+        if current_turn_finished {
+            self.is_streaming = false;
+            if let Some(stream_id) = self.current_stream_id.take() {
+                self.canceled_stream_ids.insert(stream_id);
+            }
+            self.ignore_stream_frames = true;
+            self.clear_active_response();
+        }
         let old_cells = std::mem::take(&mut self.conversation_cells);
         self.thread.session = Some(session.clone());
         self.replace_session_projection(messages_from_session(&session));
         self.reanchor_runtime_cells(&old_cells);
         self.reconcile_runtime_conversation_cells();
-        if !self.is_streaming {
-            self.flush_active_turn_to_runtime();
+    }
+
+    fn current_stream_finished_in_session(&self, session: &ChatSession) -> bool {
+        let Some(stream_id) = self.current_stream_id.as_deref() else {
+            return false;
+        };
+        session.turns.iter().any(|turn| {
+            turn.id == stream_id
+                && matches!(
+                    turn.status,
+                    ChatTurnStatus::Completed | ChatTurnStatus::Canceled | ChatTurnStatus::Failed
+                )
+        })
+    }
+
+    fn active_turn_finished_in_session(&self, session: &ChatSession) -> bool {
+        let Some(active_turn) = self.active_turn.as_ref() else {
+            return false;
+        };
+        let active_tool_call_ids: Vec<&str> = active_turn
+            .cells
+            .iter()
+            .filter_map(|cell| cell.tool_call_id())
+            .collect();
+        let Some(active_user) = active_turn
+            .cells
+            .iter()
+            .find(|cell| cell.kind == TranscriptCellKind::User)
+            .map(|cell| cell.body.trim_end())
+        else {
+            return false;
+        };
+        session.turns.iter().rev().any(|turn| {
+            if !matches!(
+                turn.status,
+                ChatTurnStatus::Completed | ChatTurnStatus::Canceled | ChatTurnStatus::Failed
+            ) {
+                return false;
+            }
+            if active_tool_call_ids.is_empty() {
+                return turn.events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
+                    )
+                });
+            }
+            turn.events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ChatTurnEventKind::ToolCall { call_id, .. }
+                        if active_tool_call_ids.contains(&call_id.as_str())
+                )
+            })
+        })
+    }
+
+    fn active_turn_projected_in_session(&self, session: &ChatSession) -> bool {
+        let Some(active_turn) = self.active_turn.as_ref() else {
+            return false;
+        };
+        if active_turn.cells.len() <= 1 {
+            return false;
         }
+        let persisted_cells =
+            transcript_cells(&messages_from_session(session), self.assistant_name());
+        active_turn.cells.iter().all(|active| {
+            persisted_cells
+                .iter()
+                .any(|persisted| active_cell_projected_by(active, persisted))
+        })
+    }
+
+    fn active_turn_answered_in_session_messages(&self, session: &ChatSession) -> bool {
+        let Some(active_turn) = self.active_turn.as_ref() else {
+            return false;
+        };
+        if active_turn
+            .cells
+            .iter()
+            .any(|cell| cell.tool_call_id().is_some())
+        {
+            return false;
+        }
+        let Some(active_user) = active_turn
+            .cells
+            .iter()
+            .find(|cell| cell.kind == TranscriptCellKind::User)
+            .map(|cell| cell.body.trim_end())
+        else {
+            return false;
+        };
+        let Some(last_user_index) = session
+            .messages
+            .iter()
+            .rposition(|message| message.role == ChatRole::User)
+        else {
+            return false;
+        };
+        session.messages[last_user_index].content.trim_end() == active_user
+            && session.messages[last_user_index + 1..]
+                .iter()
+                .any(|message| message.role == ChatRole::Assistant)
+    }
+
+    fn pending_user_turn_persisted_in_session(&self, session: &ChatSession) -> bool {
+        let Some(active_turn) = self.active_turn.as_ref() else {
+            return false;
+        };
+        if active_turn.cells.len() != 1 {
+            return false;
+        }
+        let Some(active_user) = active_turn
+            .cells
+            .iter()
+            .find(|cell| cell.kind == TranscriptCellKind::User)
+            .map(|cell| cell.body.trim_end())
+        else {
+            return false;
+        };
+        messages_from_session(session).iter().any(|message| {
+            matches!(
+                message,
+                ShellMessage::UserMessage { content } if content.trim_end() == active_user
+            )
+        })
     }
 
     pub fn clear_current_session(&mut self, notice: impl Into<String>) {
         self.thread.clear_session();
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
+        self.task_activity_cell = None;
         self.clear_active_response();
         self.reset_message_scroll();
         self.push_info(notice);
@@ -484,6 +646,7 @@ impl AppState {
         self.thread.clear_session();
         self.conversation_cells.clear();
         self.runtime_cells.clear();
+        self.task_activity_cell = None;
         self.clear_active_response();
         self.reset_message_scroll();
         self.pending_session = pending_session;
@@ -498,6 +661,7 @@ impl AppState {
         thread: ExecutionThread,
         child_runs: Vec<RunSummary>,
     ) {
+        self.task_activity_cell = None;
         self.thread.set_run_focus(run_id, thread, child_runs);
     }
 
@@ -818,27 +982,64 @@ impl AppState {
         self.thread.runs.clear();
         self.thread.child_runs.clear();
         self.thread.execution_thread = None;
+        self.task_activity_cell = None;
     }
 
     pub fn work_summary_notice(&self) -> Option<TranscriptCell> {
+        self.active_turn.as_ref()?;
         let items = self.work_picker_items();
         if items.is_empty() {
             return None;
         }
+        let active_task_ids = self.active_turn_task_ids();
+        let active_turn_run_id = self.current_stream_id.as_deref();
         let active_items = items
             .into_iter()
-            .filter(is_live_work_item)
+            .filter(|item| is_active_turn_work_item(item, &active_task_ids, active_turn_run_id))
             .take(5)
             .collect::<Vec<_>>();
         if active_items.is_empty() {
             return None;
         }
-        Some(cell_from_message(
-            &ShellMessage::InfoNotice {
-                content: work_notice_text(&active_items),
-            },
-            self.assistant_name(),
-        ))
+        Some(TranscriptCell {
+            kind: TranscriptCellKind::Notice,
+            title: "Activity".to_string(),
+            subtitle: Some("running".to_string()),
+            body: active_work_notice_text(&active_items),
+            group: MessageGroup::RuntimeNotice,
+            is_active: true,
+        })
+    }
+
+    fn active_turn_task_ids(&self) -> HashSet<String> {
+        let mut ids = HashSet::new();
+        let Some(active_turn) = self.active_turn.as_ref() else {
+            return ids;
+        };
+        for cell in active_turn.cells.iter().filter(|cell| {
+            cell.kind == TranscriptCellKind::Tool
+                && cell.title.strip_prefix("Tool · ").is_some_and(|name| {
+                    restflow_traits::store::is_task_management_tool_name(name.trim())
+                })
+        }) {
+            let input = extract_tool_json_payload(&cell.body, "Input:");
+            let output = extract_tool_json_payload(&cell.body, "Output:");
+            let operation = input
+                .as_ref()
+                .and_then(|value| value.get("operation"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            if !task_operation_targets_background_work(operation) {
+                continue;
+            }
+            if let Some(input) = input.as_ref() {
+                collect_task_ids(input, &mut ids);
+            }
+            if let Some(output) = output.as_ref() {
+                collect_task_ids(output, &mut ids);
+            }
+        }
+        ids
     }
 }
 
@@ -853,10 +1054,13 @@ pub fn build_work_picker_items(
         title: task.name.clone(),
         status: task.status.clone(),
         next_run_at: task.next_run_at,
+        latest_run_id: task.latest_run_id.clone(),
     }));
     items.extend(runs.iter().filter_map(|run| {
         run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
             run_id: run_id.clone(),
+            root_run_id: run.root_run_id.clone(),
+            parent_run_id: run.parent_run_id.clone(),
             kind: run.kind,
             title: run.title.clone(),
             status: run.status.clone(),
@@ -865,6 +1069,8 @@ pub fn build_work_picker_items(
     items.extend(child_runs.iter().filter_map(|run| {
         run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
             run_id: run_id.clone(),
+            root_run_id: run.root_run_id.clone(),
+            parent_run_id: run.parent_run_id.clone(),
             kind: run.kind,
             title: run.title.clone(),
             status: run.status.clone(),
@@ -873,46 +1079,138 @@ pub fn build_work_picker_items(
     items
 }
 
-pub fn work_notice_text(items: &[WorkPickerItem]) -> String {
-    let mut lines = vec!["Work".to_string()];
+fn active_work_notice_text(items: &[WorkPickerItem]) -> String {
+    let mut lines = vec!["Current turn activity".to_string()];
     for item in items {
         match item {
             WorkPickerItem::BackgroundTask {
                 task_id,
                 title,
                 status,
-                next_run_at,
-            } => {
-                let next_run = next_run_at
-                    .map(|value| format!(" · next {value}"))
-                    .unwrap_or_default();
-                lines.push(format!(
-                    "- background task · {title} · {status} · {task_id}{next_run}"
-                ));
-            }
+                latest_run_id,
+                ..
+            } => lines.push(format!(
+                "- background task · {title} · {status} · {task_id}{}",
+                latest_run_id
+                    .as_ref()
+                    .map(|run_id| format!(" · run {run_id}"))
+                    .unwrap_or_default()
+            )),
             WorkPickerItem::Run {
                 run_id,
+                root_run_id: _,
+                parent_run_id: _,
                 kind,
                 title,
                 status,
             } => {
-                lines.push(format!(
-                    "- {} · {title} · {status} · {run_id}",
-                    work_run_kind_label(*kind)
-                ));
+                let label = match kind {
+                    RunKind::WorkspaceRun => "workspace run",
+                    RunKind::TaskRun => "background run",
+                    RunKind::SubagentRun => "team",
+                };
+                lines.push(format!("- {label} · {title} · {status} · {run_id}"));
             }
         }
     }
-    lines.push("Open a run with /run open <run_id>; manage tasks with /task.".to_string());
     lines.join("\n")
 }
 
-fn is_live_work_item(item: &WorkPickerItem) -> bool {
+fn is_active_turn_work_item(
+    item: &WorkPickerItem,
+    active_task_ids: &HashSet<String>,
+    active_turn_run_id: Option<&str>,
+) -> bool {
     match item {
-        WorkPickerItem::BackgroundTask { status, .. } => {
+        WorkPickerItem::BackgroundTask {
+            task_id,
+            status,
+            latest_run_id,
+            ..
+        } => {
             matches_normalized_status(status, &["active", "running"])
+                && (active_task_ids.contains(task_id)
+                    || latest_run_id
+                        .as_deref()
+                        .is_some_and(|run_id| Some(run_id) == active_turn_run_id))
         }
-        WorkPickerItem::Run { status, .. } => matches_normalized_status(status, &["running"]),
+        WorkPickerItem::Run {
+            run_id,
+            root_run_id,
+            parent_run_id,
+            kind,
+            status,
+            ..
+        } => match kind {
+            RunKind::WorkspaceRun => false,
+            RunKind::TaskRun | RunKind::SubagentRun => {
+                matches_normalized_status(status, &["running"])
+                    && active_turn_run_id.is_some_and(|active_turn_run_id| {
+                        run_id == active_turn_run_id
+                            || root_run_id.as_deref() == Some(active_turn_run_id)
+                            || parent_run_id.as_deref() == Some(active_turn_run_id)
+                    })
+            }
+        },
+    }
+}
+
+fn extract_tool_json_payload(body: &str, label: &str) -> Option<serde_json::Value> {
+    let start = body.strip_prefix(label).map(|_| label.len()).or_else(|| {
+        body.find(&format!("\n{label}"))
+            .map(|index| index + 1 + label.len())
+    })?;
+    let tail = &body[start..];
+    let end = ["\nInput:", "\nOutput:", "\nError:"]
+        .iter()
+        .filter_map(|marker| tail.find(marker))
+        .min()
+        .unwrap_or(tail.len());
+    let payload = tail[..end].trim();
+    serde_json::from_str(payload).ok()
+}
+
+fn task_operation_targets_background_work(operation: &str) -> bool {
+    matches!(
+        operation,
+        "create"
+            | "convert_session"
+            | "promote_to_background"
+            | "update"
+            | "delete"
+            | "run_batch"
+            | "control"
+            | "send_message"
+            | "pause"
+            | "start"
+            | "resume"
+            | "stop"
+            | "run"
+    )
+}
+
+fn collect_task_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for key in ["id", "task_id"] {
+                if let Some(id) = object.get(key).and_then(serde_json::Value::as_str)
+                    && !id.trim().is_empty()
+                {
+                    ids.insert(id.trim().to_string());
+                }
+            }
+            for key in ["result", "task", "tasks"] {
+                if let Some(value) = object.get(key) {
+                    collect_task_ids(value, ids);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_task_ids(item, ids);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -952,7 +1250,9 @@ impl AppState {
 
     fn clear_active_response(&mut self) {
         self.active_turn = None;
+        self.active_turn_session_id = None;
         self.active_progress_started_at_ms = None;
+        self.task_activity_cell = None;
         self.active_assistant_stream_body.clear();
         self.active_tool_call_ids.clear();
         self.active_tool_result_ids.clear();
@@ -989,10 +1289,20 @@ impl AppState {
         let _ = self.update_active_progress_indicator();
     }
 
+    pub fn begin_stream(&mut self, stream_id: String) {
+        self.canceled_stream_ids.remove(&stream_id);
+        self.ignore_stream_frames = false;
+        self.is_streaming = true;
+        self.current_stream_id = Some(stream_id);
+    }
+
     pub fn cancel_active_response(&mut self) {
         self.flush_active_turn_to_runtime();
         self.is_streaming = false;
-        self.current_stream_id = None;
+        if let Some(stream_id) = self.current_stream_id.take() {
+            self.canceled_stream_ids.insert(stream_id);
+        }
+        self.ignore_stream_frames = true;
     }
 
     pub fn update_active_typing_indicator(&mut self) -> bool {
@@ -1014,7 +1324,7 @@ impl AppState {
         let elapsed_ms = now_ms.saturating_sub(started_at);
         let elapsed_secs = elapsed_ms / 1000;
         let label = match active_cell.kind {
-            TranscriptCellKind::Tool => "running",
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent => "running",
             _ => "typing",
         };
         let frame = match (elapsed_ms / 250) % 4 {
@@ -1024,7 +1334,10 @@ impl AppState {
             _ => format!("{label}..."),
         };
         let progress = format!("{frame:<10} {elapsed_secs}s");
-        let next = if active_cell.kind == TranscriptCellKind::Tool {
+        let next = if matches!(
+            active_cell.kind,
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+        ) {
             active_cell
                 .tool_call_id()
                 .map(|call_id| format!("#{call_id} · {progress}"))
@@ -1097,6 +1410,9 @@ impl AppState {
     }
 
     fn ensure_active_turn(&mut self) -> &mut ActiveTurn {
+        if self.active_turn_session_id.is_none() {
+            self.active_turn_session_id = self.current_session_id().map(ToOwned::to_owned);
+        }
         self.active_turn.get_or_insert_with(ActiveTurn::default)
     }
 
@@ -1188,11 +1504,13 @@ impl AppState {
 
     pub fn push_local_user_message(&mut self, content: String) {
         self.reset_message_scroll();
+        self.last_error_notice = None;
         self.flush_active_turn_to_runtime();
         let cell = cell_from_message(
             &ShellMessage::UserMessage { content },
             self.assistant_name(),
         );
+        self.active_turn_session_id = self.current_session_id().map(ToOwned::to_owned);
         self.active_turn = Some(ActiveTurn {
             cells: vec![cell],
             active_assistant_index: None,
@@ -1210,9 +1528,17 @@ impl AppState {
     }
 
     pub fn push_error(&mut self, content: impl Into<String>) {
-        self.push_message(ShellMessage::ErrorNotice {
-            content: content.into(),
-        });
+        let content = content.into();
+        let normalized = normalized_error_notice(&content).to_string();
+        if self.last_error_notice.as_deref() == Some(normalized.as_str()) {
+            return;
+        }
+        if self.last_runtime_error_matches(&content) {
+            self.last_error_notice = Some(normalized);
+            return;
+        }
+        self.last_error_notice = Some(normalized);
+        self.push_message(ShellMessage::ErrorNotice { content });
     }
 
     pub fn scroll_message_up(&mut self, rows: usize) {
@@ -1252,31 +1578,52 @@ impl AppState {
         let _ = self.update_active_progress_indicator();
     }
 
-    pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
+    pub fn apply_stream_frame(&mut self, frame: StreamFrame) -> bool {
         match frame {
             StreamFrame::Start { stream_id } => {
+                if self.canceled_stream_ids.remove(&stream_id) {
+                    self.ignore_stream_frames = true;
+                    return false;
+                }
+                self.ignore_stream_frames = false;
                 self.is_streaming = true;
                 self.current_stream_id = Some(stream_id.clone());
                 self.status = format!("Streaming response ({stream_id})");
             }
             StreamFrame::Ack { content } => {
+                if self.ignore_stream_frames {
+                    return false;
+                }
                 self.is_streaming = true;
                 self.append_assistant_stream_chunk(&content);
             }
             StreamFrame::Data { content } => {
+                if self.ignore_stream_frames {
+                    return false;
+                }
                 self.is_streaming = true;
                 self.append_assistant_stream_chunk(&content);
             }
             StreamFrame::Done { total_tokens } => {
+                if self.ignore_stream_frames {
+                    return false;
+                }
+                let should_flush_completed_turn = self.thread.session.is_none();
                 self.is_streaming = false;
                 self.current_stream_id = None;
                 self.finish_active_assistant_segment();
+                if should_flush_completed_turn {
+                    self.flush_active_turn_to_runtime();
+                }
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
                     None => "Stream finished".to_string(),
                 };
             }
             other => {
+                if self.ignore_stream_frames {
+                    return false;
+                }
                 if let Some(message) = message_from_stream_frame(&other) {
                     if matches!(message, ShellMessage::ErrorNotice { .. }) {
                         self.is_streaming = false;
@@ -1287,6 +1634,7 @@ impl AppState {
                 }
             }
         }
+        true
     }
 
     pub fn apply_session_event(&mut self, event: ChatSessionEvent) {
@@ -1296,7 +1644,30 @@ impl AppState {
     }
 
     pub fn apply_task_event(&mut self, event: TaskStreamEvent) {
-        self.push_message(message_from_task_event(&event));
+        let message = message_from_task_event(&event);
+        let is_terminal = matches!(
+            event.kind,
+            StreamEventKind::Completed { .. }
+                | StreamEventKind::Failed { .. }
+                | StreamEventKind::Interrupted { .. }
+        );
+        if is_terminal {
+            self.task_activity_cell = None;
+            if let ShellMessage::TaskNotice { content } = message {
+                self.status = content;
+            }
+            return;
+        }
+        if self.active_turn.is_none() && !self.is_streaming {
+            if let ShellMessage::TaskNotice { content } = message {
+                self.status = content;
+            }
+            return;
+        }
+        let mut cell = cell_from_message(&message, self.assistant_name());
+        cell.subtitle = Some(format!("#{} · running", event.task_id));
+        cell.is_active = true;
+        self.task_activity_cell = Some(cell);
     }
 
     #[allow(dead_code)]
@@ -1313,10 +1684,9 @@ impl AppState {
 
         let mut runtime = self.runtime_cells.iter().peekable();
         for (index, cell) in self.conversation_cells.iter().enumerate() {
-            if runtime
-                .peek()
-                .is_some_and(|entry| entry.base_cell_index == index)
-                && cell.kind == TranscriptCellKind::User
+            if runtime.peek().is_some_and(|entry| {
+                entry.base_cell_index == index && entry.cell.kind != TranscriptCellKind::User
+            }) && cell.kind == TranscriptCellKind::User
             {
                 cells.push(cell.clone());
                 while let Some(entry) = runtime.peek() {
@@ -1368,11 +1738,10 @@ impl AppState {
             {
                 continue;
             }
-            if cell.is_conversation_cell()
-                && self
-                    .conversation_cells
-                    .iter()
-                    .any(|persisted| persisted.kind == cell.kind && persisted.body == cell.body)
+            if self
+                .conversation_cells
+                .iter()
+                .any(|persisted| is_persisted_duplicate_cell(&cell, persisted))
             {
                 continue;
             }
@@ -1386,20 +1755,27 @@ impl AppState {
 
     fn reconcile_runtime_conversation_cells(&mut self) {
         self.runtime_cells.retain(|entry| {
-            !entry.cell.is_conversation_cell()
-                || !self
-                    .conversation_cells
-                    .iter()
-                    .any(|cell| cell.kind == entry.cell.kind && cell.body == entry.cell.body)
+            let persisted_duplicate = self
+                .conversation_cells
+                .iter()
+                .any(|cell| is_persisted_duplicate_cell(&entry.cell, cell));
+            let equivalent_error = entry.cell.title == "Error"
+                && self.conversation_cells.iter().any(|cell| {
+                    cell.title == "Error"
+                        && normalized_error_notice(&cell.body)
+                            == normalized_error_notice(&entry.cell.body)
+                });
+            !persisted_duplicate && !equivalent_error
         });
     }
 
     fn reanchor_runtime_cells(&mut self, old_cells: &[TranscriptCell]) {
         for entry in self.runtime_cells.iter_mut() {
             // base_cell_index == old_cells.len() means the runtime cell was anchored
-            // past the end (after the last conversation cell).  Keep it at the new
-            // end as well.
-            if entry.base_cell_index == old_cells.len() {
+            // past the end (after the last conversation cell). Keep it at the new
+            // end once there was a real old anchor; if the old projection was empty,
+            // local failed-turn cells must stay before the first persisted messages.
+            if entry.base_cell_index == old_cells.len() && !old_cells.is_empty() {
                 entry.base_cell_index = self.conversation_cells.len();
             } else if let Some(old_cell) = old_cells.get(entry.base_cell_index)
                 && let Some(new_index) = self.conversation_cells.iter().position(|c| c == old_cell)
@@ -1412,6 +1788,53 @@ impl AppState {
     fn assistant_name(&self) -> &str {
         self.default_agent_name.as_deref().unwrap_or("Agent")
     }
+
+    fn last_runtime_error_matches(&self, content: &str) -> bool {
+        let normalized = normalized_error_notice(content);
+        self.runtime_cells.iter().rev().any(|entry| {
+            entry.cell.title == "Error" && normalized_error_notice(&entry.cell.body) == normalized
+        })
+    }
+}
+
+fn is_persisted_duplicate_cell(runtime: &TranscriptCell, persisted: &TranscriptCell) -> bool {
+    if runtime.kind != persisted.kind {
+        return false;
+    }
+    if runtime.body == persisted.body {
+        return true;
+    }
+    if matches!(
+        runtime.kind,
+        TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+    ) && let Some(runtime_call_id) = runtime.tool_call_id()
+    {
+        return persisted.tool_call_id() == Some(runtime_call_id);
+    }
+    matches!(
+        runtime.kind,
+        TranscriptCellKind::User | TranscriptCellKind::Assistant
+    ) && compact_duplicate_text(&runtime.body) == compact_duplicate_text(&persisted.body)
+}
+
+fn active_cell_projected_by(active: &TranscriptCell, persisted: &TranscriptCell) -> bool {
+    if is_persisted_duplicate_cell(active, persisted) {
+        return true;
+    }
+    if active.kind != TranscriptCellKind::Assistant
+        || persisted.kind != TranscriptCellKind::Assistant
+    {
+        return false;
+    }
+    let active_text = compact_duplicate_text(&active.body);
+    if active_text.is_empty() {
+        return false;
+    }
+    compact_duplicate_text(&persisted.body).starts_with(&active_text)
+}
+
+fn compact_duplicate_text(content: &str) -> String {
+    content.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 
 fn assistant_stream_delta(current: &mut String, chunk: &str) -> Option<String> {
@@ -1442,6 +1865,17 @@ fn assistant_stream_delta(current: &mut String, chunk: &str) -> Option<String> {
     };
     current.push_str(delta);
     Some(delta.to_string())
+}
+
+fn normalized_error_notice(content: &str) -> &str {
+    let trimmed = content.trim();
+    let Some(rest) = trimmed.strip_prefix("Stream error ") else {
+        return trimmed;
+    };
+    let Some((_, message)) = rest.split_once(": ") else {
+        return trimmed;
+    };
+    message.trim()
 }
 
 fn append_active_text(body: &mut String, text: &str) {
@@ -1482,11 +1916,39 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
         assert!(state.conversation_cells.is_empty());
-        assert!(state.runtime_cells.is_empty());
-        let active = state.active_turn.as_ref().expect("active turn");
-        assert_eq!(active.cells.len(), 1);
-        assert_eq!(active.cells[0].kind, TranscriptCellKind::Assistant);
-        assert_eq!(active.cells[0].body, "hello");
+        assert!(state.active_turn.is_none());
+        assert_eq!(state.runtime_cells.len(), 1);
+        let active = &state.runtime_cells[0].cell;
+        assert_eq!(active.kind, TranscriptCellKind::Assistant);
+        assert_eq!(active.body, "hello");
+    }
+
+    #[test]
+    fn canceled_stream_ignores_late_frames() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("hi".to_string());
+        state.begin_stream("stream-1".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "hel".to_string(),
+        });
+
+        state.cancel_active_response();
+
+        assert!(!state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "stream-1".to_string(),
+        }));
+        assert!(!state.apply_stream_frame(StreamFrame::Data {
+            content: "lo".to_string(),
+        }));
+        assert!(!state.apply_stream_frame(StreamFrame::Done { total_tokens: None }));
+
+        let cells = state.transcript_cells_for_render();
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[0].kind, TranscriptCellKind::User);
+        assert_eq!(cells[1].kind, TranscriptCellKind::Assistant);
+        assert_eq!(cells[1].body, "hel");
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
     }
 
     #[test]
@@ -1580,10 +2042,11 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
         assert!(state.conversation_cells.is_empty());
-        assert!(state.active_turn.is_some());
-        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_turn.is_none());
+        assert_eq!(state.runtime_cells.len(), 3);
         assert!(
-            !state.active_turn.as_ref().unwrap().cells[0]
+            !state.runtime_cells[0]
+                .cell
                 .body
                 .contains("Tool · bash #call-1")
         );
@@ -1649,6 +2112,79 @@ mod tests {
     }
 
     #[test]
+    fn canceled_session_refresh_deduplicates_persisted_tool_call() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.begin_stream("turn-1".to_string());
+        state.push_local_user_message("run tool".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"cmd": "sleep 10"}),
+        });
+        state.cancel_active_response();
+        state.push_info("Canceled current response.");
+
+        session.record_turn_user_message("turn-1", "run tool");
+        session.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"cmd\":\"sleep 10\"}".to_string(),
+            },
+        );
+        session.cancel_turn("turn-1");
+        state.refresh_current_session(session);
+
+        let tool_cells = state
+            .transcript_cells_for_render()
+            .into_iter()
+            .filter(|cell| cell.tool_call_id() == Some("call-1"))
+            .collect::<Vec<_>>();
+        assert_eq!(tool_cells.len(), 1);
+        assert!(!tool_cells[0].is_active);
+    }
+
+    #[test]
+    fn cancel_flush_deduplicates_tool_call_already_projected_from_session() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.begin_stream("turn-1".to_string());
+        state.push_local_user_message("run tool".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"cmd": "sleep 10"}),
+        });
+
+        session.record_turn_user_message("turn-1", "run tool");
+        session.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"cmd\":\"sleep 10\"}".to_string(),
+            },
+        );
+        state.refresh_current_session(session);
+
+        state.cancel_active_response();
+
+        let tool_cells = state
+            .transcript_cells_for_render()
+            .into_iter()
+            .filter(|cell| cell.tool_call_id() == Some("call-1"))
+            .collect::<Vec<_>>();
+        assert_eq!(tool_cells.len(), 1);
+        assert!(!tool_cells[0].is_active);
+    }
+
+    #[test]
     fn blank_stream_chunks_do_not_create_empty_assistant_cells() {
         let mut state = AppState::empty();
         state.apply_stream_frame(StreamFrame::Ack {
@@ -1677,6 +2213,7 @@ mod tests {
             name: "Daily digest".to_string(),
             status: "Active".to_string(),
             next_run_at: None,
+            latest_run_id: Some("run-task-1".to_string()),
         });
         state.thread.runs.push(restflow_core::models::RunSummary {
             id: "run-local".to_string(),
@@ -1749,6 +2286,42 @@ mod tests {
     }
 
     #[test]
+    fn active_turn_task_ids_extracts_manage_task_result_ids() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("create a task".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-task".to_string(),
+            name: "manage_tasks".to_string(),
+            arguments: serde_json::json!({"operation":"create","name":"Created task"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-task".to_string(),
+            success: true,
+            result: serde_json::json!({
+                "status": "executed",
+                "result": {
+                    "id": "task-1"
+                }
+            })
+            .to_string(),
+        });
+
+        let tool_body = &state.active_turn.as_ref().unwrap().cells[1].body;
+        assert_eq!(
+            super::extract_tool_json_payload(tool_body, "Input:")
+                .and_then(|value| value.get("operation").cloned()),
+            Some(serde_json::json!("create"))
+        );
+        assert_eq!(
+            super::extract_tool_json_payload(tool_body, "Output:")
+                .and_then(|value| value.get("result").cloned())
+                .and_then(|value| value.get("id").cloned()),
+            Some(serde_json::json!("task-1"))
+        );
+        assert!(state.active_turn_task_ids().contains("task-1"));
+    }
+
+    #[test]
     fn refresh_current_session_preserves_notice_messages() {
         let mut state = AppState::empty();
         let mut session =
@@ -1794,6 +2367,421 @@ mod tests {
     }
 
     #[test]
+    fn refresh_current_session_keeps_streaming_turn_when_user_is_only_persisted_event() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.push_local_user_message("hello".to_string());
+        state.is_streaming = true;
+
+        session.record_turn_user_message("turn-1", "hello");
+        state.refresh_current_session(session);
+
+        assert!(state.is_streaming);
+        assert!(state.active_turn.is_some());
+        assert!(!state.ignore_stream_frames);
+    }
+
+    #[test]
+    fn refresh_current_session_keeps_streaming_turn_when_tool_call_is_only_projected_event() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.begin_stream("turn-1".to_string());
+        state.push_local_user_message("coordinate team".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-team".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({}),
+        });
+        assert!(state.is_streaming);
+
+        session.record_turn_user_message("turn-1", "coordinate team");
+        session.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-team".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: "{}".to_string(),
+            },
+        );
+        state.refresh_current_session(session);
+
+        assert!(state.is_streaming);
+        assert!(state.active_turn.is_some());
+        assert!(!state.ignore_stream_frames);
+    }
+
+    #[test]
+    fn refresh_current_session_keeps_completed_live_turn_until_session_persists_answer() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "done".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
+        state.refresh_current_session(session);
+
+        assert!(state.active_turn.is_some());
+        assert!(state.runtime_cells.is_empty());
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 3);
+        assert_eq!(rendered[0].body, "hello");
+        assert_eq!(rendered[1].body, "hello");
+        assert_eq!(rendered[2].body, "done");
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_turn_when_legacy_messages_project_answer() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "done".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::assistant("done"));
+        state.refresh_current_session(session);
+
+        assert!(state.active_turn.is_none());
+        assert!(state.runtime_cells.is_empty());
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 2);
+        assert_eq!(rendered[0].body, "hello");
+        assert_eq!(rendered[1].body, "done");
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_partial_when_session_projects_full_answer() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.begin_stream("stream-1".to_string());
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "do".to_string(),
+        });
+
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::user("hello"));
+        session
+            .messages
+            .push(restflow_core::models::ChatMessage::assistant("done"));
+        state.refresh_current_session(session);
+
+        assert!(state.active_turn.is_none());
+        assert!(!state.is_streaming);
+        assert!(!state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "stream-1".to_string(),
+        }));
+        assert!(!state.apply_stream_frame(StreamFrame::Data {
+            content: "don".to_string(),
+        }));
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 2);
+        assert_eq!(rendered[0].body, "hello");
+        assert_eq!(rendered[1].body, "done");
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_turn_when_current_stream_is_completed() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        let stream_id = "stream-1".to_string();
+        state.begin_stream(stream_id.clone());
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "working".to_string(),
+        });
+        assert!(state.active_turn.is_some());
+
+        session.record_turn_user_message(&stream_id, "hello");
+        session.complete_turn_with_assistant_message(&stream_id, "done");
+        state.refresh_current_session(session);
+
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
+        assert_eq!(state.conversation_cells.len(), 2);
+        assert_eq!(state.conversation_cells[0].body, "hello");
+        assert_eq!(state.conversation_cells[1].body, "done");
+    }
+
+    #[test]
+    fn active_refresh_session_id_survives_until_active_turn_reconciles() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session.clone());
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "done".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+        state.thread.clear_session();
+
+        assert_eq!(state.active_refresh_session_id(), Some(session_id.as_str()));
+
+        session.record_turn_user_message("turn-1", "hello");
+        session.complete_turn_with_assistant_message("turn-1", "done");
+        state.refresh_current_session(session);
+
+        assert!(state.active_turn.is_none());
+        assert!(state.active_turn_session_id.is_none());
+        assert_eq!(state.active_refresh_session_id(), Some(session_id.as_str()));
+    }
+
+    #[test]
+    fn refresh_current_session_ignores_late_stream_frames_after_persisted_completion() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        let stream_id = "stream-1".to_string();
+        state.begin_stream(stream_id.clone());
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "done".to_string(),
+        });
+
+        session.record_turn_user_message(&stream_id, "hello");
+        session.complete_turn_with_assistant_message(&stream_id, "done");
+        state.refresh_current_session(session);
+
+        assert!(state.active_turn.is_none());
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+
+        assert!(!state.apply_stream_frame(StreamFrame::Data {
+            content: "done again".to_string(),
+        }));
+        assert!(!state.apply_stream_frame(StreamFrame::Done { total_tokens: None }));
+        assert!(state.active_turn.is_none());
+        assert_eq!(state.conversation_cells.len(), 2);
+        assert_eq!(state.conversation_cells[1].body, "done");
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_turn_when_persisted_turn_matches_user_message() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        state.begin_stream("local-stream-id".to_string());
+        state.push_local_user_message("create two tasks\n".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "manage_tasks".to_string(),
+            arguments: serde_json::json!({}),
+        });
+        assert!(state.active_turn.is_some());
+
+        session.record_turn_user_message("persisted-turn-id", "create two tasks\n");
+        session.record_turn_event(
+            "persisted-turn-id",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "manage_tasks".to_string(),
+                arguments: "{}".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "persisted-turn-id",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "ok".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("persisted-turn-id", "done");
+
+        state.refresh_current_session(session);
+
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
+        assert!(
+            state
+                .conversation_cells
+                .iter()
+                .any(|cell| cell.kind == TranscriptCellKind::Tool && cell.body.contains("ok"))
+        );
+        assert!(
+            state
+                .conversation_cells
+                .iter()
+                .any(|cell| cell.kind == TranscriptCellKind::Assistant && cell.body == "done")
+        );
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_turn_when_matching_completed_turn_is_not_last() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        state.begin_stream("local-stream-id".to_string());
+        state.push_local_user_message("coordinate team\n".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({}),
+        });
+
+        session.record_turn_user_message("persisted-turn-id", "coordinate team\n");
+        session.record_turn_event(
+            "persisted-turn-id",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: "{}".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "persisted-turn-id",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "child ok".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("persisted-turn-id", "parent ok");
+        session.record_turn_user_message("later-running-turn-id", "later message");
+
+        state.refresh_current_session(session);
+
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
+        assert!(
+            state
+                .conversation_cells
+                .iter()
+                .all(|cell| cell.kind != TranscriptCellKind::Tool)
+        );
+        assert!(
+            state
+                .conversation_cells
+                .iter()
+                .any(|cell| cell.kind == TranscriptCellKind::Assistant && cell.body == "parent ok")
+        );
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_turn_when_persisted_tool_call_matches() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        state.begin_stream("local-stream-id".to_string());
+        state.push_local_user_message("local draft text".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-team".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({}),
+        });
+
+        session.record_turn_user_message("persisted-turn-id", "persisted user text");
+        session.record_turn_event(
+            "persisted-turn-id",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-team".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: "{}".to_string(),
+            },
+        );
+        session.record_turn_event(
+            "persisted-turn-id",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "call-team".to_string(),
+                success: true,
+                result: "child ok".to_string(),
+            },
+        );
+        session.complete_turn_with_assistant_message("persisted-turn-id", "parent ok");
+
+        state.refresh_current_session(session);
+
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
+    }
+
+    #[test]
+    fn refresh_current_session_keeps_active_tool_turn_for_repeated_user_text() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.record_turn_user_message("old-turn", "repeat");
+        session.complete_turn_with_assistant_message("old-turn", "old answer");
+        state.set_current_session(session.clone());
+
+        state.begin_stream("current-turn".to_string());
+        state.push_local_user_message("repeat".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-current".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
+        });
+
+        state.refresh_current_session(session);
+
+        assert!(state.is_streaming);
+        assert_eq!(state.current_stream_id.as_deref(), Some("current-turn"));
+        assert!(state.active_turn.is_some());
+    }
+
+    #[test]
+    fn refresh_current_session_clears_active_turn_when_session_messages_have_answer() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        state.begin_stream("local-stream-id".to_string());
+        state.push_local_user_message("coordinate team".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "parent ok".to_string(),
+        });
+
+        session.add_message(restflow_core::models::ChatMessage::user("coordinate team"));
+        session.add_message(restflow_core::models::ChatMessage::assistant("parent ok"));
+
+        state.refresh_current_session(session);
+
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
+    }
+
+    #[test]
     fn pending_user_message_stays_before_local_assistant_finalize() {
         let mut state = AppState::empty();
         let session =
@@ -1811,6 +2799,26 @@ mod tests {
         assert_eq!(rendered[0].body, "123");
         assert_eq!(rendered[1].kind, TranscriptCellKind::Assistant);
         assert_eq!(rendered[1].body, "hello");
+    }
+
+    #[test]
+    fn daemon_backed_stream_done_waits_for_session_refresh_before_stable_runtime() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "done".to_string(),
+        });
+
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        assert!(state.runtime_cells.is_empty());
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered.len(), 2);
+        assert_eq!(rendered[0].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[1].kind, TranscriptCellKind::Assistant);
     }
 
     #[test]
@@ -1861,6 +2869,335 @@ mod tests {
         assert_eq!(rendered[1].body, "partial answer");
         assert_eq!(rendered[2].kind, TranscriptCellKind::User);
         assert_eq!(rendered[2].body, "second");
+    }
+
+    #[test]
+    fn failed_first_turn_stays_before_later_persisted_success() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+
+        state.push_local_user_message("first".to_string());
+        state.apply_stream_frame(StreamFrame::error(500, "preflight failed"));
+
+        state.push_local_user_message("second".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "OK".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        let mut updated = session;
+        updated
+            .messages
+            .push(restflow_core::models::ChatMessage::user("second"));
+        updated
+            .messages
+            .push(restflow_core::models::ChatMessage::assistant("OK"));
+        state.refresh_current_session(updated);
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(rendered[0].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[0].body, "first");
+        assert_eq!(rendered[1].kind, TranscriptCellKind::Notice);
+        assert_eq!(rendered[1].title, "Error");
+        assert!(rendered[1].body.contains("preflight failed"));
+        assert_eq!(rendered[2].kind, TranscriptCellKind::User);
+        assert_eq!(rendered[2].body, "second");
+        assert_eq!(rendered[3].kind, TranscriptCellKind::Assistant);
+        assert_eq!(rendered[3].body, "OK");
+    }
+
+    #[test]
+    fn duplicate_stream_and_plain_errors_are_collapsed() {
+        let mut state = AppState::empty();
+        state.push_error("Stream error 500: Preflight check failed:\n- missing secret");
+        state.push_error("Preflight check failed:\n- missing secret");
+
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert_eq!(state.runtime_cells[0].cell.title, "Error");
+        assert!(
+            state.runtime_cells[0]
+                .cell
+                .body
+                .contains("Preflight check failed")
+        );
+    }
+
+    #[test]
+    fn refresh_removes_runtime_error_when_session_persists_equivalent_error() {
+        let mut state = AppState::empty();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.push_error("Stream error 500: Preflight check failed:\n- missing secret");
+
+        session.record_turn_user_message("turn-1", "hello");
+        session.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::Error {
+                message: "Preflight check failed:\n- missing secret".to_string(),
+            },
+        );
+        state.refresh_current_session(session);
+
+        let rendered = state.transcript_cells_for_render();
+        let errors = rendered
+            .iter()
+            .filter(|cell| cell.title == "Error")
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            super::normalized_error_notice(&errors[0].body),
+            "Preflight check failed:\n- missing secret"
+        );
+    }
+
+    #[test]
+    fn refresh_removes_runtime_tool_cells_when_session_persists_turn_events() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command":"pwd"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            success: true,
+            result: "/tmp".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "done".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        let mut persisted =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        persisted.record_turn_user_message("turn-1", "hello");
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"command\":\"pwd\"}".to_string(),
+            },
+        );
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "/tmp".to_string(),
+            },
+        );
+        persisted.complete_turn_with_assistant_message("turn-1", "done");
+
+        state.refresh_current_session(persisted);
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(
+            rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+                .count(),
+            1
+        );
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_turn.is_none());
+    }
+
+    #[test]
+    fn refresh_removes_runtime_cells_when_persisted_turn_has_equivalent_live_content() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            success: true,
+            result: "{\"status\":\"completed\"}".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "- **耗时**:1326ms".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        let mut persisted =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        persisted.record_turn_user_message("turn-1", "hello");
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: "{\"specs\":[{\"task\":\"reply\"}]}".to_string(),
+            },
+        );
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "call-1".to_string(),
+                success: true,
+                result: "{\"operation\":\"spawn\",\"status\":\"completed\"}".to_string(),
+            },
+        );
+        persisted.complete_turn_with_assistant_message("turn-1", "- **耗时**: 1326ms");
+
+        state.refresh_current_session(persisted);
+
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(
+            rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+                .count(),
+            0
+        );
+        assert_eq!(
+            rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Assistant)
+                .count(),
+            1
+        );
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_turn.is_none());
+    }
+
+    #[test]
+    fn refresh_clears_active_team_turn_when_persisted_wait_and_final_answer_match() {
+        let mut state = AppState::empty();
+        let session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session);
+        state.push_local_user_message("run one subagent".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "spawn-call".to_string(),
+            name: "spawn_subagent_batch".to_string(),
+            arguments: serde_json::json!({
+                "specs": [{"task": "reply TEAM_MESSAGE_PANEL_CHILD_OK"}]
+            }),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "spawn-call".to_string(),
+            success: true,
+            result: serde_json::json!({
+                "operation": "spawn",
+                "status": "spawned",
+                "task_ids": ["child-1"]
+            })
+            .to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "wait-call".to_string(),
+            name: "wait_subagents".to_string(),
+            arguments: serde_json::json!({
+                "task_ids": ["child-1"],
+                "timeout_secs": 60
+            }),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "wait-call".to_string(),
+            success: true,
+            result: serde_json::json!({
+                "results": [{
+                    "duration_ms": 5027,
+                    "output": "TEAM_MESSAGE_PANEL_CHILD_OK",
+                    "status": "completed",
+                    "task_id": "child-1"
+                }]
+            })
+            .to_string(),
+        });
+
+        let mut persisted =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        persisted.record_turn_user_message("turn-1", "run one subagent");
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "spawn-call".to_string(),
+                name: "spawn_subagent_batch".to_string(),
+                arguments: serde_json::json!({
+                    "specs": [{"task": "reply TEAM_MESSAGE_PANEL_CHILD_OK"}]
+                })
+                .to_string(),
+            },
+        );
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "spawn-call".to_string(),
+                success: true,
+                result: serde_json::json!({
+                    "operation": "spawn",
+                    "status": "spawned",
+                    "task_ids": ["child-1"]
+                })
+                .to_string(),
+            },
+        );
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolCall {
+                call_id: "wait-call".to_string(),
+                name: "wait_subagents".to_string(),
+                arguments: serde_json::json!({
+                    "task_ids": ["child-1"],
+                    "timeout_secs": 60
+                })
+                .to_string(),
+            },
+        );
+        persisted.record_turn_event(
+            "turn-1",
+            restflow_core::models::ChatTurnEventKind::ToolResult {
+                call_id: "wait-call".to_string(),
+                success: true,
+                result: serde_json::json!({
+                    "results": [{
+                        "duration_ms": 5027,
+                        "output": "TEAM_MESSAGE_PANEL_CHILD_OK",
+                        "status": "completed",
+                        "task_id": "child-1"
+                    }]
+                })
+                .to_string(),
+            },
+        );
+        persisted.complete_turn_with_assistant_message(
+            "turn-1",
+            "TEAM_MESSAGE_PANEL_PARENT_OK\n\nTEAM_MESSAGE_PANEL_CHILD_OK",
+        );
+
+        state.refresh_current_session(persisted);
+
+        let rendered = state.transcript_cells_for_render();
+        assert!(state.active_turn.is_none());
+        assert!(state.runtime_cells.is_empty());
+        assert_eq!(
+            rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Subagent)
+                .count(),
+            0
+        );
+        let assistant = rendered
+            .iter()
+            .find(|cell| cell.kind == TranscriptCellKind::Assistant)
+            .expect("assistant cell");
+        assert!(assistant.body.contains("TEAM_MESSAGE_PANEL_PARENT_OK"));
+        assert!(assistant.body.contains("TEAM_MESSAGE_PANEL_CHILD_OK"));
     }
 
     #[test]

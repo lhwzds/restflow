@@ -134,14 +134,23 @@ impl CommandExecutor for DirectExecutor {
             .collect())
     }
 
-    async fn list_full_sessions(&self) -> Result<Vec<ChatSession>> {
-        SessionService::from_storage(&self.core.storage).list_session_views(None, None, false)
-    }
-
     async fn get_session(&self, id: &str) -> Result<ChatSession> {
         SessionService::from_storage(&self.core.storage)
             .get_session_view(id)?
             .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))
+    }
+
+    async fn search_sessions(
+        &self,
+        query: &str,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<ChatSessionSummary>> {
+        Ok(SessionService::from_storage(&self.core.storage)
+            .search_session_views(query, agent_id, None, false, limit.max(1))?
+            .iter()
+            .map(ChatSessionSummary::from)
+            .collect())
     }
 
     async fn create_session(
@@ -185,11 +194,20 @@ impl CommandExecutor for DirectExecutor {
         bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn delete_task(&self, _id: &str) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    async fn delete_task(
+        &self,
+        _id: &str,
+        _approval_id: Option<&str>,
+    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
         bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn control_task(&self, _id: &str, _action: TaskControlAction) -> Result<Task> {
+    async fn control_task(
+        &self,
+        _id: &str,
+        _action: TaskControlAction,
+        _approval_id: Option<&str>,
+    ) -> Result<Task> {
         bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

@@ -13,6 +13,7 @@ pub mod terminal_session;
 
 use anyhow::Result;
 use redb::{Database, TableHandle};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
@@ -62,7 +63,7 @@ impl Storage {
 
         let config = ConfigStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
-        let tasks = TaskStorage::new(db.clone())?;
+        let tasks = TaskStorage::new_file_backed(db.clone(), task_store_path(path))?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
@@ -89,6 +90,10 @@ impl Storage {
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
     }
+}
+
+fn task_store_path(db_path: &str) -> PathBuf {
+    Path::new(db_path).with_file_name("restflow.tasks.json")
 }
 
 fn purge_non_secret_redb_tables(db: &Arc<Database>) -> Result<()> {

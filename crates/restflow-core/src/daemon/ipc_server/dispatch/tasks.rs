@@ -168,11 +168,15 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_delete_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
+    pub(super) async fn handle_delete_task(
+        core: &Arc<AppCore>,
+        id: String,
+        approval_id: Option<String>,
+    ) -> IpcResponse {
         let request = TaskDeleteRequest {
             id,
             preview: false,
-            approval_id: None,
+            approval_id,
         };
         match command_service(core)
             .delete_from_request(request, TaskExecutionMode::Guarded)
@@ -187,6 +191,7 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
         action: crate::models::TaskControlAction,
+        approval_id: Option<String>,
     ) -> IpcResponse {
         let action = match to_contract(action) {
             Ok(value) => value,
@@ -196,7 +201,7 @@ impl IpcServer {
             id,
             action,
             preview: false,
-            approval_id: None,
+            approval_id,
         };
         match command_service(core)
             .control_from_request(request, TaskExecutionMode::Guarded)

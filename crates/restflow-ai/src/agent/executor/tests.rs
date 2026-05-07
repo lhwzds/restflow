@@ -850,6 +850,81 @@ async fn test_reviewer_denial_blocks_tool_execution() {
 }
 
 #[tokio::test]
+async fn test_executor_drop_aborts_active_tool_calls() {
+    let executor = AgentExecutor::new(
+        Arc::new(MockLlmClient::new(vec![])),
+        Arc::new(ToolRegistry::new()),
+    );
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let handle = tokio::spawn(async move {
+        let _ = started_tx.send(());
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    });
+
+    executor
+        .active_tool_calls
+        .insert("call_1".to_string(), handle.abort_handle());
+    started_rx.await.expect("tool task started");
+
+    drop(executor);
+
+    let error = handle.await.expect_err("tool task should be aborted");
+    assert!(error.is_cancelled());
+}
+
+#[tokio::test]
+async fn test_runtime_policy_tools_skip_generic_reviewer() {
+    let reviewer = Arc::new(StaticToolReviewer::new(ToolReviewOutcome::deny(Some(
+        "generic reviewer should not gate runtime policy tools".to_string(),
+    ))));
+    let reviewer_trait: Arc<dyn ToolCallReviewer> = reviewer.clone();
+    let mut registry = ToolRegistry::new();
+    registry.register(SpawnSubagentCaptureTool);
+    let executor = AgentExecutor::new(Arc::new(MockLlmClient::new(vec![])), Arc::new(registry));
+    let calls = vec![ToolCall {
+        id: "spawn_call".to_string(),
+        name: "spawn_subagent".to_string(),
+        arguments: serde_json::json!({
+            "inline_name": "sub-a",
+            "task": "Investigate"
+        }),
+    }];
+    let mut emitter = NullEmitter;
+
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_run_id: Some("runtime-parent"),
+                    chat_session_id: None,
+                    trace_session_id: Some("runtime-session"),
+                    trace_scope_id: Some("runtime-scope"),
+                    model: None,
+                    provider: None,
+                },
+                reviewer: Some(&reviewer_trait),
+                review_messages: &[Message::user("spawn one subagent")],
+            },
+        )
+        .await;
+
+    assert_eq!(reviewer.call_count(), 0);
+    let output = results[0]
+        .1
+        .as_ref()
+        .expect("runtime policy tool should execute");
+    assert!(output.success);
+    assert_eq!(output.result["parent_run_id"], "runtime-parent");
+}
+
+#[tokio::test]
 async fn test_reviewer_denial_blocks_deferred_replay() {
     let tool_calls = Arc::new(AtomicUsize::new(0));
     let reviewer = Arc::new(StaticToolReviewer::new(ToolReviewOutcome::deny(Some(
@@ -2208,6 +2283,8 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
                     chat_session_id: None,
                     trace_session_id: Some("session-main-1"),
                     trace_scope_id: Some("scope-main-1"),
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2230,6 +2307,135 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
     assert_eq!(start_payload["parent_run_id"], "exec-parent-1");
     assert_eq!(start_payload["trace_session_id"], "session-main-1");
     assert_eq!(start_payload["trace_scope_id"], "scope-main-1");
+}
+
+#[tokio::test]
+async fn test_spawn_subagent_batch_injects_default_model_for_temporary_specs() {
+    let mut tools = ToolRegistry::new();
+    tools.register(SpawnSubagentBatchCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+    let calls = vec![ToolCall {
+        id: "spawn_batch_call".to_string(),
+        name: "spawn_subagent_batch".to_string(),
+        arguments: serde_json::json!({
+            "specs": [
+                { "count": 1 },
+                { "count": 1, "agent": "stored-child" },
+                { "count": 1, "model": "deepseek-chat", "provider": "deepseek" },
+                { "count": 1, "inline_max_iterations": 1, "inline_allowed_tools": [] }
+            ],
+            "tasks": ["A", "B", "C", "D"]
+        }),
+    }];
+
+    let mut emitter = ToolStartCaptureEmitter::new();
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_run_id: None,
+                    chat_session_id: None,
+                    trace_session_id: None,
+                    trace_scope_id: None,
+                    model: Some("zai-coding-plan-glm-5-1"),
+                    provider: Some("zai-coding-plan"),
+                },
+                reviewer: None,
+                review_messages: &[],
+            },
+        )
+        .await;
+
+    assert_eq!(results.len(), 1);
+    let output = results[0].1.as_ref().expect("batch should succeed");
+    assert_eq!(
+        output.result["specs"][0]["model"],
+        "zai-coding-plan-glm-5-1"
+    );
+    assert_eq!(output.result["specs"][0]["provider"], "zai-coding-plan");
+    assert!(output.result["specs"][1].get("model").is_none());
+    assert_eq!(output.result["specs"][2]["model"], "deepseek-chat");
+    assert_eq!(
+        output.result["specs"][3]["model"],
+        "zai-coding-plan-glm-5-1"
+    );
+    assert_eq!(output.result["specs"][3]["provider"], "zai-coding-plan");
+
+    let start_arguments = emitter.start_arguments.lock().await;
+    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
+    assert_eq!(
+        start_payload["specs"][0]["model"],
+        "zai-coding-plan-glm-5-1"
+    );
+    assert_eq!(start_payload["specs"][0]["provider"], "zai-coding-plan");
+    assert_eq!(
+        start_payload["specs"][3]["model"],
+        "zai-coding-plan-glm-5-1"
+    );
+    assert_eq!(start_payload["specs"][3]["provider"], "zai-coding-plan");
+}
+
+#[tokio::test]
+async fn test_spawn_subagent_uses_telemetry_run_id_as_parent_run_id() {
+    let responses = vec![
+        CompletionResponse {
+            content: Some("spawning".to_string()),
+            tool_calls: vec![ToolCall {
+                id: "spawn_call".to_string(),
+                name: "spawn_subagent".to_string(),
+                arguments: serde_json::json!({
+                    "agent": "default",
+                    "task": "Investigate"
+                }),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: None,
+        },
+        CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        },
+    ];
+    let mut tools = ToolRegistry::new();
+    tools.register(SpawnSubagentCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(responses));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let mut emitter = ToolStartCaptureEmitter::new();
+
+    let result = executor
+        .run_with_emitter(
+            AgentConfig::new("spawn a subagent")
+                .with_prompt_flags(PromptFlags::new().without_workspace_context())
+                .with_telemetry_context(TelemetryContext::new(
+                    crate::telemetry::RestflowTrace::new(
+                        "telemetry-parent-run",
+                        "session-1",
+                        "scope-1",
+                        "agent-1",
+                    ),
+                )),
+            &mut emitter,
+        )
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    let start_arguments = emitter.start_arguments.lock().await;
+    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
+    assert_eq!(start_payload["parent_run_id"], "telemetry-parent-run");
 }
 
 #[tokio::test]
@@ -2266,6 +2472,8 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
                     chat_session_id: None,
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2319,6 +2527,8 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
                     chat_session_id: None,
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2377,6 +2587,8 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
                     chat_session_id: None,
                     trace_session_id: Some("runtime-session"),
                     trace_scope_id: Some("runtime-scope"),
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2432,6 +2644,8 @@ async fn test_promote_to_background_injects_chat_session_id() {
                     chat_session_id: Some("session-main-1"),
                     trace_session_id: None,
                     trace_scope_id: None,
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2486,6 +2700,8 @@ async fn test_promote_to_background_overrides_explicit_session_id() {
                     chat_session_id: Some("session-main-1"),
                     trace_session_id: None,
                     trace_scope_id: None,
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2532,6 +2748,8 @@ async fn test_list_subagents_injects_parent_run_id() {
                     chat_session_id: None,
                     trace_session_id: None,
                     trace_scope_id: None,
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],
@@ -2584,6 +2802,8 @@ async fn test_wait_subagents_overrides_explicit_parent_run_id() {
                     chat_session_id: None,
                     trace_session_id: None,
                     trace_scope_id: None,
+                    model: None,
+                    provider: None,
                 },
                 reviewer: None,
                 review_messages: &[],

@@ -24,7 +24,8 @@ use crate::{
     storage::Storage,
 };
 use restflow_ai::agent::{
-    ModelRoutingConfig as AiModelRoutingConfig, PromptFlags, SharedStreamEmitter, StreamEmitter,
+    LlmToolCallReviewer, ModelRoutingConfig as AiModelRoutingConfig, PromptFlags,
+    SharedStreamEmitter, StreamEmitter,
 };
 use restflow_ai::llm::Message;
 use restflow_ai::{
@@ -327,6 +328,9 @@ impl AgentRuntimeExecutor {
         subagent_definitions: Arc<dyn SubagentDefLookup>,
         subagent_config: SubagentConfig,
     ) -> Self {
+        subagent_tracker.set_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
+            storage.as_ref(),
+        ));
         Self {
             storage,
             process_registry,

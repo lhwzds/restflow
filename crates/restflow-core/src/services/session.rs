@@ -1,7 +1,7 @@
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{
-    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate, MessageExecution,
-    ModelId,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
+    MessageExecution, ModelId, Task,
 };
 use crate::runtime::session_turn::hydrate_voice_message_metadata;
 use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
@@ -83,6 +83,10 @@ impl SessionService {
         self.policy.management_owner(session)
     }
 
+    pub fn bound_task(&self, session_id: &str) -> Result<Option<Task>> {
+        self.policy.bound_task(session_id)
+    }
+
     pub fn effective_source(
         &self,
         session: &ChatSession,
@@ -99,15 +103,48 @@ impl SessionService {
     }
 
     pub fn get_session_view(&self, session_id: &str) -> Result<Option<ChatSession>> {
-        let mut session = if let Some(session) = self.sessions.get_session(session_id)? {
-            session
-        } else if let Some(store) = &self.file_sessions {
-            match store.get(session_id)? {
-                Some(session) => session.to_chat_session(),
-                None => return Ok(None),
-            }
-        } else {
+        let redb_session = self.sessions.get_session(session_id)?;
+        let file_session = self
+            .file_sessions
+            .as_ref()
+            .and_then(|store| store.get(session_id).transpose())
+            .transpose()?
+            .map(|session| session.to_chat_session());
+        let mut session = match (redb_session, file_session) {
+            (Some(redb), Some(file)) if file.updated_at >= redb.updated_at => file,
+            (Some(redb), Some(_)) | (Some(redb), None) => redb,
+            (None, Some(file)) => file,
+            (None, None) => return Ok(None),
+        };
+        session.hydrate_provider_from_model();
+        self.apply_effective_source(&mut session)?;
+        Ok(Some(session))
+    }
+
+    pub fn get_session_view_by_turn_id(&self, turn_id: &str) -> Result<Option<ChatSession>> {
+        let turn_id = turn_id.trim();
+        if turn_id.is_empty() {
             return Ok(None);
+        }
+
+        let redb_session = self
+            .sessions
+            .chat_sessions
+            .list_all()?
+            .into_iter()
+            .find(|session| session.turns.iter().any(|turn| turn.id == turn_id));
+        let file_session = self
+            .file_sessions
+            .as_ref()
+            .and_then(|store| store.get_by_turn_id(turn_id).transpose())
+            .transpose()?
+            .map(|session| session.to_chat_session());
+
+        let mut session = match (redb_session, file_session) {
+            (Some(redb), Some(file)) if file.updated_at >= redb.updated_at => file,
+            (Some(redb), Some(_)) | (Some(redb), None) => redb,
+            (None, Some(file)) => file,
+            (None, None) => return Ok(None),
         };
         session.hydrate_provider_from_model();
         self.apply_effective_source(&mut session)?;
@@ -151,9 +188,135 @@ impl SessionService {
             self.apply_effective_source(session)?;
         }
 
+        self.merge_file_session_views(&mut sessions, agent_id, skill_id, include_archived)?;
+
         sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
 
         Ok(sessions)
+    }
+
+    pub fn list_session_summaries(
+        &self,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+    ) -> Result<Vec<ChatSessionSummary>> {
+        let mut summaries = match include_archived {
+            true => self.sessions.chat_sessions.list_summaries_all()?,
+            false => self.sessions.chat_sessions.list_summaries()?,
+        };
+        summaries.retain(|summary| {
+            Self::summary_matches_list_filter(summary, agent_id, skill_id, include_archived)
+        });
+        self.merge_file_session_summaries(&mut summaries, agent_id, skill_id, include_archived)?;
+        summaries.sort_by_key(|summary| std::cmp::Reverse(summary.updated_at));
+        Ok(summaries)
+    }
+
+    fn merge_file_session_views(
+        &self,
+        sessions: &mut Vec<ChatSession>,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+    ) -> Result<()> {
+        let Some(store) = &self.file_sessions else {
+            return Ok(());
+        };
+
+        for file_session in store.list()? {
+            let mut session = file_session.to_chat_session();
+            if !Self::session_matches_list_filter(&session, agent_id, skill_id, include_archived) {
+                continue;
+            }
+            session.hydrate_provider_from_model();
+            self.apply_effective_source(&mut session)?;
+            if let Some(existing) = sessions.iter_mut().find(|item| item.id == session.id) {
+                if session.updated_at >= existing.updated_at {
+                    *existing = session;
+                }
+            } else {
+                sessions.push(session);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn session_matches_list_filter(
+        session: &ChatSession,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+    ) -> bool {
+        if !include_archived && session.is_archived() {
+            return false;
+        }
+        if let Some(agent_id) = agent_id
+            && session.agent_id != agent_id
+        {
+            return false;
+        }
+        if let Some(skill_id) = skill_id
+            && session.skill_id.as_deref() != Some(skill_id)
+        {
+            return false;
+        }
+        true
+    }
+
+    fn merge_file_session_summaries(
+        &self,
+        summaries: &mut Vec<ChatSessionSummary>,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+    ) -> Result<()> {
+        let Some(store) = &self.file_sessions else {
+            return Ok(());
+        };
+
+        let file_summaries = if include_archived {
+            store.list_summaries_all()?
+        } else {
+            store.list_summaries()?
+        };
+        for summary in file_summaries {
+            if !Self::summary_matches_list_filter(&summary, agent_id, skill_id, include_archived) {
+                continue;
+            }
+            if let Some(existing) = summaries.iter_mut().find(|item| item.id == summary.id) {
+                if summary.updated_at >= existing.updated_at {
+                    *existing = summary;
+                }
+            } else {
+                summaries.push(summary);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn summary_matches_list_filter(
+        summary: &ChatSessionSummary,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+    ) -> bool {
+        if !include_archived && summary.archived_at.is_some() {
+            return false;
+        }
+        if let Some(agent_id) = agent_id
+            && summary.agent_id != agent_id
+        {
+            return false;
+        }
+        if let Some(skill_id) = skill_id
+            && summary.skill_id.as_deref() != Some(skill_id)
+        {
+            return false;
+        }
+        true
     }
 
     pub fn search_session_views(
@@ -851,6 +1014,160 @@ mod tests {
 
         assert_eq!(loaded.id, session.id);
         assert_eq!(loaded.agent_id, "agent-1");
+    }
+
+    #[test]
+    fn get_session_view_prefers_newer_file_session_over_redb_snapshot() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("session-service.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let mut redb_session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        redb_session.updated_at = 1;
+        redb_session.add_message(ChatMessage::user("stale"));
+        storage.chat_sessions.create(&redb_session).unwrap();
+        let mut file_session = redb_session.clone();
+        file_session.updated_at = 2;
+        file_session.add_message(ChatMessage::assistant("fresh"));
+        file_store
+            .write_session(&FileSession::from_chat_session(&file_session), false)
+            .unwrap();
+        let service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+        )
+        .with_file_sessions(file_store);
+
+        let loaded = service
+            .get_session_view(&redb_session.id)
+            .unwrap()
+            .expect("session");
+
+        assert_eq!(loaded.messages.last().unwrap().content, "fresh");
+    }
+
+    #[test]
+    fn list_session_views_includes_file_backed_sessions() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("session-service.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::user("old file session"));
+        file_store
+            .write_session(&FileSession::from_chat_session(&session), false)
+            .unwrap();
+        let service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+        )
+        .with_file_sessions(file_store);
+
+        let sessions = service.list_session_views(None, None, false).unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, session.id);
+        assert_eq!(sessions[0].messages[0].content, "old file session");
+    }
+
+    #[test]
+    fn list_session_views_uses_newer_file_session_for_duplicate_ids() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("session-service.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let mut redb_session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        redb_session.updated_at = 1;
+        redb_session.add_message(ChatMessage::user("stale"));
+        storage.chat_sessions.create(&redb_session).unwrap();
+        let mut file_session = redb_session.clone();
+        file_session.updated_at = 2;
+        file_session.add_message(ChatMessage::assistant("fresh"));
+        file_store
+            .write_session(&FileSession::from_chat_session(&file_session), false)
+            .unwrap();
+        let service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+        )
+        .with_file_sessions(file_store);
+
+        let sessions = service.list_session_views(None, None, false).unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages.last().unwrap().content, "fresh");
+    }
+
+    #[test]
+    fn list_session_views_filters_file_backed_sessions() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("session-service.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let skill_session =
+            ChatSession::new("agent-1".to_string(), "gpt-5".to_string()).with_skill("release");
+        let mut archived_session = ChatSession::new("agent-2".to_string(), "gpt-5".to_string());
+        archived_session.archive();
+        file_store
+            .write_session(&FileSession::from_chat_session(&skill_session), false)
+            .unwrap();
+        file_store
+            .write_session(&FileSession::from_chat_session(&archived_session), false)
+            .unwrap();
+        let service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+        )
+        .with_file_sessions(file_store);
+
+        let active = service.list_session_views(None, None, false).unwrap();
+        let by_skill = service
+            .list_session_views(None, Some("release"), false)
+            .unwrap();
+        let by_agent_all = service
+            .list_session_views(Some("agent-2"), None, true)
+            .unwrap();
+
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, skill_session.id);
+        assert_eq!(by_skill.len(), 1);
+        assert_eq!(by_skill[0].id, skill_session.id);
+        assert_eq!(by_agent_all.len(), 1);
+        assert_eq!(by_agent_all[0].id, archived_session.id);
+    }
+
+    #[test]
+    fn list_session_views_deduplicates_file_and_redb_sessions() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("session-service.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+        let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.rename("redb name");
+        storage.chat_sessions.create(&session).unwrap();
+
+        let mut file_session = session.clone();
+        file_session.rename("file name");
+        file_store
+            .write_session(&FileSession::from_chat_session(&file_session), false)
+            .unwrap();
+
+        let service = SessionService::new(
+            storage.sessions.clone(),
+            Some(storage.agents.clone()),
+            storage.tasks.clone(),
+        )
+        .with_file_sessions(file_store);
+
+        let sessions = service.list_session_views(None, None, false).unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, session.id);
+        assert_eq!(sessions[0].name, "file name");
     }
 
     #[test]

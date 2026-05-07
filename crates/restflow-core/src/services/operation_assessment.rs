@@ -406,7 +406,9 @@ async fn validate_agent_async(
                 errors.push(ValidationError::new("tools", "tool name must not be empty"));
                 continue;
             }
-            if !tool_registry.has(normalized) {
+            if !tool_registry.has(normalized)
+                && !crate::runtime::agent::tools::is_subagent_tool_name(normalized)
+            {
                 errors.push(ValidationError::new(
                     "tools",
                     format!("unknown tool: {}", normalized),
@@ -504,12 +506,14 @@ async fn assess_agent_node(
     }
 
     if child_run_parent_fallback {
-        assessment.warnings.push(issue(
-            "inherits_parent_model",
-            "No explicit model is configured. This child run will inherit the parent runtime model.",
-            Some("model_ref"),
-            Some("Set model_ref when you need deterministic provider behavior."),
-        ));
+        if matches!(intent, OperationAssessmentIntent::Save) {
+            assessment.warnings.push(issue(
+                "inherits_parent_model",
+                "No explicit model is configured. This child run will inherit the parent runtime model.",
+                Some("model_ref"),
+                Some("Set model_ref when you need deterministic provider behavior."),
+            ));
+        }
         return Ok(finalize_assessment(assessment));
     }
 
@@ -521,15 +525,6 @@ async fn assess_agent_node(
         Some(model) => {
             let model_ref = ModelRef::from_model(model);
             assessment.effective_model_ref = Some(to_assessment_model_ref(model_ref));
-            assessment.warnings.push(issue(
-                "auto_model_resolution",
-                format!(
-                    "No explicit model is configured. Current runtime would resolve this agent to '{}'.",
-                    model.as_serialized_str()
-                ),
-                Some("model_ref"),
-                Some("Set model_ref to make the agent deterministic."),
-            ));
         }
         None => {
             let current_issue = issue(
@@ -956,12 +951,14 @@ async fn assess_run_spawn_with_context(
     }
 
     let mut assessment = OperationAssessment::ok(operation.to_string(), intent);
-    assessment.warnings.push(issue(
-        "inherits_parent_model",
-        "This temporary child run has no explicit model and will inherit the parent runtime model.",
-        Some("model_ref"),
-        Some("Set model_ref to make this child run deterministic."),
-    ));
+    if matches!(assessment.intent, OperationAssessmentIntent::Save) {
+        assessment.warnings.push(issue(
+            "inherits_parent_model",
+            "This temporary child run has no explicit model and will inherit the parent runtime model.",
+            Some("model_ref"),
+            Some("Set model_ref to make this child run deterministic."),
+        ));
+    }
     Ok(finalize_assessment(assessment))
 }
 
@@ -1090,6 +1087,36 @@ mod tests {
                 .map(|model_ref| model_ref.provider.as_str()),
             Some("openai")
         );
+    }
+
+    #[tokio::test]
+    async fn assess_agent_create_accepts_subagent_tools() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let assessment = assess_agent_create(
+            &core,
+            AgentCreateRequest {
+                name: "Subagent Coordinator".to_string(),
+                agent: ContractAgentNode {
+                    model_ref: Some(WireModelRef {
+                        provider: "openai".to_string(),
+                        model: "gpt-5-mini".to_string(),
+                    }),
+                    api_key_config: Some(ContractApiKeyConfig::Direct("test-key".to_string())),
+                    tools: Some(vec![
+                        "bash".to_string(),
+                        "spawn_subagent_batch".to_string(),
+                        "wait_subagents".to_string(),
+                        "list_subagents".to_string(),
+                    ]),
+                    prompt: Some("coordinate subagents".to_string()),
+                    ..ContractAgentNode::default()
+                },
+            },
+        )
+        .await
+        .expect("subagent tools should be accepted");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
     }
 
     #[tokio::test]
@@ -1224,6 +1251,55 @@ mod tests {
                 .to_string()
                 .contains("requires both 'model' and 'provider'")
         );
+    }
+
+    #[tokio::test]
+    async fn assess_subagent_batch_allows_runtime_parent_model_inheritance() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let assessment = assess_subagent_batch(
+            &core,
+            "spawn_subagent_batch",
+            vec![ContractRunSpawnRequest {
+                task: "Return A_OK".to_string(),
+                ..ContractRunSpawnRequest::default()
+            }],
+            false,
+        )
+        .await
+        .expect("runtime inheritance should be allowed");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
+        assert!(!assessment.requires_confirmation);
+        assert_eq!(assessment.approval_id, None);
+    }
+
+    #[tokio::test]
+    async fn assess_task_template_allows_runtime_default_model_resolution() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        core.storage
+            .secrets
+            .set_secret("OPENAI_API_KEY", "test-openai-key", None)
+            .expect("secret should be stored");
+        let mut agent = create_test_agent_node("Run background work");
+        agent.model_ref = None;
+        agent.api_key_config = None;
+        let created = create_agent(&core, "Runtime Default Agent".to_string(), agent)
+            .await
+            .expect("agent should be created");
+
+        let assessment = assess_task_template(
+            &core,
+            "run_batch",
+            OperationAssessmentIntent::Run,
+            vec![created.id],
+            false,
+        )
+        .await
+        .expect("assessment should succeed");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
+        assert!(!assessment.requires_confirmation);
+        assert_eq!(assessment.approval_id, None);
     }
 
     #[tokio::test]

@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
 use restflow_core::models::{
-    ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, SkillSource,
+    ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary,
+    SkillSource,
 };
 use restflow_core::storage::agent::StoredAgent;
 
@@ -12,11 +13,10 @@ use super::event_loop::AppEvent;
 use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
 use super::state::{
-    AppState, ModelPickerCategory, ModelPickerItem, OverlayState, ProviderPickerItem,
-    SkillManagerSelection, SkillPickerItem, TaskPickerItem, WorkPickerItem,
-    build_work_picker_items, work_notice_text,
+    AppState, ModelPickerCategory, ModelPickerItem, OverlayState, PendingSessionState,
+    ProviderPickerItem, SkillManagerSelection, SkillPickerItem, TaskPickerItem, WorkPickerItem,
+    build_work_picker_items,
 };
-use super::transcript::ShellMessage;
 
 #[derive(Clone)]
 pub struct ShellController {
@@ -47,6 +47,24 @@ impl ShellController {
         self.client
             .resolve_or_create_session(agent, session_override)
             .await
+    }
+
+    pub async fn pending_session_for_agent(&self, agent: &StoredAgent) -> PendingSessionState {
+        let mut pending = PendingSessionState::from_agent(agent);
+        let available = self
+            .client
+            .list_available_models()
+            .await
+            .unwrap_or_default();
+        let sessions = self.client.list_sessions().await.unwrap_or_default();
+        if let Some(item) = select_default_model_item(
+            &sessions,
+            &available,
+            Some((&pending.provider, &pending.model)),
+        ) {
+            pending.update_model(item.provider, item.model, item.name);
+        }
+        pending
     }
 
     pub fn spawn_session_events(
@@ -97,8 +115,11 @@ impl ShellController {
     }
 
     async fn refresh_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let mut sessions: Vec<ChatSessionSummary> =
-            self.client.list_sessions().await.unwrap_or_default();
+        let mut sessions: Vec<ChatSessionSummary> = if should_refresh_session_list(state) {
+            self.client.list_sessions().await.unwrap_or_default()
+        } else {
+            state.sessions.clone()
+        };
         if matches!(state.overlay, Some(OverlayState::SessionPicker { .. })) {
             let bound_session_ids = self
                 .client
@@ -115,8 +136,16 @@ impl ShellController {
         } else {
             Vec::new()
         };
-        let child_runs = self.child_runs_for_runs(&runs).await;
+        let child_runs = if should_refresh_child_runs(state) {
+            self.child_runs_for_runs(&runs).await
+        } else {
+            state.thread.child_runs.clone()
+        };
         let tasks = self.task_items().await.unwrap_or_default();
+
+        if refreshed_state_is_unchanged(state, &sessions, &runs, &child_runs, &tasks) {
+            return Ok(Vec::new());
+        }
 
         let actions = vec![ShellAction::StateRefreshed {
             sessions,
@@ -129,20 +158,35 @@ impl ShellController {
     }
 
     async fn reload_current_session_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let Some(session_id) = state.current_session_id().map(ToOwned::to_owned) else {
-            return self.refresh_actions(state).await;
+        let session_id = match preferred_reload_session_id(state, None) {
+            Some(session_id) => session_id,
+            None if state.is_streaming || state.active_turn.is_some() => {
+                return Ok(vec![ShellAction::CurrentSessionReloaded {
+                    session: None,
+                    runs: state.thread.runs.clone(),
+                    child_runs: state.thread.child_runs.clone(),
+                }]);
+            }
+            None if state.active_turn_has_tool_call() => {
+                return Err(anyhow::anyhow!("No active session available."));
+            }
+            None => match self.newest_session_id().await {
+                Some(session_id) => session_id,
+                None => return self.refresh_actions(state).await,
+            },
         };
 
         let session = self.client.get_session(&session_id).await.ok();
-        let runs = if session.is_some() {
-            self.client
-                .list_runs_for_session(&session_id)
-                .await
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let child_runs = self.child_runs_for_runs(&runs).await;
+        let (runs, child_runs) = self
+            .session_runs_for_reload(state, session.as_ref().map(|_| session_id.as_str()))
+            .await;
+        if state.is_streaming || state.active_turn.is_some() {
+            return Ok(vec![ShellAction::CurrentSessionReloaded {
+                session: session.map(Box::new),
+                runs,
+                child_runs,
+            }]);
+        }
 
         let mut actions = vec![ShellAction::CurrentSessionReloaded {
             session: session.map(Box::new),
@@ -151,6 +195,35 @@ impl ShellController {
         }];
         actions.extend(self.refresh_actions(state).await?);
         Ok(actions)
+    }
+
+    async fn newest_session_id(&self) -> Option<String> {
+        self.client
+            .list_sessions()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .max_by_key(|summary| summary.updated_at)
+            .map(|summary| summary.id)
+    }
+
+    async fn session_runs_for_reload(
+        &self,
+        state: &AppState,
+        session_id: Option<&str>,
+    ) -> (Vec<RunSummary>, Vec<RunSummary>) {
+        let Some(session_id) = session_id else {
+            return (Vec::new(), Vec::new());
+        };
+        let Ok(runs) = self.client.list_runs_for_session(session_id).await else {
+            return (state.thread.runs.clone(), state.thread.child_runs.clone());
+        };
+        let child_runs = if should_refresh_child_runs(state) {
+            self.child_runs_for_runs(&runs).await
+        } else {
+            state.thread.child_runs.clone()
+        };
+        (runs, child_runs)
     }
 
     async fn start_daemon_actions(
@@ -177,6 +250,15 @@ impl ShellController {
         } else {
             None
         };
+        let pending_session = if session.is_none() {
+            if let Some(agent) = agent.as_ref() {
+                Some(self.pending_session_for_agent(agent).await)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let status = if agent.is_some() {
             "Connected to daemon".to_string()
@@ -187,6 +269,7 @@ impl ShellController {
         Ok(ShellAction::DaemonStarted {
             agent: agent.map(Box::new),
             session: session.map(Box::new),
+            pending_session,
             status,
         })
     }
@@ -380,6 +463,7 @@ impl ShellController {
             SlashCommand::NewChat => Ok(vec![ShellAction::NewChatStarted {
                 status: "Started new chat".to_string(),
             }]),
+            SlashCommand::Quit => Ok(vec![ShellAction::Quit]),
             SlashCommand::Start => {
                 match self
                     .start_daemon_actions(
@@ -434,24 +518,7 @@ impl ShellController {
                 }])
             }
             SlashCommand::OpenRun { run_id } => {
-                let thread = self.client.get_execution_run_thread(&run_id).await?;
-                let child_runs = self
-                    .client
-                    .list_child_runs(&run_id)
-                    .await
-                    .unwrap_or_default();
-                let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
-                    self.client.get_session(session_id).await.ok()
-                } else {
-                    None
-                };
-                Ok(vec![ShellAction::RunOpened {
-                    session: session.map(Box::new),
-                    run_id: run_id.clone(),
-                    thread: Box::new(thread),
-                    child_runs,
-                    status: format!("Opened run {run_id}"),
-                }])
+                self.open_run_or_latest_task_run_actions(&run_id).await
             }
         }
     }
@@ -702,29 +769,32 @@ impl ShellController {
         };
         let child_runs = self.child_runs_for_runs(&runs).await;
         let items = build_work_picker_items(&tasks, &runs, &child_runs);
-        if items.is_empty() {
-            return Ok(vec![ShellAction::MessageAppended(
-                ShellMessage::InfoNotice {
-                    content: "No active work, runs, or background tasks.".to_string(),
-                },
-            )]);
-        }
+        let status = if items.is_empty() {
+            "No active work, runs, or background tasks.".to_string()
+        } else {
+            "Work picker opened.".to_string()
+        };
 
-        Ok(vec![ShellAction::MessageAppended(
-            ShellMessage::InfoNotice {
-                content: work_notice_text(&items),
-            },
-        )])
+        Ok(vec![ShellAction::RunPickerLoaded {
+            tasks,
+            runs,
+            child_runs,
+            status,
+        }])
     }
 
     async fn task_items(&self) -> Result<Vec<TaskPickerItem>> {
-        Ok(self
-            .client
-            .list_tasks()
-            .await?
-            .into_iter()
-            .map(task_item_from_task)
-            .collect())
+        let mut items = Vec::new();
+        for task in self.client.list_tasks().await? {
+            let latest_run_id = self
+                .client
+                .list_runs_for_task(&task.id)
+                .await
+                .ok()
+                .and_then(|runs| latest_run_id(&runs));
+            items.push(task_item_from_task(task, latest_run_id));
+        }
+        Ok(items)
     }
 
     async fn child_runs_for_runs(
@@ -757,39 +827,112 @@ impl ShellController {
         item: WorkPickerItem,
     ) -> Result<Vec<ShellAction>> {
         match item {
-            WorkPickerItem::BackgroundTask { task_id, .. } => {
+            WorkPickerItem::BackgroundTask {
+                task_id,
+                latest_run_id,
+                ..
+            } => {
+                if let Some(run_id) = latest_run_id {
+                    return self.open_run_id_actions(&run_id).await;
+                }
                 Ok(vec![ShellAction::OpenTaskActionPicker { task_id }])
             }
-            WorkPickerItem::Run { run_id, .. } => {
-                let thread = self.client.get_execution_run_thread(&run_id).await?;
-                let child_runs = self
-                    .client
-                    .list_child_runs(&run_id)
-                    .await
-                    .unwrap_or_default();
-                let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
-                    self.client.get_session(session_id).await.ok()
-                } else {
-                    None
-                };
-                Ok(vec![ShellAction::RunOpened {
-                    session: session.map(Box::new),
-                    run_id: run_id.clone(),
-                    thread: Box::new(thread),
-                    child_runs,
-                    status: format!("Opened run {run_id}"),
-                }])
-            }
+            WorkPickerItem::Run { run_id, .. } => self.open_run_id_actions(&run_id).await,
         }
+    }
+
+    async fn open_run_or_latest_task_run_actions(
+        &self,
+        identifier: &str,
+    ) -> Result<Vec<ShellAction>> {
+        let run_error = match self.open_run_id_actions(identifier).await {
+            Ok(actions) => return Ok(actions),
+            Err(error) => error,
+        };
+
+        if let Ok(runs) = self.client.list_runs_for_task(identifier).await
+            && let Some(run_id) = latest_run_id(&runs)
+        {
+            return self.open_run_id_actions(&run_id).await;
+        }
+
+        Err(run_error)
+    }
+
+    async fn open_run_id_actions(&self, run_id: &str) -> Result<Vec<ShellAction>> {
+        let thread = self.client.get_execution_run_thread(run_id).await?;
+        let child_runs = self
+            .client
+            .list_child_runs(run_id)
+            .await
+            .unwrap_or_default();
+        let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
+            self.client.get_session(session_id).await.ok()
+        } else {
+            None
+        };
+        Ok(vec![ShellAction::RunOpened {
+            session: session.map(Box::new),
+            run_id: run_id.to_string(),
+            thread: Box::new(thread),
+            child_runs,
+            status: format!("Opened run {run_id}"),
+        }])
     }
 }
 
-fn task_item_from_task(task: restflow_core::models::Task) -> TaskPickerItem {
+fn refreshed_state_is_unchanged(
+    state: &AppState,
+    sessions: &[ChatSessionSummary],
+    runs: &[restflow_core::models::RunSummary],
+    child_runs: &[restflow_core::models::RunSummary],
+    tasks: &[TaskPickerItem],
+) -> bool {
+    if state.sessions != sessions {
+        return false;
+    }
+    if state.tasks != tasks {
+        return false;
+    }
+    if state.current_session_id().is_some() {
+        state.thread.runs == runs && state.thread.child_runs == child_runs
+    } else {
+        runs.is_empty()
+            && child_runs.is_empty()
+            && state.thread.runs.is_empty()
+            && state.thread.child_runs.is_empty()
+    }
+}
+
+fn should_refresh_session_list(state: &AppState) -> bool {
+    matches!(state.overlay, Some(OverlayState::SessionPicker { .. }))
+        || (!state.is_streaming && state.active_turn.is_none())
+}
+
+fn should_refresh_child_runs(state: &AppState) -> bool {
+    !state.is_streaming && state.active_turn.is_none()
+}
+
+fn latest_run_id(runs: &[RunSummary]) -> Option<String> {
+    runs.iter()
+        .max_by(|left, right| {
+            left.updated_at
+                .cmp(&right.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+        })
+        .and_then(|run| run.run_id.clone())
+}
+
+fn task_item_from_task(
+    task: restflow_core::models::Task,
+    latest_run_id: Option<String>,
+) -> TaskPickerItem {
     TaskPickerItem {
         task_id: task.id,
         name: task.name,
         status: format!("{:?}", task.status),
         next_run_at: task.next_run_at,
+        latest_run_id,
     }
 }
 
@@ -806,6 +949,17 @@ fn filter_resume_sessions(
                 && !session.name.trim_start().starts_with("Background:")
         })
         .collect()
+}
+
+fn preferred_reload_session_id(
+    state: &AppState,
+    newest_session_id: Option<String>,
+) -> Option<String> {
+    state
+        .active_refresh_session_id()
+        .map(ToOwned::to_owned)
+        .or_else(|| state.current_session_id().map(ToOwned::to_owned))
+        .or(newest_session_id)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1055,6 +1209,24 @@ fn build_model_picker_items_for_provider(
     items
 }
 
+fn select_default_model_item(
+    sessions: &[ChatSessionSummary],
+    available: &[ModelMetadataDTO],
+    current_model: Option<(&str, &str)>,
+) -> Option<ModelPickerItem> {
+    let providers = build_provider_picker_items(sessions, available, current_model);
+    providers.into_iter().find_map(|provider| {
+        build_model_picker_items_for_provider(
+            sessions,
+            available,
+            current_model,
+            &provider.provider,
+        )
+        .into_iter()
+        .next()
+    })
+}
+
 fn resolve_model_picker_item(
     available: &[ModelMetadataDTO],
     requested: &str,
@@ -1120,11 +1292,15 @@ fn command_display(command: &str, args: &str) -> String {
 mod tests {
     use super::{
         build_model_picker_items_for_provider, build_provider_picker_items,
-        delete_session_error_message, filter_resume_sessions, start_daemon_error_actions,
+        delete_session_error_message, filter_resume_sessions, preferred_reload_session_id,
+        refreshed_state_is_unchanged, select_default_model_item, should_refresh_child_runs,
+        should_refresh_session_list, start_daemon_error_actions,
     };
     use crate::reducer::ShellAction;
-    use crate::state::ModelPickerCategory;
-    use restflow_core::models::{ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO};
+    use crate::state::{AppState, ModelPickerCategory, TaskPickerItem};
+    use restflow_core::models::{
+        ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
+    };
     use std::collections::HashSet;
 
     #[test]
@@ -1135,6 +1311,42 @@ mod tests {
             actions.as_slice(),
             [ShellAction::Error(message)]
                 if message.contains("Failed to start daemon") && message.contains("socket denied")
+        ));
+    }
+
+    #[test]
+    fn unchanged_refresh_state_can_skip_render_action() {
+        let mut state = AppState::empty();
+        state.sessions = vec![session_summary_with_messages("session-1", "Chat", 2)];
+        state.tasks = vec![TaskPickerItem {
+            task_id: "task-1".to_string(),
+            name: "Daily digest".to_string(),
+            status: "Active".to_string(),
+            next_run_at: Some(10),
+            latest_run_id: None,
+        }];
+
+        assert!(refreshed_state_is_unchanged(
+            &state,
+            &state.sessions,
+            &[],
+            &[],
+            &state.tasks,
+        ));
+    }
+
+    #[test]
+    fn changed_refresh_state_requires_render_action() {
+        let mut state = AppState::empty();
+        state.sessions = vec![session_summary_with_messages("session-1", "Chat", 2)];
+        let refreshed = vec![session_summary_with_messages("session-1", "Chat", 3)];
+
+        assert!(!refreshed_state_is_unchanged(
+            &state,
+            &refreshed,
+            &[],
+            &[],
+            &state.tasks,
         ));
     }
 
@@ -1156,6 +1368,57 @@ mod tests {
 
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].id, "session-1");
+    }
+
+    #[test]
+    fn preferred_reload_session_keeps_active_anchor_over_newest_session() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session);
+        state.push_local_user_message("run a tool".to_string());
+        state.apply_stream_frame(restflow_contracts::StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "edit".to_string(),
+            arguments: serde_json::json!({"file_path":"check.txt"}),
+        });
+
+        assert_eq!(
+            preferred_reload_session_id(&state, Some("newer-session".to_string())),
+            Some(session_id)
+        );
+    }
+
+    #[test]
+    fn preferred_reload_session_uses_current_session_before_listing_newest() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session);
+
+        assert_eq!(
+            preferred_reload_session_id(&state, Some("newer-session".to_string())),
+            Some(session_id)
+        );
+    }
+
+    #[test]
+    fn active_turn_refresh_keeps_hot_path_off_global_session_and_child_run_lists() {
+        let mut state = AppState::empty();
+        state.set_current_session(ChatSession::new("agent-1".to_string(), "model".to_string()));
+        state.push_local_user_message("hello".to_string());
+        state.begin_stream("turn-1".to_string());
+
+        assert!(!should_refresh_session_list(&state));
+        assert!(!should_refresh_child_runs(&state));
+    }
+
+    #[test]
+    fn idle_refresh_can_update_global_session_and_child_run_lists() {
+        let state = AppState::empty();
+
+        assert!(should_refresh_session_list(&state));
+        assert!(should_refresh_child_runs(&state));
     }
 
     #[test]
@@ -1300,6 +1563,24 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].model, "gpt-5-4");
+    }
+
+    #[test]
+    fn default_model_selection_skips_unavailable_current_model() {
+        let sessions = vec![session_summary_with_model(
+            "session-1",
+            "DeepSeek",
+            "deepseek",
+            "deepseek-chat",
+            100,
+        )];
+        let available = vec![model_metadata(ModelId::DeepseekChat, "DeepSeek Chat")];
+
+        let item = select_default_model_item(&sessions, &available, Some(("openai", "gpt-5.4")))
+            .expect("available fallback model");
+
+        assert_eq!(item.provider, "deepseek");
+        assert_eq!(item.model, "deepseek-chat");
     }
 
     fn session_summary_with_messages(

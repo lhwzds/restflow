@@ -134,6 +134,7 @@ async fn process_delete_task_requires_confirmation() {
         &runtime_tool_registry,
         IpcRequest::DeleteTask {
             id: task.id.clone(),
+            approval_id: None,
         },
     )
     .await;
@@ -147,6 +148,61 @@ async fn process_delete_task_requires_confirmation() {
             assert_eq!(details["assessment"]["operation"], "delete_task");
         }
         other => panic!("expected confirmation error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_delete_task_replays_confirmation_with_approval_id() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    ensure_test_agent_with_id(&core, "agent-1");
+
+    let task = core
+        .storage
+        .tasks
+        .create_task_from_spec(task_spec("ipc-delete-replay"))
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::DeleteTask {
+            id: task.id.clone(),
+            approval_id: None,
+        },
+    )
+    .await;
+
+    let approval_id = match response {
+        IpcResponse::Error(error) => error
+            .details
+            .and_then(|details| {
+                details["approval_id"]
+                    .as_str()
+                    .map(std::string::ToString::to_string)
+            })
+            .expect("confirmation response should include approval_id"),
+        other => panic!("expected confirmation error response, got {other:?}"),
+    };
+
+    let replay = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::DeleteTask {
+            id: task.id.clone(),
+            approval_id: Some(approval_id),
+        },
+    )
+    .await;
+
+    match replay {
+        IpcResponse::Success(value) => {
+            let deleted: restflow_contracts::DeleteWithIdResponse =
+                serde_json::from_value(value).expect("delete response");
+            assert_eq!(deleted.id, task.id);
+            assert!(deleted.deleted);
+        }
+        other => panic!("expected delete success response, got {other:?}"),
     }
 }
 
@@ -410,6 +466,7 @@ async fn process_delete_task_rejects_ambiguous_prefix() {
         &runtime_tool_registry,
         IpcRequest::DeleteTask {
             id: "dup-delete".to_string(),
+            approval_id: None,
         },
     )
     .await;
@@ -486,6 +543,7 @@ async fn process_control_task_resolves_unique_prefix() {
         IpcRequest::ControlTask {
             id: "prefix-control".to_string(),
             action: to_contract(crate::models::TaskControlAction::Pause).expect("contract action"),
+            approval_id: None,
         },
     )
     .await;

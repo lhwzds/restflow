@@ -115,6 +115,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.approval_timeout_secs),
     ]);
     table.add_row(vec![
+        Cell::new("agent.auto_review_tools"),
+        Cell::new(config.agent.auto_review_tools),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.subagent_timeout_secs"),
         Cell::new(config.agent.subagent_timeout_secs),
     ]);
@@ -267,6 +271,7 @@ async fn get_config_value(
         "agent.bash_timeout_secs" => json!(config.agent.bash_timeout_secs),
         "agent.process_session_ttl_secs" => json!(config.agent.process_session_ttl_secs),
         "agent.approval_timeout_secs" => json!(config.agent.approval_timeout_secs),
+        "agent.auto_review_tools" => json!(config.agent.auto_review_tools),
         "agent.max_iterations" => json!(config.agent.max_iterations),
         "agent.max_depth" => json!(config.agent.max_depth),
         "agent.subagent_timeout_secs" => json!(config.agent.subagent_timeout_secs),
@@ -400,6 +405,9 @@ async fn set_config_value(
             }
             "agent.approval_timeout_secs" => {
                 config.agent.approval_timeout_secs = parse_value(value)?;
+            }
+            "agent.auto_review_tools" => {
+                config.agent.auto_review_tools = parse_value(value)?;
             }
             "agent.max_iterations" => {
                 config.agent.max_iterations = parse_value(value)?;
@@ -706,6 +714,23 @@ mod tests {
 
         let config = ctx.executor.get_config().await.expect("get config");
         assert_eq!(config.agent.max_depth, 4);
+    }
+
+    #[tokio::test]
+    async fn test_set_config_supports_agent_auto_review_tools() {
+        let ctx = setup_executor().await;
+
+        set_config_value(
+            ctx.executor.clone(),
+            "agent.auto_review_tools",
+            "true",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("set config should support agent.auto_review_tools");
+
+        let config = ctx.executor.get_config().await.expect("get config");
+        assert!(config.agent.auto_review_tools);
     }
 
     #[tokio::test]

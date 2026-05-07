@@ -209,6 +209,15 @@ pub struct AgentExecutor {
     pub(crate) steer_buffer: Mutex<Vec<SteerMessage>>,
 }
 
+impl Drop for AgentExecutor {
+    fn drop(&mut self) {
+        for entry in self.active_tool_calls.iter() {
+            entry.value().abort();
+        }
+        self.active_tool_calls.clear();
+    }
+}
+
 impl AgentExecutor {
     /// Create a new agent executor
     pub fn new(llm: Arc<dyn LlmClient>, tools: Arc<ToolRegistry>) -> Self {
@@ -598,6 +607,11 @@ impl AgentExecutor {
                 .as_ref()
                 .map(|switcher| switcher.current_model())
                 .unwrap_or_else(|| self.llm.model().to_string());
+            let current_provider = config
+                .model_switcher
+                .as_ref()
+                .map(|switcher| switcher.current_provider())
+                .unwrap_or_else(|| self.llm.provider().to_string());
             let emitted_model =
                 Self::resolve_telemetry_model(current_model, config.telemetry_context.as_ref());
             let usage = response.usage.as_ref();
@@ -694,6 +708,26 @@ impl AgentExecutor {
                 .and_then(Value::as_str)
                 .or(task_id)
                 .or(chat_session_id);
+            let parent_run_id = config
+                .telemetry_context
+                .as_ref()
+                .map(|context| context.trace.run_id.as_str())
+                .unwrap_or(state.execution_id.as_str());
+            let invocation_model = config
+                .telemetry_context
+                .as_ref()
+                .and_then(|context| {
+                    context
+                        .effective_model
+                        .as_deref()
+                        .or(context.requested_model.as_deref())
+                })
+                .or(Some(emitted_model.as_str()));
+            let invocation_provider = config
+                .telemetry_context
+                .as_ref()
+                .and_then(|context| context.provider.as_deref())
+                .or(Some(current_provider.as_str()));
             let results = self
                 .execute_tools_with_events(
                     &response.tool_calls,
@@ -705,10 +739,12 @@ impl AgentExecutor {
                         telemetry_sink: config.telemetry_sink.as_ref(),
                         telemetry_context: config.telemetry_context.as_ref(),
                         invocation: ToolInvocationContext {
-                            parent_run_id: Some(state.execution_id.as_str()),
+                            parent_run_id: Some(parent_run_id),
                             chat_session_id,
                             trace_session_id,
                             trace_scope_id,
+                            model: invocation_model,
+                            provider: invocation_provider,
                         },
                         reviewer: config.tool_call_reviewer.as_ref(),
                         review_messages: &state.messages,
