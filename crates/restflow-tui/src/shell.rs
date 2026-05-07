@@ -23,6 +23,7 @@ use crate::state::{AppState, WorkPickerItem, work_run_kind_label};
 use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
 const CONTINUATION_PREFIX: &str = "  ";
+const CLIPPED_CELL_MARKER: &str = "  ...";
 const TOOL_SUMMARY_LIMIT: usize = 120;
 const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
 const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
@@ -1977,7 +1978,75 @@ fn cell_body_lines(cell: &TranscriptCell) -> Vec<String> {
     if cell.kind == TranscriptCellKind::Assistant && cell.is_active && cell.body.trim().is_empty() {
         return vec![String::new()];
     }
+    if matches!(
+        cell.kind,
+        TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+    ) && cell.group == MessageGroup::ToolActivity
+    {
+        let lines = structured_tool_activity_body_lines(cell.body.as_str());
+        if !lines.is_empty() {
+            return lines;
+        }
+    }
     normalize_body_lines(cell.body.as_str())
+}
+
+fn structured_tool_activity_body_lines(body: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    match json_after_tool_label(body, "Input:") {
+        Some(input) => lines.push(
+            summarize_tool_input_json(&input)
+                .unwrap_or_else(|| format!("Input: {}", compact_json(&input))),
+        ),
+        None => {
+            if let Some(input) = text_after_tool_label(body, "Input:") {
+                lines.push(format!("Input: {}", compact_tool_text(input)));
+            }
+        }
+    }
+
+    append_tool_result_lines(&mut lines, body, "Output:");
+    append_tool_result_lines(&mut lines, body, "Error:");
+    lines
+}
+
+fn append_tool_result_lines(lines: &mut Vec<String>, body: &str, label: &str) {
+    let display_label = label.trim_end_matches(':');
+    match json_after_tool_label(body, label) {
+        Some(value) => {
+            let summary = match display_label {
+                "Output" => summarize_tool_output_json(&value),
+                "Error" => summarize_tool_error_json(&value),
+                _ => None,
+            }
+            .unwrap_or_else(|| format!("{display_label}: {}", compact_json(&value)));
+            lines.push(summary);
+            append_process_stream_lines(lines, &value, "stdout");
+            append_process_stream_lines(lines, &value, "stderr");
+        }
+        None => {
+            if let Some(value) = text_after_tool_label(body, label) {
+                lines.push(format!("{display_label}: {}", compact_tool_text(value)));
+            }
+        }
+    }
+}
+
+fn append_process_stream_lines(lines: &mut Vec<String>, value: &Value, field: &str) {
+    let Some(output) = value
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|output| !output.trim().is_empty())
+    else {
+        return;
+    };
+    lines.push(format!("{field}:"));
+    lines.extend(normalize_body_lines(output));
+}
+
+fn compact_json(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
 }
 
 fn summarize_tool_body(body: &str) -> String {
@@ -2660,8 +2729,14 @@ fn preserve_first_cell_tail(lines: Vec<Line<'static>>, height: usize) -> Vec<Lin
         visible.push(lines[cell_start].clone());
         let remaining = height.saturating_sub(visible.len());
         tail_start = lines.len().saturating_sub(remaining);
+        if tail_start > cell_start + 1 && visible.len() < height {
+            visible.push(styled_line(CLIPPED_CELL_MARKER, muted_style()));
+            let remaining = height.saturating_sub(visible.len());
+            tail_start = lines.len().saturating_sub(remaining);
+        }
     }
     visible.extend_from_slice(&lines[tail_start.max(first_cell_len)..]);
+    visible.truncate(height);
     visible
 }
 
@@ -2886,14 +2961,15 @@ fn display_width(value: &str) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells, build_transient_lines,
-        build_viewport_snapshot, cell_title_style, changed_row_indices, clamp_history_scroll,
-        compact_session_preview, footer_status_line, format_title, is_cell_prefix, line_text,
-        normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
-        preserve_scrolled_offset, protected_append_top, queue_clear_visible,
-        queue_purge_visible_and_scrollback, render_history_append_lines,
-        session_message_count_label, should_force_live_viewport_redraw, summarize_tool_body,
-        visible_history_fill_count, visible_history_tail_lines, write_styled_line,
+        CLIPPED_CELL_MARKER, ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells,
+        build_transient_lines, build_viewport_snapshot, cell_title_style, changed_row_indices,
+        clamp_history_scroll, compact_session_preview, footer_status_line, format_title,
+        is_cell_prefix, line_text, normalize_body_lines, preserve_active_cell_separator,
+        preserve_first_cell_tail, preserve_first_line_tail, preserve_scrolled_offset,
+        protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
+        render_history_append_lines, session_message_count_label,
+        should_force_live_viewport_redraw, summarize_tool_body, visible_history_fill_count,
+        visible_history_tail_lines, write_styled_line,
     };
     use crossterm::queue;
     use crossterm::style::{Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors};
@@ -3742,7 +3818,7 @@ mod tests {
         assert!(!lines.iter().any(|line| line.contains("Tool activity")));
         assert!(!lines[first_tool_index].contains("df -h"));
         assert!(lines.iter().any(|line| line.contains("df -h")));
-        assert!(lines.iter().any(|line| line.contains("\"ls\"")));
+        assert!(lines.iter().any(|line| line.contains("Input: $ ls")));
     }
 
     #[test]
@@ -4954,6 +5030,42 @@ mod tests {
     }
 
     #[test]
+    fn live_tool_activity_expands_bash_stdout_lines() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run output command".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "printf 'LONG_TOOL_1\\nLONG_TOOL_2\\n'"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: serde_json::json!({
+                "duration_ms": 3,
+                "exit_code": 0,
+                "stderr": "",
+                "stdout": "LONG_TOOL_1\nLONG_TOOL_2\n",
+                "truncated": false
+            })
+            .to_string(),
+            success: true,
+        });
+
+        let rendered = line_texts(&super::build_message_lines(&state, 100, 30));
+
+        assert!(rendered.iter().any(|line| line.contains("Input: $ printf")));
+        assert!(rendered.iter().any(|line| line.contains("Output: exit 0")));
+        assert!(rendered.iter().any(|line| line.trim() == "stdout:"));
+        assert!(rendered.iter().any(|line| line.trim() == "LONG_TOOL_1"));
+        assert!(rendered.iter().any(|line| line.trim() == "LONG_TOOL_2"));
+        assert!(
+            !rendered
+                .iter()
+                .any(|line| line.contains("Output:") && line.contains("\\nLONG_TOOL_2"))
+        );
+    }
+
+    #[test]
     fn live_turn_can_fill_the_full_message_viewport() {
         let mut state = AppState::empty();
         state.apply_stream_frame(StreamFrame::Ack {
@@ -4992,6 +5104,26 @@ mod tests {
                 .any(|line| line.contains("run lots of output"))
         );
         assert!(rendered.iter().any(|line| line.contains("line 30")));
+    }
+
+    #[test]
+    fn overflowing_live_tool_cell_marks_clipped_body() {
+        let mut lines = vec![
+            Line::from("You"),
+            Line::from("  run lots of output"),
+            Line::from(""),
+            Line::from("Tool · bash #call-1"),
+        ];
+        lines.extend((1..=20).map(|index| Line::from(format!("  LONG_TOOL_{index}"))));
+
+        let rendered = line_texts(&preserve_first_cell_tail(lines, 8));
+
+        assert_eq!(rendered[0], "You");
+        assert_eq!(rendered[1], "  run lots of output");
+        assert!(rendered.iter().any(|line| line == "Tool · bash #call-1"));
+        assert!(rendered.iter().any(|line| line == CLIPPED_CELL_MARKER));
+        assert!(rendered.iter().any(|line| line.contains("LONG_TOOL_20")));
+        assert_eq!(rendered.len(), 8);
     }
 
     #[test]

@@ -73,17 +73,42 @@ impl ToolCallReviewer for LlmToolCallReviewer {
         let prompt = build_review_prompt(&request);
         let response = self
             .llm
-            .complete(
-                CompletionRequest::new(vec![
-                    Message::system(REVIEWER_SYSTEM_PROMPT),
-                    Message::user(prompt),
-                ])
-                .with_max_tokens(REVIEWER_MAX_OUTPUT_TOKENS),
-            )
+            .complete(build_review_completion_request(prompt.clone()))
             .await?;
 
-        parse_review_response(response.content.as_deref())
+        match parse_review_response(response.content.as_deref()) {
+            Ok(outcome) => Ok(outcome),
+            Err(first_error) => {
+                let retry_prompt = build_review_retry_prompt(&prompt, response.content.as_deref());
+                let retry = self
+                    .llm
+                    .complete(build_review_completion_request(retry_prompt))
+                    .await?;
+                parse_review_response(retry.content.as_deref()).map_err(|retry_error| {
+                    AiError::Llm(format!("{first_error}; retry also failed: {retry_error}"))
+                })
+            }
+        }
     }
+}
+
+fn build_review_completion_request(prompt: String) -> CompletionRequest {
+    CompletionRequest::new(vec![
+        Message::system(REVIEWER_SYSTEM_PROMPT),
+        Message::user(prompt),
+    ])
+    .with_temperature(0.0)
+    .with_max_tokens(REVIEWER_MAX_OUTPUT_TOKENS)
+}
+
+fn build_review_retry_prompt(original_prompt: &str, invalid_response: Option<&str>) -> String {
+    let invalid_response = invalid_response
+        .map(str::trim)
+        .filter(|content| !content.is_empty())
+        .unwrap_or("<empty>");
+    format!(
+        "{original_prompt}\n\nThe previous reviewer response was invalid and was rejected:\n{invalid_response}\n\nReturn exactly one valid JSON object and nothing else."
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,7 +233,10 @@ fn truncate_middle(value: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+    use crate::llm::{CompletionResponse, FinishReason, StreamResult};
 
     #[test]
     fn review_response_accepts_json_wrapper() {
@@ -233,5 +261,81 @@ mod tests {
 
         assert!(transcript.contains("[1] user: first"));
         assert!(transcript.contains("[3] tool: latest tool evidence"));
+    }
+
+    #[tokio::test]
+    async fn llm_reviewer_retries_once_after_invalid_json() {
+        let llm = Arc::new(SequencedReviewerLlm::new(vec![
+            "{\"decision\":\"allow\"".to_string(),
+            "{\"decision\":\"allow\",\"reason\":\"safe read\"}".to_string(),
+        ]));
+        let reviewer = LlmToolCallReviewer::new(llm.clone());
+
+        let outcome = reviewer
+            .review_tool_call(ToolReviewRequest {
+                messages: vec![Message::user("run pwd")],
+                tool_call: ToolCall {
+                    id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command": "pwd"}),
+                },
+            })
+            .await
+            .expect("retry should recover valid JSON");
+
+        assert_eq!(outcome.decision, ToolReviewDecision::Allow);
+        assert_eq!(outcome.reason.as_deref(), Some("safe read"));
+        let prompts = llm.prompts();
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("previous reviewer response was invalid"));
+    }
+
+    struct SequencedReviewerLlm {
+        responses: Mutex<Vec<String>>,
+        prompts: Mutex<Vec<String>>,
+    }
+
+    impl SequencedReviewerLlm {
+        fn new(responses: Vec<String>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+                prompts: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn prompts(&self) -> Vec<String> {
+            self.prompts.lock().expect("prompts lock").clone()
+        }
+    }
+
+    #[async_trait]
+    impl LlmClient for SequencedReviewerLlm {
+        fn provider(&self) -> &str {
+            "test"
+        }
+
+        fn model(&self) -> &str {
+            "test-reviewer"
+        }
+
+        async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
+            if let Some(prompt) = request.messages.last() {
+                self.prompts
+                    .lock()
+                    .expect("prompts lock")
+                    .push(prompt.content.clone());
+            }
+            let content = self.responses.lock().expect("responses lock").remove(0);
+            Ok(CompletionResponse {
+                content: Some(content),
+                tool_calls: Vec::new(),
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            })
+        }
+
+        fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+            Box::pin(futures::stream::empty())
+        }
     }
 }
