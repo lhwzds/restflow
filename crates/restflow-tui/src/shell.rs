@@ -1785,7 +1785,7 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
                     width,
                     cell_title_style(cell),
                 ));
-                for line in normalize_body_lines(cell.body.as_str()) {
+                for line in cell_body_lines(cell) {
                     lines.extend(wrap_prefixed_line(
                         CONTINUATION_PREFIX,
                         &line,
@@ -1814,7 +1814,7 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
                     width,
                     cell_title_style(cell),
                 ));
-                for line in normalize_body_lines(cell.body.as_str()) {
+                for line in cell_body_lines(cell) {
                     lines.extend(wrap_prefixed_line(
                         CONTINUATION_PREFIX,
                         &line,
@@ -1975,6 +1975,13 @@ fn normalize_body_lines(body: &str) -> Vec<String> {
         }
     }
     lines
+}
+
+fn cell_body_lines(cell: &TranscriptCell) -> Vec<String> {
+    if cell.kind == TranscriptCellKind::Assistant && cell.is_active && cell.body.trim().is_empty() {
+        return vec![String::new()];
+    }
+    normalize_body_lines(cell.body.as_str())
 }
 
 fn summarize_tool_body(body: &str) -> String {
@@ -4846,6 +4853,25 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("first message")));
         assert!(lines.iter().any(|line| line.contains("Agent")));
         assert!(lines.iter().any(|line| line.contains("typing")));
+    }
+
+    #[test]
+    fn first_live_message_keeps_row_when_assistant_text_starts() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("first message stability check".to_string());
+        state.start_assistant_typing();
+
+        let before = line_texts(&build_viewport_snapshot(&state, (60, 18)).lines);
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "FIRST_STABLE_OK".to_string(),
+        });
+        let after = line_texts(&build_viewport_snapshot(&state, (60, 18)).lines);
+
+        assert_eq!(
+            before.iter().position(|line| line == "You"),
+            after.iter().position(|line| line == "You")
+        );
+        assert!(after.iter().any(|line| line.contains("FIRST_STABLE_OK")));
     }
 
     #[test]
