@@ -2370,7 +2370,12 @@ fn summarize_tool_error_json(value: &Value) -> Option<String> {
         } else if value.get("blocked").and_then(Value::as_bool) == Some(true) {
             Some("Error: blocked by policy".to_string())
         } else {
-            None
+            value
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|error| format!("Error: {}", compact_tool_text(error)))
         }
     })
 }
@@ -3105,6 +3110,28 @@ mod tests {
             summary,
             "Input: $ cargo test Error: exit 101 · 900ms · 2 stderr lines · truncated"
         );
+    }
+
+    #[test]
+    fn tool_summary_formats_structured_reviewer_error_without_raw_json() {
+        let summary = summarize_tool_body(&format!(
+            "Input: {}\nError: {}",
+            serde_json::json!({
+                "command": "sleep 120"
+            }),
+            serde_json::json!({
+                "error": "Operation denied by reviewer: long sleep is not allowed.",
+                "reason": "duplicate internal explanation",
+                "review_denied": true
+            })
+        ));
+
+        assert_eq!(
+            summary,
+            "Input: $ sleep 120 Error: Operation denied by reviewer: long sleep is not allowed."
+        );
+        assert!(!summary.contains("review_denied"));
+        assert!(!summary.contains("duplicate internal explanation"));
     }
 
     #[test]
