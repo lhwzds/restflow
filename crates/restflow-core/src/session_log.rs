@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -627,6 +628,22 @@ pub struct FileSessionStore {
     root: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+struct SessionSummaryCacheEntry {
+    summaries: Vec<ChatSessionSummary>,
+}
+
+fn session_summary_cache() -> &'static Mutex<HashMap<PathBuf, SessionSummaryCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, SessionSummaryCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn invalidate_session_summary_cache(root: &Path) {
+    if let Ok(mut cache) = session_summary_cache().lock() {
+        cache.remove(root);
+    }
+}
+
 impl FileSessionStore {
     pub fn default_root() -> Result<PathBuf> {
         crate::paths::sessions_dir()
@@ -668,6 +685,7 @@ impl FileSessionStore {
         for event in &session.events {
             write_event_line(&mut file, event)?;
         }
+        invalidate_session_summary_cache(&self.root);
         Ok(WriteOutcome::Written { path })
     }
 
@@ -676,7 +694,9 @@ impl FileSessionStore {
             .find_session_path(session_id)?
             .ok_or_else(|| anyhow!("Session not found: {session_id}"))?;
         let mut file = OpenOptions::new().append(true).open(path)?;
-        write_event_line(&mut file, event)
+        write_event_line(&mut file, event)?;
+        invalidate_session_summary_cache(&self.root);
+        Ok(())
     }
 
     pub fn get(&self, id: &str) -> Result<Option<FileSession>> {
@@ -708,6 +728,7 @@ impl FileSessionStore {
             return Ok(false);
         };
         fs::remove_file(path)?;
+        invalidate_session_summary_cache(&self.root);
         Ok(true)
     }
 
@@ -726,21 +747,28 @@ impl FileSessionStore {
     }
 
     pub fn list_summaries(&self) -> Result<Vec<ChatSessionSummary>> {
-        let mut summaries = Vec::new();
-        for path in self.session_paths()? {
-            match read_session_summary_file(&path) {
-                Ok(summary) if summary.archived_at.is_none() => summaries.push(summary),
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::warn!(path = %path.display(), error = %err, "Skipping invalid session file")
-                }
-            }
-        }
+        let mut summaries = self.list_summary_cache_entries()?;
+        summaries.retain(|summary| summary.archived_at.is_none());
         summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
         Ok(summaries)
     }
 
     pub fn list_summaries_all(&self) -> Result<Vec<ChatSessionSummary>> {
+        let mut summaries = self.list_summary_cache_entries()?;
+        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+        Ok(summaries)
+    }
+
+    fn list_summary_cache_entries(&self) -> Result<Vec<ChatSessionSummary>> {
+        let cache_key = self.root.clone();
+        if let Some(entry) = session_summary_cache()
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&cache_key).cloned())
+        {
+            return Ok(entry.summaries);
+        }
+
         let mut summaries = Vec::new();
         for path in self.session_paths()? {
             match read_session_summary_file(&path) {
@@ -750,7 +778,15 @@ impl FileSessionStore {
                 }
             }
         }
-        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+
+        if let Ok(mut cache) = session_summary_cache().lock() {
+            cache.insert(
+                cache_key,
+                SessionSummaryCacheEntry {
+                    summaries: summaries.clone(),
+                },
+            );
+        }
         Ok(summaries)
     }
 
@@ -813,21 +849,29 @@ impl FileSessionStore {
         if !self.root.exists() {
             return Ok(Vec::new());
         }
-        let mut paths = Vec::new();
+        let mut entries = Vec::new();
         for entry in WalkDir::new(&self.root).into_iter().filter_map(Result::ok) {
             if !entry.file_type().is_file() {
                 continue;
             }
             let path = entry.path();
             if path.extension().and_then(|v| v.to_str()) == Some("jsonl") {
-                paths.push(path.to_path_buf());
+                let path = path.to_path_buf();
+                let mut path_modified_ms = 0i64;
+                if let Ok(metadata) = path.metadata() {
+                    path_modified_ms = modified_ms(&metadata);
+                }
+                entries.push((path, path_modified_ms));
             }
         }
-        paths.sort_by(|left, right| {
-            file_modified_ms(right)
-                .cmp(&file_modified_ms(left))
-                .then_with(|| left.cmp(right))
-        });
+        entries.sort_by(
+            |(left_path, left_modified_ms), (right_path, right_modified_ms)| {
+                right_modified_ms
+                    .cmp(left_modified_ms)
+                    .then_with(|| left_path.cmp(right_path))
+            },
+        );
+        let paths: Vec<PathBuf> = entries.into_iter().map(|(path, _)| path).collect();
         Ok(paths)
     }
 }
@@ -973,9 +1017,9 @@ fn session_file_contains_turn_id(path: &Path, turn_id: &str) -> Result<bool> {
     Ok(false)
 }
 
-fn file_modified_ms(path: &Path) -> i64 {
-    path.metadata()
-        .and_then(|metadata| metadata.modified())
+fn modified_ms(metadata: &fs::Metadata) -> i64 {
+    metadata
+        .modified()
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
@@ -1358,6 +1402,56 @@ mod tests {
             summaries[0].last_message_preview.as_deref(),
             Some("[tool_result:bash:completed]")
         );
+    }
+
+    #[test]
+    fn cached_file_session_summaries_refresh_after_append() {
+        let dir = tempdir().unwrap();
+        let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+        let meta = SessionMeta::new(
+            "session-cache-refresh".to_string(),
+            "2026-05-03T00:00:00.000Z".to_string(),
+            "2026-05-03T00:00:00.000Z".to_string(),
+        );
+        let session = FileSession::new(
+            meta.clone(),
+            vec![
+                meta.into_event(),
+                SessionLogEvent::Message {
+                    id: "msg-1".to_string(),
+                    time: "2026-05-03T00:00:01.000Z".to_string(),
+                    role: SessionMessageRole::User,
+                    text: "hello".to_string(),
+                    execution: None,
+                    media: None,
+                    transcript: None,
+                },
+            ],
+        );
+        store.write_session(&session, false).unwrap();
+
+        let initial = store.list_summaries().unwrap();
+        assert_eq!(initial[0].message_count, 1);
+        assert_eq!(initial[0].last_message_preview.as_deref(), Some("hello"));
+
+        store
+            .append_event(
+                "session-cache-refresh",
+                &SessionLogEvent::Message {
+                    id: "msg-2".to_string(),
+                    time: "2026-05-03T00:00:02.000Z".to_string(),
+                    role: SessionMessageRole::Assistant,
+                    text: "world".to_string(),
+                    execution: None,
+                    media: None,
+                    transcript: None,
+                },
+            )
+            .unwrap();
+
+        let refreshed = store.list_summaries().unwrap();
+        assert_eq!(refreshed[0].message_count, 2);
+        assert_eq!(refreshed[0].last_message_preview.as_deref(), Some("world"));
     }
 
     #[test]

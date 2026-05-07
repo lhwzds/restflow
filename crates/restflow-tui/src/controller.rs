@@ -907,7 +907,6 @@ fn refreshed_state_is_unchanged(
 
 fn should_refresh_session_list(state: &AppState) -> bool {
     matches!(state.overlay, Some(OverlayState::SessionPicker { .. }))
-        || (!state.is_streaming && state.active_turn.is_none())
 }
 
 fn should_refresh_child_runs(state: &AppState) -> bool {
@@ -1298,7 +1297,7 @@ mod tests {
         should_refresh_session_list, start_daemon_error_actions,
     };
     use crate::reducer::ShellAction;
-    use crate::state::{AppState, ModelPickerCategory, TaskPickerItem};
+    use crate::state::{AppState, ModelPickerCategory, OverlayState, TaskPickerItem};
     use restflow_core::models::{
         ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
     };
@@ -1415,11 +1414,19 @@ mod tests {
     }
 
     #[test]
-    fn idle_refresh_can_update_global_session_and_child_run_lists() {
+    fn idle_refresh_keeps_global_session_list_off_hot_path() {
         let state = AppState::empty();
 
-        assert!(should_refresh_session_list(&state));
+        assert!(!should_refresh_session_list(&state));
         assert!(should_refresh_child_runs(&state));
+    }
+
+    #[test]
+    fn session_picker_refresh_updates_global_session_list() {
+        let mut state = AppState::empty();
+        state.overlay = Some(OverlayState::SessionPicker { selected: 0 });
+
+        assert!(should_refresh_session_list(&state));
     }
 
     #[test]
