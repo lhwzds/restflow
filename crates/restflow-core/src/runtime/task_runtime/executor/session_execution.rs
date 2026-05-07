@@ -9,6 +9,12 @@ fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
 }
 
+fn interactive_turn_failover_config(primary: ModelId) -> FailoverConfig {
+    // Interactive turns may execute side-effecting tools. Retrying the whole
+    // ReAct turn on a fallback model can replay already-run tool calls.
+    FailoverConfig::with_fallbacks(primary, Vec::new())
+}
+
 #[derive(Default)]
 pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -643,9 +649,7 @@ impl AgentRuntimeExecutor {
             Some(user_input),
         )
         .await?;
-        let failover_config = self
-            .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
-            .await;
+        let failover_config = interactive_turn_failover_config(primary_model);
         let failover_manager = FailoverManager::new(failover_config);
         let retry_config = RetryConfig::default();
         let mut retry_state = RetryState::new();
@@ -770,6 +774,14 @@ mod tests {
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
         assert!(!should_force_non_stream(ModelId::Gpt5));
+    }
+
+    #[test]
+    fn interactive_turn_failover_config_does_not_replay_turn_on_fallbacks() {
+        let config = interactive_turn_failover_config(ModelId::DeepseekChat);
+
+        assert_eq!(config.primary, ModelId::DeepseekChat);
+        assert!(config.fallbacks.is_empty());
     }
 
     #[test]
