@@ -482,7 +482,7 @@ fn visible_history_tail_lines(
         .count()
         <= 1
     {
-        return preserve_first_cell_tail(history_lines, height);
+        return bottom_pad_lines(preserve_first_cell_tail(history_lines, height), height);
     }
     bottom_anchor_lines(history_lines, height, 0)
 }
@@ -2605,6 +2605,15 @@ fn bottom_anchor_lines(
     visible
 }
 
+fn bottom_pad_lines(mut lines: Vec<Line<'static>>, height: usize) -> Vec<Line<'static>> {
+    if height == 0 || lines.len() >= height {
+        return lines;
+    }
+    let mut padding = vec![Line::from(""); height - lines.len()];
+    padding.append(&mut lines);
+    padding
+}
+
 fn tail_lines(
     lines: Vec<Line<'static>>,
     height: usize,
@@ -3374,6 +3383,35 @@ mod tests {
         assert!(rendered.iter().any(|line| line.contains("You")));
         assert!(rendered.iter().any(|line| line.contains("132")));
         assert!(rendered.iter().any(|line| line.contains("assistant reply")));
+    }
+
+    #[test]
+    fn first_turn_short_stable_history_stays_bottom_anchored() {
+        let cells = vec![
+            TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "hello".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+            TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Agent".to_string(),
+                subtitle: None,
+                body: "OK".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        ];
+
+        let rendered = line_texts(&visible_history_tail_lines(&cells, 80, 8));
+
+        assert_eq!(rendered.len(), 8);
+        assert!(rendered[..3].iter().all(|line| line.is_empty()));
+        assert_eq!(rendered[3], "You");
+        assert!(rendered.iter().any(|line| line.contains("OK")));
     }
 
     #[test]
