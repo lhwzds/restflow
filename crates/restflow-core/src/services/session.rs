@@ -208,6 +208,21 @@ impl SessionService {
         summaries.retain(|summary| {
             Self::summary_matches_list_filter(summary, agent_id, skill_id, include_archived)
         });
+
+        if summaries.is_empty()
+            && let Some(store) = &self.file_sessions
+        {
+            let mut file_summaries = if include_archived {
+                store.list_summaries_all()?
+            } else {
+                store.list_summaries()?
+            };
+            file_summaries.retain(|summary| {
+                Self::summary_matches_list_filter(summary, agent_id, skill_id, include_archived)
+            });
+            return Ok(file_summaries);
+        }
+
         self.merge_file_session_summaries(&mut summaries, agent_id, skill_id, include_archived)?;
         summaries.sort_by_key(|summary| std::cmp::Reverse(summary.updated_at));
         Ok(summaries)

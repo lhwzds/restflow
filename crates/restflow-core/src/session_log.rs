@@ -633,13 +633,26 @@ struct SessionSummaryCacheEntry {
     summaries: Vec<ChatSessionSummary>,
 }
 
+#[derive(Debug, Clone)]
+struct SessionPathCacheEntry {
+    paths: Vec<PathBuf>,
+}
+
 fn session_summary_cache() -> &'static Mutex<HashMap<PathBuf, SessionSummaryCacheEntry>> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, SessionSummaryCacheEntry>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn invalidate_session_summary_cache(root: &Path) {
+fn session_path_cache() -> &'static Mutex<HashMap<PathBuf, SessionPathCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, SessionPathCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn invalidate_session_caches(root: &Path) {
     if let Ok(mut cache) = session_summary_cache().lock() {
+        cache.remove(root);
+    }
+    if let Ok(mut cache) = session_path_cache().lock() {
         cache.remove(root);
     }
 }
@@ -685,7 +698,7 @@ impl FileSessionStore {
         for event in &session.events {
             write_event_line(&mut file, event)?;
         }
-        invalidate_session_summary_cache(&self.root);
+        invalidate_session_caches(&self.root);
         Ok(WriteOutcome::Written { path })
     }
 
@@ -695,7 +708,7 @@ impl FileSessionStore {
             .ok_or_else(|| anyhow!("Session not found: {session_id}"))?;
         let mut file = OpenOptions::new().append(true).open(path)?;
         write_event_line(&mut file, event)?;
-        invalidate_session_summary_cache(&self.root);
+        invalidate_session_caches(&self.root);
         Ok(())
     }
 
@@ -728,7 +741,7 @@ impl FileSessionStore {
             return Ok(false);
         };
         fs::remove_file(path)?;
-        invalidate_session_summary_cache(&self.root);
+        invalidate_session_caches(&self.root);
         Ok(true)
     }
 
@@ -749,14 +762,11 @@ impl FileSessionStore {
     pub fn list_summaries(&self) -> Result<Vec<ChatSessionSummary>> {
         let mut summaries = self.list_summary_cache_entries()?;
         summaries.retain(|summary| summary.archived_at.is_none());
-        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
         Ok(summaries)
     }
 
     pub fn list_summaries_all(&self) -> Result<Vec<ChatSessionSummary>> {
-        let mut summaries = self.list_summary_cache_entries()?;
-        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
-        Ok(summaries)
+        self.list_summary_cache_entries()
     }
 
     fn list_summary_cache_entries(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -778,6 +788,7 @@ impl FileSessionStore {
                 }
             }
         }
+        summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
 
         if let Ok(mut cache) = session_summary_cache().lock() {
             cache.insert(
@@ -846,6 +857,15 @@ impl FileSessionStore {
     }
 
     fn session_paths(&self) -> Result<Vec<PathBuf>> {
+        let cache_key = self.root.clone();
+        if let Some(entry) = session_path_cache()
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&cache_key).cloned())
+        {
+            return Ok(entry.paths);
+        }
+
         if !self.root.exists() {
             return Ok(Vec::new());
         }
@@ -872,6 +892,14 @@ impl FileSessionStore {
             },
         );
         let paths: Vec<PathBuf> = entries.into_iter().map(|(path, _)| path).collect();
+        if let Ok(mut cache) = session_path_cache().lock() {
+            cache.insert(
+                cache_key,
+                SessionPathCacheEntry {
+                    paths: paths.clone(),
+                },
+            );
+        }
         Ok(paths)
     }
 }
@@ -1452,6 +1480,41 @@ mod tests {
         let refreshed = store.list_summaries().unwrap();
         assert_eq!(refreshed[0].message_count, 2);
         assert_eq!(refreshed[0].last_message_preview.as_deref(), Some("world"));
+    }
+
+    #[test]
+    fn cached_file_session_paths_refresh_after_new_session_write() {
+        let dir = tempdir().unwrap();
+        let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+
+        let first_meta = SessionMeta::new(
+            "session-path-cache-1".to_string(),
+            "2026-05-03T00:00:00.000Z".to_string(),
+            "2026-05-03T00:00:01.000Z".to_string(),
+        );
+        let first_session = FileSession::new(first_meta.clone(), vec![first_meta.into_event()]);
+        store.write_session(&first_session, false).unwrap();
+
+        let initial = store.list_summaries().unwrap();
+        assert_eq!(initial.len(), 1);
+        assert_eq!(initial[0].id, "session-path-cache-1");
+
+        let second_meta = SessionMeta::new(
+            "session-path-cache-2".to_string(),
+            "2026-05-03T00:00:02.000Z".to_string(),
+            "2026-05-03T00:00:03.000Z".to_string(),
+        );
+        let second_session = FileSession::new(second_meta.clone(), vec![second_meta.into_event()]);
+        store.write_session(&second_session, false).unwrap();
+
+        let refreshed = store.list_summaries().unwrap();
+        let ids = refreshed
+            .iter()
+            .map(|summary| summary.id.as_str())
+            .collect::<HashSet<_>>();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("session-path-cache-1"));
+        assert!(ids.contains("session-path-cache-2"));
     }
 
     #[test]
