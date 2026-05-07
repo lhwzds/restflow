@@ -15,8 +15,8 @@ use crate::{
     ModelId, Provider,
     auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
     models::{
-        AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, Skill, SteerMessage,
-        TaskStatus,
+        AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatTurnEventKind,
+        ChatTurnStatus, Skill, SteerMessage, TaskStatus,
     },
     process::ProcessRegistry,
     prompt_files,

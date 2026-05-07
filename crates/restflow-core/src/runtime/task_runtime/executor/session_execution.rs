@@ -100,6 +100,10 @@ impl AgentRuntimeExecutor {
     }
 
     fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
+        if session.turns.iter().any(|turn| !turn.events.is_empty()) {
+            return Self::completed_turn_messages_for_context(session);
+        }
+
         if session.messages.is_empty() {
             return Vec::new();
         }
@@ -115,6 +119,41 @@ impl AgentRuntimeExecutor {
         }
 
         session.messages.clone()
+    }
+
+    fn completed_turn_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
+        let mut messages = Vec::new();
+
+        for turn in &session.turns {
+            if turn.status != ChatTurnStatus::Completed {
+                continue;
+            }
+
+            let mut user_message: Option<String> = None;
+            let mut assistant_message: Option<String> = None;
+            for event in &turn.events {
+                match &event.kind {
+                    ChatTurnEventKind::UserMessage { content }
+                        if user_message.is_none() && !content.trim().is_empty() =>
+                    {
+                        user_message = Some(content.clone());
+                    }
+                    ChatTurnEventKind::AssistantMessage { content }
+                        if !content.trim().is_empty() =>
+                    {
+                        assistant_message = Some(content.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            if let (Some(user), Some(assistant)) = (user_message, assistant_message) {
+                messages.push(ChatMessage::user(user));
+                messages.push(ChatMessage::assistant(assistant));
+            }
+        }
+
+        messages
     }
 
     fn session_history_messages(
@@ -765,6 +804,7 @@ impl AgentRuntimeExecutor {
 mod tests {
     use super::*;
     use restflow_ai::StreamDisplayMode;
+    use restflow_ai::llm::Role;
     use restflow_ai::telemetry::{RestflowTrace, TelemetryContext};
     use restflow_traits::skill::{SkillInfo, SkillSource};
 
@@ -805,6 +845,55 @@ mod tests {
                 .expect("telemetry context");
 
         assert_eq!(normalized.trace.actor_id, "agent-fallback");
+    }
+
+    #[test]
+    fn session_history_messages_skip_canceled_turns() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::user("run stale tool"));
+        session.record_turn_user_message("turn-1", "run stale tool");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"command\":\"sleep 15\"}".to_string(),
+            },
+        );
+        session.cancel_turn("turn-1");
+        session.add_message(ChatMessage::user("latest request"));
+        session.record_turn_user_message("turn-2", "latest request");
+
+        let history = AgentRuntimeExecutor::session_history_messages(
+            &session,
+            20,
+            SessionInputMode::PersistedInSession,
+        );
+
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn session_history_messages_keep_completed_turns() {
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::user("old request"));
+        session.add_message(ChatMessage::assistant("old answer"));
+        session.record_turn_user_message("turn-1", "old request");
+        session.complete_turn_with_assistant_message("turn-1", "old answer");
+        session.add_message(ChatMessage::user("latest request"));
+        session.record_turn_user_message("turn-2", "latest request");
+
+        let history = AgentRuntimeExecutor::session_history_messages(
+            &session,
+            20,
+            SessionInputMode::PersistedInSession,
+        );
+
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].role, Role::User);
+        assert_eq!(history[0].content, "old request");
+        assert_eq!(history[1].role, Role::Assistant);
+        assert_eq!(history[1].content, "old answer");
     }
 
     #[test]
