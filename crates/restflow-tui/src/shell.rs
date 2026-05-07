@@ -127,15 +127,19 @@ impl ShellRenderer {
             if !inserted {
                 self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
             }
-            match self.last_viewport.clone() {
-                Some(previous) if previous == viewport => {
-                    self.restore_cursor(&viewport)?;
-                }
-                Some(previous) => {
-                    self.redraw_viewport_diff(&previous, &viewport, size.0)?;
-                }
-                None => {
-                    self.redraw_viewport_full(&viewport, size.0)?;
+            if should_force_live_viewport_redraw(state) {
+                self.redraw_viewport_full(&viewport, size.0)?;
+            } else {
+                match self.last_viewport.clone() {
+                    Some(previous) if previous == viewport => {
+                        self.restore_cursor(&viewport)?;
+                    }
+                    Some(previous) => {
+                        self.redraw_viewport_diff(&previous, &viewport, size.0)?;
+                    }
+                    None => {
+                        self.redraw_viewport_full(&viewport, size.0)?;
+                    }
                 }
             }
         }
@@ -173,15 +177,19 @@ impl ShellRenderer {
             self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
         }
 
-        match self.last_viewport.clone() {
-            Some(previous) if previous == viewport => {
-                self.restore_cursor(&viewport)?;
-            }
-            Some(previous) => {
-                self.redraw_viewport_diff(&previous, &viewport, size.0)?;
-            }
-            None => {
-                self.redraw_viewport_full(&viewport, size.0)?;
+        if should_force_live_viewport_redraw(state) {
+            self.redraw_viewport_full(&viewport, size.0)?;
+        } else {
+            match self.last_viewport.clone() {
+                Some(previous) if previous == viewport => {
+                    self.restore_cursor(&viewport)?;
+                }
+                Some(previous) => {
+                    self.redraw_viewport_diff(&previous, &viewport, size.0)?;
+                }
+                None => {
+                    self.redraw_viewport_full(&viewport, size.0)?;
+                }
             }
         }
 
@@ -514,6 +522,10 @@ fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
     cells
 }
 
+fn should_force_live_viewport_redraw(state: &AppState) -> bool {
+    state.active_turn.is_some()
+}
+
 fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Vec<Line<'static>>> {
     if let Some(lines) = build_session_picker_lines(state, width, max_rows) {
         return Some(lines);
@@ -658,7 +670,7 @@ fn build_session_picker_lines(
             ),
             Span::styled(session.name.clone(), title_style),
             Span::styled(
-                format!(" · {} messages", session.message_count),
+                session_message_count_label(session.message_count),
                 muted_style(),
             ),
         ];
@@ -1726,6 +1738,15 @@ fn build_help_overlay_lines(
 
 fn compact_session_preview(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn session_message_count_label(message_count: u32) -> String {
+    let noun = if message_count == 1 {
+        "chat message"
+    } else {
+        "chat messages"
+    };
+    format!(" · {message_count} {noun}")
 }
 
 fn command_display(command: &str, args: &str) -> String {
@@ -2858,7 +2879,8 @@ mod tests {
         compact_session_preview, footer_status_line, format_title, is_cell_prefix, line_text,
         normalize_body_lines, preserve_active_cell_separator, preserve_first_line_tail,
         preserve_scrolled_offset, protected_append_top, queue_clear_visible,
-        queue_purge_visible_and_scrollback, render_history_append_lines, summarize_tool_body,
+        queue_purge_visible_and_scrollback, render_history_append_lines,
+        session_message_count_label, should_force_live_viewport_redraw, summarize_tool_body,
         visible_history_fill_count, visible_history_tail_lines, write_styled_line,
     };
     use crossterm::queue;
@@ -3938,6 +3960,8 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Last: hello world"))
         );
+        assert!(rendered.iter().any(|line| line.contains("2 chat messages")));
+        assert!(rendered.iter().any(|line| line.contains("0 chat messages")));
         assert!(rendered.iter().any(|line| line.contains("id: session-1")));
         assert!(rendered.iter().any(|line| line.contains("No messages yet")));
     }
@@ -4703,6 +4727,23 @@ mod tests {
     #[test]
     fn compact_session_preview_collapses_whitespace() {
         assert_eq!(compact_session_preview("hello\n  world"), "hello world");
+    }
+
+    #[test]
+    fn session_message_count_label_names_chat_messages() {
+        assert_eq!(session_message_count_label(0), " · 0 chat messages");
+        assert_eq!(session_message_count_label(1), " · 1 chat message");
+        assert_eq!(session_message_count_label(2), " · 2 chat messages");
+    }
+
+    #[test]
+    fn live_viewport_forces_full_redraw_during_active_turn() {
+        let mut state = AppState::empty();
+        assert!(!should_force_live_viewport_redraw(&state));
+
+        state.push_local_user_message("hello".to_string());
+
+        assert!(should_force_live_viewport_redraw(&state));
     }
 
     #[test]

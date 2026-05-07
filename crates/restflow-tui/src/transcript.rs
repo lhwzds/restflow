@@ -252,7 +252,7 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
                             content: message.clone(),
                         }),
                         ChatTurnEventKind::Canceled => Some(ShellMessage::InfoNotice {
-                            content: "Turn canceled".to_string(),
+                            content: "Canceled current response.".to_string(),
                         }),
                     })
             })
@@ -846,6 +846,22 @@ mod tests {
             transcript[1],
             ShellMessage::AssistantMessage { .. }
         ));
+    }
+
+    #[test]
+    fn messages_from_session_uses_live_cancel_notice_text() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.record_turn_user_message("turn-1", "cancel me");
+        session.record_turn_event("turn-1", ChatTurnEventKind::Canceled);
+
+        let transcript = messages_from_session(&session);
+
+        assert_eq!(
+            transcript.last(),
+            Some(&ShellMessage::InfoNotice {
+                content: "Canceled current response.".to_string()
+            })
+        );
     }
 
     #[test]
