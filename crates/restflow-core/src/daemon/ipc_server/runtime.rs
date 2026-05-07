@@ -129,6 +129,7 @@ pub(super) fn create_chat_executor(
 pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> bool {
     if let Some(handle) = active_chat_streams().lock().await.remove(stream_id) {
         handle.abort();
+        let _ = handle.await;
         active_chat_stream_steers().lock().await.remove(stream_id);
         let mut session_streams = active_chat_stream_sessions().lock().await;
         if let Some((session_id, _)) = session_streams

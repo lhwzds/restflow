@@ -1,5 +1,5 @@
 pub(super) use super::runtime::{
-    build_agent_system_prompt, load_chat_max_session_history_from_core,
+    build_agent_system_prompt, cancel_chat_stream, load_chat_max_session_history_from_core,
     persist_ipc_user_message_if_needed, record_turn_event_in_session_store, steer_chat_stream,
     subagent_config_from_defaults,
 };

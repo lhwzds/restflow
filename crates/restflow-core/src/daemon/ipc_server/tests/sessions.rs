@@ -1,5 +1,5 @@
 use super::*;
-use crate::models::ChatSessionSource;
+use crate::models::{ChatSessionSource, ChatTurnStatus};
 use crate::storage::Storage;
 use crate::storage::simple_storage::{ChatSessionRawStorage, SimpleStorage};
 use crate::{
@@ -974,6 +974,60 @@ async fn ipc_stream_emitter_persists_partial_assistant_segment_on_drop() {
         &turn.events[1].kind,
         ChatTurnEventKind::AssistantMessage { content } if content == "partial answer"
     ));
+}
+
+#[tokio::test]
+async fn cancel_chat_stream_persists_partial_assistant_before_canceled_event() {
+    let (core, _temp) = create_test_core().await;
+    let mut session = ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+    let turn_id = "turn-stream-cancel-order".to_string();
+    session.record_turn_user_message(&turn_id, "cancel stream");
+    core.storage.chat_sessions.create(&session).unwrap();
+    let session_id = session.id.clone();
+    let (tx, _rx) = mpsc::unbounded_channel::<StreamFrame>();
+    let (emitted_tx, emitted_rx) = tokio::sync::oneshot::channel::<()>();
+    let worker_core = core.clone();
+    let worker_session_id = session_id.clone();
+    let worker_turn_id = turn_id.clone();
+    let handle = tokio::spawn(async move {
+        let mut emitter = IpcStreamEmitter::new(
+            worker_core,
+            worker_session_id,
+            worker_turn_id,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+        );
+        emitter.emit_text_delta("partial answer").await;
+        let _ = emitted_tx.send(());
+        std::future::pending::<()>().await;
+    });
+    active_chat_streams()
+        .lock()
+        .await
+        .insert(turn_id.clone(), handle);
+    active_chat_stream_sessions().lock().await.insert(
+        session_id.clone(),
+        ActiveChatStreamBinding::new(turn_id.clone(), None),
+    );
+    emitted_rx.await.expect("worker emitted partial answer");
+
+    assert!(cancel_chat_stream(&core, &turn_id).await);
+
+    let stored = SessionService::from_storage(&core.storage)
+        .get_session_view(&session_id)
+        .unwrap()
+        .expect("stored session");
+    let turn = stored
+        .turns
+        .iter()
+        .find(|turn| turn.id == turn_id)
+        .expect("stored turn");
+    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+    assert!(matches!(
+        &turn.events[1].kind,
+        ChatTurnEventKind::AssistantMessage { content } if content == "partial answer"
+    ));
+    assert!(matches!(turn.events[2].kind, ChatTurnEventKind::Canceled));
 }
 
 #[tokio::test]

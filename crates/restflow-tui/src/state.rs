@@ -1890,8 +1890,6 @@ fn assistant_stream_delta(current: &mut String, chunk: &str) -> Option<String> {
     if chunk == current
         || normalized == current
         || (!normalized.trim().is_empty() && normalized.trim() == current.trim())
-        || current.starts_with(chunk)
-        || current.starts_with(normalized)
     {
         return None;
     }
@@ -1990,6 +1988,28 @@ mod tests {
         assert_eq!(
             cells[1].body,
             "STREAM_CANCEL_TEST_1\nSTREAM_CANCEL_TEST_2\nSTREAM_CANCEL_TEST_3"
+        );
+    }
+
+    #[test]
+    fn stream_frames_preserve_newline_prefix_delta_matching_existing_prefix() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("hello".to_string());
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "EXACT_CANCEL_LINE_001".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "\nEX".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "ACT_CANCEL_LINE_002".to_string(),
+        });
+
+        let cells = state.transcript_cells_for_render();
+        assert_eq!(cells[1].kind, TranscriptCellKind::Assistant);
+        assert_eq!(
+            cells[1].body,
+            "EXACT_CANCEL_LINE_001\nEXACT_CANCEL_LINE_002"
         );
     }
 
