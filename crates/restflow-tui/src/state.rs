@@ -3200,7 +3200,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_clears_active_team_turn_when_persisted_wait_and_final_answer_match() {
+    fn refresh_keeps_persisted_team_activity_when_final_answer_matches() {
         let mut state = AppState::empty();
         let session =
             restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
@@ -3315,7 +3315,7 @@ mod tests {
                 .iter()
                 .filter(|cell| cell.kind == TranscriptCellKind::Subagent)
                 .count(),
-            0
+            2
         );
         let assistant = rendered
             .iter()

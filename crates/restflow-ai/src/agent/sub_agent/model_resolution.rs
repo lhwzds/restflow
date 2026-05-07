@@ -13,7 +13,9 @@ pub(crate) fn resolve_llm_client(
     parent_client: &Arc<dyn LlmClient>,
     factory: Option<&Arc<dyn LlmClientFactory>>,
 ) -> Result<Arc<dyn LlmClient>> {
-    let chosen_model = request_model.or(def_default_model);
+    let chosen_model = request_model
+        .and_then(non_dynamic_model)
+        .or_else(|| def_default_model.and_then(non_dynamic_model));
     let Some(model) = chosen_model else {
         return Ok(parent_client.clone());
     };
@@ -27,6 +29,15 @@ pub(crate) fn resolve_llm_client(
         .ok_or_else(|| AiError::Agent(format!("Unknown model for sub-agent: {model}")))?;
     let api_key = factory.resolve_api_key(provider);
     factory.create_client(&resolved_model, api_key.as_deref())
+}
+
+fn non_dynamic_model(model: &str) -> Option<&str> {
+    let model = model.trim();
+    if model.is_empty() || matches!(model, "dynamic" | "swappable") {
+        None
+    } else {
+        Some(model)
+    }
 }
 
 pub(crate) fn resolve_model_with_provider(
@@ -106,7 +117,7 @@ fn resolve_model_name(model: &str, factory: &dyn LlmClientFactory) -> Result<Str
 mod tests {
     use std::sync::Arc;
 
-    use crate::llm::{ClientKind, LlmClient, LlmProvider};
+    use crate::llm::{ClientKind, LlmClient, LlmProvider, MockLlmClient};
 
     use super::*;
 
@@ -227,6 +238,18 @@ mod tests {
         let factory = AliasOnlyFactory::new(vec!["gpt-5", "minimax-coding-plan-m2-5"]);
         let error = resolve_model_name("unknown-model", &factory).unwrap_err();
         assert!(error.to_string().contains("Try one of"));
+    }
+
+    #[test]
+    fn resolve_llm_client_uses_parent_for_dynamic_subagent_model() {
+        let parent: Arc<dyn LlmClient> = Arc::new(MockLlmClient::new("deepseek-chat"));
+        let factory: Arc<dyn LlmClientFactory> =
+            Arc::new(AliasOnlyFactory::new(vec!["deepseek-chat"]));
+
+        let resolved =
+            resolve_llm_client(None, None, Some("dynamic"), &parent, Some(&factory)).unwrap();
+
+        assert!(Arc::ptr_eq(&parent, &resolved));
     }
 
     #[test]

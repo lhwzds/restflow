@@ -1,7 +1,6 @@
 use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
-use restflow_core::models::{ChatRole, ChatSession, ChatTurnEventKind, ChatTurnStatus};
+use restflow_core::models::{ChatRole, ChatSession, ChatTurnEventKind};
 use serde_json::Value;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -188,73 +187,40 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
             .turns
             .iter()
             .flat_map(|turn| {
-                let hide_team_activity = matches!(
-                    turn.status,
-                    ChatTurnStatus::Completed | ChatTurnStatus::Canceled | ChatTurnStatus::Failed
-                );
-                let team_call_ids = if hide_team_activity {
-                    turn.events
-                        .iter()
-                        .filter_map(|event| match &event.kind {
-                            ChatTurnEventKind::ToolCall { call_id, name, .. }
-                                if is_team_tool_name(name) =>
-                            {
-                                Some(call_id.clone())
-                            }
-                            _ => None,
-                        })
-                        .collect::<HashSet<_>>()
-                } else {
-                    HashSet::new()
-                };
-                turn.events
-                    .iter()
-                    .filter_map(move |event| match &event.kind {
-                        ChatTurnEventKind::UserMessage { content } => {
-                            Some(ShellMessage::UserMessage {
-                                content: content.clone(),
-                            })
+                turn.events.iter().map(|event| match &event.kind {
+                    ChatTurnEventKind::UserMessage { content } => ShellMessage::UserMessage {
+                        content: content.clone(),
+                    },
+                    ChatTurnEventKind::AssistantMessage { content } => {
+                        ShellMessage::AssistantMessage {
+                            content: content.clone(),
                         }
-                        ChatTurnEventKind::AssistantMessage { content } => {
-                            Some(ShellMessage::AssistantMessage {
-                                content: content.clone(),
-                            })
-                        }
-                        ChatTurnEventKind::ToolCall { name, .. }
-                            if hide_team_activity && is_team_tool_name(name) =>
-                        {
-                            None
-                        }
-                        ChatTurnEventKind::ToolCall {
-                            call_id,
-                            name,
-                            arguments,
-                        } => Some(ShellMessage::ToolCall {
-                            call_id: call_id.clone(),
-                            name: name.clone(),
-                            arguments: arguments.clone(),
-                        }),
-                        ChatTurnEventKind::ToolResult {
-                            call_id,
-                            success,
-                            result,
-                        } if hide_team_activity && team_call_ids.contains(call_id) => None,
-                        ChatTurnEventKind::ToolResult {
-                            call_id,
-                            success,
-                            result,
-                        } => Some(ShellMessage::ToolResult {
-                            call_id: call_id.clone(),
-                            success: *success,
-                            result: result.clone(),
-                        }),
-                        ChatTurnEventKind::Error { message } => Some(ShellMessage::ErrorNotice {
-                            content: message.clone(),
-                        }),
-                        ChatTurnEventKind::Canceled => Some(ShellMessage::InfoNotice {
-                            content: "Canceled current response.".to_string(),
-                        }),
-                    })
+                    }
+                    ChatTurnEventKind::ToolCall {
+                        call_id,
+                        name,
+                        arguments,
+                    } => ShellMessage::ToolCall {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: arguments.clone(),
+                    },
+                    ChatTurnEventKind::ToolResult {
+                        call_id,
+                        success,
+                        result,
+                    } => ShellMessage::ToolResult {
+                        call_id: call_id.clone(),
+                        success: *success,
+                        result: result.clone(),
+                    },
+                    ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
+                        content: message.clone(),
+                    },
+                    ChatTurnEventKind::Canceled => ShellMessage::InfoNotice {
+                        content: "Canceled current response.".to_string(),
+                    },
+                })
             })
             .collect();
     }
@@ -274,13 +240,6 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
             },
         })
         .collect()
-}
-
-fn is_team_tool_name(name: &str) -> bool {
-    matches!(
-        name,
-        "spawn_subagent_batch" | "spawn_subagent" | "wait_subagents"
-    )
 }
 
 pub fn transcript_cells(messages: &[ShellMessage], assistant_name: &str) -> Vec<TranscriptCell> {
@@ -817,7 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn messages_from_session_hides_completed_team_activity() {
+    fn messages_from_session_keeps_completed_team_activity() {
         let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
         session.record_turn_user_message("turn-1", "coordinate team");
         session.record_turn_event(
@@ -840,10 +799,12 @@ mod tests {
 
         let transcript = messages_from_session(&session);
 
-        assert_eq!(transcript.len(), 2);
+        assert_eq!(transcript.len(), 4);
         assert!(matches!(transcript[0], ShellMessage::UserMessage { .. }));
+        assert!(matches!(transcript[1], ShellMessage::ToolCall { .. }));
+        assert!(matches!(transcript[2], ShellMessage::ToolResult { .. }));
         assert!(matches!(
-            transcript[1],
+            transcript[3],
             ShellMessage::AssistantMessage { .. }
         ));
     }
