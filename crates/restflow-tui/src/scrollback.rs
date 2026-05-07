@@ -33,7 +33,7 @@ impl ScrollbackWriter {
 
     pub fn sync_history<F>(&mut self, cells: &[TranscriptCell], width: u16, mut render_lines: F)
     where
-        F: FnMut(&[TranscriptCell], u16, bool) -> Vec<Line<'static>>,
+        F: FnMut(&[TranscriptCell], u16) -> Vec<Line<'static>>,
     {
         if !self.is_prefix_of(cells) {
             self.reset();
@@ -44,9 +44,8 @@ impl ScrollbackWriter {
             self.pending_lines.clear();
         }
 
-        let has_existing_history = !self.committed_cells.is_empty();
         let new_cells = &cells[self.committed_cells.len()..];
-        let lines = render_lines(new_cells, width, has_existing_history);
+        let lines = render_lines(new_cells, width);
         self.pending_lines = lines;
         self.committed_cells = cells.to_vec();
     }
@@ -265,7 +264,7 @@ mod tests {
         let mut scrollback = ScrollbackWriter::default();
         let cells = vec![user_cell("one")];
 
-        scrollback.sync_history(&cells, 80, |new_cells, _, _| {
+        scrollback.sync_history(&cells, 80, |new_cells, _| {
             new_cells
                 .iter()
                 .map(|cell| Line::from(cell.body.clone()))
@@ -273,7 +272,7 @@ mod tests {
         });
         assert_eq!(scrollback.pending_lines.len(), 1);
 
-        scrollback.sync_history(&cells, 80, |new_cells, _, _| {
+        scrollback.sync_history(&cells, 80, |new_cells, _| {
             new_cells
                 .iter()
                 .map(|cell| Line::from(cell.body.clone()))
@@ -284,7 +283,7 @@ mod tests {
         assert_eq!(scrollback.pending_lines.len(), 0);
 
         let cells = vec![user_cell("one"), user_cell("two")];
-        scrollback.sync_history(&cells, 80, |new_cells, _, _| {
+        scrollback.sync_history(&cells, 80, |new_cells, _| {
             new_cells
                 .iter()
                 .map(|cell| Line::from(cell.body.clone()))
@@ -297,14 +296,14 @@ mod tests {
     #[test]
     fn sync_history_resets_when_prefix_changes() {
         let mut scrollback = ScrollbackWriter::default();
-        scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _, _| {
+        scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _| {
             new_cells
                 .iter()
                 .map(|cell| Line::from(cell.body.clone()))
                 .collect()
         });
 
-        scrollback.sync_history(&[user_cell("other")], 80, |new_cells, _, _| {
+        scrollback.sync_history(&[user_cell("other")], 80, |new_cells, _| {
             new_cells
                 .iter()
                 .map(|cell| Line::from(cell.body.clone()))
@@ -342,7 +341,7 @@ mod tests {
         assert!(!inserted);
         assert!(output.is_empty());
 
-        scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _, _| {
+        scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _| {
             new_cells
                 .iter()
                 .map(|cell| Line::from(cell.body.clone()))

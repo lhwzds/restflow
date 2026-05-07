@@ -475,7 +475,7 @@ fn visible_history_tail_lines(
     width: u16,
     height: usize,
 ) -> Vec<Line<'static>> {
-    let history_lines = render_history_append_lines(stable_cells, width, false);
+    let history_lines = render_history_append_lines(stable_cells, width);
     if stable_cells
         .iter()
         .filter(|cell| cell.kind == TranscriptCellKind::User)
@@ -1757,14 +1757,10 @@ fn command_display(command: &str, args: &str) -> String {
     }
 }
 
-fn render_history_append_lines(
-    cells: &[TranscriptCell],
-    width: u16,
-    prepend_separator: bool,
-) -> Vec<Line<'static>> {
+fn render_history_append_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> {
     let mut lines = build_cell_lines(cells, width);
-    if prepend_separator && !lines.is_empty() {
-        lines.insert(0, Line::from(""));
+    if !lines.is_empty() {
+        lines.push(Line::from(""));
     }
     lines
 }
@@ -3416,9 +3412,59 @@ mod tests {
         let rendered = line_texts(&visible_history_tail_lines(&cells, 80, 8));
 
         assert_eq!(rendered.len(), 8);
-        assert!(rendered[..3].iter().all(|line| line.is_empty()));
-        assert_eq!(rendered[3], "You");
+        assert!(rendered[..2].iter().all(|line| line.is_empty()));
+        assert_eq!(rendered[2], "You");
         assert!(rendered.iter().any(|line| line.contains("OK")));
+        assert_eq!(rendered.last().map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn finalized_first_turn_keeps_live_message_row_alignment() {
+        let mut live_state = AppState::empty();
+        live_state.push_local_user_message("first message stability check".to_string());
+        live_state.start_assistant_typing();
+        live_state.apply_stream_frame(StreamFrame::Ack {
+            content: "FIRST_STABLE_OK".to_string(),
+        });
+
+        let live_viewport = build_viewport_snapshot(&live_state, (60, 18));
+        let live_lines = line_texts(&live_viewport.lines);
+        let live_user_row = live_viewport.top as usize
+            + live_lines
+                .iter()
+                .position(|line| line == "You")
+                .expect("live user row");
+
+        let stable_cells = vec![
+            TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "first message stability check".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+            TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Default Assistant".to_string(),
+                subtitle: None,
+                body: "FIRST_STABLE_OK".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        ];
+        let stable_viewport_top = build_viewport_snapshot(&AppState::empty(), (60, 18)).top;
+        let stable_lines = line_texts(&visible_history_tail_lines(
+            &stable_cells,
+            60,
+            stable_viewport_top as usize,
+        ));
+        let stable_user_row = stable_lines
+            .iter()
+            .position(|line| line == "You")
+            .expect("stable user row");
+
+        assert_eq!(stable_user_row, live_user_row);
     }
 
     #[test]
@@ -5067,7 +5113,7 @@ mod tests {
     }
 
     #[test]
-    fn append_lines_prepend_separator_when_history_exists() {
+    fn append_lines_keep_bottom_spacer_when_history_exists() {
         let cells = vec![TranscriptCell {
             kind: TranscriptCellKind::User,
             title: "You".to_string(),
@@ -5076,10 +5122,10 @@ mod tests {
             group: MessageGroup::Conversation,
             is_active: false,
         }];
-        let lines = render_history_append_lines(&cells, 40, true);
+        let lines = render_history_append_lines(&cells, 40);
         let rendered = line_texts(&lines);
-        assert_eq!(rendered[0], "");
-        assert_eq!(rendered[1], "You");
+        assert_eq!(rendered[0], "You");
+        assert_eq!(rendered.last().map(String::as_str), Some(""));
     }
 
     #[test]
