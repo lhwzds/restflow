@@ -525,6 +525,12 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::MoveRight => {
             state.composer.move_right();
         }
+        Action::MoveStart => {
+            state.composer.move_start();
+        }
+        Action::MoveEnd => {
+            state.composer.move_end();
+        }
         Action::ScrollUp => {
             if state.overlay.is_none() {
                 state.scroll_message_up(MESSAGE_SCROLL_PAGE_ROWS);

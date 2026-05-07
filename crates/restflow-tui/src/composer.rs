@@ -131,6 +131,16 @@ impl ComposerState {
         self.cursor = next;
     }
 
+    pub fn move_start(&mut self) {
+        self.cursor = 0;
+        self.history_cursor = None;
+    }
+
+    pub fn move_end(&mut self) {
+        self.cursor = self.draft.len();
+        self.history_cursor = None;
+    }
+
     pub fn take_submission(&mut self) -> String {
         self.cursor = 0;
         self.history_cursor = None;
@@ -328,6 +338,20 @@ mod tests {
         composer.insert_char('a');
 
         assert_eq!(composer.cursor_position(20, 6), (5, 0));
+    }
+
+    #[test]
+    fn composer_moves_to_start_and_end() {
+        let mut composer = ComposerState::default();
+        composer.replace("hello");
+
+        composer.move_start();
+        composer.insert_char('>');
+        assert_eq!(composer.draft(), ">hello");
+
+        composer.move_end();
+        composer.insert_char('<');
+        assert_eq!(composer.draft(), ">hello<");
     }
 
     #[test]

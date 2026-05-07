@@ -13,6 +13,8 @@ pub enum Action {
     NavDown,
     MoveLeft,
     MoveRight,
+    MoveStart,
+    MoveEnd,
     ScrollUp,
     ScrollDown,
     WheelUp,
@@ -74,6 +76,16 @@ pub fn map_event(event: Event) -> Action {
             ..
         }) if modifiers.contains(KeyModifiers::CONTROL) => Action::Newline,
         Event::Key(KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers,
+            ..
+        }) if modifiers.contains(KeyModifiers::CONTROL) => Action::MoveStart,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('e'),
+            modifiers,
+            ..
+        }) if modifiers.contains(KeyModifiers::CONTROL) => Action::MoveEnd,
+        Event::Key(KeyEvent {
             code: KeyCode::Char('?'),
             modifiers,
             ..
@@ -93,6 +105,13 @@ pub fn map_event(event: Event) -> Action {
             code: KeyCode::Right,
             ..
         }) => Action::MoveRight,
+        Event::Key(KeyEvent {
+            code: KeyCode::Home,
+            ..
+        }) => Action::MoveStart,
+        Event::Key(KeyEvent {
+            code: KeyCode::End, ..
+        }) => Action::MoveEnd,
         Event::Key(KeyEvent {
             code: KeyCode::PageUp,
             ..
@@ -162,6 +181,32 @@ mod tests {
     fn maps_ctrl_j_to_newline() {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
         assert_eq!(map_event(event), Action::Newline);
+    }
+
+    #[test]
+    fn maps_composer_boundary_keys() {
+        assert_eq!(
+            map_event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::CONTROL
+            ))),
+            Action::MoveStart
+        );
+        assert_eq!(
+            map_event(Event::Key(KeyEvent::new(
+                KeyCode::Char('e'),
+                KeyModifiers::CONTROL
+            ))),
+            Action::MoveEnd
+        );
+        assert_eq!(
+            map_event(Event::Key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE))),
+            Action::MoveStart
+        );
+        assert_eq!(
+            map_event(Event::Key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE))),
+            Action::MoveEnd
+        );
     }
 
     #[test]
