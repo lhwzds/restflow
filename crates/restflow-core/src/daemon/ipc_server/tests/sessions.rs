@@ -801,16 +801,16 @@ async fn steer_chat_stream_delivers_message_to_registered_stream() {
     let stream_id = format!("stream-{}", Uuid::new_v4());
     let (tx, mut rx) = mpsc::channel::<SteerMessage>(1);
 
-    active_chat_stream_sessions()
-        .lock()
-        .await
-        .insert(session_id.clone(), stream_id.clone());
+    active_chat_stream_sessions().lock().await.insert(
+        session_id.clone(),
+        ActiveChatStreamBinding::new(stream_id.clone(), None),
+    );
     active_chat_stream_steers()
         .lock()
         .await
         .insert(stream_id.clone(), tx);
 
-    let steered = steer_chat_stream(&session_id, "continue with option B").await;
+    let steered = steer_chat_stream(&session_id, "continue with option B", None).await;
     assert!(steered);
 
     let message = rx.recv().await.expect("steer message");
@@ -829,9 +829,36 @@ async fn steer_chat_stream_delivers_message_to_registered_stream() {
 }
 
 #[tokio::test]
+async fn steer_chat_stream_rejects_different_owner_scope() {
+    let session_id = format!("session-{}", Uuid::new_v4());
+    let stream_id = format!("stream-{}", Uuid::new_v4());
+    let owner_scope = restflow_contracts::ExecutionScope::foreground("client-a", "terminal-a");
+    let other_scope = restflow_contracts::ExecutionScope::foreground("client-b", "terminal-b");
+    let (tx, _rx) = mpsc::channel::<SteerMessage>(1);
+
+    active_chat_stream_sessions().lock().await.insert(
+        session_id.clone(),
+        ActiveChatStreamBinding::new(stream_id.clone(), Some(owner_scope.clone())),
+    );
+    active_chat_stream_steers()
+        .lock()
+        .await
+        .insert(stream_id.clone(), tx);
+
+    let steered = steer_chat_stream(&session_id, "continue", Some(&other_scope)).await;
+    assert!(!steered);
+
+    active_chat_stream_sessions()
+        .lock()
+        .await
+        .remove(&session_id);
+    active_chat_stream_steers().lock().await.remove(&stream_id);
+}
+
+#[tokio::test]
 async fn steer_chat_stream_returns_false_when_no_active_session_stream() {
     let session_id = format!("session-{}", Uuid::new_v4());
-    let steered = steer_chat_stream(&session_id, "test").await;
+    let steered = steer_chat_stream(&session_id, "test", None).await;
     assert!(!steered);
 }
 

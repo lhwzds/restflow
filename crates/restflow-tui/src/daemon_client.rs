@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
-use restflow_contracts::{ChatSessionEvent, IpcRequest, StreamFrame};
+use restflow_contracts::{ChatSessionEvent, ExecutionScope, IpcRequest, StreamFrame};
 use restflow_core::daemon::{
     DaemonConfig, IpcClient, is_daemon_available, start_daemon_with_config, stop_daemon,
 };
@@ -20,13 +20,28 @@ use super::event_loop::AppEvent;
 #[derive(Clone)]
 pub struct TuiDaemonClient {
     socket_path: PathBuf,
+    client_id: String,
+    terminal_id: String,
+}
+
+fn terminal_owner_id() -> String {
+    std::env::var("TERM_SESSION_ID")
+        .or_else(|_| std::env::var("WT_SESSION"))
+        .or_else(|_| std::env::var("TMUX_PANE"))
+        .unwrap_or_else(|_| format!("pid-{}", std::process::id()))
 }
 
 impl TuiDaemonClient {
     pub fn new() -> Result<Self> {
         Ok(Self {
             socket_path: paths::socket_path()?,
+            client_id: uuid::Uuid::new_v4().to_string(),
+            terminal_id: terminal_owner_id(),
         })
+    }
+
+    fn foreground_scope(&self) -> ExecutionScope {
+        ExecutionScope::foreground(self.client_id.clone(), self.terminal_id.clone())
     }
 
     pub async fn daemon_running(&self) -> bool {
@@ -307,7 +322,7 @@ impl TuiDaemonClient {
             };
 
             let result = ipc
-                .subscribe_task_events(task_id.clone(), |event| {
+                .subscribe_task_events(task_id.clone(), None, None, |event| {
                     tx.send(AppEvent::TaskEvent(event))
                         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
                     Ok(())
@@ -330,6 +345,7 @@ impl TuiDaemonClient {
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
+        let scope = Some(client.foreground_scope());
         let workspace_root = std::env::current_dir()
             .ok()
             .map(|path| path.to_string_lossy().into_owned());
@@ -348,6 +364,7 @@ impl TuiDaemonClient {
                     Some(input),
                     stream_id,
                     workspace_root,
+                    scope,
                     |frame: StreamFrame| {
                         saw_terminal_frame =
                             matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));

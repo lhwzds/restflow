@@ -8,6 +8,7 @@ use restflow_core::models::{
 };
 use restflow_core::storage::agent::StoredAgent;
 
+use super::activity::{ActivityState, BackgroundWorkStatus};
 use super::composer::ComposerState;
 use super::transcript::{
     MessageGroup, ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
@@ -15,6 +16,7 @@ use super::transcript::{
     messages_from_session, transcript_cells,
 };
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum WorkPickerItem {
     BackgroundTask {
@@ -245,6 +247,7 @@ pub enum OverlayState {
     ProviderPicker { selected: usize },
     ModelPicker { provider: String, selected: usize },
     RunPicker { selected: usize },
+    RunDetail,
     Help,
 }
 
@@ -274,8 +277,10 @@ pub struct AppState {
     pub conversation_cells: Vec<TranscriptCell>,
     // Runtime cells are ephemeral UI feedback for the current turn only.
     pub runtime_cells: Vec<AnchoredRuntimeCell>,
-    // Task activity is a transient live panel for focused background task streams.
-    pub task_activity_cell: Option<TranscriptCell>,
+    // Activity is a transient live panel for the current foreground turn.
+    pub activity: ActivityState,
+    // Background work status is rendered outside the transcript message panel.
+    pub background_work: BackgroundWorkStatus,
     // Active turn is the latest live viewport. Stable history comes from session projection only.
     pub active_turn: Option<ActiveTurn>,
     active_turn_session_id: Option<String>,
@@ -314,7 +319,8 @@ impl AppState {
             pending_session: None,
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
-            task_activity_cell: None,
+            activity: ActivityState::default(),
+            background_work: BackgroundWorkStatus::default(),
             active_turn: None,
             active_turn_session_id: None,
             active_progress_started_at_ms: None,
@@ -451,7 +457,8 @@ impl AppState {
         self.thread.set_session(session.clone());
         self.pending_session = None;
         self.runtime_cells.clear();
-        self.task_activity_cell = None;
+        self.activity.clear();
+        self.background_work.clear();
         self.clear_active_response();
         self.reset_message_scroll();
         self.conversation_cells =
@@ -610,7 +617,8 @@ impl AppState {
         self.thread.clear_session();
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
-        self.task_activity_cell = None;
+        self.activity.clear();
+        self.background_work.clear();
         self.clear_active_response();
         self.reset_message_scroll();
         self.push_info(notice);
@@ -646,7 +654,8 @@ impl AppState {
         self.thread.clear_session();
         self.conversation_cells.clear();
         self.runtime_cells.clear();
-        self.task_activity_cell = None;
+        self.activity.clear();
+        self.background_work.clear();
         self.clear_active_response();
         self.reset_message_scroll();
         self.pending_session = pending_session;
@@ -661,8 +670,11 @@ impl AppState {
         thread: ExecutionThread,
         child_runs: Vec<RunSummary>,
     ) {
-        self.task_activity_cell = None;
+        self.activity.clear();
         self.thread.set_run_focus(run_id, thread, child_runs);
+        let active_run_id = self.current_stream_id.clone();
+        self.activity
+            .sync_child_runs(&self.thread.child_runs, active_run_id.as_deref());
     }
 
     pub fn clear_overlay(&mut self) {
@@ -751,7 +763,10 @@ impl AppState {
                 let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
                 *selected = next as usize;
             }
-            Some(OverlayState::SkillDetail) | Some(OverlayState::Help) | None => {}
+            Some(OverlayState::SkillDetail)
+            | Some(OverlayState::RunDetail)
+            | Some(OverlayState::Help)
+            | None => {}
         }
     }
 
@@ -790,6 +805,7 @@ impl AppState {
             OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
             OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
+            OverlayState::RunDetail => None,
             OverlayState::Help => None,
         }
     }
@@ -976,15 +992,20 @@ impl AppState {
     ) {
         self.thread.set_session_runs(runs);
         self.thread.child_runs = child_runs;
+        let active_run_id = self.current_stream_id.clone();
+        self.activity
+            .sync_child_runs(&self.thread.child_runs, active_run_id.as_deref());
     }
 
     pub fn clear_thread_runs(&mut self) {
         self.thread.runs.clear();
         self.thread.child_runs.clear();
         self.thread.execution_thread = None;
-        self.task_activity_cell = None;
+        self.activity.clear();
+        self.background_work.clear();
     }
 
+    #[allow(dead_code)]
     pub fn work_summary_notice(&self) -> Option<TranscriptCell> {
         self.active_turn.as_ref()?;
         let items = self.work_picker_items();
@@ -1079,6 +1100,7 @@ pub fn build_work_picker_items(
     items
 }
 
+#[allow(dead_code)]
 fn active_work_notice_text(items: &[WorkPickerItem]) -> String {
     let mut lines = vec!["Current turn activity".to_string()];
     for item in items {
@@ -1116,6 +1138,7 @@ fn active_work_notice_text(items: &[WorkPickerItem]) -> String {
     lines.join("\n")
 }
 
+#[allow(dead_code)]
 fn is_active_turn_work_item(
     item: &WorkPickerItem,
     active_task_ids: &HashSet<String>,
@@ -1214,6 +1237,7 @@ fn collect_task_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
     }
 }
 
+#[allow(dead_code)]
 fn matches_normalized_status(status: &str, values: &[&str]) -> bool {
     let normalized = status.trim().to_ascii_lowercase();
     values.iter().any(|value| normalized == *value)
@@ -1252,7 +1276,7 @@ impl AppState {
         self.active_turn = None;
         self.active_turn_session_id = None;
         self.active_progress_started_at_ms = None;
-        self.task_activity_cell = None;
+        self.activity.clear();
         self.active_assistant_stream_body.clear();
         self.active_tool_call_ids.clear();
         self.active_tool_result_ids.clear();
@@ -1315,41 +1339,42 @@ impl AppState {
 
     fn update_active_progress_indicator_at(&mut self, now_ms: i64) -> bool {
         let started_at = *self.active_progress_started_at_ms.get_or_insert(now_ms);
-        let Some(active_cell) = self.active_cell_mut() else {
+        let Some(active_turn) = self.active_turn.as_mut() else {
             return false;
         };
-        if !active_cell.is_active {
-            return false;
-        }
         let elapsed_ms = now_ms.saturating_sub(started_at);
         let elapsed_secs = elapsed_ms / 1000;
-        let label = match active_cell.kind {
-            TranscriptCellKind::Tool | TranscriptCellKind::Subagent => "running",
-            _ => "typing",
-        };
-        let frame = match (elapsed_ms / 250) % 4 {
-            0 => label.to_string(),
-            1 => format!("{label}."),
-            2 => format!("{label}.."),
-            _ => format!("{label}..."),
-        };
-        let progress = format!("{frame:<10} {elapsed_secs}s");
-        let next = if matches!(
-            active_cell.kind,
-            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
-        ) {
-            active_cell
-                .tool_call_id()
-                .map(|call_id| format!("#{call_id} · {progress}"))
-                .unwrap_or(progress)
-        } else {
-            progress
-        };
-        if active_cell.subtitle.as_deref() == Some(next.as_str()) {
-            return false;
+        let mut changed = false;
+        for active_cell in active_turn.cells.iter_mut().filter(|cell| cell.is_active) {
+            let label = match active_cell.kind {
+                TranscriptCellKind::Tool | TranscriptCellKind::Subagent => "running",
+                _ => "typing",
+            };
+            let frame = match (elapsed_ms / 250) % 4 {
+                0 => label.to_string(),
+                1 => format!("{label}."),
+                2 => format!("{label}.."),
+                _ => format!("{label}..."),
+            };
+            let progress = format!("{frame:<10} {elapsed_secs}s");
+            let next = if matches!(
+                active_cell.kind,
+                TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+            ) {
+                active_cell
+                    .tool_call_id()
+                    .map(|call_id| format!("#{call_id} · {progress}"))
+                    .unwrap_or(progress)
+            } else {
+                progress
+            };
+            if active_cell.subtitle.as_deref() == Some(next.as_str()) {
+                continue;
+            }
+            active_cell.subtitle = Some(next);
+            changed = true;
         }
-        active_cell.subtitle = Some(next);
-        true
+        changed
     }
 
     fn push_tool_message(&mut self, message: ShellMessage) {
@@ -1416,15 +1441,6 @@ impl AppState {
         self.active_turn.get_or_insert_with(ActiveTurn::default)
     }
 
-    fn active_cell_mut(&mut self) -> Option<&mut TranscriptCell> {
-        let active_turn = self.active_turn.as_mut()?;
-        active_turn
-            .cells
-            .iter_mut()
-            .rev()
-            .find(|cell| cell.is_active)
-    }
-
     fn active_assistant_cell_mut(&mut self) -> Option<&mut TranscriptCell> {
         let active_turn = self.active_turn.as_mut()?;
         let index = active_turn.active_assistant_index?;
@@ -1471,6 +1487,7 @@ impl AppState {
             &assistant_name,
         );
         cell.is_active = true;
+        self.activity.record_tool_call(call_id, name, &cell.body);
         self.ensure_active_turn().cells.push(cell);
         self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
         let _ = self.update_active_progress_indicator();
@@ -1487,6 +1504,8 @@ impl AppState {
                 .find(|cell| cell.tool_call_id() == Some(call_id))
         {
             let _ = cell.merge_tool_result(success, result);
+            self.activity
+                .record_tool_result(call_id, success, &cell.body);
             self.active_progress_started_at_ms = None;
             return;
         }
@@ -1499,6 +1518,8 @@ impl AppState {
             },
             &assistant_name,
         );
+        self.activity
+            .record_tool_result(call_id, success, &cell.body);
         self.ensure_active_turn().cells.push(cell);
     }
 
@@ -1652,7 +1673,13 @@ impl AppState {
                 | StreamEventKind::Interrupted { .. }
         );
         if is_terminal {
-            self.task_activity_cell = None;
+            self.background_work.record_task_event(
+                &event,
+                match &message {
+                    ShellMessage::TaskNotice { content } => content.clone(),
+                    _ => String::new(),
+                },
+            );
             if let ShellMessage::TaskNotice { content } = message {
                 self.status = content;
             }
@@ -1660,14 +1687,15 @@ impl AppState {
         }
         if self.active_turn.is_none() && !self.is_streaming {
             if let ShellMessage::TaskNotice { content } = message {
+                self.background_work
+                    .record_task_event(&event, content.clone());
                 self.status = content;
             }
             return;
         }
-        let mut cell = cell_from_message(&message, self.assistant_name());
-        cell.subtitle = Some(format!("#{} · running", event.task_id));
-        cell.is_active = true;
-        self.task_activity_cell = Some(cell);
+        if let ShellMessage::TaskNotice { content } = message {
+            self.background_work.record_task_event(&event, content);
+        }
     }
 
     #[allow(dead_code)]
@@ -1985,6 +2013,38 @@ mod tests {
             .and_then(|cell| cell.subtitle.as_deref())
             .expect("subtitle");
         assert_eq!(elapsed, "typing.    1s");
+    }
+
+    #[test]
+    fn active_progress_indicator_updates_all_running_tool_cells() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "stream-1".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "pwd"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-2".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "ls"}),
+        });
+        let started_at = state.active_progress_started_at_ms.expect("tool start");
+
+        state.update_active_progress_indicator_at(started_at + 500);
+
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        let tool_subtitles = active_turn
+            .cells
+            .iter()
+            .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+            .map(|cell| cell.subtitle.as_deref().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(tool_subtitles.len(), 2);
+        assert!(tool_subtitles[0].contains("#call-1 · running.."));
+        assert!(tool_subtitles[1].contains("#call-2 · running.."));
     }
 
     #[test]

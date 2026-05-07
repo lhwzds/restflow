@@ -325,6 +325,8 @@ async fn run_ipc_session_workload(
                 session_id: session.id.clone(),
                 user_input: Some(user_input),
                 stream_id: stream_id.clone(),
+                workspace_root: None,
+                scope: None,
             },
         )
         .await;

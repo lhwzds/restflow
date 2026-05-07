@@ -23,11 +23,57 @@ pub enum IpcStreamEvent {
 
 pub type StreamFrame = StreamEnvelope<IpcStreamEvent>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExecutionScope {
+    Foreground {
+        client_id: String,
+        terminal_id: String,
+    },
+    DurableBackground {
+        task_id: String,
+    },
+    Subagent {
+        parent_run_id: String,
+    },
+}
+
+impl ExecutionScope {
+    pub fn foreground(client_id: impl Into<String>, terminal_id: impl Into<String>) -> Self {
+        Self::Foreground {
+            client_id: client_id.into(),
+            terminal_id: terminal_id.into(),
+        }
+    }
+
+    pub fn durable_background(task_id: impl Into<String>) -> Self {
+        Self::DurableBackground {
+            task_id: task_id.into(),
+        }
+    }
+
+    pub fn subagent(parent_run_id: impl Into<String>) -> Self {
+        Self::Subagent {
+            parent_run_id: parent_run_id.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct TaskStreamEvent {
     pub task_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ExecutionScope>,
     #[ts(type = "number")]
     pub timestamp: i64,
     pub kind: StreamEventKind,
@@ -101,9 +147,27 @@ impl TaskStreamEvent {
     pub fn new(task_id: impl Into<String>, kind: StreamEventKind) -> Self {
         Self {
             task_id: task_id.into(),
+            run_id: None,
+            session_id: None,
+            parent_run_id: None,
+            scope: None,
             timestamp: chrono::Utc::now().timestamp_millis(),
             kind,
         }
+    }
+
+    pub fn with_run_context(
+        mut self,
+        run_id: Option<String>,
+        session_id: Option<String>,
+        parent_run_id: Option<String>,
+        scope: Option<ExecutionScope>,
+    ) -> Self {
+        self.run_id = run_id;
+        self.session_id = session_id;
+        self.parent_run_id = parent_run_id;
+        self.scope = scope;
+        self
     }
 
     pub fn started(

@@ -387,6 +387,7 @@ impl ShellController {
             }
             Some(OverlayState::SkillMentionPicker { .. })
             | Some(OverlayState::SkillDetail)
+            | Some(OverlayState::RunDetail)
             | Some(OverlayState::Help)
             | None => Ok(Vec::new()),
         }
@@ -910,7 +911,7 @@ fn should_refresh_session_list(state: &AppState) -> bool {
 }
 
 fn should_refresh_child_runs(state: &AppState) -> bool {
-    !state.is_streaming && state.active_turn.is_none()
+    (!state.is_streaming && state.active_turn.is_none()) || state.activity.has_subagent_activity()
 }
 
 fn latest_run_id(runs: &[RunSummary]) -> Option<String> {

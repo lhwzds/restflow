@@ -279,7 +279,7 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 state.set_current_session(*session);
             }
             state.set_run_focus(run_id, *thread, child_runs);
-            state.clear_overlay();
+            state.overlay = Some(crate::state::OverlayState::RunDetail);
             state.status = status;
         }
         ShellAction::TaskControlCompleted { task_id, status } => {

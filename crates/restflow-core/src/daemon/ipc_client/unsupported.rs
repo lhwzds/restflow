@@ -121,7 +121,7 @@ impl IpcClient {
             _workspace_root: Option<String>,
         ) -> ChatSession;
         fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
-        fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String) -> bool;
+        fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<restflow_contracts::ExecutionScope>) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
         fn list_runs(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
         fn query_execution_traces(&mut self, _query: ExecutionTraceQuery) -> Vec<ExecutionTraceEvent>;
@@ -163,6 +163,8 @@ impl IpcClient {
         _session_id: String,
         _user_input: Option<String>,
         _stream_id: String,
+        _workspace_root: Option<String>,
+        _scope: Option<restflow_contracts::ExecutionScope>,
         _on_frame: F,
     ) -> Result<()>
     where
@@ -171,7 +173,13 @@ impl IpcClient {
         Self::unsupported()
     }
 
-    pub async fn subscribe_task_events<F>(&mut self, _task_id: String, _on_event: F) -> Result<()>
+    pub async fn subscribe_task_events<F>(
+        &mut self,
+        _task_id: String,
+        _run_id: Option<String>,
+        _scope: Option<restflow_contracts::ExecutionScope>,
+        _on_event: F,
+    ) -> Result<()>
     where
         F: FnMut(TaskStreamEvent) -> Result<()>,
     {

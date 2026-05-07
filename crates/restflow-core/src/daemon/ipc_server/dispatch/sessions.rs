@@ -5,7 +5,9 @@ use super::super::runtime::{
 use super::super::*;
 use crate::services::execution_console::{ExecutionConsoleService, ExecutionThreadError};
 use crate::telemetry::{get_execution_metrics, get_provider_health, query_execution_logs};
-use restflow_contracts::{ArchiveResponse, CancelResponse, DeleteResponse, SteerResponse};
+use restflow_contracts::{
+    ArchiveResponse, CancelResponse, DeleteResponse, ExecutionScope, SteerResponse,
+};
 use uuid::Uuid;
 
 impl IpcServer {
@@ -296,8 +298,9 @@ impl IpcServer {
     pub(super) async fn handle_steer_chat_session_stream(
         session_id: String,
         instruction: String,
+        scope: Option<ExecutionScope>,
     ) -> IpcResponse {
-        let steered = steer_chat_stream(&session_id, &instruction).await;
+        let steered = steer_chat_stream(&session_id, &instruction, scope.as_ref()).await;
         IpcResponse::success(SteerResponse { steered })
     }
 

@@ -18,6 +18,7 @@ use crate::storage::TaskStorage;
 use anyhow::{Result, anyhow};
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::telemetry::{RunDescriptor, RunKind, RunLifecycleService};
+use restflow_contracts::ExecutionScope;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 #[cfg(test)]
@@ -46,6 +47,15 @@ mod persistence;
 mod tests;
 
 pub type ExecutionResult = ExecutionOutcome;
+
+fn task_stream_event_context(event: TaskStreamEvent, task: &Task, run_id: &str) -> TaskStreamEvent {
+    event.with_run_context(
+        Some(run_id.to_string()),
+        (!task.chat_session_id.trim().is_empty()).then(|| task.chat_session_id.clone()),
+        None,
+        Some(ExecutionScope::durable_background(task.id.clone())),
+    )
+}
 
 struct NoopStreamEmitter;
 
@@ -1296,11 +1306,10 @@ impl TaskRunner {
         );
         self.clear_resume_intent(task_id).await;
         self.event_emitter
-            .emit(TaskStreamEvent::started(
-                &task.id,
-                &task.name,
-                &task.agent_id,
-                &execution_mode_str,
+            .emit(task_stream_event_context(
+                TaskStreamEvent::started(&task.id, &task.name, &task.agent_id, &execution_mode_str),
+                &task,
+                run_handle.run_id(),
             ))
             .await;
         let telemetry_context = Some(run_handle.cloned_context());
@@ -1403,9 +1412,20 @@ impl TaskRunner {
                     // Create CLI executor with event streaming
                     let event_emitter = self.event_emitter.clone();
                     let task_id_for_events = task_id.to_string();
+                    let run_id_for_events = run_handle.run_id().to_string();
+                    let session_id_for_events = (!task.chat_session_id.trim().is_empty())
+                        .then(|| task.chat_session_id.clone());
 
                     let cli_executor = CliAgentExecutor::with_output_callback(move |line| {
-                        let event = TaskStreamEvent::output(&task_id_for_events, line, false);
+                        let event = TaskStreamEvent::output(&task_id_for_events, line, false)
+                            .with_run_context(
+                                Some(run_id_for_events.clone()),
+                                session_id_for_events.clone(),
+                                None,
+                                Some(ExecutionScope::durable_background(
+                                    task_id_for_events.clone(),
+                                )),
+                            );
                         let emitter = event_emitter.clone();
                         // Spawn a task to emit the event asynchronously
                         tokio::spawn(async move {

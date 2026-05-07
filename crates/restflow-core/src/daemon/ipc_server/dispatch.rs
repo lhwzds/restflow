@@ -153,7 +153,8 @@ impl IpcServer {
             IpcRequest::SteerChatSessionStream {
                 session_id,
                 instruction,
-            } => Self::handle_steer_chat_session_stream(session_id, instruction).await,
+                scope,
+            } => Self::handle_steer_chat_session_stream(session_id, instruction, scope).await,
             IpcRequest::CancelChatSessionStream { stream_id } => {
                 Self::handle_cancel_chat_session_stream(core, stream_id).await
             }
@@ -322,7 +323,7 @@ impl IpcServer {
             IpcRequest::ListTaskMessages { id, limit } => {
                 Self::handle_list_task_messages(core, id, limit).await
             }
-            IpcRequest::SubscribeTaskEvents { task_id: _ } => {
+            IpcRequest::SubscribeTaskEvents { .. } => {
                 Self::handle_subscribe_task_events_unsupported().await
             }
             IpcRequest::SubscribeSessionEvents => {

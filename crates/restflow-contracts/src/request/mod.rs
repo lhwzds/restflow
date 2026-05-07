@@ -6,6 +6,8 @@ use specta::Type;
 use std::collections::HashMap;
 use ts_rs::TS;
 
+use crate::ExecutionScope;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
 pub enum IpcRequest {
@@ -138,10 +140,14 @@ pub enum IpcRequest {
         user_input: Option<String>,
         stream_id: String,
         workspace_root: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<ExecutionScope>,
     },
     SteerChatSessionStream {
         session_id: String,
         instruction: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<ExecutionScope>,
     },
     CancelChatSessionStream {
         stream_id: String,
@@ -290,6 +296,10 @@ pub enum IpcRequest {
     },
     SubscribeTaskEvents {
         task_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<ExecutionScope>,
     },
     SubscribeSessionEvents,
     ListRunArtifacts {

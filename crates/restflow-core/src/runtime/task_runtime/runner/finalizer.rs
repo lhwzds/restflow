@@ -74,6 +74,10 @@ impl<'a> TaskRunFinalizer<'a> {
         }
     }
 
+    fn stream_event(&self, event: TaskStreamEvent) -> TaskStreamEvent {
+        task_stream_event_context(event, &self.task, self.run_handle.run_id())
+    }
+
     pub(super) async fn finalize_success(&self, exec_result: &ExecutionResult, duration_ms: i64) {
         self.run_handle
             .complete(Some(duration_ms.max(0) as u64))
@@ -87,11 +91,11 @@ impl<'a> TaskRunFinalizer<'a> {
 
         self.runner
             .event_emitter
-            .emit(TaskStreamEvent::completed(
+            .emit(self.stream_event(TaskStreamEvent::completed(
                 &self.task.id,
                 &exec_result.output,
                 duration_ms,
-            ))
+            )))
             .await;
 
         if let Err(err) = self.runner.storage.complete_task_execution(
@@ -131,12 +135,12 @@ impl<'a> TaskRunFinalizer<'a> {
             }
             self.runner
                 .event_emitter
-                .emit(TaskStreamEvent::progress(
+                .emit(self.stream_event(TaskStreamEvent::progress(
                     &self.task.id,
                     "compaction",
                     None,
                     Some(compaction_message),
-                ))
+                )))
                 .await;
         }
     }
@@ -159,12 +163,12 @@ impl<'a> TaskRunFinalizer<'a> {
 
         self.runner
             .event_emitter
-            .emit(TaskStreamEvent::failed(
+            .emit(self.stream_event(TaskStreamEvent::failed(
                 &self.task.id,
                 error_msg,
                 duration_ms,
                 false,
-            ))
+            )))
             .await;
 
         if let Err(err) = self.runner.storage.fail_task_execution(
@@ -204,11 +208,11 @@ impl<'a> TaskRunFinalizer<'a> {
 
         self.runner
             .event_emitter
-            .emit(TaskStreamEvent::timeout(
+            .emit(self.stream_event(TaskStreamEvent::timeout(
                 self.task.id.clone(),
                 timeout_secs,
                 duration_ms,
-            ))
+            )))
             .await;
 
         if let Err(err) = self.runner.storage.fail_task_execution(
@@ -247,11 +251,11 @@ impl<'a> TaskRunFinalizer<'a> {
 
         self.runner
             .event_emitter
-            .emit(TaskStreamEvent::interrupted(
+            .emit(self.stream_event(TaskStreamEvent::interrupted(
                 &self.task.id,
                 reason,
                 duration_ms,
-            ))
+            )))
             .await;
     }
 }

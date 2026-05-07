@@ -32,6 +32,7 @@ use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::telemetry::RestflowTrace;
+use restflow_contracts::ExecutionScope;
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 use restflow_traits::store::ReplySender;
@@ -73,8 +74,28 @@ fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
     STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn active_chat_stream_sessions() -> &'static Mutex<HashMap<String, String>> {
-    static SESSION_STREAMS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveChatStreamBinding {
+    stream_id: String,
+    scope: Option<ExecutionScope>,
+}
+
+impl ActiveChatStreamBinding {
+    fn new(stream_id: impl Into<String>, scope: Option<ExecutionScope>) -> Self {
+        Self {
+            stream_id: stream_id.into(),
+            scope,
+        }
+    }
+
+    fn same_owner(&self, scope: &Option<ExecutionScope>) -> bool {
+        self.scope == *scope
+    }
+}
+
+fn active_chat_stream_sessions() -> &'static Mutex<HashMap<String, ActiveChatStreamBinding>> {
+    static SESSION_STREAMS: OnceLock<Mutex<HashMap<String, ActiveChatStreamBinding>>> =
+        OnceLock::new();
     SESSION_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -477,6 +498,7 @@ impl IpcServer {
                 user_input,
                 stream_id,
                 workspace_root,
+                scope,
             } => {
                 Self::open_execute_chat_session_stream(
                     core,
@@ -484,12 +506,15 @@ impl IpcServer {
                     user_input,
                     stream_id,
                     workspace_root,
+                    scope,
                 )
                 .await
             }
-            IpcRequest::SubscribeTaskEvents { task_id } => {
-                Self::open_task_event_stream(task_id).await
-            }
+            IpcRequest::SubscribeTaskEvents {
+                task_id,
+                run_id,
+                scope,
+            } => Self::open_task_event_stream(task_id, run_id, scope).await,
             IpcRequest::SubscribeSessionEvents => Self::open_session_event_stream().await,
             other => anyhow::bail!("Unsupported streaming request: {:?}", other),
         }
@@ -501,6 +526,7 @@ impl IpcServer {
         user_input: Option<String>,
         stream_id: String,
         workspace_root: Option<String>,
+        scope: Option<ExecutionScope>,
     ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = if stream_id.trim().is_empty() {
             Uuid::new_v4().to_string()
@@ -523,25 +549,39 @@ impl IpcServer {
         }
         active_chat_stream_steers().lock().await.remove(&stream_id);
 
-        // Ensure at most one active stream per session.
-        let previous_stream_id = active_chat_stream_sessions()
-            .lock()
-            .await
-            .insert(session_id.clone(), stream_id.clone());
-        if let Some(previous_stream_id) = previous_stream_id
-            && previous_stream_id != stream_id
+        // Keep foreground streams scoped to their terminal owner. A second TUI on
+        // the same session should not silently abort the first TUI's active turn.
+        let previous_binding = {
+            let mut session_streams = active_chat_stream_sessions().lock().await;
+            match session_streams.get(&session_id) {
+                Some(existing)
+                    if existing.stream_id != stream_id && !existing.same_owner(&scope) =>
+                {
+                    anyhow::bail!(
+                        "Session {session_id} already has an active stream owned by another client"
+                    );
+                }
+                _ => session_streams.insert(
+                    session_id.clone(),
+                    ActiveChatStreamBinding::new(stream_id.clone(), scope.clone()),
+                ),
+            }
+        };
+        if let Some(previous_binding) = previous_binding
+            && previous_binding.stream_id != stream_id
         {
             if let Some(previous) = active_chat_streams()
                 .lock()
                 .await
-                .remove(&previous_stream_id)
+                .remove(&previous_binding.stream_id)
             {
                 previous.abort();
-                let trace = resolve_chat_stream_trace(&core, &session_id, &previous_stream_id);
+                let trace =
+                    resolve_chat_stream_trace(&core, &session_id, &previous_binding.stream_id);
                 emit_run_interrupted(
                     &telemetry_sink,
                     trace,
-                    "replaced by a newer stream for the same session",
+                    "replaced by a newer stream for the same session owner",
                     None,
                 )
                 .await;
@@ -549,7 +589,7 @@ impl IpcServer {
             active_chat_stream_steers()
                 .lock()
                 .await
-                .remove(&previous_stream_id);
+                .remove(&previous_binding.stream_id);
         }
 
         let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
@@ -613,7 +653,10 @@ impl IpcServer {
                 .await
                 .remove(&worker_stream_id);
             let mut session_streams = active_chat_stream_sessions().lock().await;
-            if session_streams.get(&worker_session_registry_id) == Some(&worker_stream_id) {
+            if session_streams
+                .get(&worker_session_registry_id)
+                .is_some_and(|binding| binding.stream_id == worker_stream_id)
+            {
                 session_streams.remove(&worker_session_registry_id);
             }
         });
@@ -632,6 +675,8 @@ impl IpcServer {
 
     async fn open_task_event_stream(
         task_id: String,
+        run_id: Option<String>,
+        scope: Option<ExecutionScope>,
     ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = format!("task-{}", Uuid::new_v4());
         let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
@@ -659,6 +704,16 @@ impl IpcServer {
                 };
 
                 if !include_all && event.task_id != task_id {
+                    continue;
+                }
+                if let Some(run_id) = run_id.as_deref()
+                    && event.run_id.as_deref() != Some(run_id)
+                {
+                    continue;
+                }
+                if let Some(scope) = scope.as_ref()
+                    && event.scope.as_ref() != Some(scope)
+                {
                     continue;
                 }
 

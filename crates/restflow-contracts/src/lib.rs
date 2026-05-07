@@ -10,7 +10,7 @@ mod tool;
 
 pub use error::{ErrorKind, ErrorPayload};
 pub use events::{
-    ChatSessionEvent, ExecutionStats, IpcStreamEvent, StreamEventKind, StreamFrame,
+    ChatSessionEvent, ExecutionScope, ExecutionStats, IpcStreamEvent, StreamEventKind, StreamFrame,
     TASK_STREAM_EVENT, TaskStreamEvent,
 };
 pub use operation::{

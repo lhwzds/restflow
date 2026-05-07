@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use restflow_contracts::{CancelResponse, SteerResponse};
+use restflow_contracts::{CancelResponse, ExecutionScope, SteerResponse};
 
 #[cfg(unix)]
 fn read_stream_frame_or_ipc_error(
@@ -31,6 +31,7 @@ impl IpcClient {
         user_input: Option<String>,
         stream_id: String,
         workspace_root: Option<String>,
+        scope: Option<ExecutionScope>,
         mut on_frame: F,
     ) -> Result<()>
     where
@@ -41,6 +42,7 @@ impl IpcClient {
             user_input,
             stream_id,
             workspace_root,
+            scope,
         })
         .await?;
 
@@ -73,21 +75,33 @@ impl IpcClient {
         &mut self,
         session_id: String,
         instruction: String,
+        scope: Option<ExecutionScope>,
     ) -> Result<bool> {
         let resp: SteerResponse = self
             .request_typed(IpcRequest::SteerChatSessionStream {
                 session_id,
                 instruction,
+                scope,
             })
             .await?;
         Ok(resp.steered)
     }
-    pub async fn subscribe_task_events<F>(&mut self, task_id: String, mut on_event: F) -> Result<()>
+    pub async fn subscribe_task_events<F>(
+        &mut self,
+        task_id: String,
+        run_id: Option<String>,
+        scope: Option<ExecutionScope>,
+        mut on_event: F,
+    ) -> Result<()>
     where
         F: FnMut(TaskStreamEvent) -> Result<()>,
     {
-        self.send_request_frame(&IpcRequest::SubscribeTaskEvents { task_id })
-            .await?;
+        self.send_request_frame(&IpcRequest::SubscribeTaskEvents {
+            task_id,
+            run_id,
+            scope,
+        })
+        .await?;
 
         loop {
             let buf = self.read_raw_frame().await?;

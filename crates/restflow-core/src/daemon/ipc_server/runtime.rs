@@ -133,8 +133,8 @@ pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> 
         let mut session_streams = active_chat_stream_sessions().lock().await;
         if let Some((session_id, _)) = session_streams
             .iter()
-            .find(|(_, active_stream_id)| active_stream_id.as_str() == stream_id)
-            .map(|(session_id, active_stream_id)| (session_id.clone(), active_stream_id.clone()))
+            .find(|(_, binding)| binding.stream_id == stream_id)
+            .map(|(session_id, binding)| (session_id.clone(), binding.stream_id.clone()))
         {
             session_streams.remove(&session_id);
             if let Err(error) = cancel_turn_in_session_store(core, &session_id, stream_id) {
@@ -153,10 +153,20 @@ pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> 
     }
 }
 
-pub(super) async fn steer_chat_stream(session_id: &str, instruction: &str) -> bool {
+pub(super) async fn steer_chat_stream(
+    session_id: &str,
+    instruction: &str,
+    scope: Option<&restflow_contracts::ExecutionScope>,
+) -> bool {
     let stream_id = {
         let session_streams = active_chat_stream_sessions().lock().await;
-        session_streams.get(session_id).cloned()
+        session_streams.get(session_id).and_then(|binding| {
+            if scope.is_some() && binding.scope.as_ref() != scope {
+                None
+            } else {
+                Some(binding.stream_id.clone())
+            }
+        })
     };
 
     let Some(stream_id) = stream_id else {
@@ -177,7 +187,10 @@ pub(super) async fn steer_chat_stream(session_id: &str, instruction: &str) -> bo
         Err(_) => {
             active_chat_stream_steers().lock().await.remove(&stream_id);
             let mut session_streams = active_chat_stream_sessions().lock().await;
-            if session_streams.get(session_id) == Some(&stream_id) {
+            if session_streams
+                .get(session_id)
+                .is_some_and(|binding| binding.stream_id == stream_id)
+            {
                 session_streams.remove(session_id);
             }
             false

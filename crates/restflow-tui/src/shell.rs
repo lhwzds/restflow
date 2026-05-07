@@ -11,14 +11,16 @@ use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use restflow_core::models::SkillSource;
-use restflow_core::models::{ChatTurnEventKind, ChatTurnStatus};
+use restflow_core::models::{
+    ChatTurnEventKind, ChatTurnStatus, ExecutionTraceCategory, ExecutionTraceEvent, ToolCallPhase,
+};
 use serde_json::Value;
 
 use crate::render::render_shell_bottom_viewport;
 use crate::scrollback::ScrollbackWriter;
 use crate::slash_command::{HELP_TEXT, SLASH_COMMAND_SPECS};
 use crate::state::{AppState, WorkPickerItem, work_run_kind_label};
-use crate::transcript::{TranscriptCell, TranscriptCellKind};
+use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
 const CONTINUATION_PREFIX: &str = "  ";
 const TOOL_SUMMARY_LIMIT: usize = 120;
@@ -415,17 +417,17 @@ fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
             cells.push(entry.cell.clone());
         }
     }
-    if let Some(index) = running_active_turn_start_index(state, &cells) {
+    if let Some(index) = active_turn_projection_start_index(state, &cells) {
         cells.truncate(index);
     }
     cells
 }
 
 fn should_hide_stable_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
-    !state.is_streaming && cell.kind == TranscriptCellKind::Subagent
+    state.is_streaming && cell.kind == TranscriptCellKind::Subagent
 }
 
-fn running_active_turn_start_index(state: &AppState, cells: &[TranscriptCell]) -> Option<usize> {
+fn active_turn_projection_start_index(state: &AppState, cells: &[TranscriptCell]) -> Option<usize> {
     let active_user = state
         .active_turn
         .as_ref()?
@@ -434,16 +436,21 @@ fn running_active_turn_start_index(state: &AppState, cells: &[TranscriptCell]) -
         .find(|cell| cell.kind == TranscriptCellKind::User)?
         .body
         .trim_end();
-    let turn = state.thread.session.as_ref()?.turns.last()?;
-    if turn.status != ChatTurnStatus::Running {
-        return None;
-    }
-    if !turn.events.iter().any(|event| {
-        matches!(
-            &event.kind,
-            ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
-        )
-    }) {
+    let session = state.thread.session.as_ref()?;
+    let projected_by_running_turn = session.turns.last().is_some_and(|turn| {
+        turn.status == ChatTurnStatus::Running
+            && turn.events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
+                )
+            })
+    });
+    let projected_by_pending_legacy_message = session.messages.last().is_some_and(|message| {
+        message.role == restflow_core::models::ChatRole::User
+            && message.content.trim_end() == active_user
+    });
+    if !projected_by_running_turn && !projected_by_pending_legacy_message {
         return None;
     }
     cells.iter().rposition(|cell| {
@@ -472,33 +479,26 @@ fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
     let Some(active_turn) = state.active_turn.as_ref() else {
         return Vec::new();
     };
-    let has_assistant_cell = active_turn
-        .cells
-        .iter()
-        .any(|cell| cell.kind == TranscriptCellKind::Assistant && !cell.body.trim().is_empty());
-    let work_cell = state.work_summary_notice();
-    if !state.is_streaming && !has_assistant_cell {
-        let activity_cells = work_cell
-            .into_iter()
-            .chain(state.task_activity_cell.iter().cloned())
-            .collect::<Vec<_>>();
-        if activity_cells.is_empty() {
-            return Vec::new();
-        }
-        return active_turn
-            .cells
-            .iter()
-            .cloned()
-            .chain(activity_cells)
-            .collect();
+    let has_assistant_cell = active_turn.cells.iter().any(|cell| {
+        cell.kind == TranscriptCellKind::Assistant
+            && (cell.is_active || !cell.body.trim().is_empty())
+    });
+    let has_runtime_cell = active_turn.cells.iter().any(|cell| {
+        matches!(
+            cell.kind,
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+        )
+    });
+    let subagent_activity_cells = state.activity.subagent_live_cells();
+    if !state.is_streaming
+        && !has_assistant_cell
+        && !has_runtime_cell
+        && subagent_activity_cells.is_empty()
+    {
+        return Vec::new();
     }
     let mut cells = active_turn.cells.clone();
-    if let Some(work_cell) = work_cell {
-        cells.push(work_cell);
-    }
-    if let Some(task_cell) = state.task_activity_cell.as_ref() {
-        cells.push(task_cell.clone());
-    }
+    cells.extend(subagent_activity_cells);
     cells
 }
 
@@ -512,6 +512,10 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
     }
 
     if let Some(lines) = build_run_picker_lines(state, width, max_rows) {
+        return Some(lines);
+    }
+
+    if let Some(lines) = build_run_detail_lines(state, width, max_rows) {
         return Some(lines);
     }
 
@@ -867,6 +871,196 @@ fn build_run_picker_lines(
     }
     lines.truncate(max_rows as usize);
     Some(lines)
+}
+
+fn build_run_detail_lines(
+    state: &AppState,
+    width: u16,
+    max_rows: u16,
+) -> Option<Vec<Line<'static>>> {
+    if !matches!(
+        state.overlay.as_ref(),
+        Some(crate::state::OverlayState::RunDetail)
+    ) {
+        return None;
+    }
+    let Some(thread) = state.thread.execution_thread.as_ref() else {
+        return Some(vec![styled_line("Run detail unavailable", muted_style())]);
+    };
+    let focus = &thread.focus;
+    let run_id = focus
+        .run_id
+        .as_deref()
+        .unwrap_or(focus.id.as_str())
+        .to_string();
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Run detail", tool_title_style()),
+        Span::styled("  Esc close", muted_style()),
+    ])];
+
+    lines.extend(wrap_styled_line(
+        Line::from(vec![
+            Span::styled("  ", muted_style()),
+            Span::styled(work_run_kind_label(focus.kind), muted_style()),
+            Span::styled(" · ", muted_style()),
+            Span::styled(
+                focus.title.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!(" · {}", focus.status), muted_style()),
+        ]),
+        width,
+    ));
+    lines.extend(wrap_styled_line(
+        Line::from(vec![
+            Span::styled("  run: ", muted_style()),
+            Span::styled(run_id, muted_style()),
+            Span::styled(format!(" · events {}", focus.event_count), muted_style()),
+        ]),
+        width,
+    ));
+    if let Some(model) =
+        run_model_label(focus.provider.as_deref(), focus.effective_model.as_deref())
+    {
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("  model: ", muted_style()),
+                Span::styled(model, muted_style()),
+            ]),
+            width,
+        ));
+    }
+    if let Some(parent) = focus.parent_run_id.as_deref() {
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("  parent: ", muted_style()),
+                Span::styled(parent.to_string(), muted_style()),
+            ]),
+            width,
+        ));
+    }
+    if !state.thread.child_runs.is_empty() {
+        lines.push(styled_line(
+            format!("  child runs: {}", state.thread.child_runs.len()),
+            muted_style(),
+        ));
+        for run in state.thread.child_runs.iter().take(3) {
+            lines.extend(wrap_styled_line(
+                Line::from(vec![
+                    Span::styled("    - ", muted_style()),
+                    Span::styled(work_run_kind_label(run.kind), muted_style()),
+                    Span::styled(format!(" · {} · {}", run.title, run.status), muted_style()),
+                ]),
+                width,
+            ));
+        }
+    }
+
+    lines.push(styled_line("  Timeline", muted_style()));
+    let events = thread
+        .timeline
+        .events
+        .iter()
+        .rev()
+        .take(6)
+        .collect::<Vec<_>>();
+    if events.is_empty() {
+        lines.push(styled_line(
+            "    No timeline events recorded.",
+            muted_style(),
+        ));
+    } else {
+        for event in events.into_iter().rev() {
+            lines.extend(wrap_styled_line(
+                Line::from(vec![
+                    Span::styled("    - ", muted_style()),
+                    Span::styled(trace_event_label(event), muted_style()),
+                ]),
+                width,
+            ));
+        }
+    }
+
+    lines.truncate(max_rows as usize);
+    Some(lines)
+}
+
+fn run_model_label(provider: Option<&str>, model: Option<&str>) -> Option<String> {
+    match (provider, model) {
+        (Some(provider), Some(model)) => Some(format!("{provider} · {model}")),
+        (Some(provider), None) => Some(provider.to_string()),
+        (None, Some(model)) => Some(model.to_string()),
+        (None, None) => None,
+    }
+}
+
+fn trace_event_label(event: &ExecutionTraceEvent) -> String {
+    match event.category {
+        ExecutionTraceCategory::ToolCall => {
+            if let Some(tool) = event.tool_call.as_ref() {
+                let phase = match tool.phase {
+                    ToolCallPhase::Started => "started",
+                    ToolCallPhase::Completed => {
+                        if tool.success == Some(false) {
+                            "failed"
+                        } else {
+                            "completed"
+                        }
+                    }
+                };
+                return format!("tool · {} · {phase}", tool.tool_name);
+            }
+            "tool".to_string()
+        }
+        ExecutionTraceCategory::Lifecycle => event
+            .lifecycle
+            .as_ref()
+            .map(|lifecycle| {
+                lifecycle
+                    .message
+                    .as_ref()
+                    .or(lifecycle.error.as_ref())
+                    .map(|message| format!("lifecycle · {} · {message}", lifecycle.status))
+                    .unwrap_or_else(|| format!("lifecycle · {}", lifecycle.status))
+            })
+            .unwrap_or_else(|| "lifecycle".to_string()),
+        ExecutionTraceCategory::Message => event
+            .message
+            .as_ref()
+            .map(|message| {
+                message
+                    .content_preview
+                    .as_ref()
+                    .map(|preview| format!("message · {} · {preview}", message.role))
+                    .unwrap_or_else(|| format!("message · {}", message.role))
+            })
+            .unwrap_or_else(|| "message".to_string()),
+        ExecutionTraceCategory::LlmCall => event
+            .llm_call
+            .as_ref()
+            .map(|llm| format!("llm · {}", llm.model))
+            .unwrap_or_else(|| "llm".to_string()),
+        ExecutionTraceCategory::ModelSwitch => event
+            .model_switch
+            .as_ref()
+            .map(|switch| format!("model · {} -> {}", switch.from_model, switch.to_model))
+            .unwrap_or_else(|| "model switch".to_string()),
+        ExecutionTraceCategory::MetricSample => event
+            .metric_sample
+            .as_ref()
+            .map(|metric| format!("metric · {} {}", metric.name, metric.value))
+            .unwrap_or_else(|| "metric".to_string()),
+        ExecutionTraceCategory::ProviderHealth => event
+            .provider_health
+            .as_ref()
+            .map(|health| format!("provider · {} · {}", health.provider, health.status))
+            .unwrap_or_else(|| "provider health".to_string()),
+        ExecutionTraceCategory::LogRecord => event
+            .log_record
+            .as_ref()
+            .map(|record| format!("log · {} · {}", record.level, record.message))
+            .unwrap_or_else(|| "log".to_string()),
+    }
 }
 
 fn build_skill_manager_lines(
@@ -1550,6 +1744,23 @@ fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> 
         }
 
         match cell.kind {
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+                if cell.group == MessageGroup::ToolActivity =>
+            {
+                lines.extend(wrap_display_line(
+                    &format_title(cell),
+                    width,
+                    cell_title_style(cell),
+                ));
+                for line in normalize_body_lines(cell.body.as_str()) {
+                    lines.extend(wrap_prefixed_line(
+                        CONTINUATION_PREFIX,
+                        &line,
+                        width,
+                        cell_body_style(cell),
+                    ));
+                }
+            }
             TranscriptCellKind::Tool | TranscriptCellKind::Subagent => {
                 let title = format_title(cell);
                 let summary = summarize_tool_body(cell.body.as_str());
@@ -2199,20 +2410,33 @@ fn compact_tool_path(path: &str) -> String {
 }
 
 fn footer_status_line(state: &AppState) -> String {
-    let Some(session) = state.current_session() else {
-        if let Some(pending_session) = state.pending_session.as_ref() {
-            return pending_session.model_label();
-        }
-        return state.status.clone();
-    };
+    let base = {
+        let Some(session) = state.current_session() else {
+            if let Some(pending_session) = state.pending_session.as_ref() {
+                return append_background_footer(pending_session.model_label(), state);
+            }
+            return append_background_footer(state.status.clone(), state);
+        };
 
-    let provider = session.provider.trim();
-    let model = session.model.trim();
-    match (provider, model.is_empty()) {
-        (provider, false) if !provider.is_empty() => format!("{provider} · {model}"),
-        (_, false) => model.to_string(),
-        _ => state.status.clone(),
+        let provider = session.provider.trim();
+        let model = session.model.trim();
+        match (provider, model.is_empty()) {
+            (provider, false) if !provider.is_empty() => format!("{provider} · {model}"),
+            (_, false) => model.to_string(),
+            _ => state.status.clone(),
+        }
+    };
+    append_background_footer(base, state)
+}
+
+fn append_background_footer(base: String, state: &AppState) -> String {
+    if let Some(work) = state.background_work.footer_label() {
+        if base.trim().is_empty() {
+            return work;
+        }
+        return format!("{base} · {work}");
     }
+    base
 }
 
 fn placeholder_line(inner_width: u16) -> Line<'static> {
@@ -2578,9 +2802,9 @@ mod tests {
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use restflow_contracts::{StreamFrame, TaskStreamEvent};
     use restflow_core::models::{
-        ChatSession, ChatSessionSummary, ChatTurnEventKind, ExecutionThread, ExecutionTimeline,
-        ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, ExecutionTraceStats,
-        LifecycleTrace, RunKind, RunSummary, Skill, SkillSource,
+        ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEventKind, ExecutionThread,
+        ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource,
+        ExecutionTraceStats, LifecycleTrace, RunKind, RunSummary, Skill, SkillSource,
     };
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
@@ -3234,7 +3458,7 @@ mod tests {
     }
 
     #[test]
-    fn stable_history_hides_non_streaming_team_runtime_cells() {
+    fn stable_history_keeps_non_streaming_team_runtime_summary_cells() {
         let mut state = AppState::empty();
         state.runtime_cells.push(AnchoredRuntimeCell {
             base_cell_index: 0,
@@ -3250,7 +3474,41 @@ mod tests {
 
         let cells = build_stable_history_cells(&state);
 
-        assert!(cells.is_empty());
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].kind, TranscriptCellKind::Subagent);
+        assert!(cells[0].body.contains("Starting 1 subagent"));
+    }
+
+    #[test]
+    fn live_tool_cells_render_as_separate_chat_entries() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("check disk".to_string());
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-df".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command":"df -h | grep -i samsung"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-ls".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command":"ls"}),
+        });
+
+        let lines = line_texts(&super::build_message_lines(&state, 100, 12));
+        let first_tool_index = lines
+            .iter()
+            .position(|line| line.contains("Tool · bash") && line.contains("#call-df"))
+            .expect("first tool cell");
+        let second_tool_index = lines
+            .iter()
+            .position(|line| line.contains("Tool · bash") && line.contains("#call-ls"))
+            .expect("second tool cell");
+
+        assert!(first_tool_index < second_tool_index);
+        assert!(!lines.iter().any(|line| line.contains("Tool activity")));
+        assert!(!lines[first_tool_index].contains("df -h"));
+        assert!(lines.iter().any(|line| line.contains("df -h")));
+        assert!(lines.iter().any(|line| line.contains("\"ls\"")));
     }
 
     #[test]
@@ -3366,6 +3624,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["previous", "done"]
         );
+    }
+
+    #[test]
+    fn stable_history_excludes_pending_legacy_user_when_active_turn_is_visible() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(ChatMessage::user("current"));
+        let mut state = AppState::empty();
+        state.set_current_session(session);
+        state.push_local_user_message("current".to_string());
+        state.start_assistant_typing();
+
+        let cells = build_stable_history_cells(&state);
+
+        assert!(cells.is_empty());
     }
 
     #[test]
@@ -3583,13 +3855,12 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Start {
             stream_id: "run-1".to_string(),
         });
-        state.tasks = vec![TaskPickerItem {
-            task_id: "task-1".to_string(),
-            name: "Daily digest".to_string(),
-            status: "Active".to_string(),
-            next_run_at: None,
-            latest_run_id: Some("run-task-1".to_string()),
-        }];
+        state.apply_task_event(TaskStreamEvent::started(
+            "task-1",
+            "Daily digest",
+            "agent-1",
+            "api",
+        ));
         state.apply_stream_frame(StreamFrame::ToolCall {
             id: "call-task".to_string(),
             name: "manage_tasks".to_string(),
@@ -3608,58 +3879,59 @@ mod tests {
             })
             .to_string(),
         });
-        state.thread.runs = vec![RunSummary {
-            id: "run-1".to_string(),
-            kind: RunKind::WorkspaceRun,
-            container_id: "session-1".to_string(),
-            root_run_id: Some("run-1".to_string()),
-            title: "Workspace run".to_string(),
-            subtitle: None,
-            status: "running".to_string(),
-            updated_at: 1,
-            started_at: Some(1),
-            ended_at: None,
-            session_id: Some("session-1".to_string()),
-            run_id: Some("run-1".to_string()),
-            task_id: None,
-            parent_run_id: None,
-            agent_id: Some("agent-1".to_string()),
-            source_channel: None,
-            source_conversation_id: None,
-            effective_model: None,
-            provider: None,
-            event_count: 0,
-        }];
-        state.thread.child_runs = vec![RunSummary {
-            id: "child-1".to_string(),
-            kind: RunKind::SubagentRun,
-            container_id: "session-1".to_string(),
-            root_run_id: Some("run-1".to_string()),
-            title: "Subagent run".to_string(),
-            subtitle: None,
-            status: "running".to_string(),
-            updated_at: 2,
-            started_at: Some(2),
-            ended_at: None,
-            session_id: Some("session-1".to_string()),
-            run_id: Some("child-1".to_string()),
-            task_id: None,
-            parent_run_id: Some("run-1".to_string()),
-            agent_id: Some("agent-2".to_string()),
-            source_channel: None,
-            source_conversation_id: None,
-            effective_model: None,
-            provider: None,
-            event_count: 0,
-        }];
+        state.set_session_runs_and_child_runs(
+            vec![RunSummary {
+                id: "run-1".to_string(),
+                kind: RunKind::WorkspaceRun,
+                container_id: "session-1".to_string(),
+                root_run_id: Some("run-1".to_string()),
+                title: "Workspace run".to_string(),
+                subtitle: None,
+                status: "running".to_string(),
+                updated_at: 1,
+                started_at: Some(1),
+                ended_at: None,
+                session_id: Some("session-1".to_string()),
+                run_id: Some("run-1".to_string()),
+                task_id: None,
+                parent_run_id: None,
+                agent_id: Some("agent-1".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                effective_model: None,
+                provider: None,
+                event_count: 0,
+            }],
+            vec![RunSummary {
+                id: "child-1".to_string(),
+                kind: RunKind::SubagentRun,
+                container_id: "session-1".to_string(),
+                root_run_id: Some("run-1".to_string()),
+                title: "Subagent run".to_string(),
+                subtitle: None,
+                status: "running".to_string(),
+                updated_at: 2,
+                started_at: Some(2),
+                ended_at: None,
+                session_id: Some("session-1".to_string()),
+                run_id: Some("child-1".to_string()),
+                task_id: None,
+                parent_run_id: Some("run-1".to_string()),
+                agent_id: Some("agent-2".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                effective_model: None,
+                provider: None,
+                event_count: 0,
+            }],
+        );
 
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
-        assert!(text.contains("Activity"));
-        assert!(text.contains("Current turn activity"));
-        assert!(text.contains("background task"));
-        assert!(text.contains("Daily digest"));
-        assert!(text.contains("team"));
+        assert!(!text.contains("Background work"));
+        assert!(!text.contains("Daily digest"));
+        assert!(text.contains("Subagents"));
+        assert!(text.contains("Subagent run"));
         assert!(text.contains("child-1"));
         assert!(!text.contains("Workspace run"));
         assert!(!text.contains("Open a run with"));
@@ -3705,7 +3977,8 @@ mod tests {
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
         assert!(text.contains("create a background task"));
-        assert!(text.contains("Created task"));
+        assert!(text.contains("Tool · manage_tasks"));
+        assert!(text.contains("task-1"));
         assert!(!text.contains("Unrelated task"));
     }
 
@@ -3766,7 +4039,7 @@ mod tests {
     }
 
     #[test]
-    fn message_viewport_shows_task_stream_activity_during_active_turn_without_persisting_it() {
+    fn message_viewport_keeps_task_stream_activity_outside_message_panel() {
         let mut state = AppState::empty();
         state.push_local_user_message("run a background check".to_string());
         state.apply_task_event(TaskStreamEvent::progress(
@@ -3779,11 +4052,8 @@ mod tests {
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
         let stable = super::build_stable_history_cells(&state);
 
-        assert!(text.contains("run a background check"));
-        assert!(text.contains("Task"));
-        assert!(text.contains("#task-1"));
-        assert!(text.contains("Compiling"));
-        assert!(text.contains("main.rs"));
+        assert!(text.is_empty());
+        assert!(footer_status_line(&state).contains("Work 1/1 running"));
         assert!(stable.is_empty());
         assert!(state.runtime_cells.is_empty());
     }
@@ -3801,7 +4071,8 @@ mod tests {
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
         assert!(text.is_empty());
-        assert!(state.task_activity_cell.is_none());
+        assert!(state.activity.live_cells().is_empty());
+        assert!(footer_status_line(&state).contains("Work 1/1 running"));
         assert!(state.runtime_cells.is_empty());
     }
 
@@ -3812,22 +4083,14 @@ mod tests {
         state.apply_task_event(TaskStreamEvent::started(
             "task-1", "Build", "agent-1", "api",
         ));
-        assert!(
-            line_texts(&super::build_message_lines(&state, 100, 12))
-                .join("\n")
-                .contains("run build task")
-        );
-        assert!(
-            line_texts(&super::build_message_lines(&state, 100, 12))
-                .join("\n")
-                .contains("Build")
-        );
+        assert!(footer_status_line(&state).contains("Work 1/1 running"));
 
         state.apply_task_event(TaskStreamEvent::completed("task-1", "Done", 1200));
 
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
         assert!(text.is_empty());
-        assert!(state.task_activity_cell.is_none());
+        assert!(state.activity.live_cells().is_empty());
+        assert!(!footer_status_line(&state).contains("Work"));
         assert!(state.runtime_cells.is_empty());
         assert!(state.status.contains("completed"));
     }
@@ -3842,28 +4105,31 @@ mod tests {
             next_run_at: None,
             latest_run_id: None,
         }];
-        state.thread.child_runs = vec![RunSummary {
-            id: "child-1".to_string(),
-            kind: RunKind::SubagentRun,
-            container_id: "session-1".to_string(),
-            root_run_id: Some("run-1".to_string()),
-            title: "Subagent run".to_string(),
-            subtitle: None,
-            status: "running".to_string(),
-            updated_at: 2,
-            started_at: Some(2),
-            ended_at: None,
-            session_id: Some("session-1".to_string()),
-            run_id: Some("child-1".to_string()),
-            task_id: None,
-            parent_run_id: Some("run-1".to_string()),
-            agent_id: Some("agent-2".to_string()),
-            source_channel: None,
-            source_conversation_id: None,
-            effective_model: None,
-            provider: None,
-            event_count: 0,
-        }];
+        state.set_session_runs_and_child_runs(
+            Vec::new(),
+            vec![RunSummary {
+                id: "child-1".to_string(),
+                kind: RunKind::SubagentRun,
+                container_id: "session-1".to_string(),
+                root_run_id: Some("run-1".to_string()),
+                title: "Subagent run".to_string(),
+                subtitle: None,
+                status: "running".to_string(),
+                updated_at: 2,
+                started_at: Some(2),
+                ended_at: None,
+                session_id: Some("session-1".to_string()),
+                run_id: Some("child-1".to_string()),
+                task_id: None,
+                parent_run_id: Some("run-1".to_string()),
+                agent_id: Some("agent-2".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                effective_model: None,
+                provider: None,
+                event_count: 0,
+            }],
+        );
 
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
@@ -3979,32 +4245,35 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Start {
             stream_id: "run-1".to_string(),
         });
-        state.thread.child_runs = vec![RunSummary {
-            id: "child-1".to_string(),
-            kind: RunKind::SubagentRun,
-            container_id: "session-1".to_string(),
-            root_run_id: Some("run-1".to_string()),
-            title: "Subagent run".to_string(),
-            subtitle: None,
-            status: "running".to_string(),
-            updated_at: 2,
-            started_at: Some(2),
-            ended_at: None,
-            session_id: Some("session-1".to_string()),
-            run_id: Some("child-1".to_string()),
-            task_id: None,
-            parent_run_id: Some("run-1".to_string()),
-            agent_id: Some("agent-2".to_string()),
-            source_channel: None,
-            source_conversation_id: None,
-            effective_model: None,
-            provider: None,
-            event_count: 0,
-        }];
+        state.set_session_runs_and_child_runs(
+            Vec::new(),
+            vec![RunSummary {
+                id: "child-1".to_string(),
+                kind: RunKind::SubagentRun,
+                container_id: "session-1".to_string(),
+                root_run_id: Some("run-1".to_string()),
+                title: "Subagent run".to_string(),
+                subtitle: None,
+                status: "running".to_string(),
+                updated_at: 2,
+                started_at: Some(2),
+                ended_at: None,
+                session_id: Some("session-1".to_string()),
+                run_id: Some("child-1".to_string()),
+                task_id: None,
+                parent_run_id: Some("run-1".to_string()),
+                agent_id: Some("agent-2".to_string()),
+                source_channel: None,
+                source_conversation_id: None,
+                effective_model: None,
+                provider: None,
+                event_count: 0,
+            }],
+        );
 
         let active_text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-        assert!(active_text.contains("Activity"));
-        assert!(active_text.contains("Current turn activity"));
+        assert!(active_text.contains("Subagents"));
+        assert!(active_text.contains("Subagent run"));
         assert!(active_text.contains("child-1"));
 
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
@@ -4363,6 +4632,20 @@ mod tests {
         assert!(rendered[0].contains("typing"));
         assert!(!rendered.iter().any(|line| line.contains("line one")));
         assert!(rendered.iter().any(|line| line.contains("line four")));
+    }
+
+    #[test]
+    fn message_viewport_shows_pending_user_before_stream_start() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("first message".to_string());
+        state.start_assistant_typing();
+
+        let lines = line_texts(&super::build_message_lines(&state, 80, 8));
+
+        assert!(lines.iter().any(|line| line.contains("You")));
+        assert!(lines.iter().any(|line| line.contains("first message")));
+        assert!(lines.iter().any(|line| line.contains("Agent")));
+        assert!(lines.iter().any(|line| line.contains("typing")));
     }
 
     #[test]
