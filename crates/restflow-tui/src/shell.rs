@@ -285,11 +285,15 @@ impl TerminalViewport {
         let spacer_height = u16::from(available_above_prompt > 0);
         let message_height = available_above_prompt.saturating_sub(spacer_height);
         let message_lines = build_message_lines(state, width, message_height);
-        let mut visible_message_lines = tail_lines(
-            message_lines,
-            message_height as usize,
-            state.message_scroll_from_bottom,
-        );
+        let mut visible_message_lines = if state.message_scroll_from_bottom == 0 {
+            preserve_first_cell_tail(message_lines, message_height as usize)
+        } else {
+            tail_lines(
+                message_lines,
+                message_height as usize,
+                state.message_scroll_from_bottom,
+            )
+        };
         if spacer_height > 0 && !visible_message_lines.is_empty() {
             visible_message_lines.push(Line::from(""));
         }
@@ -464,6 +468,14 @@ fn visible_history_tail_lines(
     height: usize,
 ) -> Vec<Line<'static>> {
     let history_lines = render_history_append_lines(stable_cells, width, false);
+    if stable_cells
+        .iter()
+        .filter(|cell| cell.kind == TranscriptCellKind::User)
+        .count()
+        <= 1
+    {
+        return preserve_first_cell_tail(history_lines, height);
+    }
     bottom_anchor_lines(history_lines, height, 0)
 }
 
@@ -2587,6 +2599,50 @@ fn tail_lines(
     lines[start..end].to_vec()
 }
 
+fn preserve_first_cell_tail(lines: Vec<Line<'static>>, height: usize) -> Vec<Line<'static>> {
+    if height == 0 || lines.len() <= height {
+        return lines;
+    }
+    if height == 1 {
+        return lines.into_iter().take(1).collect();
+    }
+
+    let first_cell_len = lines
+        .iter()
+        .position(line_is_empty)
+        .map(|index| index.max(1))
+        .unwrap_or(1)
+        .min(height - 1);
+    let tail_len = height.saturating_sub(first_cell_len);
+    let mut tail_start = lines.len().saturating_sub(tail_len);
+
+    let mut visible = lines[..first_cell_len].to_vec();
+    if tail_start > first_cell_len
+        && line_starts_with(&lines[tail_start], CONTINUATION_PREFIX)
+        && let Some(cell_start) = previous_cell_start(&lines, tail_start)
+        && cell_start >= first_cell_len
+        && cell_start < tail_start
+        && visible.len() < height
+    {
+        visible.push(lines[cell_start].clone());
+        let remaining = height.saturating_sub(visible.len());
+        tail_start = lines.len().saturating_sub(remaining);
+    }
+    visible.extend_from_slice(&lines[tail_start.max(first_cell_len)..]);
+    visible
+}
+
+fn previous_cell_start(lines: &[Line<'static>], before: usize) -> Option<usize> {
+    let mut index = before.min(lines.len());
+    while index > 0 {
+        index -= 1;
+        if line_is_empty(&lines[index]) {
+            return Some(index + 1);
+        }
+    }
+    Some(0)
+}
+
 fn clamp_history_scroll(total_lines: usize, viewport_height: usize, requested: usize) -> usize {
     requested.min(total_lines.saturating_sub(viewport_height))
 }
@@ -2668,6 +2724,24 @@ fn line_is_empty(line: &Line<'_>) -> bool {
     line.spans
         .iter()
         .all(|span| span.content.as_ref().is_empty())
+}
+
+fn line_starts_with(line: &Line<'_>, prefix: &str) -> bool {
+    let mut remaining = prefix;
+    for span in &line.spans {
+        let content = span.content.as_ref();
+        if content.is_empty() {
+            continue;
+        }
+        if remaining.len() <= content.len() {
+            return content.starts_with(remaining);
+        }
+        if !remaining.starts_with(content) {
+            return false;
+        }
+        remaining = &remaining[content.len()..];
+    }
+    remaining.is_empty()
 }
 
 #[cfg(test)]
@@ -3278,6 +3352,53 @@ mod tests {
         assert!(rendered.iter().any(|line| line.contains("You")));
         assert!(rendered.iter().any(|line| line.contains("132")));
         assert!(rendered.iter().any(|line| line.contains("assistant reply")));
+    }
+
+    #[test]
+    fn first_turn_stable_history_keeps_user_cell_when_overflowing() {
+        let cells = vec![
+            TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "run lots of output".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+            TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-1".to_string()),
+                body: format!(
+                    "Input: {{\"command\":\"ls\"}}\nOutput: {}",
+                    (1..=30)
+                        .map(|index| format!("line {index}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            },
+            TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Agent".to_string(),
+                subtitle: None,
+                body: "done".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            },
+        ];
+
+        let rendered = line_texts(&visible_history_tail_lines(&cells, 80, 12));
+
+        assert!(rendered.iter().any(|line| line == "You"));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("run lots of output"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("Tool · bash")));
+        assert!(rendered.iter().any(|line| line.contains("done")));
     }
 
     #[test]
@@ -4698,6 +4819,28 @@ mod tests {
         assert_eq!(viewport.lines.len(), 24);
         assert!(rendered.iter().any(|line| line.contains("line 30")));
         assert!(rendered.iter().any(|line| line.starts_with('┌')));
+    }
+
+    #[test]
+    fn bottom_live_viewport_keeps_user_cell_when_turn_overflows() {
+        let mut state = AppState::empty();
+        state.push_local_user_message("run lots of output".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: (1..=30)
+                .map(|index| format!("line {index}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        });
+
+        let rendered = line_texts(&build_viewport_snapshot(&state, (80, 16)).lines);
+
+        assert!(rendered.iter().any(|line| line == "You"));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("run lots of output"))
+        );
+        assert!(rendered.iter().any(|line| line.contains("line 30")));
     }
 
     #[test]

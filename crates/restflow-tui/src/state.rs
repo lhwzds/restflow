@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
@@ -285,6 +285,7 @@ pub struct AppState {
     pub active_turn: Option<ActiveTurn>,
     active_turn_session_id: Option<String>,
     active_progress_started_at_ms: Option<i64>,
+    active_tool_progress_started_at_ms: HashMap<String, i64>,
     active_assistant_stream_body: String,
     active_tool_call_ids: HashSet<String>,
     active_tool_result_ids: HashSet<String>,
@@ -324,6 +325,7 @@ impl AppState {
             active_turn: None,
             active_turn_session_id: None,
             active_progress_started_at_ms: None,
+            active_tool_progress_started_at_ms: HashMap::new(),
             active_assistant_stream_body: String::new(),
             active_tool_call_ids: HashSet::new(),
             active_tool_result_ids: HashSet::new(),
@@ -1276,6 +1278,7 @@ impl AppState {
         self.active_turn = None;
         self.active_turn_session_id = None;
         self.active_progress_started_at_ms = None;
+        self.active_tool_progress_started_at_ms.clear();
         self.activity.clear();
         self.active_assistant_stream_body.clear();
         self.active_tool_call_ids.clear();
@@ -1338,18 +1341,30 @@ impl AppState {
     }
 
     fn update_active_progress_indicator_at(&mut self, now_ms: i64) -> bool {
-        let started_at = *self.active_progress_started_at_ms.get_or_insert(now_ms);
+        let assistant_started_at = &mut self.active_progress_started_at_ms;
+        let tool_started_at = &mut self.active_tool_progress_started_at_ms;
         let Some(active_turn) = self.active_turn.as_mut() else {
             return false;
         };
-        let elapsed_ms = now_ms.saturating_sub(started_at);
-        let elapsed_secs = elapsed_ms / 1000;
         let mut changed = false;
         for active_cell in active_turn.cells.iter_mut().filter(|cell| cell.is_active) {
             let label = match active_cell.kind {
                 TranscriptCellKind::Tool | TranscriptCellKind::Subagent => "running",
                 _ => "typing",
             };
+            let started_at = if matches!(
+                active_cell.kind,
+                TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+            ) {
+                active_cell
+                    .tool_call_id()
+                    .map(|call_id| *tool_started_at.entry(call_id.to_string()).or_insert(now_ms))
+                    .unwrap_or_else(|| *assistant_started_at.get_or_insert(now_ms))
+            } else {
+                *assistant_started_at.get_or_insert(now_ms)
+            };
+            let elapsed_ms = now_ms.saturating_sub(started_at);
+            let elapsed_secs = elapsed_ms / 1000;
             let frame = match (elapsed_ms / 250) % 4 {
                 0 => label.to_string(),
                 1 => format!("{label}."),
@@ -1488,8 +1503,10 @@ impl AppState {
         );
         cell.is_active = true;
         self.activity.record_tool_call(call_id, name, &cell.body);
+        self.active_tool_progress_started_at_ms
+            .entry(call_id.to_string())
+            .or_insert_with(|| Utc::now().timestamp_millis());
         self.ensure_active_turn().cells.push(cell);
-        self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
         let _ = self.update_active_progress_indicator();
     }
 
@@ -1506,7 +1523,10 @@ impl AppState {
             let _ = cell.merge_tool_result(success, result);
             self.activity
                 .record_tool_result(call_id, success, &cell.body);
-            self.active_progress_started_at_ms = None;
+            self.active_tool_progress_started_at_ms.remove(call_id);
+            if !active_turn.cells.iter().any(|cell| cell.is_active) {
+                self.active_progress_started_at_ms = None;
+            }
             return;
         }
         let assistant_name = self.assistant_name().to_string();
@@ -2031,7 +2051,10 @@ mod tests {
             name: "bash".to_string(),
             arguments: serde_json::json!({"command": "ls"}),
         });
-        let started_at = state.active_progress_started_at_ms.expect("tool start");
+        let started_at = *state
+            .active_tool_progress_started_at_ms
+            .get("call-1")
+            .expect("tool start");
 
         state.update_active_progress_indicator_at(started_at + 500);
 
@@ -2045,6 +2068,48 @@ mod tests {
         assert_eq!(tool_subtitles.len(), 2);
         assert!(tool_subtitles[0].contains("#call-1 · running.."));
         assert!(tool_subtitles[1].contains("#call-2 · running.."));
+    }
+
+    #[test]
+    fn completing_one_tool_does_not_reset_remaining_tool_elapsed_time() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "stream-1".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "pwd"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-2".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "ls"}),
+        });
+        let started_at = *state
+            .active_tool_progress_started_at_ms
+            .get("call-2")
+            .expect("tool start");
+
+        state.update_active_progress_indicator_at(started_at + 2_000);
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"ok\":true}".to_string(),
+            success: true,
+        });
+        state.update_active_progress_indicator_at(started_at + 2_500);
+
+        let remaining_subtitle = state
+            .active_turn
+            .as_ref()
+            .and_then(|turn| {
+                turn.cells
+                    .iter()
+                    .find(|cell| cell.tool_call_id() == Some("call-2"))
+            })
+            .and_then(|cell| cell.subtitle.as_deref())
+            .expect("remaining tool subtitle");
+        assert!(remaining_subtitle.contains("#call-2 · running..  2s"));
     }
 
     #[test]
