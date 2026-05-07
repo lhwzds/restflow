@@ -468,18 +468,16 @@ fn should_reload_active_session(state: &AppState) -> bool {
 
 fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     match action {
-        Action::Quit => output.should_quit = true,
+        Action::Quit => {
+            if state.is_streaming || state.active_turn.is_some() {
+                cancel_active_response(state, output);
+            } else {
+                output.should_quit = true;
+            }
+        }
         Action::CloseOverlay => {
             if state.is_streaming || state.active_turn.is_some() {
-                let stream_id = state.current_stream_id.clone();
-                state.cancel_active_response();
-                state.push_info("Canceled current response.");
-                if let Some(stream_id) = stream_id {
-                    state.status = "Canceling response...".to_string();
-                    output.effects.push(ShellEffect::CancelStream { stream_id });
-                } else {
-                    state.status = "Canceled current response.".to_string();
-                }
+                cancel_active_response(state, output);
             } else if state.overlay.is_some() {
                 state.clear_overlay();
                 if matches!(state.composer.mode(), ComposerMode::Command) {
@@ -695,6 +693,18 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
             }
         }
         Action::Noop => {}
+    }
+}
+
+fn cancel_active_response(state: &mut AppState, output: &mut ReducerOutput) {
+    let stream_id = state.current_stream_id.clone();
+    state.cancel_active_response();
+    state.push_info("Canceled current response.");
+    if let Some(stream_id) = stream_id {
+        state.status = "Canceling response...".to_string();
+        output.effects.push(ShellEffect::CancelStream { stream_id });
+    } else {
+        state.status = "Canceled current response.".to_string();
     }
 }
 
@@ -1352,6 +1362,36 @@ mod tests {
         let output = reduce(&mut state, ShellAction::Quit);
 
         assert!(output.should_quit);
+    }
+
+    #[test]
+    fn ctrl_c_cancels_active_stream_before_quitting() {
+        let mut state = AppState::empty();
+        state.is_streaming = true;
+        state.current_stream_id = Some("stream-1".to_string());
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: String::new(),
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "sleep 20"}),
+        });
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Quit));
+
+        assert!(!output.should_quit);
+        assert!(!state.is_streaming);
+        assert!(state.current_stream_id.is_none());
+        assert!(state.active_turn.is_none());
+        assert!(state.runtime_cells.iter().any(|entry| {
+            entry.cell.title == "Info" && entry.cell.body.contains("Canceled current response")
+        }));
+        assert_eq!(state.status, "Canceling response...");
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+        ));
     }
 
     #[test]
