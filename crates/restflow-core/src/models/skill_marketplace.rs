@@ -9,14 +9,11 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use ts_rs::TS;
 
 use restflow_traits::skill::SkillSource;
 
 /// Semantic version for skills
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct SkillVersion {
     /// Major version (breaking changes)
     pub major: u32,
@@ -125,9 +122,7 @@ impl Default for SkillVersion {
 }
 
 /// Version requirement for dependencies
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", content = "version")]
 pub enum VersionRequirement {
     /// Exact version match
@@ -182,9 +177,7 @@ impl VersionRequirement {
 }
 
 /// Skill dependency
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillDependency {
     /// ID of the required skill
     pub skill_id: String,
@@ -195,9 +188,7 @@ pub struct SkillDependency {
 }
 
 /// Permission types that skills can request
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Hash)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillPermission {
     /// Read files from the filesystem
@@ -227,9 +218,7 @@ pub enum SkillPermission {
 }
 
 /// Skill permissions configuration
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
 pub struct SkillPermissions {
     /// Required permissions (skill won't work without these)
     pub required: Vec<SkillPermission>,
@@ -238,9 +227,7 @@ pub struct SkillPermissions {
 }
 
 /// Operating system type
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OsType {
     Windows,
@@ -262,9 +249,7 @@ impl OsType {
 }
 
 /// Binary requirement for gating
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct BinaryRequirement {
     /// Name of the binary (e.g., "git", "docker")
     pub name: String,
@@ -277,9 +262,7 @@ pub struct BinaryRequirement {
 }
 
 /// Environment variable requirement for gating
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct EnvVarRequirement {
     /// Name of the environment variable
     pub name: String,
@@ -290,9 +273,7 @@ pub struct EnvVarRequirement {
 }
 
 /// Gating requirements for a skill
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
 pub struct GatingRequirements {
     /// Required binaries
     pub binaries: Vec<BinaryRequirement>,
@@ -305,9 +286,7 @@ pub struct GatingRequirements {
 }
 
 /// Author information
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillAuthor {
     /// Author name
     pub name: String,
@@ -318,9 +297,7 @@ pub struct SkillAuthor {
 }
 
 /// Extended skill metadata for marketplace
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillManifest {
     /// Skill ID (unique identifier)
     pub id: String,
@@ -361,7 +338,6 @@ pub struct SkillManifest {
     /// Changelog content (markdown)
     pub changelog: Option<String>,
     /// Additional metadata
-    #[ts(type = "Record<string, unknown>")]
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -392,9 +368,7 @@ impl Default for SkillManifest {
 }
 
 /// Gating check result
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct GatingCheckResult {
     /// Whether all requirements are met
     pub passed: bool,
@@ -437,9 +411,7 @@ impl GatingCheckResult {
 }
 
 /// Installed skill status
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallStatus {
     /// Skill is installed and ready to use
@@ -457,9 +429,7 @@ pub enum InstallStatus {
 }
 
 /// Installed skill information
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstalledSkill {
     /// Skill manifest
     pub manifest: SkillManifest,
@@ -468,10 +438,8 @@ pub struct InstalledSkill {
     /// Installation status
     pub status: InstallStatus,
     /// When the skill was installed (Unix timestamp ms)
-    #[ts(type = "number")]
     pub installed_at: i64,
     /// When the skill was last updated (Unix timestamp ms)
-    #[ts(type = "number")]
     pub updated_at: i64,
     /// Whether updates are available
     pub update_available: Option<SkillVersion>,

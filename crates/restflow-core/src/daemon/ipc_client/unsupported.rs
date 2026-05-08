@@ -63,7 +63,7 @@ impl IpcClient {
 
     pub async fn create_task_from_session(
         &mut self,
-        _request: restflow_contracts::request::TaskFromSessionRequest,
+        _request: restflow_traits::request::TaskFromSessionRequest,
     ) -> Result<crate::models::TaskConversionResult> {
         Self::unsupported()
     }
@@ -76,7 +76,7 @@ impl IpcClient {
         &mut self,
         _id: String,
         _approval_id: Option<String>,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    ) -> Result<restflow_traits::DeleteWithIdResponse> {
         Self::unsupported()
     }
 
@@ -121,15 +121,15 @@ impl IpcClient {
             _workspace_root: Option<String>,
         ) -> ChatSession;
         fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
-        fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<restflow_contracts::ExecutionScope>) -> bool;
+        fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<restflow_traits::ExecutionScope>) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
         fn list_runs(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
         fn query_execution_traces(&mut self, _query: ExecutionTraceQuery) -> Vec<ExecutionTraceEvent>;
         fn get_execution_trace_stats(&mut self, _run_id: Option<String>) -> ExecutionTraceStats;
-        fn get_execution_run_timeline(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionTimeline;
-        fn get_execution_run_metrics(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionMetricsResponse;
+        fn get_execution_run_timeline(&mut self, _run_id: String) -> restflow_traits::request::ExecutionTimeline;
+        fn get_execution_run_metrics(&mut self, _run_id: String) -> restflow_traits::request::ExecutionMetricsResponse;
         fn get_provider_health(&mut self, _query: crate::models::ProviderHealthQuery) -> crate::models::ProviderHealthResponse;
-        fn query_execution_run_logs(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionLogResponse;
+        fn query_execution_run_logs(&mut self, _run_id: String) -> restflow_traits::request::ExecutionLogResponse;
         fn get_execution_trace_by_id(&mut self, _id: String) -> Option<ExecutionTraceEvent>;
         fn list_terminal_sessions(&mut self) -> Vec<TerminalSession>;
         fn get_terminal_session(&mut self, _id: String) -> TerminalSession;
@@ -164,7 +164,7 @@ impl IpcClient {
         _user_input: Option<String>,
         _stream_id: String,
         _workspace_root: Option<String>,
-        _scope: Option<restflow_contracts::ExecutionScope>,
+        _scope: Option<restflow_traits::ExecutionScope>,
         _on_frame: F,
     ) -> Result<()>
     where
@@ -177,7 +177,7 @@ impl IpcClient {
         &mut self,
         _task_id: String,
         _run_id: Option<String>,
-        _scope: Option<restflow_contracts::ExecutionScope>,
+        _scope: Option<restflow_traits::ExecutionScope>,
         _on_event: F,
     ) -> Result<()>
     where

@@ -8,12 +8,12 @@ use std::path::Path;
 use std::pin::Pin;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use restflow_contracts::request::{
+use crate::contracts::request::{
     AgentNode as ContractAgentNode, ExecutionMode as ContractExecutionMode,
     ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
 };
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

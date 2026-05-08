@@ -19,7 +19,6 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 
 # Crate dependencies
-restflow-contracts = { workspace = true }
 restflow-traits = { workspace = true, features = ["http-client"] }
 restflow-models = { workspace = true }
 
@@ -42,12 +41,8 @@ futures = "0.3"
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal", "process"] }
 
-# TypeScript bindings (optional)
-ts-rs = { version = "12.0", optional = true }
-
 [features]
 default = []
-ts = ["dep:ts-rs"]
 
 [lints.rust]
 
@@ -57,4 +52,3 @@ tempfile = "3"
 tokio = { workspace = true, features = ["full"] }
 redb = "3.1"
 restflow-ai = { workspace = true, features = ["test-utils"] }
-restflow-storage = { path = "../restflow-storage" }

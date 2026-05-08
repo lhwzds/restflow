@@ -15,17 +15,17 @@ test-utils = []
 [dependencies]
 keyring = { version = "3.6", optional = true, features = ["apple-native"] }
 # Internal dependencies
-restflow-contracts = { workspace = true }
 restflow-models = { workspace = true }
-restflow-traits = { workspace = true, features = ["ts", "specta"] }
+restflow-traits = { workspace = true, features = ["specta"] }
 restflow-ai = { path = "../restflow-ai" }
 restflow-tools = { workspace = true }
-restflow-storage = { path = "../restflow-storage" }
 
 # External dependencies
+aes-gcm = "0.10"
 anyhow = "1.0.101"
 async-trait = "0.1.89"
 axum = { version = "0.8.6", features = ["json"] }
+base64 = "0.22"
 chrono = "0.4.44"
 chrono-tz = "0.10"
 cron = "0.15"
@@ -75,7 +75,6 @@ tokio-tungstenite = { version = "0.28", features = ["connect", "rustls-tls-webpk
 tower = { version = "0.5.2", features = ["util"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
 tracing = "0.1"
-ts-rs = { version = "12.0", features = ["chrono-impl"] }
 uuid = { version = "1.21.0", features = ["v4", "serde"] }
 walkdir = "2"
 urlencoding = "2.1.3"

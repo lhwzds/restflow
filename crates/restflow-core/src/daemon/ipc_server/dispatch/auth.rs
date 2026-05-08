@@ -1,6 +1,6 @@
 use super::super::runtime::build_auth_manager;
 use super::super::*;
-use restflow_contracts::{ApiKeyResponse, OkResponse};
+use restflow_traits::{ApiKeyResponse, OkResponse};
 
 impl IpcServer {
     pub(super) async fn handle_list_auth_profiles(core: &Arc<AppCore>) -> IpcResponse {

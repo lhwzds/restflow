@@ -1,4 +1,4 @@
-use restflow_contracts::request::{
+use restflow_traits::request::{
     ExecutionMode as ContractExecutionMode, ResourceLimits as ContractResourceLimits,
     TaskSchedule as ContractTaskSchedule,
 };

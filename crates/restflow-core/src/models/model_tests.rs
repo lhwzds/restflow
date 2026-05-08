@@ -1,7 +1,7 @@
 use crate::models::{ModelId, ModelRef, Provider};
-use restflow_contracts::request::WireModelRef;
 use restflow_models::{LlmProvider, catalog, provider_meta};
 use restflow_traits::ModelProvider;
+use restflow_traits::request::WireModelRef;
 
 #[test]
 fn test_provider() {

@@ -28,15 +28,12 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::mpsc;
-use ts_rs::TS;
 
 /// Event name for heartbeat and runner status streams.
 pub const HEARTBEAT_EVENT: &str = "task:heartbeat";
 
 /// Heartbeat event sent to connected daemon clients.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HeartbeatEvent {
     /// Regular heartbeat pulse with status
@@ -48,22 +45,17 @@ pub enum HeartbeatEvent {
 }
 
 /// Regular heartbeat pulse data
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct HeartbeatPulse {
     /// Sequence number for this heartbeat
-    #[ts(type = "number")]
     pub sequence: u64,
     /// Timestamp of this heartbeat (milliseconds since epoch)
-    #[ts(type = "number")]
     pub timestamp: i64,
     /// Number of active (running) tasks
     pub active_tasks: u32,
     /// Number of pending tasks (scheduled but not yet run)
     pub pending_tasks: u32,
     /// Runner uptime in milliseconds
-    #[ts(type = "number")]
     pub uptime_ms: u64,
     /// Optional system stats
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,26 +63,20 @@ pub struct HeartbeatPulse {
 }
 
 /// System statistics included in heartbeat
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SystemStats {
     /// Memory usage in bytes (if available)
-    #[ts(type = "number | null")]
     pub memory_bytes: Option<u64>,
     /// Number of tokio tasks (if available)
     pub tokio_tasks: Option<u32>,
 }
 
 /// Runner status change event
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct RunnerStatusEvent {
     /// Current runner status
     pub status: RunnerStatus,
     /// Timestamp of the status change
-    #[ts(type = "number")]
     pub timestamp: i64,
     /// Optional message about the status change
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,9 +84,7 @@ pub struct RunnerStatusEvent {
 }
 
 /// Runner status enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum RunnerStatus {
     /// Runner is starting up
@@ -118,16 +102,13 @@ pub enum RunnerStatus {
 }
 
 /// Warning event for issues detected during execution
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct HeartbeatWarning {
     /// Warning code for categorization
     pub code: String,
     /// Human-readable warning message
     pub message: String,
     /// Timestamp of the warning
-    #[ts(type = "number")]
     pub timestamp: i64,
 }
 

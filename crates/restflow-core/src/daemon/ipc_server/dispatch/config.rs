@@ -1,5 +1,5 @@
 use super::super::*;
-use restflow_contracts::OkResponse;
+use restflow_traits::OkResponse;
 
 impl IpcServer {
     pub(super) async fn handle_get_config(core: &Arc<AppCore>) -> IpcResponse {

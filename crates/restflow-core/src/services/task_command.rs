@@ -14,13 +14,13 @@ use crate::services::session::SessionService;
 use crate::services::task_conversion::{ConvertSessionSpecOptions, build_convert_session_spec};
 use crate::storage::task_runtime::TaskSessionBinding;
 use crate::storage::{AgentStorage, Storage, TaskStorage};
-use restflow_contracts::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     TaskControlRequest, TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest,
     TaskUpdateRequest,
 };
 use restflow_traits::{AgentOperationAssessor, OperationAssessment, TaskCommandOutcome};
+use restflow_traits::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 use std::sync::Arc;
 
 type CommandResult<T> = std::result::Result<T, TaskCommandError>;
@@ -1404,7 +1404,7 @@ mod tests {
                     name: "   ".to_string(),
                     agent_id: "agent-ignored".to_string(),
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,
@@ -1429,7 +1429,7 @@ mod tests {
                     name: "Create Guarded Warning".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,
@@ -1833,7 +1833,7 @@ mod tests {
                     name: "Create Direct Warning".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,
@@ -1865,7 +1865,7 @@ mod tests {
                     name: "Create File Session".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,
@@ -1897,7 +1897,7 @@ mod tests {
                     name: "Invalid File Session".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: None,
                     input_template: None,
                     timeout_secs: None,
@@ -1929,7 +1929,7 @@ mod tests {
                     name: "Valid File Session".to_string(),
                     agent_id: session.agent_id,
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,
@@ -1984,7 +1984,7 @@ mod tests {
                     name: "Rebind File Session".to_string(),
                     agent_id: session.agent_id.clone(),
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,
@@ -2194,7 +2194,7 @@ mod tests {
                     name: "Create Canonical Task".to_string(),
                     agent_id: session.agent_id.clone(),
                     chat_session_id: None,
-                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    schedule: restflow_traits::request::TaskSchedule::default(),
                     input: Some("run".to_string()),
                     input_template: None,
                     timeout_secs: None,

@@ -12,8 +12,6 @@ use restflow_traits::SubagentManager;
 
 /// Parameters for list_subagents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
 pub struct ListSubagentsParams {
     /// Include currently running agents in the response.
     #[serde(default = "default_include_running")]
@@ -128,8 +126,8 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
     use restflow_traits::SubagentManager;
+    use restflow_traits::request::RunSpawnRequest as ContractRunSpawnRequest;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 

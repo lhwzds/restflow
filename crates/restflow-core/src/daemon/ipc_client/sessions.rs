@@ -8,7 +8,7 @@ use crate::{
     ProviderHealthResponse,
 };
 #[cfg(unix)]
-use restflow_contracts::{ArchiveResponse, DeleteResponse};
+use restflow_traits::{ArchiveResponse, DeleteResponse};
 
 #[cfg(unix)]
 impl IpcClient {

@@ -155,28 +155,29 @@ pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> 
 }
 
 pub(super) async fn steer_chat_stream(
+    core: &Arc<AppCore>,
     session_id: &str,
     instruction: &str,
-    scope: Option<&restflow_contracts::ExecutionScope>,
+    scope: Option<&restflow_traits::ExecutionScope>,
 ) -> bool {
-    let stream_id = {
+    let binding = {
         let session_streams = active_chat_stream_sessions().lock().await;
         session_streams.get(session_id).and_then(|binding| {
             if scope.is_some() && binding.scope.as_ref() != scope {
                 None
             } else {
-                Some(binding.stream_id.clone())
+                Some(binding.clone())
             }
         })
     };
 
-    let Some(stream_id) = stream_id else {
+    let Some(binding) = binding else {
         return false;
     };
 
     let sender = {
         let steers = active_chat_stream_steers().lock().await;
-        steers.get(&stream_id).cloned()
+        steers.get(&binding.stream_id).cloned()
     };
     let Some(sender) = sender else {
         return false;
@@ -184,19 +185,50 @@ pub(super) async fn steer_chat_stream(
 
     let steer = SteerMessage::message(instruction.to_string(), SteerSource::User);
     match sender.send(steer).await {
-        Ok(()) => true,
+        Ok(()) => persist_steer_user_update(core, session_id, &binding.turn_id, instruction)
+            .map(|_| true)
+            .unwrap_or(false),
         Err(_) => {
-            active_chat_stream_steers().lock().await.remove(&stream_id);
+            active_chat_stream_steers()
+                .lock()
+                .await
+                .remove(&binding.stream_id);
             let mut session_streams = active_chat_stream_sessions().lock().await;
             if session_streams
                 .get(session_id)
-                .is_some_and(|binding| binding.stream_id == stream_id)
+                .is_some_and(|active| active.stream_id == binding.stream_id)
             {
                 session_streams.remove(session_id);
             }
             false
         }
     }
+}
+
+fn persist_steer_user_update(
+    core: &Arc<AppCore>,
+    session_id: &str,
+    turn_id: &str,
+    instruction: &str,
+) -> Result<()> {
+    let instruction = instruction.trim();
+    if instruction.is_empty() {
+        return Ok(());
+    }
+    let session_service = SessionService::from_storage(&core.storage);
+    let Some(mut session) = session_service.get_session_view(session_id)? else {
+        return Ok(());
+    };
+    let already_latest = session
+        .messages
+        .last()
+        .is_some_and(|message| message.role == ChatRole::User && message.content == instruction);
+    if !already_latest {
+        session.add_message(ChatMessage::user(instruction));
+    }
+    session.record_turn_user_message(turn_id, instruction);
+    session_service.save_existing_session(&session, "ipc")?;
+    Ok(())
 }
 
 pub(super) fn latest_assistant_payload(session: &ChatSession) -> Option<(String, Option<u32>)> {
@@ -390,6 +422,7 @@ pub(super) async fn execute_chat_session(
         .into_iter()
         .filter(|reply| !reply.trim().is_empty())
         .collect::<Vec<_>>();
+    sync_session_view_from_session_store(core, &mut session)?;
     for reply in &buffered_replies {
         session.add_message(ChatMessage::assistant(reply.as_str()));
     }
@@ -469,6 +502,21 @@ fn sync_turns_from_session_store(core: &Arc<AppCore>, session: &mut ChatSession)
         SessionService::from_storage(&core.storage).get_session_view(&session.id)?
     {
         session.turns = stored.turns;
+    }
+    Ok(())
+}
+
+fn sync_session_view_from_session_store(
+    core: &Arc<AppCore>,
+    session: &mut ChatSession,
+) -> Result<()> {
+    if let Some(stored) =
+        SessionService::from_storage(&core.storage).get_session_view(&session.id)?
+    {
+        session.messages = stored.messages;
+        session.turns = stored.turns;
+        session.updated_at = stored.updated_at;
+        session.metadata = stored.metadata;
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
-use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{ChatRole, ChatSession, ChatTurnEventKind};
+use restflow_traits::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -660,8 +660,8 @@ mod tests {
         message_from_session_event, message_from_stream_frame, message_from_task_event,
         messages_from_session, transcript_cells,
     };
-    use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
     use restflow_core::models::{ChatMessage, ChatSession, ChatTurnEventKind};
+    use restflow_traits::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 
     #[test]
     fn appends_and_finalizes_assistant_stream() {

@@ -1,14 +1,11 @@
-use restflow_contracts::request::WireModelRef;
+use restflow_traits::request::WireModelRef;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 use super::{ModelId, Provider, ValidationError};
 
 /// Provider + model pair used by API and persistence layers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct ModelRef {
     pub provider: Provider,
     pub model: ModelId,

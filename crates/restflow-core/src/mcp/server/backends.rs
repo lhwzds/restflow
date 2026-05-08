@@ -16,7 +16,7 @@ fn resolve_task_id(
         .map_err(|e| e.to_string())
 }
 use crate::daemon::request_mapper::to_contract;
-use restflow_contracts::DeleteWithIdResponse;
+use restflow_traits::DeleteWithIdResponse;
 use restflow_traits::{TaskCommandOutcome, store::TaskDeleteRequest};
 
 pub(super) struct CoreBackend {

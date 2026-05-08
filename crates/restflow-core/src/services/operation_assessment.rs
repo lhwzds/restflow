@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use restflow_contracts::request::{
+use restflow_traits::ModelProvider as SharedModelProvider;
+use restflow_traits::request::{
     AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest,
 };
-use restflow_traits::ModelProvider as SharedModelProvider;
 use sha2::{Digest, Sha256};
 
 use crate::AppCore;
@@ -1000,7 +1000,7 @@ mod tests {
     use crate::models::{ApiKeyConfig, ChatMessage, ModelRef};
     use crate::prompt_files;
     use crate::services::agent::create_agent;
-    use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
+    use restflow_traits::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
     use restflow_traits::{TaskConvertSessionRequest, TaskDeleteRequest};
     use tempfile::tempdir;
 

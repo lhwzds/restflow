@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::executor::CommandExecutor;
 use crate::setup;
-use restflow_contracts::{CleanupReportResponse, request::TaskFromSessionRequest};
 use restflow_core::models::{
     AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ExecutionTraceQuery,
     RunListQuery, RunSummary, Task, TaskControlAction, TaskConversionResult, TaskPatch,
@@ -20,6 +19,7 @@ use restflow_core::{
     AppCore,
     models::{Secret, Skill},
 };
+use restflow_traits::{CleanupReportResponse, request::TaskFromSessionRequest};
 /// Test-only executor used by command unit tests.
 pub struct DirectExecutor {
     core: Arc<AppCore>,
@@ -198,7 +198,7 @@ impl CommandExecutor for DirectExecutor {
         &self,
         _id: &str,
         _approval_id: Option<&str>,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    ) -> Result<restflow_traits::DeleteWithIdResponse> {
         bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

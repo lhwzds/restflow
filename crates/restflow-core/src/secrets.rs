@@ -13,7 +13,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
-use ts_rs::TS;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
@@ -25,15 +24,12 @@ pub struct SecretStorageConfig {
 }
 
 /// A stored secret with metadata
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Secret {
     pub key: String,
     pub value: String,
     pub description: Option<String>,
-    #[ts(type = "number")]
     pub created_at: i64,
-    #[ts(type = "number")]
     pub updated_at: i64,
 }
 

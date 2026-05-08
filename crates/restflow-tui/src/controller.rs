@@ -100,6 +100,10 @@ impl ShellController {
                     .await?;
                 Ok(Vec::new())
             }
+            ShellEffect::SteerMessage {
+                session_id,
+                instruction,
+            } => self.steer_message_actions(session_id, instruction).await,
             ShellEffect::CancelStream { stream_id } => self.cancel_stream_actions(stream_id).await,
             ShellEffect::ExecuteSlashCommand(command) => {
                 self.slash_command_actions(state, command).await
@@ -407,6 +411,24 @@ impl ShellController {
         self.client
             .spawn_chat_stream(session_id, message, stream_id, tx);
         Ok(())
+    }
+
+    async fn steer_message_actions(
+        &self,
+        session_id: String,
+        instruction: String,
+    ) -> Result<Vec<ShellAction>> {
+        match self.client.steer_chat_stream(session_id, instruction).await {
+            Ok(true) => Ok(vec![ShellAction::StatusUpdated(
+                "Queued update for current response.".to_string(),
+            )]),
+            Ok(false) => Ok(vec![ShellAction::StatusUpdated(
+                "No active response accepted the queued update.".to_string(),
+            )]),
+            Err(error) => Ok(vec![ShellAction::Error(format!(
+                "Failed to queue update: {error}"
+            ))]),
+        }
     }
 
     async fn cancel_stream_actions(&self, stream_id: String) -> Result<Vec<ShellAction>> {
@@ -1203,10 +1225,32 @@ fn build_model_picker_items_for_provider(
                 ModelPickerCategory::Available => std::cmp::Ordering::Equal,
             })
             .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| {
+                model_picker_sort_rank(&left.model).cmp(&model_picker_sort_rank(&right.model))
+            })
             .then_with(|| left.name.cmp(&right.name))
             .then_with(|| left.model.cmp(&right.model))
     });
     items
+}
+
+fn model_picker_sort_rank(model: &str) -> usize {
+    let gpt_5_4_codex = ModelId::Gpt5_4Codex.as_serialized_str();
+    let gpt_5_4_mini_codex = ModelId::Gpt5_4MiniCodex.as_serialized_str();
+    let codex_cli = ModelId::CodexCli.as_serialized_str();
+    let gpt_5_codex = ModelId::Gpt5Codex.as_serialized_str();
+    let gpt_5_1_codex = ModelId::Gpt5_1Codex.as_serialized_str();
+    let gpt_5_2_codex = ModelId::Gpt5_2Codex.as_serialized_str();
+
+    match ModelId::normalize_model_id(model) {
+        Some(model) if model == gpt_5_4_codex => 0,
+        Some(model) if model == gpt_5_4_mini_codex => 1,
+        Some(model) if model == codex_cli => 2,
+        Some(model) if model == gpt_5_codex || model == gpt_5_1_codex || model == gpt_5_2_codex => {
+            20
+        }
+        _ => 10,
+    }
 }
 
 fn select_default_model_item(
@@ -1377,7 +1421,7 @@ mod tests {
         let session_id = session.id.clone();
         state.set_current_session(session);
         state.push_local_user_message("run a tool".to_string());
-        state.apply_stream_frame(restflow_contracts::StreamFrame::ToolCall {
+        state.apply_stream_frame(restflow_traits::StreamFrame::ToolCall {
             id: "call-1".to_string(),
             name: "edit".to_string(),
             arguments: serde_json::json!({"file_path":"check.txt"}),
@@ -1589,6 +1633,23 @@ mod tests {
 
         assert_eq!(item.provider, "deepseek");
         assert_eq!(item.model, "deepseek-chat");
+    }
+
+    #[test]
+    fn default_model_selection_prefers_supported_codex_default() {
+        let available = vec![
+            model_metadata(ModelId::Gpt5Codex, "GPT-5 Codex"),
+            model_metadata(ModelId::Gpt5_1Codex, "GPT-5.1 Codex"),
+            model_metadata(ModelId::Gpt5_4MiniCodex, "GPT-5.4 Mini"),
+            model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4"),
+            model_metadata(ModelId::CodexCli, "GPT-5.3 Codex"),
+        ];
+
+        let item = select_default_model_item(&[], &available, Some(("codex", "gpt-5-codex")))
+            .expect("codex default model");
+
+        assert_eq!(item.provider, "codex");
+        assert_eq!(item.model, "gpt-5.4");
     }
 
     fn session_summary_with_messages(

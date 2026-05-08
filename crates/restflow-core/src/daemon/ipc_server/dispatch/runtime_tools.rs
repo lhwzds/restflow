@@ -1,7 +1,7 @@
 use super::super::runtime::{build_agent_system_prompt, get_runtime_tool_registry};
 use super::super::*;
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
-use restflow_contracts::PromptResponse;
+use restflow_traits::PromptResponse;
 
 impl IpcServer {
     pub(super) async fn handle_get_available_tools(

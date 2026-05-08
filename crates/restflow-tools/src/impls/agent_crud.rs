@@ -1,7 +1,7 @@
 //! Agent CRUD tool for managing stored agents.
 
 use async_trait::async_trait;
-use restflow_contracts::request::AgentNode as ContractAgentNode;
+use restflow_traits::request::AgentNode as ContractAgentNode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -321,7 +321,7 @@ mod tests {
     }
 
     struct CapturingStore {
-        captured_model_ref: Arc<Mutex<Option<Option<restflow_contracts::request::WireModelRef>>>>,
+        captured_model_ref: Arc<Mutex<Option<Option<restflow_traits::request::WireModelRef>>>>,
     }
 
     impl AgentStore for CapturingStore {
@@ -375,7 +375,7 @@ mod tests {
         assert!(output.success);
         assert_eq!(
             *captured_model_ref.lock().expect("captured model_ref lock"),
-            Some(Some(restflow_contracts::request::WireModelRef {
+            Some(Some(restflow_traits::request::WireModelRef {
                 provider: "openai".to_string(),
                 model: "gpt-5-mini".to_string(),
             }))

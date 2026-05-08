@@ -21,7 +21,10 @@ pub use ipc_protocol::{
     IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
     MAX_MESSAGE_SIZE, StreamFrame,
 };
-pub use ipc_server::IpcServer;
+pub use ipc_server::{
+    IpcServer, cancel_foreground_chat_stream, open_foreground_chat_session_stream,
+    steer_foreground_chat_stream,
+};
 pub use launcher::{
     DaemonStatus, check_daemon_status, ensure_daemon_running, ensure_daemon_running_with_config,
     start_daemon, start_daemon_with_config, stop_daemon,
@@ -29,7 +32,7 @@ pub use launcher::{
 pub use logging::{LogPaths, open_daemon_log_append, resolve_log_paths};
 pub use mcp::run_mcp_http_server;
 pub use process::{DaemonConfig, ProcessManager};
-pub use restflow_contracts::{ToolDefinition, ToolExecutionResult};
+pub use restflow_traits::{ToolDefinition, ToolExecutionResult};
 pub use session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 pub use supervisor::{Supervisor, SupervisorConfig};
 pub use task_events::{publish_task_event, subscribe_task_events};

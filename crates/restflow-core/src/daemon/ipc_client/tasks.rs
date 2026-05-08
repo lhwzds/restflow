@@ -5,9 +5,9 @@ use crate::boundary::task::{core_patch_to_contract, core_spec_to_contract};
 #[cfg(unix)]
 use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]
-use restflow_contracts::DeleteWithIdResponse;
+use restflow_traits::DeleteWithIdResponse;
 #[cfg(unix)]
-use restflow_contracts::request::TaskFromSessionRequest;
+use restflow_traits::request::TaskFromSessionRequest;
 
 #[cfg(unix)]
 impl IpcClient {

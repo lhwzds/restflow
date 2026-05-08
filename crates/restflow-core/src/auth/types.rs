@@ -5,7 +5,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 use uuid::Uuid;
 
 use super::resolver::CredentialResolver;
@@ -20,9 +19,7 @@ pub fn secret_key(profile_id: &str, field: &str) -> String {
 /// Credential type representing different authentication methods
 ///
 /// Note: Debug is manually implemented to prevent logging sensitive values.
-#[derive(Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Credential {
     /// API key authentication (e.g., ANTHROPIC_API_KEY)
@@ -158,9 +155,7 @@ impl Credential {
 }
 
 /// Secure credential storing secret references instead of plaintext values.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SecureCredential {
     /// API key stored in SecretStorage.
@@ -292,9 +287,7 @@ impl SecureCredential {
 }
 
 /// Source of a stored credential profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialSource {
     /// Manually configured by user
@@ -314,9 +307,7 @@ impl std::fmt::Display for CredentialSource {
 /// Distinguishes between direct API access and CLI-token profiles:
 /// - `Anthropic`: Direct API calls using `sk-ant-api03-...` keys
 /// - `ClaudeCode`: Manually configured Claude Code OAuth tokens (`sk-ant-oat01-...`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthProvider {
     /// Anthropic Claude API - direct API calls with API key (`sk-ant-api03-...`)
@@ -327,11 +318,9 @@ pub enum AuthProvider {
     ClaudeCode,
     /// OpenAI API
     #[serde(rename = "openai")]
-    #[ts(rename = "openai")]
     OpenAI,
     /// OpenAI Codex CLI
     #[serde(rename = "openai_codex")]
-    #[ts(rename = "openai_codex")]
     OpenAICodex,
     /// Google Gemini API
     Google,
@@ -360,9 +349,7 @@ impl AuthProvider {
 }
 
 /// Health status of an auth profile
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileHealth {
     /// Profile is healthy and available
@@ -377,9 +364,7 @@ pub enum ProfileHealth {
 }
 
 /// Authentication profile combining credential with metadata
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AuthProfile {
     /// Unique profile identifier
     pub id: String,

@@ -13,6 +13,7 @@ pub mod batch_template;
 pub mod boundary;
 pub mod cache;
 pub mod config_types;
+pub mod contracts;
 pub mod defaults;
 pub mod error;
 pub mod filtered;
@@ -99,6 +100,17 @@ pub use model::ModelProvider;
 
 // Shared steer/runtime control types
 pub use steer::{SteerCommand, SteerMessage, SteerSource};
+
+// Shared transport and IPC contracts
+pub use contracts::request;
+pub use contracts::{
+    ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse, ChatSessionEvent,
+    CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, ErrorKind,
+    ErrorPayload, ExecutionScope, ExecutionStats, IdResponse, IpcDaemonStatus, IpcRequest,
+    IpcStreamEvent, OkResponse, PromptResponse, ResponseEnvelope, SecretResponse, SteerResponse,
+    StreamEnvelope, StreamEventKind, StreamFrame, TASK_STREAM_EVENT, TaskStreamEvent,
+    ToolDefinition, ToolExecutionResult,
+};
 
 // Shared default constants
 pub use defaults::{

@@ -1,11 +1,10 @@
 use super::*;
 use crate::models::{ChatSessionSource, ChatTurnStatus};
 use crate::storage::Storage;
-use crate::storage::simple_storage::{ChatSessionRawStorage, SimpleStorage};
 use crate::{
     ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace, MetricSampleTrace,
 };
-use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
+use restflow_traits::request::{ChildRunListQuery, WireModelRef};
 
 fn assert_execution_thread_error(
     response: IpcResponse,
@@ -797,20 +796,26 @@ async fn apply_effective_session_source_defaults_to_workspace_when_no_external_r
 
 #[tokio::test]
 async fn steer_chat_stream_delivers_message_to_registered_stream() {
-    let session_id = format!("session-{}", Uuid::new_v4());
+    let (core, _temp) = create_test_core().await;
+    let session_service = SessionService::from_storage(&core.storage);
+    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    session.add_message(ChatMessage::user("start"));
+    core.storage.chat_sessions.create(&session).unwrap();
+    let session_id = session.id.clone();
     let stream_id = format!("stream-{}", Uuid::new_v4());
+    let turn_id = stream_id.clone();
     let (tx, mut rx) = mpsc::channel::<SteerMessage>(1);
 
     active_chat_stream_sessions().lock().await.insert(
         session_id.clone(),
-        ActiveChatStreamBinding::new(stream_id.clone(), None),
+        ActiveChatStreamBinding::new(stream_id.clone(), turn_id.clone(), None),
     );
     active_chat_stream_steers()
         .lock()
         .await
         .insert(stream_id.clone(), tx);
 
-    let steered = steer_chat_stream(&session_id, "continue with option B", None).await;
+    let steered = steer_chat_stream(&core, &session_id, "continue with option B", None).await;
     assert!(steered);
 
     let message = rx.recv().await.expect("steer message");
@@ -820,6 +825,22 @@ async fn steer_chat_stream_delivers_message_to_registered_stream() {
         }
         _ => panic!("expected message steer command"),
     }
+    let stored = session_service
+        .get_session_view(&session_id)
+        .unwrap()
+        .expect("stored session");
+    assert!(stored.messages.iter().any(|message| {
+        message.role == ChatRole::User && message.content == "continue with option B"
+    }));
+    let turn = stored
+        .turns
+        .iter()
+        .find(|turn| turn.id == turn_id)
+        .expect("stored turn");
+    assert!(turn.events.iter().any(|event| matches!(
+        &event.kind,
+        ChatTurnEventKind::UserMessage { content } if content == "continue with option B"
+    )));
 
     active_chat_stream_sessions()
         .lock()
@@ -830,22 +851,27 @@ async fn steer_chat_stream_delivers_message_to_registered_stream() {
 
 #[tokio::test]
 async fn steer_chat_stream_rejects_different_owner_scope() {
+    let (core, _temp) = create_test_core().await;
     let session_id = format!("session-{}", Uuid::new_v4());
     let stream_id = format!("stream-{}", Uuid::new_v4());
-    let owner_scope = restflow_contracts::ExecutionScope::foreground("client-a", "terminal-a");
-    let other_scope = restflow_contracts::ExecutionScope::foreground("client-b", "terminal-b");
+    let owner_scope = restflow_traits::ExecutionScope::foreground("client-a", "terminal-a");
+    let other_scope = restflow_traits::ExecutionScope::foreground("client-b", "terminal-b");
     let (tx, _rx) = mpsc::channel::<SteerMessage>(1);
 
     active_chat_stream_sessions().lock().await.insert(
         session_id.clone(),
-        ActiveChatStreamBinding::new(stream_id.clone(), Some(owner_scope.clone())),
+        ActiveChatStreamBinding::new(
+            stream_id.clone(),
+            stream_id.clone(),
+            Some(owner_scope.clone()),
+        ),
     );
     active_chat_stream_steers()
         .lock()
         .await
         .insert(stream_id.clone(), tx);
 
-    let steered = steer_chat_stream(&session_id, "continue", Some(&other_scope)).await;
+    let steered = steer_chat_stream(&core, &session_id, "continue", Some(&other_scope)).await;
     assert!(!steered);
 
     active_chat_stream_sessions()
@@ -857,8 +883,9 @@ async fn steer_chat_stream_rejects_different_owner_scope() {
 
 #[tokio::test]
 async fn steer_chat_stream_returns_false_when_no_active_session_stream() {
+    let (core, _temp) = create_test_core().await;
     let session_id = format!("session-{}", Uuid::new_v4());
-    let steered = steer_chat_stream(&session_id, "test", None).await;
+    let steered = steer_chat_stream(&core, &session_id, "test", None).await;
     assert!(!steered);
 }
 
@@ -1007,7 +1034,7 @@ async fn cancel_chat_stream_persists_partial_assistant_before_canceled_event() {
         .insert(turn_id.clone(), handle);
     active_chat_stream_sessions().lock().await.insert(
         session_id.clone(),
-        ActiveChatStreamBinding::new(turn_id.clone(), None),
+        ActiveChatStreamBinding::new(turn_id.clone(), turn_id.clone(), None),
     );
     emitted_rx.await.expect("worker emitted partial answer");
 
@@ -1031,7 +1058,7 @@ async fn cancel_chat_stream_persists_partial_assistant_before_canceled_event() {
 }
 
 #[tokio::test]
-async fn execute_chat_session_returns_not_found_for_missing_session() {
+async fn daemon_execute_chat_session_request_is_unsupported() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
@@ -1039,8 +1066,8 @@ async fn execute_chat_session_returns_not_found_for_missing_session() {
         &core,
         &runtime_tool_registry,
         IpcRequest::ExecuteChatSession {
-            session_id: "missing-session".to_string(),
-            user_input: None,
+            session_id: "session-1".to_string(),
+            user_input: Some("hello".to_string()),
             workspace_root: None,
         },
     )
@@ -1048,81 +1075,60 @@ async fn execute_chat_session_returns_not_found_for_missing_session() {
 
     match response {
         IpcResponse::Error(error) => {
-            assert_eq!(error.code, 404);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
-            assert_eq!(error.message, "Session not found");
+            assert_eq!(error.code, -3);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Protocol);
+            assert_eq!(
+                error.message,
+                "Foreground chat execution runs in the TUI process"
+            );
         }
         other => panic!("expected error response, got {other:?}"),
     }
 }
 
 #[tokio::test]
-async fn execute_chat_session_returns_bad_request_without_user_message() {
+async fn daemon_execute_chat_session_stream_request_is_unsupported() {
     let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
 
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ExecuteChatSession {
-            session_id: session.id.clone(),
-            user_input: None,
+    let err = IpcServer::open_stream(
+        core,
+        IpcRequest::ExecuteChatSessionStream {
+            session_id: "session-1".to_string(),
+            user_input: Some("hello".to_string()),
+            stream_id: "turn-1".to_string(),
             workspace_root: None,
+            scope: None,
         },
     )
-    .await;
+    .await
+    .expect_err("daemon foreground stream should be unsupported");
 
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
-            assert_eq!(error.message, "No user message found in session");
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
+    assert_eq!(
+        err.to_string(),
+        "Foreground chat streaming runs in the TUI process"
+    );
 }
 
 #[tokio::test]
-async fn execute_chat_session_persists_voice_message_when_preprocess_fails() {
+async fn foreground_chat_stream_reports_missing_session_without_daemon_ipc() {
     let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ExecuteChatSession {
-            session_id: session.id.clone(),
-            user_input: Some(
-                "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm".to_string(),
-            ),
-            workspace_root: None,
-        },
+    let mut rx = open_foreground_chat_session_stream(
+        core,
+        "missing-session".to_string(),
+        Some("hello".to_string()),
+        "turn-missing".to_string(),
+        None,
     )
-    .await;
+    .await
+    .expect("foreground stream");
 
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
-            assert!(error.message.contains("Voice transcription failed:"));
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
-
-    let stored = core
-        .storage
-        .chat_sessions
-        .get(&session.id)
-        .unwrap()
-        .expect("session");
-    assert_eq!(stored.messages.len(), 1);
-    assert_eq!(stored.messages[0].role, ChatRole::User);
-    assert!(stored.messages[0].content.contains("media_type: voice"));
-    assert!(!stored.messages[0].content.contains("instruction:"));
+    let first = rx.recv().await.expect("start frame");
+    assert!(matches!(first, StreamFrame::Start { .. }));
+    let second = rx.recv().await.expect("error frame");
+    assert!(matches!(
+        second,
+        StreamFrame::Error(error) if error.message == "Session not found"
+    ));
 }
 
 #[tokio::test]
@@ -1144,37 +1150,8 @@ async fn add_message_returns_bad_request_for_invalid_role_payload() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Validation);
             assert!(error.message.contains("Invalid request payload"));
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn execute_chat_session_returns_internal_error_for_malformed_session_payload() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let raw_storage = ChatSessionRawStorage::new(core.storage.get_db()).unwrap();
-
-    raw_storage.put_raw("bad-session", b"{bad-json").unwrap();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ExecuteChatSession {
-            session_id: "bad-session".to_string(),
-            user_input: None,
-            workspace_root: None,
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 500);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Internal);
-            assert!(error.message.contains("key must be a string"));
         }
         other => panic!("expected error response, got {other:?}"),
     }

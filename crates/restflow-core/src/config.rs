@@ -1597,7 +1597,6 @@ mod tests {
     use std::env;
     use std::fs;
     use std::path::Path;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::NamedTempFile;
     use tempfile::tempdir;
 
@@ -1679,10 +1678,7 @@ mod tests {
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::test_support::env_lock()
     }
 
     #[test]

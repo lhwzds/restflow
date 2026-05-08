@@ -2,7 +2,7 @@ use crate::models::{
     AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRef, ModelRoutingConfig,
     SkillPreflightPolicyMode, ValidationError,
 };
-use restflow_contracts::request::{
+use restflow_traits::request::{
     AgentNode as ContractAgentNode, ApiKeyConfig as ContractApiKeyConfig,
     CodexCliExecutionMode as ContractCodexCliExecutionMode,
     SkillPreflightPolicyMode as ContractSkillPreflightPolicyMode,
@@ -102,7 +102,7 @@ impl TryFrom<ContractAgentNode> for AgentNode {
 mod tests {
     use super::*;
     use crate::models::ModelId;
-    use restflow_contracts::request::WireModelRef;
+    use restflow_traits::request::WireModelRef;
 
     #[test]
     fn agent_boundary_round_trips_contract_shape() {

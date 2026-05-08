@@ -4,7 +4,7 @@ use tokio::time::{Duration, timeout};
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::impls::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_contracts::request::{
+use restflow_traits::request::{
     InlineAgentRunConfig as ContractInlineAgentRunConfig,
     RunSpawnRequest as ContractRunSpawnRequest,
 };

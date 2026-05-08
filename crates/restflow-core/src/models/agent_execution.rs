@@ -6,12 +6,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
-use ts_rs::TS;
 
 /// Agent execution response with details
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AgentExecuteResponse {
     /// The final response text from the agent
     pub response: String,
@@ -20,9 +17,7 @@ pub struct AgentExecuteResponse {
 }
 
 /// Execution details for visualization
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ExecutionDetails {
     /// Number of ReAct loop iterations
     pub iterations: usize,
@@ -35,9 +30,7 @@ pub struct ExecutionDetails {
 }
 
 /// Individual execution step
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ExecutionStep {
     /// Step type: "system" | "user" | "assistant" | "tool_call" | "tool_result"
     pub step_type: String,
@@ -48,40 +41,12 @@ pub struct ExecutionStep {
 }
 
 /// Tool call information
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ToolCallInfo {
     /// Unique identifier for this tool call
     pub id: String,
     /// Name of the tool being called
     pub name: String,
     /// Arguments passed to the tool (JSON object)
-    #[ts(type = "Record<string, unknown>")]
     pub arguments: Value,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn export_bindings_agentexecuteresponse() {
-        AgentExecuteResponse::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_executiondetails() {
-        ExecutionDetails::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_executionstep() {
-        ExecutionStep::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_toolcallinfo() {
-        ToolCallInfo::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
 }

@@ -2,30 +2,39 @@
 
 ## Status
 
-- Updated: 2026-05-05
+- Updated: 2026-05-07
 - Scope: Runtime architecture, session storage, deployment model, and migration baseline
 - Audience: Core contributors working on TUI, CLI, daemon, skills, and runtime services
 
 ## 1. Architectural Decision
 
-RestFlow follows a **local agent runtime with file-backed sessions** architecture.
+RestFlow follows a **foreground TUI agent with daemon-hosted background work**
+architecture.
 
-- Daemon is the execution owner for agent loops, background tasks, approvals, secrets, and runtime side effects.
+- The TUI process owns foreground chat execution, agent loop streaming, tool
+  execution, active turn state, and foreground session writes through
+  `SessionService`.
+- The daemon owns durable background tasks, scheduled runs, MCP HTTP, secrets,
+  auth, and background task/run lifecycle.
 - User-visible chat sessions are stored as one JSONL file per session under `~/.restflow/sessions/`.
-- TUI reads session history through daemon IPC; `SessionService` is the canonical user-visible session read/write boundary and prefers JSONL when the file store is available.
+- TUI reads and writes foreground session history through `SessionService`; it
+  uses daemon IPC only for background task/run controls and daemon-owned event
+  streams.
 - CLI `session` commands route through daemon IPC and `SessionService`; `import` may write JSONL session transcripts directly because it only migrates external history.
 - `restflow.db` is reduced to the secrets store. Other local runtime state is
   file-backed or process-local unless a new file format is explicitly added.
 
-This keeps execution ownership centralized while making session history portable,
-inspectable, and compatible with other coding-agent transcripts.
+This keeps foreground chat responsive without a daemon dependency while keeping
+durable background work centralized and inspectable.
 
 ## 2. System Invariants
 
-1. Single execution center: agent execution and routing decisions are daemon-owned.
+1. Foreground/background split: foreground chat execution is TUI-process-owned;
+   durable background execution is daemon-owned.
 2. Canonical session files: user-visible session history lives in JSONL files under `~/.restflow/sessions/`.
 3. Direct session-file writes outside `SessionService` are limited to transcript import.
-4. Daemon-owned state remains daemon-owned: tasks, runs, approvals, secrets, and runtime side effects must not be written by TUI adapters.
+4. Daemon-owned state remains daemon-owned: tasks, runs, secrets, auth, and
+   background runtime side effects must not be written by TUI adapters.
 5. One file per session: imported Claude Code, Codex, and OpenCode histories are normalized into RestFlow session JSONL, without preserving source-specific storage ownership fields.
 6. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
 7. Turn-level UI history: `ChatSession.messages` remains the model-context projection; `ChatSession.turns[*].events` is the ordered UI/runtime projection for user messages, assistant output, tool calls, tool results, errors, and cancellation.
@@ -36,17 +45,23 @@ inspectable, and compatible with other coding-agent transcripts.
 
 ```mermaid
 flowchart TD
-    TUI["TUI"] -->|"IPC / stream"| Daemon["Daemon"]
+    TUI["TUI"] -->|"local foreground chat stream"| Foreground["Foreground agent runtime"]
+    TUI -->|"SessionService"| SessionFiles["~/.restflow/sessions/**/*.jsonl"]
+    TUI -->|"IPC: background tasks/runs"| Daemon["Daemon"]
     CLI["CLI"] -->|"IPC / HTTP"| Daemon
     McpCallers["MCP callers"] -->|"JSON-RPC over HTTP"| Daemon
 
+    Foreground --> Chat["Chat session runtime"]
+    Foreground --> AgentLoop["restflow-ai agent loop"]
+    Foreground --> Tools["restflow-tools / skrun bridge"]
+    Foreground --> SessionFiles
+
     Daemon --> Ipc["IPC server"]
     Daemon --> Mcp["MCP HTTP server"]
-    Daemon --> Chat["Chat session runtime"]
     Daemon --> Runner["Task runner"]
     Daemon --> Runtime["Runtime event publishing"]
     Daemon --> Services["Service layer"]
-    CLI -->|"session/import JSONL only"| SessionFiles["~/.restflow/sessions/**/*.jsonl"]
+    CLI -->|"session/import JSONL only"| SessionFiles
 
     Services --> SessionFiles
     Services --> RuntimeState["process-local task / trace state"]
@@ -58,22 +73,20 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Contracts["restflow-contracts"] --> Traits["restflow-traits"]
     Traits --> Models["restflow-models"]
     Traits --> Ai["restflow-ai"]
     Traits --> Tools["restflow-tools"]
+    Traits --> Core["restflow-core"]
+    Traits --> Tui["restflow-tui"]
 
     Models --> Ai
     Models --> Tools
-    Contracts --> Core["restflow-core"]
     Models --> Core
-    Storage["restflow-storage"] --> Core
     Ai --> Core
     Tools --> Core
 
     Core --> Cli["restflow-cli"]
-    Core --> Tui["restflow-tui"]
-    Contracts --> Tui
+    Core --> Tui
 ```
 
 Notes:
@@ -86,12 +99,16 @@ Notes:
 
 ### 4.1 Chat Session Flow
 
-1. Client sends request to daemon.
-2. Daemon routes message via the chat session runtime.
-3. Daemon records the active turn and user event.
-4. Runtime executes agent/tool loop.
-5. Daemon emits realtime stream events and records turn events for tool calls, tool results, final assistant output, errors, and cancellation.
-6. Client renders the live stream, then reads stable history from the session turn/event projection.
+1. TUI receives a foreground user message.
+2. TUI opens a local foreground chat stream in its own process.
+3. The foreground runtime records the active turn and user event through
+   `SessionService`.
+4. Runtime executes the agent/tool loop in the TUI process.
+5. The foreground stream emits realtime events and records turn events for tool
+   calls, tool results, user steering updates, final assistant output, errors,
+   and cancellation.
+6. TUI renders the live stream, then reads stable history from the session
+   turn/event projection.
 
 ```text
 ChatSession
@@ -144,8 +161,9 @@ subagents into task storage.
 ### TUI
 
 - Primary local user interface.
-- Calls daemon/runtime through IPC and stream contracts.
-- Reads session history through daemon IPC; daemon services own JSONL transcript access.
+- Owns foreground chat execution through local runtime streams.
+- Reads and writes foreground session history through `SessionService`.
+- Calls daemon IPC only for durable background task/run controls and events.
 - Does not write task/run/secrets state.
 
 ### CLI
@@ -356,15 +374,15 @@ of the runtime.
 
 - `restflow-core` owns trace domain models, typed trace wrappers, and runtime
   trace services
-- `restflow-storage` owns config loading and the reduced secrets table
-- `restflow-contracts` owns IPC-visible task/session stream contracts
+- `restflow-core` owns config loading and the reduced secrets table
+- `restflow-traits::contracts` owns IPC-visible task/session stream contracts
 - `restflow-ai` owns AI-internal execution stream types and telemetry events
 
 This means:
 
 - typed trace models belong in `restflow-core`
 - process-local runtime stores stay inside `restflow-core`; only secrets use a redb table
-- client-visible stream contracts stay in `restflow-contracts`
+- client-visible stream contracts stay in `restflow-traits::contracts`
 - AI-internal execution streaming abstractions stay near AI execution runtime
   code
 
@@ -387,16 +405,20 @@ to keep protocol, domain, runtime, and storage responsibilities explicit.
 
 ### TUI Execution Architecture
 
-The TUI is the primary local client. It consumes daemon/runtime stream events
-and renders the current conversation-first execution state. It must not own
-durable execution state or introduce alternate write paths.
+The TUI is the primary foreground agent runtime. It opens local foreground chat
+streams, consumes runtime stream events, writes foreground session turns through
+`SessionService`, and renders the current conversation-first execution state. It
+must not own durable background task/run state or introduce alternate session
+write paths outside `SessionService`.
 
 The TUI should remain a client of:
 
-- daemon IPC requests and streams
+- local foreground chat runtime streams
+- daemon IPC requests and streams for background task/run work
 - runtime event contracts
 - skill catalog reads
-- explicit runtime actions exposed by the daemon
+- explicit runtime actions exposed by foreground runtime or daemon background
+  services
 
 TUI runtime activity has three presentation levels:
 
@@ -413,8 +435,8 @@ Command overlays
 └── /resume for saved session navigation
 
 Durable history
-├── session messages and turn events owned by daemon storage
-└── no TUI-owned task, run, or subagent state
+├── foreground session messages and turn events written through SessionService
+└── no TUI-owned durable task, run, or scheduled background state
 ```
 
 The active message panel is the only place where transient run progress belongs
@@ -545,8 +567,9 @@ Compatibility remains part of the architecture, not an optional release task.
    - add optional fields before removing old ones
    - keep tolerant readers while migrations are still in flight
    - preserve old aliases until rollout is complete
-3. TUI, CLI, and MCP remain facades over daemon-owned execution behavior.
-   Transcript import is the explicit file-write exception.
+3. TUI owns foreground chat execution through shared runtime services. CLI,
+   MCP, and daemon IPC remain facades over daemon-owned background behavior.
+   Transcript import is the explicit non-`SessionService` file-write exception.
 
 ### Validation Gates
 
@@ -566,8 +589,8 @@ After architecture-sensitive changes, verify at least these flows:
    - health/status check
    - clean stop
 2. Chat execution:
-   - request
-   - stream
+   - foreground TUI request without daemon IPC
+   - local stream
    - persisted history replay
 3. Task execution:
    - trigger
@@ -582,7 +605,7 @@ After architecture-sensitive changes, verify at least these flows:
 
 ### Execution Response Contract Migration Notes
 
-Execution query ownership now lives in `restflow-contracts`. Response-side
+Execution query ownership now lives in `restflow-traits::contracts`. Response-side
 execution DTOs should follow the same daemon-owned rule, but only after
 runtime builders are separated from transport payloads.
 
@@ -591,10 +614,10 @@ Current inventory:
 | Type | Current owner | Target owner | Notes |
 | --- | --- | --- | --- |
 | `ExecutionTraceEvent` | `restflow-core` | split | Still carries runtime constructors and builder helpers |
-| `ExecutionTimeline` | `restflow-core` | `restflow-contracts` | Move after `ExecutionTraceEvent` contract DTO exists |
-| `ExecutionMetricsResponse` | `restflow-core` | `restflow-contracts` | Pure transport wrapper once event DTO is contract-owned |
-| `ProviderHealthResponse` | `restflow-core` | `restflow-contracts` | Pure transport wrapper once event DTO is contract-owned |
-| `ExecutionLogResponse` | `restflow-core` | `restflow-contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ExecutionTimeline` | `restflow-core` | `restflow-traits::contracts` | Move after `ExecutionTraceEvent` contract DTO exists |
+| `ExecutionMetricsResponse` | `restflow-core` | `restflow-traits::contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ProviderHealthResponse` | `restflow-core` | `restflow-traits::contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ExecutionLogResponse` | `restflow-core` | `restflow-traits::contracts` | Pure transport wrapper once event DTO is contract-owned |
 
 Response migration order:
 
@@ -602,33 +625,35 @@ Response migration order:
 2. Keep builder/helper APIs in `restflow-core`, but make them construct
    contract-owned DTOs.
 3. Move simple response wrappers plus `ExecutionTraceStats` and
-   `ExecutionTraceTimeRange` into `restflow-contracts`.
+   `ExecutionTraceTimeRange` into `restflow-traits::contracts`.
 4. Delete redundant core-owned DTO structs only after parity tests pass.
 
 Required parity guards before the response move:
 
 - Rust round-trip tests between `restflow-core` re-exports and
-  `restflow-contracts` DTOs.
+  `restflow-traits::contracts` DTOs.
 - Serialization compatibility tests for representative event payloads.
 - Contract existence and field-shape tests for event/timeline response types.
 - No wrapper-only response shapes added in TUI, CLI, IPC, or MCP facades.
 
 Do:
 
-- Add new business capabilities in daemon IPC/RPC handlers first.
-- Keep routing ownership in daemon runtime components.
+- Add foreground chat capabilities in shared runtime/session services first.
+- Add durable task/run capabilities in daemon IPC/RPC handlers first.
+- Keep routing ownership in the runtime component that owns the lifecycle:
+  TUI process for foreground chat, daemon for durable background work.
 - Preserve one-way client facade boundaries.
 
 Do not:
 
 - Add direct daemon-state storage access in TUI adapters or request handlers.
-- Add fallback write paths that bypass daemon ownership.
+- Add fallback session write paths that bypass `SessionService`.
 - Encode routing ownership only in display fields on session models.
 
 ## 11. Implementation Roadmap (High-Level)
 
-1. Enforce daemon handshake and remove silent fallback execution paths.
-2. Unify client command surfaces through daemon APIs.
-3. Keep routing ownership in daemon session services.
+1. Keep foreground chat runnable without daemon IPC.
+2. Keep durable background task/run execution daemon-hosted.
+3. Unify client command surfaces through the appropriate owning runtime API.
 4. Unify realtime and persisted event identity to eliminate duplicates.
 5. Remove obsolete compatibility paths after rollout verification.

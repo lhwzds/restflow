@@ -459,10 +459,10 @@ mod tests {
     use crate::services::session::SessionService;
     use crate::storage::{ExecutionTraceStorage, SessionStorage};
     use async_trait::async_trait;
-    use restflow_contracts::request::TaskSchedule as ContractTaskSchedule;
     use restflow_traits::assessment::{
         AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     };
+    use restflow_traits::request::TaskSchedule as ContractTaskSchedule;
     use restflow_traits::store::{
         AgentCreateRequest, AgentUpdateRequest, TaskArtifactListRequest, TaskControlRequest,
         TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,

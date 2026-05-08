@@ -1,7 +1,6 @@
-use crate::StreamEnvelope;
+use super::StreamEnvelope;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 pub const TASK_STREAM_EVENT: &str = "task:stream";
 
@@ -23,9 +22,7 @@ pub enum IpcStreamEvent {
 
 pub type StreamFrame = StreamEnvelope<IpcStreamEvent>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExecutionScope {
     Foreground {
@@ -61,9 +58,7 @@ impl ExecutionScope {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct TaskStreamEvent {
     pub task_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,14 +69,11 @@ pub struct TaskStreamEvent {
     pub parent_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<ExecutionScope>,
-    #[ts(type = "number")]
     pub timestamp: i64,
     pub kind: StreamEventKind,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEventKind {
     Started {
@@ -103,7 +95,6 @@ pub enum StreamEventKind {
     },
     Completed {
         result: String,
-        #[ts(type = "number")]
         duration_ms: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         stats: Option<ExecutionStats>,
@@ -112,24 +103,19 @@ pub enum StreamEventKind {
         error: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         error_code: Option<String>,
-        #[ts(type = "number")]
         duration_ms: i64,
         recoverable: bool,
     },
     Interrupted {
         reason: String,
-        #[ts(type = "number")]
         duration_ms: i64,
     },
     Heartbeat {
-        #[ts(type = "number")]
         elapsed_ms: i64,
     },
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 pub struct ExecutionStats {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_lines: Option<u32>,

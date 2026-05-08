@@ -44,7 +44,7 @@ pub struct IpcClient {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use restflow_contracts::ErrorPayload;
+    use restflow_traits::ErrorPayload;
 
     #[test]
     fn format_ipc_error_without_details_uses_simple_message() {

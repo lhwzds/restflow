@@ -4,7 +4,7 @@
 
 use crate::models::{ModelId, ModelRef};
 use crate::{AppCore, models::ValidationError};
-use restflow_contracts::request::{
+use restflow_traits::request::{
     AgentNode as ContractAgentNode, ApiKeyConfig as ContractApiKeyConfig,
     CodexCliExecutionMode as ContractCodexCliExecutionMode,
     ModelRoutingConfig as ContractModelRoutingConfig,
@@ -14,12 +14,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 use std::sync::Arc;
-use ts_rs::TS;
 
 /// Codex CLI execution mode.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexCliExecutionMode {
     /// Safe mode: codex runs with `--full-auto`.
@@ -39,9 +36,7 @@ impl CodexCliExecutionMode {
 }
 
 /// Skill preflight policy mode.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillPreflightPolicyMode {
     /// Disable skill-related preflight issues.
@@ -54,22 +49,17 @@ pub enum SkillPreflightPolicyMode {
 }
 
 /// Model routing configuration for automatic tier-based model selection.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ModelRoutingConfig {
     /// Enable automatic model routing.
     pub enabled: bool,
     /// Model for routine tasks (cheapest).
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routine_model: Option<String>,
     /// Model for moderate tasks.
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moderate_model: Option<String>,
     /// Model for complex tasks (most capable).
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub complex_model: Option<String>,
     /// Escalate to complex tier after a failed iteration.
@@ -101,9 +91,7 @@ impl From<&ModelRoutingConfig> for restflow_ai::agent::ModelRoutingConfig {
 }
 
 /// API key or password configuration (direct value or secret reference)
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case", tag = "type", content = "value")]
 pub enum ApiKeyConfig {
     /// Direct password/key value
@@ -113,52 +101,39 @@ pub enum ApiKeyConfig {
 }
 
 /// Agent configuration for AI-powered execution
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
 pub struct AgentNode {
     /// Explicit provider + model reference.
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_ref: Option<ModelRef>,
     /// System prompt for the agent
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     /// Temperature setting for model responses
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     /// Optional reasoning effort override for Codex CLI models
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_cli_reasoning_effort: Option<String>,
     /// Optional execution mode override for Codex CLI models (`safe` | `bypass`)
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_cli_execution_mode: Option<CodexCliExecutionMode>,
     /// API key configuration (direct or from secret)
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_config: Option<ApiKeyConfig>,
     /// List of tool names the agent is allowed to use
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
     /// List of skill IDs to load into the system prompt
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<String>>,
     /// Variables available for skill prompt substitution
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_variables: Option<HashMap<String, String>>,
     /// Optional skill preflight policy mode (`off` | `warn` | `enforce`).
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_preflight_policy_mode: Option<SkillPreflightPolicyMode>,
     /// Optional tier-based model routing policy.
-    #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_routing: Option<ModelRoutingConfig>,
 }
@@ -556,7 +531,7 @@ mod tests {
     use super::*;
     use crate::models::Provider;
     use crate::test_support::RestflowTestEnv;
-    use restflow_contracts::request::AgentNode as ContractAgentNode;
+    use restflow_traits::request::AgentNode as ContractAgentNode;
 
     #[test]
     fn with_codex_cli_reasoning_effort_sets_trimmed_value() {

@@ -36,7 +36,7 @@ pub struct SkillRegistryConfig {
 
 impl Default for SkillRegistryConfig {
     fn default() -> Self {
-        let data_dir = restflow_storage::paths::resolve_restflow_dir()
+        let data_dir = crate::paths::resolve_restflow_dir()
             .unwrap_or_else(|_| std::env::temp_dir().join("restflow"));
 
         Self {

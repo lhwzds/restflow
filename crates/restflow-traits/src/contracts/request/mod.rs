@@ -4,9 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
-use ts_rs::TS;
 
-use crate::ExecutionScope;
+use super::ExecutionScope;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
@@ -822,9 +821,7 @@ pub struct Skill {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTraceCategory {
     LlmCall,
@@ -837,9 +834,7 @@ pub enum ExecutionTraceCategory {
     LogRecord,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTraceSource {
     AgentExecutor,
@@ -849,26 +844,20 @@ pub enum ExecutionTraceSource {
     Telemetry,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolCallPhase {
     Started,
     Completed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct MetricDimension {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct LlmCallTrace {
     pub model: String,
     pub input_tokens: Option<u32>,
@@ -880,9 +869,7 @@ pub struct LlmCallTrace {
     pub message_count: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ToolCallTrace {
     pub phase: ToolCallPhase,
     pub tool_call_id: String,
@@ -896,9 +883,7 @@ pub struct ToolCallTrace {
     pub duration_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ModelSwitchTrace {
     pub from_model: String,
     pub to_model: String,
@@ -906,9 +891,7 @@ pub struct ModelSwitchTrace {
     pub success: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct LifecycleTrace {
     pub status: String,
     pub message: Option<String>,
@@ -916,18 +899,14 @@ pub struct LifecycleTrace {
     pub ai_duration_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct MessageTrace {
     pub role: String,
     pub content_preview: Option<String>,
     pub tool_call_count: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct MetricSampleTrace {
     pub name: String,
     pub value: f64,
@@ -935,9 +914,7 @@ pub struct MetricSampleTrace {
     pub dimensions: Vec<MetricDimension>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ProviderHealthTrace {
     pub provider: String,
     pub model: Option<String>,
@@ -946,36 +923,28 @@ pub struct ProviderHealthTrace {
     pub error_kind: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ExecutionLogField {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct LogRecordTrace {
     pub level: String,
     pub message: String,
     pub fields: Vec<ExecutionLogField>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionTraceEvent {
     pub id: String,
     pub task_id: String,
     pub agent_id: String,
     pub category: ExecutionTraceCategory,
     pub source: ExecutionTraceSource,
-    #[ts(type = "number")]
     pub timestamp: i64,
     #[serde(default)]
-    #[ts(type = "string[]")]
     pub subflow_path: Vec<String>,
     pub run_id: Option<String>,
     pub parent_run_id: Option<String>,
@@ -1003,9 +972,7 @@ pub struct ExecutionTraceEvent {
     pub log_record: Option<LogRecordTrace>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionTraceStats {
     pub total_events: u64,
     pub llm_call_count: u64,
@@ -1021,48 +988,34 @@ pub struct ExecutionTraceStats {
     pub time_range: Option<ExecutionTraceTimeRange>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ExecutionTraceTimeRange {
-    #[ts(type = "number")]
     pub earliest: i64,
-    #[ts(type = "number")]
     pub latest: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionTimeline {
     pub events: Vec<ExecutionTraceEvent>,
     pub stats: ExecutionTraceStats,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionMetricsResponse {
     pub samples: Vec<ExecutionTraceEvent>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ProviderHealthResponse {
     pub events: Vec<ExecutionTraceEvent>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionLogResponse {
     pub events: Vec<ExecutionTraceEvent>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionTraceQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
@@ -1101,9 +1054,7 @@ pub struct ChildRunListQuery {
     pub parent_run_id: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionMetricQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
@@ -1113,18 +1064,14 @@ pub struct ExecutionMetricQuery {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ProviderHealthQuery {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionLogQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,

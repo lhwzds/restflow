@@ -27,12 +27,9 @@
 use crate::models::ModelId;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 /// Role of a message sender in a chat session.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatRole {
     /// Message from the user
@@ -45,9 +42,7 @@ pub enum ChatRole {
 }
 
 /// Status of message execution (distinct from workflow ExecutionStatus).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatExecutionStatus {
     /// Execution is in progress
@@ -60,9 +55,7 @@ pub enum ChatExecutionStatus {
 }
 
 /// Structured media type for a chat message.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatMediaType {
     /// Voice audio message.
@@ -70,9 +63,7 @@ pub enum ChatMediaType {
 }
 
 /// Structured media payload for a chat message.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ChatMessageMedia {
     /// Media kind.
     pub media_type: ChatMediaType,
@@ -80,7 +71,6 @@ pub struct ChatMessageMedia {
     pub file_path: String,
     /// Optional media duration in seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub duration_sec: Option<u32>,
 }
 
@@ -96,20 +86,15 @@ impl ChatMessageMedia {
 }
 
 /// Structured transcript payload for a chat message.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ChatMessageTranscript {
     /// Final transcript text.
     pub text: String,
     /// Optional model identifier used for transcription.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub model: Option<String>,
     /// Optional update timestamp in Unix milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    #[ts(type = "number")]
     pub updated_at: Option<i64>,
 }
 
@@ -128,9 +113,7 @@ impl ChatMessageTranscript {
 ///
 /// Tracks individual steps taken during agent execution, such as
 /// tool calls, API requests, or thinking processes.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionStepInfo {
     /// Type of step (e.g., "tool_call", "api_request", "thinking")
     pub step_type: String,
@@ -171,9 +154,7 @@ impl ExecutionStepInfo {
 ///
 /// Contains information about what the agent did to generate the response,
 /// including tool calls, duration, and token usage.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct MessageExecution {
     /// Individual steps taken during execution
     pub steps: Vec<ExecutionStepInfo>,
@@ -239,9 +220,7 @@ impl MessageExecution {
 ///
 /// Represents either a user message, assistant response, or system instruction.
 /// Assistant messages may include execution details showing what the agent did.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ChatMessage {
     /// Unique identifier for this message
     #[serde(default = "new_message_id")]
@@ -257,18 +236,14 @@ pub struct ChatMessage {
     pub execution: Option<MessageExecution>,
     /// Optional structured media metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub media: Option<ChatMessageMedia>,
     /// Optional structured transcript metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub transcript: Option<ChatMessageTranscript>,
 }
 
 /// Lifecycle state for a user-visible conversation turn.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatTurnStatus {
     /// The turn is currently executing.
@@ -283,9 +258,7 @@ pub enum ChatTurnStatus {
 }
 
 /// User-visible event inside a chat turn.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatTurnEventKind {
     /// User input that started the turn.
@@ -311,9 +284,7 @@ pub enum ChatTurnEventKind {
 }
 
 /// A single user-visible event in a chat turn.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ChatTurnEvent {
     /// Unique event identifier.
     #[serde(default = "new_message_id")]
@@ -336,9 +307,7 @@ impl ChatTurnEvent {
 }
 
 /// A single user turn containing ordered UI/runtime events.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ChatTurn {
     /// Stable turn identifier. Streaming IPC uses the stream id as the turn id.
     pub id: String,
@@ -350,7 +319,6 @@ pub struct ChatTurn {
     pub updated_at: i64,
     /// Unix timestamp in milliseconds when the turn ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub completed_at: Option<i64>,
     /// Ordered user-visible runtime events for this turn.
     #[serde(default)]
@@ -423,9 +391,7 @@ impl ChatMessage {
 /// Metadata for a chat session.
 ///
 /// Tracks aggregate statistics about the session.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct ChatSessionMetadata {
     /// Total tokens used across all messages
     pub total_tokens: u32,
@@ -447,9 +413,7 @@ impl ChatSessionMetadata {
 }
 
 /// Origin of a chat session.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSessionSource {
     /// Created from workspace UI / local API entrypoints.
@@ -476,9 +440,7 @@ pub enum ChatSessionSource {
 /// session.add_message(ChatMessage::user("Hello!"));
 /// session.add_message(ChatMessage::assistant("Hi there! How can I help?"));
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ChatSession {
     /// Unique identifier for this session
     pub id: String,
@@ -533,9 +495,7 @@ pub struct ChatSession {
 }
 
 /// Partial update payload for a chat session.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default, PartialEq)]
 pub struct ChatSessionUpdate {
     pub agent_id: Option<String>,
     pub model: Option<String>,
@@ -824,9 +784,7 @@ impl ChatSession {
 }
 
 /// Summary view of a chat session (for listing).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ChatSessionSummary {
     /// Session ID
     pub id: String,
@@ -1176,61 +1134,6 @@ mod tests {
     }
 
     // TypeScript binding export tests
-    #[test]
-    fn export_bindings_chat_role() {
-        ChatRole::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_execution_status() {
-        ChatExecutionStatus::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_media_type() {
-        ChatMediaType::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_message_media() {
-        ChatMessageMedia::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_message_transcript() {
-        ChatMessageTranscript::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_execution_step_info() {
-        ExecutionStepInfo::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_message_execution() {
-        MessageExecution::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_message() {
-        ChatMessage::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_session_metadata() {
-        ChatSessionMetadata::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_session() {
-        ChatSession::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_chat_session_summary() {
-        ChatSessionSummary::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
     #[test]
     fn test_add_message_enforces_max_stored_limit() {
         let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());

@@ -1,4 +1,4 @@
-use crate::ErrorPayload;
+use super::ErrorPayload;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -1,127 +1,59 @@
 use super::*;
-use restflow_storage::ConfigStorage;
 use restflow_traits::config_types::{CliConfig, ConfigDocument, SystemConfig};
 use restflow_traits::store::ConfigStore;
-use std::env;
-use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use tempfile::tempdir;
-
-struct EnvGuard {
-    key: &'static str,
-    original: Option<std::ffi::OsString>,
-}
-
-impl EnvGuard {
-    fn set_path(key: &'static str, path: &Path) -> Self {
-        let original = env::var_os(key);
-        unsafe {
-            env::set_var(key, path);
-        }
-        Self { key, original }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        if let Some(value) = &self.original {
-            unsafe {
-                env::set_var(self.key, value);
-            }
-        } else {
-            unsafe {
-                env::remove_var(self.key);
-            }
-        }
-    }
-}
-
-fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+use std::sync::{Arc, RwLock};
 
 struct TestContext {
     store: Arc<dyn ConfigStore>,
-    _temp_dir: tempfile::TempDir,
-    _global_guard: EnvGuard,
-    _env_lock: std::sync::MutexGuard<'static, ()>,
 }
 
 struct TestConfigStore {
-    storage: Arc<ConfigStorage>,
+    config: Arc<RwLock<ConfigDocument>>,
 }
 
 impl TestConfigStore {
-    fn new(storage: Arc<ConfigStorage>) -> Self {
-        Self { storage }
+    fn new(config: ConfigDocument) -> Self {
+        Self {
+            config: Arc::new(RwLock::new(config)),
+        }
     }
 }
 
 fn config_error(e: impl std::fmt::Display) -> restflow_traits::ToolError {
-    restflow_traits::ToolError::Tool(format!(
-        "Config storage error: {e}. The config file may be missing, invalid, or inaccessible."
-    ))
+    restflow_traits::ToolError::Tool(format!("Config storage error: {e}"))
 }
 
 impl ConfigStore for TestConfigStore {
     fn get_effective_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
-        let system = self.storage.get_effective_config().map_err(config_error)?;
-        let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
-            .map_err(config_error)?;
-        Ok(ConfigDocument::from_system_config(
-            system,
-            CliConfig::default(),
-        ))
+        self.config
+            .read()
+            .map_err(config_error)
+            .map(|config| config.clone())
     }
 
     fn get_writable_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
-        let system = self.storage.get_global_config().map_err(config_error)?;
-        let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
-            .map_err(config_error)?;
-        Ok(ConfigDocument::from_system_config(
-            system,
-            CliConfig::default(),
-        ))
+        self.get_effective_config()
     }
 
     fn persist_config(&self, config: &ConfigDocument) -> restflow_traits::error::Result<()> {
-        let system = serde_json::from_value(
-            serde_json::to_value(config.system_config()).map_err(config_error)?,
-        )
-        .map_err(config_error)?;
-        self.storage.update_config(system).map_err(config_error)?;
+        *self.config.write().map_err(config_error)? = config.clone();
         Ok(())
     }
 
     fn reset_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
         let doc = ConfigDocument::from_system_config(SystemConfig::default(), CliConfig::default());
-        let system = serde_json::from_value(
-            serde_json::to_value(doc.system_config()).map_err(config_error)?,
-        )
-        .map_err(config_error)?;
-        self.storage.update_config(system).map_err(config_error)?;
+        self.persist_config(&doc)?;
         Ok(doc)
     }
 }
 
+fn default_config_document() -> ConfigDocument {
+    ConfigDocument::from_system_config(SystemConfig::default(), CliConfig::default())
+}
+
 fn setup_storage() -> TestContext {
-    let env_guard = env_lock();
-    let temp_dir = tempdir().unwrap();
-    let config_path = temp_dir.path().join("config.toml");
-    let global_guard = EnvGuard::set_path("RESTFLOW_GLOBAL_CONFIG", &config_path);
-    let db_path = temp_dir.path().join("test.db");
-    let db = Arc::new(redb::Database::create(db_path).unwrap());
-    let storage = Arc::new(ConfigStorage::new(db).unwrap());
-    let store: Arc<dyn ConfigStore> = Arc::new(TestConfigStore::new(storage));
-    TestContext {
-        store,
-        _temp_dir: temp_dir,
-        _global_guard: global_guard,
-        _env_lock: env_guard,
-    }
+    let store: Arc<dyn ConfigStore> = Arc::new(TestConfigStore::new(default_config_document()));
+    TestContext { store }
 }
 
 #[tokio::test]

@@ -12,7 +12,7 @@ use crate::services::{
 };
 use crate::storage::SystemConfig;
 use anyhow::Result;
-use restflow_contracts::OkResponse;
+use restflow_traits::OkResponse;
 use std::sync::Arc;
 
 pub enum CoreAccess {
@@ -60,7 +60,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::create_agent(core, name, agent).await,
             CoreAccess::Remote(client) => {
-                let agent = restflow_contracts::request::AgentNode::from(agent);
+                let agent = restflow_traits::request::AgentNode::from(agent);
                 client
                     .request_typed(IpcRequest::CreateAgent { name, agent })
                     .await
@@ -77,7 +77,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::update_agent(core, id, name, agent).await,
             CoreAccess::Remote(client) => {
-                let agent = agent.map(restflow_contracts::request::AgentNode::from);
+                let agent = agent.map(restflow_traits::request::AgentNode::from);
                 client
                     .request_typed(IpcRequest::UpdateAgent {
                         id: id.to_string(),
@@ -169,7 +169,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => secrets_service::get_secret(core, key).await,
             CoreAccess::Remote(client) => {
-                let response: restflow_contracts::SecretResponse = client
+                let response: restflow_traits::SecretResponse = client
                     .request_typed(IpcRequest::GetSecret {
                         key: key.to_string(),
                     })

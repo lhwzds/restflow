@@ -1,13 +1,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 use crate::models::{SkillGating, SkillReference, SkillScript, StorageMode};
 
 /// Skill metadata stored in the database (content lives on disk).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillMeta {
     pub id: String,
     pub name: String,
@@ -46,9 +43,7 @@ pub struct SkillMeta {
     #[serde(default)]
     pub is_synced: bool,
     /// Timestamp when the skill was created (milliseconds since epoch)
-    #[ts(type = "number")]
     pub created_at: i64,
     /// Timestamp when the skill was last updated (milliseconds since epoch)
-    #[ts(type = "number")]
     pub updated_at: i64,
 }

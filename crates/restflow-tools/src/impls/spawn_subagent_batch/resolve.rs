@@ -1,4 +1,4 @@
-use restflow_contracts::request::{
+use restflow_traits::request::{
     InlineAgentRunConfig as ContractInlineAgentRunConfig,
     RunSpawnRequest as ContractRunSpawnRequest,
 };

@@ -1,14 +1,10 @@
-use super::super::runtime::{
-    ExecuteChatSessionRequest, cancel_chat_stream, execute_chat_session, resolve_agent_id,
-    steer_chat_stream,
-};
+use super::super::runtime::{cancel_chat_stream, resolve_agent_id, steer_chat_stream};
 use super::super::*;
 use crate::services::execution_console::{ExecutionConsoleService, ExecutionThreadError};
 use crate::telemetry::{get_execution_metrics, get_provider_health, query_execution_logs};
-use restflow_contracts::{
+use restflow_traits::{
     ArchiveResponse, CancelResponse, DeleteResponse, ExecutionScope, SteerResponse,
 };
-use uuid::Uuid;
 
 impl IpcServer {
     pub(super) async fn handle_list_execution_containers(core: &Arc<AppCore>) -> IpcResponse {
@@ -270,37 +266,13 @@ impl IpcServer {
         append_message_to_session(&core.storage, &mut session, message)
     }
 
-    pub(super) async fn handle_execute_chat_session(
-        core: &Arc<AppCore>,
-        session_id: String,
-        user_input: Option<String>,
-        workspace_root: Option<String>,
-    ) -> IpcResponse {
-        match execute_chat_session(
-            core,
-            ExecuteChatSessionRequest {
-                session_id,
-                user_input,
-                turn_id: Uuid::new_v4().to_string(),
-                workspace_root,
-                ack_frame_tx: None,
-                emitter: None,
-                steer_rx: None,
-            },
-        )
-        .await
-        {
-            Ok(session) => IpcResponse::success(session),
-            Err(err) => IpcResponse::error(err.status_code(), err.to_string()),
-        }
-    }
-
     pub(super) async fn handle_steer_chat_session_stream(
+        core: &Arc<AppCore>,
         session_id: String,
         instruction: String,
         scope: Option<ExecutionScope>,
     ) -> IpcResponse {
-        let steered = steer_chat_stream(&session_id, &instruction, scope.as_ref()).await;
+        let steered = steer_chat_stream(core, &session_id, &instruction, scope.as_ref()).await;
         IpcResponse::success(SteerResponse { steered })
     }
 

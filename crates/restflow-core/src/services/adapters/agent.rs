@@ -1,8 +1,8 @@
 //! AgentStore adapter backed by AgentStorage.
 
 use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
-use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_tools::ToolError;
+use restflow_traits::request::AgentNode as ContractAgentNode;
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -180,7 +180,7 @@ impl AgentStore for AgentStoreAdapter {
 mod tests {
     use super::*;
     use crate::test_support::RestflowTestEnv;
-    use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
+    use restflow_traits::request::{AgentNode as ContractAgentNode, WireModelRef};
     use restflow_traits::store::AgentStore;
     use std::sync::Arc;
 
@@ -192,7 +192,7 @@ mod tests {
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let secret_storage = SecretStorage::with_config(
             db.clone(),
-            restflow_storage::SecretStorageConfig {
+            crate::SecretStorageConfig {
                 allow_insecure_file_permissions: true,
             },
         )

@@ -1,4 +1,4 @@
-use restflow_storage::ConfigStorage;
+use crate::ConfigStorage;
 use restflow_traits::config_types::{CliConfig, ConfigDocument, SystemConfig};
 use restflow_traits::store::ConfigStore;
 use std::sync::Arc;

@@ -107,7 +107,7 @@ impl AgentOperationAssessor for MockAssessor {
     async fn assess_subagent_spawn(
         &self,
         operation: &str,
-        _request: restflow_contracts::request::RunSpawnRequest,
+        _request: restflow_traits::request::RunSpawnRequest,
         _template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
@@ -119,7 +119,7 @@ impl AgentOperationAssessor for MockAssessor {
     async fn assess_subagent_batch(
         &self,
         operation: &str,
-        _requests: Vec<restflow_contracts::request::RunSpawnRequest>,
+        _requests: Vec<restflow_traits::request::RunSpawnRequest>,
         _template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(

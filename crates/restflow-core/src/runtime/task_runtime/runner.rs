@@ -18,7 +18,7 @@ use crate::storage::TaskStorage;
 use anyhow::{Result, anyhow};
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::telemetry::{RunDescriptor, RunKind, RunLifecycleService};
-use restflow_contracts::ExecutionScope;
+use restflow_traits::ExecutionScope;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 #[cfg(test)]

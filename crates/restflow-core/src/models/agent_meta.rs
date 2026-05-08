@@ -2,14 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 use crate::models::{ApiKeyConfig, ModelId, StorageMode};
 
 /// Agent metadata stored in the database (file content lives on disk).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AgentMeta {
     pub id: String,
     pub name: String,
@@ -46,16 +43,12 @@ pub struct AgentMeta {
     #[serde(default)]
     pub is_synced: bool,
     /// Timestamp when the agent was created (milliseconds since epoch)
-    #[ts(type = "number")]
     pub created_at: i64,
     /// Timestamp when the agent was last updated (milliseconds since epoch)
-    #[ts(type = "number")]
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub enum AgentType {
     Main,
     Cron,

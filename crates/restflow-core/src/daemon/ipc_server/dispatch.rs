@@ -139,13 +139,8 @@ impl IpcServer {
                 Ok(message) => Self::handle_append_message(core, session_id, message).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::ExecuteChatSession {
-                session_id,
-                user_input,
-                workspace_root,
-            } => {
-                Self::handle_execute_chat_session(core, session_id, user_input, workspace_root)
-                    .await
+            IpcRequest::ExecuteChatSession { .. } => {
+                IpcResponse::error(-3, "Foreground chat execution runs in the TUI process")
             }
             IpcRequest::ExecuteChatSessionStream { .. } => {
                 Self::handle_execute_chat_session_stream_unsupported().await
@@ -154,7 +149,7 @@ impl IpcServer {
                 session_id,
                 instruction,
                 scope,
-            } => Self::handle_steer_chat_session_stream(session_id, instruction, scope).await,
+            } => Self::handle_steer_chat_session_stream(core, session_id, instruction, scope).await,
             IpcRequest::CancelChatSessionStream { stream_id } => {
                 Self::handle_cancel_chat_session_stream(core, stream_id).await
             }

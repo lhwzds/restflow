@@ -2,10 +2,10 @@ use super::super::*;
 use crate::services::operation_assessment::{
     assess_agent_create, assess_agent_update, assessment_summary,
 };
-use restflow_contracts::request::AgentNode as ContractAgentNode;
-use restflow_contracts::{ErrorKind, OkResponse};
 use restflow_traits::OperationAssessment;
+use restflow_traits::request::AgentNode as ContractAgentNode;
 use restflow_traits::store::{AgentCreateRequest, AgentUpdateRequest};
+use restflow_traits::{ErrorKind, OkResponse};
 use serde_json::json;
 
 fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
@@ -13,7 +13,7 @@ fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
 }
 
 fn blocked_assessment_response(assessment: OperationAssessment) -> IpcResponse {
-    IpcResponse::error_payload(restflow_contracts::ErrorPayload::with_kind(
+    IpcResponse::error_payload(restflow_traits::ErrorPayload::with_kind(
         400,
         ErrorKind::Validation,
         assessment_summary(&assessment),

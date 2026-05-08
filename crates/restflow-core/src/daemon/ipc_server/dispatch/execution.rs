@@ -1,5 +1,5 @@
 use super::super::*;
-use restflow_contracts::request::WireModelRef;
+use restflow_traits::request::WireModelRef;
 
 impl IpcServer {
     pub(super) async fn handle_list_run_artifacts(

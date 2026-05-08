@@ -6,7 +6,7 @@ use restflow_ai::agent::{
 };
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
-use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
+use restflow_traits::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,

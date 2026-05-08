@@ -15,15 +15,12 @@
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 /// Security policy for command execution.
 ///
 /// Defines which commands are allowed, blocked, or require approval.
 /// Commands are checked in order: blocklist → allowlist → approval_required → default_action.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SecurityPolicy {
     /// Default action for commands not matching any pattern
     #[serde(default)]
@@ -52,9 +49,7 @@ pub struct SecurityPolicy {
 
 /// Generic tool operation for policy evaluation.
 /// Replaces the bash-only command string approach.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ToolAction {
     pub tool_name: String,
     pub operation: String,
@@ -81,9 +76,7 @@ impl From<&restflow_traits::security::ToolAction> for ToolAction {
 }
 
 /// Tool-specific security rule.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ToolRule {
     pub id: String,
     pub tool_name: String,
@@ -102,9 +95,7 @@ fn default_approval_timeout() -> u64 {
 }
 
 /// Action to take for a command based on security policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityAction {
     /// Command is allowed to execute
@@ -117,9 +108,7 @@ pub enum SecurityAction {
 }
 
 /// Security mode for a given agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityMode {
     /// Block all commands
@@ -132,9 +121,7 @@ pub enum SecurityMode {
 }
 
 /// Approval behavior for commands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AskMode {
     /// Never ask for approval
@@ -147,9 +134,7 @@ pub enum AskMode {
 }
 
 /// Per-agent security configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AgentSecurityConfig {
     /// Security mode for this agent
     #[serde(default)]
@@ -253,9 +238,7 @@ impl Default for AgentSecurityConfig {
 /// Pattern for matching commands.
 ///
 /// Supports glob-style patterns with `*` for wildcard matching.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct CommandPattern {
     /// Pattern to match (supports glob-style wildcards)
     pub pattern: String,
@@ -348,9 +331,7 @@ pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
 }
 
 /// Record of a pending approval request.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct PendingApproval {
     /// Unique identifier for this approval request
     pub id: String,
@@ -433,9 +414,7 @@ impl PendingApproval {
 }
 
 /// Status of an approval request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {
     /// Awaiting user decision

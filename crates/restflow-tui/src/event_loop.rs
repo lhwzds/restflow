@@ -12,7 +12,7 @@ use super::reducer::{ShellAction, ShellEffect, reduce};
 use super::shell::ShellRenderer;
 use super::state::AppState;
 
-use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
+use restflow_traits::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 
 const MAX_BATCHED_INPUT_EVENTS: usize = 64;
 const RENDER_FRAME_INTERVAL: Duration = Duration::from_millis(16);

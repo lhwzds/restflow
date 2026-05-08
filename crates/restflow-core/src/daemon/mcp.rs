@@ -24,7 +24,7 @@ use http::{
     header::{CONTENT_LENGTH, HeaderName},
 };
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
-use restflow_contracts::ErrorPayload;
+use restflow_traits::ErrorPayload;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -268,7 +268,7 @@ fn resolve_content_version(
 
 async fn api_convert_session_to_task(
     State(state): State<DaemonHttpState>,
-    Json(request): Json<restflow_contracts::request::TaskFromSessionRequest>,
+    Json(request): Json<restflow_traits::request::TaskFromSessionRequest>,
 ) -> std::result::Result<Json<TaskConversionResult>, (StatusCode, Json<ErrorPayload>)> {
     let store_request =
         crate::boundary::task::contract_convert_request_to_store(request).map_err(|error| {

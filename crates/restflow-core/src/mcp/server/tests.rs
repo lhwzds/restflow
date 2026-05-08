@@ -730,10 +730,10 @@ impl McpBackend for MockBackend {
     async fn delete_task(
         &self,
         request: restflow_traits::store::TaskDeleteRequest,
-    ) -> Result<restflow_traits::TaskCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String>
+    ) -> Result<restflow_traits::TaskCommandOutcome<restflow_traits::DeleteWithIdResponse>, String>
     {
         Ok(restflow_traits::TaskCommandOutcome::Executed {
-            result: restflow_contracts::DeleteWithIdResponse {
+            result: restflow_traits::DeleteWithIdResponse {
                 id: request.id,
                 deleted: true,
             },
@@ -1329,7 +1329,7 @@ async fn test_mcp_manage_tasks_delete_returns_canonical_id_for_prefix() {
             agent_id: Some(agent_id),
             input: Some("delete later".to_string()),
             schedule: Some(serde_json::json!(
-                restflow_contracts::request::TaskSchedule::Interval {
+                restflow_traits::request::TaskSchedule::Interval {
                     interval_ms: 60_000,
                     start_at: None,
                 }

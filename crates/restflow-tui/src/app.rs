@@ -33,36 +33,35 @@ impl Drop for TerminalGuard {
 }
 
 pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
-    let controller = ShellController::new(TuiDaemonClient::new()?);
+    let controller = ShellController::new(TuiDaemonClient::new().await?);
 
     let mut state = AppState::empty();
     state.set_pending_initial_message(options.message);
 
-    if controller.daemon_running().await {
-        let agent = controller
-            .resolve_default_agent(options.agent.as_deref())
-            .await?;
-        if let Some(agent) = agent {
-            state.set_default_agent(Some(agent.id.clone()), Some(agent.name.clone()));
-            if let Some(session) = controller
-                .resolve_or_create_session(&agent, options.session.as_deref())
-                .await?
-            {
-                state.set_current_session(session);
-            } else {
-                state.set_pending_session(Some(controller.pending_session_for_agent(&agent).await));
-            }
-            state.status = "Connected to daemon".to_string();
+    let daemon_running = controller.daemon_running().await;
+    let agent = controller
+        .resolve_default_agent(options.agent.as_deref())
+        .await?;
+    if let Some(agent) = agent {
+        state.set_default_agent(Some(agent.id.clone()), Some(agent.name.clone()));
+        if let Some(session) = controller
+            .resolve_or_create_session(&agent, options.session.as_deref())
+            .await?
+        {
+            state.set_current_session(session);
         } else {
-            state.status =
-                "No default agent configured. Create one from the standard CLI.".to_string();
-            state.push_info(
-                "No default agent configured. Create one from the standard CLI before using the TUI.",
-            );
+            state.set_pending_session(Some(controller.pending_session_for_agent(&agent).await));
         }
+        state.status = if daemon_running {
+            "Foreground agent ready; daemon connected for background work.".to_string()
+        } else {
+            "Foreground agent ready; daemon offline for background work.".to_string()
+        };
     } else {
-        state.enter_startup(options.agent, options.session);
-        state.push_info("Daemon offline. Use /daemon to launch it.");
+        state.status = "No default agent configured. Create one from the standard CLI.".to_string();
+        state.push_info(
+            "No default agent configured. Create one from the standard CLI before using the TUI.",
+        );
     }
 
     let _terminal = TerminalGuard::new()?;

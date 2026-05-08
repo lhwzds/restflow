@@ -1,7 +1,7 @@
 //! Configuration data types shared across crates.
 //!
 //! Pure data structures with no database or file I/O dependencies.
-//! Validation logic and TOML persistence remain in `restflow-storage`.
+//! Validation logic and TOML persistence live in `restflow-core`.
 
 use serde::{Deserialize, Serialize};
 

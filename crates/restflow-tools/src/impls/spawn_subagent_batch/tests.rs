@@ -7,7 +7,7 @@ use restflow_ai::agent::{
 };
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
-use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
+use restflow_traits::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
 use serde_json::json;
 use std::collections::HashMap;

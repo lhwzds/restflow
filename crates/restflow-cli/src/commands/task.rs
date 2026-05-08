@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::{Cell, Table};
-use restflow_contracts::{DeleteWithIdResponse, request::TaskFromSessionRequest};
+use restflow_traits::{DeleteWithIdResponse, request::TaskFromSessionRequest};
 use std::sync::Arc;
 
 use crate::cli::{OutputFormat, TaskCommands};

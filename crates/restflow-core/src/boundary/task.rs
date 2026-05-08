@@ -3,12 +3,12 @@ use crate::models::{
     ExecutionMode, ResourceLimits, TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
 };
 use crate::services::task_conversion::default_conversion_schedule;
-use restflow_contracts::request::{
+use restflow_tools::ToolError;
+use restflow_traits::request::{
     ExecutionMode as ContractExecutionMode, ResourceLimits as ContractResourceLimits,
     TaskFromSessionRequest as ContractTaskFromSessionRequest, TaskPatch as ContractTaskPatch,
     TaskSchedule as ContractTaskSchedule, TaskSpec as ContractTaskSpec,
 };
-use restflow_tools::ToolError;
 use restflow_traits::store::{TaskConvertSessionRequest, TaskCreateRequest, TaskUpdateRequest};
 use serde::Serialize;
 use serde::de::DeserializeOwned;

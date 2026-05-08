@@ -3,35 +3,29 @@
 use crate::models::AgentNode;
 use crate::prompt_files;
 use crate::storage::simple_storage::{AgentRawStorage, SimpleStorage};
+use crate::time_utils;
 use anyhow::Result;
 use redb::Database;
-use restflow_storage::time_utils;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
-use ts_rs::TS;
 use uuid::Uuid;
 
 /// Canonical default assistant name created during app initialization.
 pub const DEFAULT_ASSISTANT_NAME: &str = "Default Assistant";
 
 /// Stored agent with metadata
-#[derive(Serialize, Deserialize, Debug, Clone, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct StoredAgent {
     pub id: String,
     pub name: String,
     pub agent: AgentNode,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub prompt_file: Option<String>,
-    #[ts(optional, type = "number")]
     pub created_at: Option<i64>,
-    #[ts(optional, type = "number")]
     pub updated_at: Option<i64>,
 }
 

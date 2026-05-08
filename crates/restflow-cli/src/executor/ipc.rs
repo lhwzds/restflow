@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_contracts::{CleanupReportResponse, OkResponse, request::TaskFromSessionRequest};
+use restflow_traits::{CleanupReportResponse, OkResponse, request::TaskFromSessionRequest};
 use std::path::Path;
 use tokio::sync::Mutex;
 
@@ -147,7 +147,7 @@ impl CommandExecutor for IpcExecutor {
 
     async fn has_secret(&self, key: &str) -> Result<bool> {
         let response = self
-            .request_optional::<restflow_contracts::SecretResponse>(IpcRequest::GetSecret {
+            .request_optional::<restflow_traits::SecretResponse>(IpcRequest::GetSecret {
                 key: key.to_string(),
             })
             .await?;
@@ -250,7 +250,7 @@ impl CommandExecutor for IpcExecutor {
         &self,
         id: &str,
         approval_id: Option<&str>,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    ) -> Result<restflow_traits::DeleteWithIdResponse> {
         let mut client = self.client.lock().await;
         client
             .delete_task(id.to_string(), approval_id.map(ToOwned::to_owned))

@@ -19,7 +19,7 @@
 //! let completed = TaskStreamEvent::completed("task-1", "Done", 1_500);
 //! ```
 
-pub use restflow_contracts::{ExecutionStats, StreamEventKind, TASK_STREAM_EVENT, TaskStreamEvent};
+pub use restflow_traits::{ExecutionStats, StreamEventKind, TASK_STREAM_EVENT, TaskStreamEvent};
 
 /// Trait for emitting task stream events
 ///

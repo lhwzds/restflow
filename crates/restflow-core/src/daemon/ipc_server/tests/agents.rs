@@ -2,8 +2,8 @@ use super::*;
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
 use crate::storage::simple_storage::{AgentRawStorage, SimpleStorage};
-use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
-use restflow_contracts::{ApprovalHandledResponse, CleanupReportResponse};
+use restflow_traits::request::{AgentNode as ContractAgentNode, WireModelRef};
+use restflow_traits::{ApprovalHandledResponse, CleanupReportResponse};
 
 fn raw_agent_storage(core: &Arc<AppCore>) -> AgentRawStorage {
     AgentRawStorage::new(core.storage.get_db()).unwrap()
@@ -197,7 +197,7 @@ async fn process_delete_task_replays_confirmation_with_approval_id() {
 
     match replay {
         IpcResponse::Success(value) => {
-            let deleted: restflow_contracts::DeleteWithIdResponse =
+            let deleted: restflow_traits::DeleteWithIdResponse =
                 serde_json::from_value(value).expect("delete response");
             assert_eq!(deleted.id, task.id);
             assert!(deleted.deleted);
@@ -223,7 +223,7 @@ async fn process_convert_session_task_returns_direct_result() {
         &core,
         &runtime_tool_registry,
         IpcRequest::CreateTaskFromSession {
-            request: restflow_contracts::request::TaskFromSessionRequest {
+            request: restflow_traits::request::TaskFromSessionRequest {
                 session_id: session.id.clone(),
                 name: Some("Converted Preview".to_string()),
                 schedule: None,
@@ -297,7 +297,7 @@ async fn process_get_task_returns_not_found_for_missing_task() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 404);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::NotFound);
             assert!(error.message.contains("Task"));
         }
         other => panic!("expected error response, got {other:?}"),
@@ -325,7 +325,7 @@ async fn process_get_task_returns_bad_request_for_ambiguous_prefix() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Validation);
             assert!(error.message.contains("ambiguous"));
             assert!(error.message.contains("shared-1"));
             assert!(error.message.contains("shared-2"));
@@ -356,7 +356,7 @@ async fn process_get_task_returns_internal_error_when_resolution_scan_fails() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 500);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Internal);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Internal);
             assert!(error.message.contains("key must be a string"));
         }
         other => panic!("expected error response, got {other:?}"),
@@ -474,7 +474,7 @@ async fn process_delete_task_rejects_ambiguous_prefix() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 409);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Conflict);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Conflict);
             assert!(error.message.contains("ambiguous"));
         }
         other => panic!("expected error response, got {other:?}"),
@@ -498,7 +498,7 @@ async fn process_get_task_history_returns_not_found_for_missing_task() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 404);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::NotFound);
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -525,7 +525,7 @@ async fn process_list_task_messages_returns_internal_error_when_resolution_scan_
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 500);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Internal);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Internal);
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -765,7 +765,7 @@ async fn process_create_agent_rejects_invalid_wire_model_ref() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Validation);
             let details = error.details.expect("validation details");
             assert_eq!(details["type"], "validation_error");
             assert_eq!(details["errors"][0]["field"], "model_ref.provider");

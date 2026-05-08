@@ -1,6 +1,8 @@
 pub mod auth;
 pub(crate) mod boundary;
+pub mod config;
 pub mod daemon;
+mod encryption;
 pub mod features;
 pub mod loader;
 pub mod lsp;
@@ -12,6 +14,7 @@ pub mod process;
 pub mod prompt_files;
 pub mod registry;
 pub mod runtime;
+pub mod secrets;
 pub mod security;
 pub mod services;
 pub mod session_import;
@@ -22,7 +25,15 @@ pub mod telemetry;
 mod template;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod time_utils;
 
+pub use config::{
+    AgentDefaults, AgentSettings, ApiDefaults, ApiSettings, CliConfig, ConfigDocument,
+    ConfigSourcePathInfo, ConfigStorage, ConfigValueSourceInfo, ConfigValueSourceKind,
+    EffectiveConfigSources, RegistryDefaults, RegistrySettings, RuntimeDefaults, RuntimeSettings,
+    SystemConfig, SystemSection, effective_config_sources, load_cli_config, load_global_cli_config,
+    write_cli_config,
+};
 pub use models::{
     AgentExecuteResponse, AgentMeta, AgentNode, AgentSecurityConfig, AgentType, ApiKeyConfig,
     ApprovalStatus, AskMode, BinaryRequirement, ChatExecutionStatus, ChatMessage, ChatRole,
@@ -47,6 +58,7 @@ pub use models::{
     TerminalStatus, ToolAction, ToolCallInfo, ToolCallPhase, ToolRule, ValidationError,
     ValidationErrorResponse, VersionRequirement, encode_validation_error,
 };
+pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use steer::SteerRegistry;
 
 use std::sync::Arc;

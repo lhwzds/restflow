@@ -5,11 +5,11 @@ use super::state::{
     AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
     SkillPickerItem, TaskPickerItem,
 };
-use restflow_contracts::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary,
 };
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
 
 const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
 const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
@@ -142,11 +142,24 @@ pub enum ShellEffect {
     RefreshState,
     ReloadCurrentSession,
     ActivateOverlaySelection,
-    CreateSessionForSubmit { message: String },
-    SubmitMessage { message: String, stream_id: String },
-    CancelStream { stream_id: String },
+    CreateSessionForSubmit {
+        message: String,
+    },
+    SubmitMessage {
+        message: String,
+        stream_id: String,
+    },
+    SteerMessage {
+        session_id: String,
+        instruction: String,
+    },
+    CancelStream {
+        stream_id: String,
+    },
     ExecuteSlashCommand(SlashCommand),
-    DeleteSession { session_id: String },
+    DeleteSession {
+        session_id: String,
+    },
     ListSkillsForMention,
     ListSessionsInline,
     ListRunsInline,
@@ -684,6 +697,8 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
                     }
                     output.effects.push(ShellEffect::ActivateOverlaySelection);
                 }
+            } else if response_in_progress(state) {
+                steer_active_response(state, output);
             } else {
                 let input = state.composer.take_submission();
                 if !input.trim().is_empty() {
@@ -694,6 +709,33 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         }
         Action::Noop => {}
     }
+}
+
+fn response_in_progress(state: &AppState) -> bool {
+    state.is_streaming || state.active_turn.is_some()
+}
+
+fn steer_active_response(state: &mut AppState, output: &mut ReducerOutput) {
+    if state.composer.draft().trim().is_empty() {
+        return;
+    }
+
+    let Some(session_id) = state.current_session_id().map(ToOwned::to_owned) else {
+        let message =
+            "Response is still starting. Press Esc to cancel before sending another message.";
+        state.status = message.to_string();
+        state.push_info(message.to_string());
+        return;
+    };
+
+    let instruction = state.composer.take_submission();
+    state.composer.remember_submission(&instruction);
+    state.queue_active_turn_update(instruction.clone());
+    state.status = "Queued update for current response. Press Esc to interrupt.".to_string();
+    output.effects.push(ShellEffect::SteerMessage {
+        session_id,
+        instruction,
+    });
 }
 
 fn cancel_active_response(state: &mut AppState, output: &mut ReducerOutput) {
@@ -811,8 +853,8 @@ mod tests {
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
     use crate::state::{AppState, PendingSessionState, SkillPickerItem, TaskPickerItem};
-    use restflow_contracts::{ChatSessionEvent, StreamFrame};
     use restflow_core::models::{ChatSession, ChatSessionSummary, Skill, SkillSource};
+    use restflow_traits::{ChatSessionEvent, StreamFrame};
 
     fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
         ChatSessionSummary {
@@ -847,6 +889,61 @@ mod tests {
             [ShellAction::SubmitText { text }] if text == "hi"
         ));
         assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn submit_while_response_is_running_steers_current_session() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session);
+        state.begin_stream("turn-1".to_string());
+        state.push_local_user_message("first".to_string());
+        for ch in "second".chars() {
+            state.composer.insert_char(ch);
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(state.composer.draft().is_empty());
+        assert!(output.actions.is_empty());
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::SteerMessage {
+                session_id: effect_session_id,
+                instruction
+            }] if effect_session_id == &session_id && instruction == "second"
+        ));
+        assert_eq!(
+            state.status,
+            "Queued update for current response. Press Esc to interrupt."
+        );
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active_turn.cells[0].body, "first");
+        assert_eq!(active_turn.queued_updates, vec!["second"]);
+    }
+
+    #[test]
+    fn submit_while_response_is_starting_keeps_draft_and_does_not_send() {
+        let mut state = AppState::empty();
+        state.begin_stream("turn-1".to_string());
+        state.push_local_user_message("first".to_string());
+        for ch in "second".chars() {
+            state.composer.insert_char(ch);
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert_eq!(state.composer.draft(), "second");
+        assert!(output.actions.is_empty());
+        assert!(output.effects.is_empty());
+        assert_eq!(
+            state.status,
+            "Response is still starting. Press Esc to cancel before sending another message."
+        );
+        let active_turn = state.active_turn.as_ref().expect("active turn");
+        assert_eq!(active_turn.cells.len(), 1);
+        assert_eq!(active_turn.cells[0].body, "first");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use super::super::*;
-use restflow_contracts::{OkResponse, SecretResponse};
+use restflow_traits::{OkResponse, SecretResponse};
 
 impl IpcServer {
     pub(super) async fn handle_list_secrets(core: &Arc<AppCore>) -> IpcResponse {

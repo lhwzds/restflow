@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use restflow_contracts::{StreamEventKind, TaskStreamEvent};
 use restflow_core::models::{RunKind, RunSummary};
+use restflow_traits::{StreamEventKind, TaskStreamEvent};
 use serde_json::Value;
 
 use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
@@ -394,7 +394,7 @@ fn short_id(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_contracts::StreamEventKind;
+    use restflow_traits::StreamEventKind;
 
     #[test]
     fn records_multiple_task_events_without_overwriting() {

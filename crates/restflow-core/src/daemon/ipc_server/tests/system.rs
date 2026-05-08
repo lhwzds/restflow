@@ -2,7 +2,7 @@ use super::super::runtime::build_auth_manager;
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
 use crate::daemon::request_mapper::to_contract;
-use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
+use restflow_traits::request::{AgentNode as ContractAgentNode, WireModelRef};
 #[tokio::test]
 async fn process_get_system_info_returns_pid() {
     let (core, _temp) = create_test_core().await;
@@ -73,7 +73,7 @@ async fn process_build_agent_system_prompt_rejects_invalid_model_ref() {
     match response {
         IpcResponse::Error(error) => {
             assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::Validation);
             let details = error.details.expect("validation details");
             assert_eq!(details["type"], "validation_error");
             assert_eq!(details["errors"][0]["field"], "model_ref.model");

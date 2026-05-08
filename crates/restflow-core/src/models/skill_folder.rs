@@ -1,10 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillScript {
     pub id: String,
     pub path: String,
@@ -12,9 +9,7 @@ pub struct SkillScript {
     pub lang: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillReference {
     pub id: String,
     pub path: String,
@@ -24,9 +19,7 @@ pub struct SkillReference {
     pub summary: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SkillGating {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bins: Option<Vec<String>>,

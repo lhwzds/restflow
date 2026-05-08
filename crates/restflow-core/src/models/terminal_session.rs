@@ -3,12 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 /// Terminal session status
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalStatus {
     /// Terminal is running (PTY process active)
@@ -19,16 +16,13 @@ pub enum TerminalStatus {
 }
 
 /// A terminal session represents a persistent terminal instance
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct TerminalSession {
     /// Unique identifier for the session
     pub id: String,
     /// Display name of the session (e.g., "Terminal 1")
     pub name: String,
     /// Timestamp when the session was created (milliseconds since epoch)
-    #[ts(type = "number")]
     pub created_at: i64,
     /// Current status of the terminal
     #[serde(default)]
@@ -38,7 +32,6 @@ pub struct TerminalSession {
     pub history: Option<String>,
     /// Timestamp when the session was last stopped/saved (milliseconds since epoch)
     #[serde(default)]
-    #[ts(type = "number | null")]
     pub stopped_at: Option<i64>,
     /// Working directory for the terminal (default: $HOME)
     #[serde(default)]

@@ -1,11 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::BTreeMap;
-use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunArtifactKind {
     FinalOutput,
@@ -16,9 +13,7 @@ pub enum RunArtifactKind {
     Artifact,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct RunArtifact {
     pub id: String,
     pub run_id: String,

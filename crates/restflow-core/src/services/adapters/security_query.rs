@@ -1,8 +1,8 @@
 //! SecurityQueryProvider adapter.
 
+use crate::ConfigStorage;
 use crate::security::ApprovalManager;
 use crate::security::SecurityChecker;
-use restflow_storage::ConfigStorage;
 use restflow_traits::store::SecurityQueryProvider;
 use serde_json::{Value, json};
 use std::sync::Arc;

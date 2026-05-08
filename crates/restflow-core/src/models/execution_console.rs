@@ -1,21 +1,16 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 use crate::models::{ChatSessionSource, ExecutionTimeline};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionContainerKind {
     Workspace,
     Task,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunKind {
     WorkspaceRun,
@@ -23,16 +18,13 @@ pub enum RunKind {
     SubagentRun,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ExecutionContainerSummary {
     pub id: String,
     pub kind: ExecutionContainerKind,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
-    #[ts(type = "number")]
     pub updated_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
@@ -50,17 +42,13 @@ pub struct ExecutionContainerSummary {
     pub source_conversation_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ExecutionContainerRef {
     pub kind: ExecutionContainerKind,
     pub id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct RunSummary {
     pub id: String,
     pub kind: RunKind,
@@ -71,13 +59,10 @@ pub struct RunSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
     pub status: String,
-    #[ts(type = "number")]
     pub updated_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
     pub started_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
     pub ended_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -98,27 +83,20 @@ pub struct RunSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(default)]
-    #[ts(type = "bigint | number")]
     pub event_count: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct RunListQuery {
     pub container: ExecutionContainerRef,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ChildRunListQuery {
     pub parent_run_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionThread {
     pub focus: RunSummary,
     pub timeline: ExecutionTimeline,

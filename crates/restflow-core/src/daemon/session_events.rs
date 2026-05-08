@@ -1,4 +1,4 @@
-pub use restflow_contracts::ChatSessionEvent;
+pub use restflow_traits::ChatSessionEvent;
 use std::sync::OnceLock;
 use tokio::sync::broadcast;
 

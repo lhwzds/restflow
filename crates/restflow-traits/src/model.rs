@@ -6,12 +6,10 @@ macro_rules! define_model_provider {
     ($($variant:ident => { canonical: $canonical:literal, key: $key:literal, aliases: [$($alias:literal),* $(,)?] }),+ $(,)?) => {
         /// Canonical model provider identity shared by runtime and tooling layers.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-        #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
         #[cfg_attr(feature = "specta", derive(specta::Type))]
         pub enum ModelProvider {
             $(
                 #[serde(rename = $canonical)]
-                #[cfg_attr(feature = "ts", ts(rename = $canonical))]
                 $variant,
             )+
         }

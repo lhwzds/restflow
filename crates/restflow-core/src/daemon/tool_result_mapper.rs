@@ -1,4 +1,4 @@
-use restflow_contracts::ToolExecutionResult;
+use restflow_traits::ToolExecutionResult;
 use restflow_traits::ToolOutput;
 
 pub fn to_tool_execution_result(output: ToolOutput) -> ToolExecutionResult {

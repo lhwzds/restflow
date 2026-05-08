@@ -6,7 +6,7 @@ use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::operation_assessment::assessment_summary;
 use crate::services::task_command::{TaskCommandError, TaskCommandService, TaskExecutionMode};
 use crate::storage::task_runtime::ResolveTaskIdError;
-use restflow_contracts::ApprovalHandledResponse;
+use restflow_traits::ApprovalHandledResponse;
 use restflow_traits::TaskCommandOutcome;
 use restflow_traits::store::{TaskControlRequest, TaskConvertSessionRequest, TaskDeleteRequest};
 use serde::Serialize;

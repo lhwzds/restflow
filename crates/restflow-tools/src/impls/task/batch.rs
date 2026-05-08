@@ -1,5 +1,5 @@
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
-use restflow_contracts::request::{
+use restflow_traits::request::{
     ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
 };
 use serde_json::{Value, json};

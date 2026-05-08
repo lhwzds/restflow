@@ -7,12 +7,9 @@ use restflow_traits::{
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 /// Execution mode for agent tasks
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ExecutionMode {
     /// Use restflow-ai API executor (default)
@@ -23,9 +20,7 @@ pub enum ExecutionMode {
 }
 
 /// Configuration for CLI-based execution
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct CliExecutionConfig {
     /// CLI binary name (e.g., "claude", "aider")
     pub binary: String,
@@ -60,9 +55,7 @@ impl Default for CliExecutionConfig {
 }
 
 /// Status of an agent task
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskStatus {
     /// Task is active and will run on schedule
@@ -98,24 +91,19 @@ fn failed_status_is_schedulable(next_run_at: Option<i64>) -> bool {
 }
 
 /// Schedule configuration for agent tasks
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TaskSchedule {
     /// Run once at a specific time
     Once {
         /// Unix timestamp in milliseconds when to run
-        #[ts(type = "number")]
         run_at: i64,
     },
     /// Run on a recurring interval
     Interval {
         /// Interval in milliseconds between runs
-        #[ts(type = "number")]
         interval_ms: i64,
         /// Optional start time (defaults to now)
-        #[ts(type = "number | null")]
         start_at: Option<i64>,
     },
     /// Run on a cron schedule
@@ -162,9 +150,7 @@ fn default_inter_segment_pause_ms() -> u64 {
 }
 
 /// Resource guardrails for task executions.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ResourceLimits {
     /// Maximum tool calls allowed in one execution.
     #[serde(default = "default_max_tool_calls")]
@@ -192,9 +178,7 @@ impl Default for ResourceLimits {
 }
 
 /// Configuration for long-horizon execution continuation.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ContinuationConfig {
     /// Automatically continue with additional segments when an execution reaches
     /// the segment iteration ceiling.
@@ -227,9 +211,7 @@ impl Default for ContinuationConfig {
 }
 
 /// Creation payload for scheduled tasks.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct TaskSpec {
     /// Display name of the task
     pub name: String,
@@ -269,9 +251,7 @@ pub struct TaskSpec {
 }
 
 /// Partial update payload for scheduled tasks.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 pub struct TaskPatch {
     /// New display name
     #[serde(default)]
@@ -312,9 +292,7 @@ pub struct TaskPatch {
 }
 
 /// Control actions for a scheduled task.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskControlAction {
     /// Start an agent that is not active
@@ -330,9 +308,7 @@ pub enum TaskControlAction {
 }
 
 /// Source for task communication messages.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskMessageSource {
     /// Message provided by a human user
@@ -345,9 +321,7 @@ pub enum TaskMessageSource {
 }
 
 /// Delivery state of task communication messages.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskMessageStatus {
     /// Waiting to be injected into a running agent
@@ -373,9 +347,7 @@ impl TaskMessageStatus {
 }
 
 /// A communication message sent to a task-backed execution.
-#[derive(Debug, Clone, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Type)]
 pub struct TaskMessage {
     /// Message ID
     pub id: String,
@@ -388,13 +360,10 @@ pub struct TaskMessage {
     /// Message content
     pub message: String,
     /// Message creation timestamp
-    #[ts(type = "number")]
     pub created_at: i64,
     /// Delivery timestamp
-    #[ts(type = "number | null")]
     pub delivered_at: Option<i64>,
     /// Consumption timestamp
-    #[ts(type = "number | null")]
     pub consumed_at: Option<i64>,
     /// Error details for failed delivery
     pub error: Option<String>,
@@ -517,9 +486,7 @@ impl TaskMessage {
 }
 
 /// Aggregated progress snapshot for a task-backed execution.
-#[derive(Debug, Clone, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Type)]
 pub struct TaskProgress {
     /// Task ID
     pub task_id: String,
@@ -532,10 +499,8 @@ pub struct TaskProgress {
     /// Recent events in descending order
     pub recent_events: Vec<TaskEvent>,
     /// Last run timestamp
-    #[ts(type = "number | null")]
     pub last_run_at: Option<i64>,
     /// Next run timestamp
-    #[ts(type = "number | null")]
     pub next_run_at: Option<i64>,
     /// Total token usage
     pub total_tokens_used: u32,
@@ -650,9 +615,7 @@ impl TaskProgress {
 }
 
 /// Result payload for converting an existing chat session into a task.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct TaskConversionResult {
     /// Created or updated task.
     pub task: Task,
@@ -770,9 +733,7 @@ impl TaskRun {
 /// Execution path for nested sub-agent calls. Empty for top-level tasks.
 /// When Agent A spawns Agent B, Agent B's events include Agent A's subflow path
 /// plus its own tool_call_id. This enables hierarchical execution tracking.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(type = "string[]")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
 pub struct SubflowPath(pub Vec<String>);
 
 impl SubflowPath {
@@ -785,9 +746,7 @@ impl SubflowPath {
 }
 
 /// Record of a task execution event
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct TaskEvent {
     /// Unique event ID
     pub id: String,
@@ -796,7 +755,6 @@ pub struct TaskEvent {
     /// Event type
     pub event_type: TaskEventType,
     /// Timestamp of the event (milliseconds since epoch)
-    #[ts(type = "number")]
     pub timestamp: i64,
     /// Optional message or details
     #[serde(default)]
@@ -812,19 +770,15 @@ pub struct TaskEvent {
     pub cost_usd: Option<f64>,
     /// Duration of execution in milliseconds (for completion events)
     #[serde(default)]
-    #[ts(type = "number | null")]
     pub duration_ms: Option<i64>,
     /// Subflow execution path - identifies position in nested agent call tree.
     /// Empty for top-level tasks. Contains tool_call_ids when spawned by parent agent.
     #[serde(default)]
-    #[ts(type = "string[]")]
     pub subflow_path: SubflowPath,
 }
 
 /// Type of task event
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskEventType {
     /// Task was created
@@ -846,9 +800,7 @@ pub enum TaskEventType {
 }
 
 /// Canonical task record for scheduled agent execution.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct Task {
     /// Unique identifier for the task
     pub id: String,
@@ -900,18 +852,14 @@ pub struct Task {
     #[serde(default)]
     pub status: TaskStatus,
     /// Timestamp when the task was created (milliseconds since epoch)
-    #[ts(type = "number")]
     pub created_at: i64,
     /// Timestamp when the task was last updated (milliseconds since epoch)
-    #[ts(type = "number")]
     pub updated_at: i64,
     /// Timestamp of the last execution (milliseconds since epoch)
     #[serde(default)]
-    #[ts(type = "number | null")]
     pub last_run_at: Option<i64>,
     /// Timestamp of the next scheduled execution (milliseconds since epoch)
     #[serde(default)]
-    #[ts(type = "number | null")]
     pub next_run_at: Option<i64>,
     /// Count of successful executions
     #[serde(default)]

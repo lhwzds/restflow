@@ -67,7 +67,7 @@ mod tests {
         core_skill.read_only = false;
         core_skill.source_ref = Some("marketplace:skill-1@1.0.0".to_string());
 
-        let contract: restflow_contracts::request::Skill = to_contract(core_skill.clone()).unwrap();
+        let contract: restflow_traits::request::Skill = to_contract(core_skill.clone()).unwrap();
         assert_eq!(
             serde_json::to_value(contract.source).unwrap(),
             serde_json::json!("external")
@@ -95,7 +95,7 @@ mod tests {
         match response {
             IpcResponse::Error(error) => {
                 assert_eq!(error.code, 400);
-                assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+                assert_eq!(error.kind, restflow_traits::ErrorKind::Validation);
                 assert_eq!(error.message, "Validation failed");
                 let details = error.details.expect("validation details");
                 assert_eq!(details["type"], "validation_error");

@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::warn;
-use ts_rs::TS;
 
 fn subagent_default_tool_names() -> Vec<String> {
     [
@@ -32,9 +31,7 @@ fn subagent_default_tool_names() -> Vec<String> {
 }
 
 /// Agent definition describing a spawnable agent type
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AgentDefinition {
     /// Unique identifier (e.g., "researcher", "coder")
     pub id: String,

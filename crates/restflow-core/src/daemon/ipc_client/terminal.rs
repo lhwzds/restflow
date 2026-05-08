@@ -3,7 +3,7 @@ use super::*;
 #[cfg(unix)]
 use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]
-use restflow_contracts::OkResponse;
+use restflow_traits::OkResponse;
 
 #[cfg(unix)]
 impl IpcClient {

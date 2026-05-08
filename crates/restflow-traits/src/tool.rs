@@ -1,7 +1,7 @@
 //! Tool trait and types for AI agent tools.
 
+pub use crate::contracts::ToolErrorCategory;
 use async_trait::async_trait;
-pub use restflow_contracts::ToolErrorCategory;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;

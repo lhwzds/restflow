@@ -1,7 +1,7 @@
 //! MarketplaceStore adapter for registry search and read-only metadata.
 
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
-use restflow_storage::{RegistryDefaults, RegistrySettings};
+use crate::{RegistryDefaults, RegistrySettings};
 use restflow_tools::ToolError;
 use restflow_traits::store::MarketplaceStore;
 use serde_json::{Value, json};

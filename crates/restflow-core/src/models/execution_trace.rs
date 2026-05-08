@@ -4,7 +4,7 @@
 //! and runtime code can share a single transport schema while keeping runtime
 //! builder helpers inside `restflow-core`.
 
-pub use restflow_contracts::request::{
+pub use restflow_traits::request::{
     ExecutionLogField, ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery,
     ExecutionMetricsResponse, ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent,
     ExecutionTraceQuery, ExecutionTraceSource, ExecutionTraceStats, ExecutionTraceTimeRange,
@@ -14,12 +14,9 @@ pub use restflow_contracts::request::{
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 /// Tool completion payload used by runtime helpers that consume tool-call outputs.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ToolCallCompletion {
     /// Optional tool output payload (JSON string or raw text).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,7 +28,6 @@ pub struct ToolCallCompletion {
     pub success: bool,
     /// Optional duration in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
     pub duration_ms: Option<u64>,
     /// Optional error text.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,7 +37,7 @@ pub struct ToolCallCompletion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_contracts::request as contract;
+    use restflow_traits::request as contract;
 
     #[test]
     fn reexported_query_types_round_trip_with_contracts() {
@@ -91,10 +87,5 @@ mod tests {
         let log_round_trip: contract::ExecutionLogQuery =
             serde_json::from_value(log_value).expect("deserialize log query");
         assert_eq!(log_round_trip, log_query);
-    }
-
-    #[test]
-    fn export_bindings_tool_call_completion() {
-        ToolCallCompletion::export_to_string(&ts_rs::Config::default()).expect("ts export");
     }
 }

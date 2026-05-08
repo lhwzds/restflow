@@ -1,11 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 /// Structured validation error for model and API validation.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ValidationError {
     pub field: String,
     pub message: String,
@@ -21,9 +18,7 @@ impl ValidationError {
 }
 
 /// Payload returned to clients when validation fails.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct ValidationErrorResponse {
     #[serde(rename = "type")]
     pub error_type: String,

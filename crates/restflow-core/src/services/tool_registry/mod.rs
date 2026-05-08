@@ -21,6 +21,7 @@ use crate::storage::{
     AgentStorage, ChatSessionStorage, ExecutionTraceStorage, SecretStorage, TaskStorage,
     TerminalSessionStorage,
 };
+use crate::{AgentDefaults, SystemConfig};
 #[cfg(test)]
 use restflow_ai::AgentState;
 #[cfg(test)]
@@ -32,7 +33,6 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory};
 #[cfg(test)]
 use restflow_models::LlmProvider;
-use restflow_storage::{AgentDefaults, SystemConfig};
 use restflow_tools::ToolRegistryBuilder;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;

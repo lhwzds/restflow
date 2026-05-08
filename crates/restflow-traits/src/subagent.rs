@@ -4,12 +4,12 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use crate::error::ToolError;
 use crate::{
     DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
     DEFAULT_SUBAGENT_TIMEOUT_SECS,
 };
-pub use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 /// Canonical contract request alias for child run spawning.
 pub type ContractChildRunSpawnRequest = ContractRunSpawnRequest;
 
@@ -18,7 +18,7 @@ pub type ContractChildRunSpawnRequest = ContractRunSpawnRequest;
 /// This is a simple owned data struct that captures the fields from a concrete
 /// agent definition. It decouples the restflow-ai crate from the full
 /// `AgentDefinition` struct (which lives in restflow-core and carries
-/// `#[derive(TS)]` and other derives that restflow-ai doesn't need).
+/// extra derives that restflow-ai doesn't need).
 #[derive(Debug, Clone)]
 pub struct SubagentDefSnapshot {
     /// Display name
@@ -231,7 +231,6 @@ pub struct SpawnHandle {
 
 /// Sub-agent running state
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SubagentState {
     /// Unique task ID
     pub id: String,
@@ -260,7 +259,6 @@ pub struct SubagentState {
 
 /// Sub-agent status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum SubagentStatus {
     Pending,
     Running,
@@ -272,7 +270,6 @@ pub enum SubagentStatus {
 
 /// Result from a sub-agent execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SubagentResult {
     /// Whether execution succeeded
     pub success: bool,

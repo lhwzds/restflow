@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 use crate::{ModelId, Provider};
 
@@ -13,9 +12,7 @@ pub struct ModelMetadata {
 }
 
 /// Serializable model metadata for runtime clients.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct ModelMetadataDTO {
     pub model: ModelId,
     pub provider: Provider,

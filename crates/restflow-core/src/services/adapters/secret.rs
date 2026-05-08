@@ -1,4 +1,4 @@
-use restflow_storage::SecretStorage;
+use crate::SecretStorage;
 use restflow_traits::store::SecretStore;
 use serde_json::{Value, json};
 use std::sync::Arc;

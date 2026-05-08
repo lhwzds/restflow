@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use restflow_contracts::{CancelResponse, ExecutionScope, SteerResponse};
+use restflow_traits::{CancelResponse, ExecutionScope, SteerResponse};
 
 #[cfg(unix)]
 fn read_stream_frame_or_ipc_error(

@@ -2,13 +2,10 @@ use crate::{LlmProvider, ModelId, catalog, provider_meta};
 use restflow_traits::ModelProvider;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use specta::Type;
-use ts_rs::TS;
 
 /// API-facing provider wrapper backed by the shared canonical provider identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TS, Type)]
-#[specta(skip_attr = "ts")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Type)]
 #[repr(transparent)]
-#[ts(export, as = "ModelProvider")]
 #[specta(transparent)]
 pub struct Provider(ModelProvider);
 

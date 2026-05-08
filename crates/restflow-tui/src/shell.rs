@@ -514,13 +514,44 @@ fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
     if !state.is_streaming
         && !has_assistant_cell
         && !has_runtime_cell
+        && active_turn.queued_updates.is_empty()
         && subagent_activity_cells.is_empty()
     {
         return Vec::new();
     }
     let mut cells = active_turn.cells.clone();
+    if let Some(cell) = queued_update_notice_cell(&active_turn.queued_updates) {
+        cells.push(cell);
+    }
     cells.extend(subagent_activity_cells);
     cells
+}
+
+fn queued_update_notice_cell(queued_updates: &[String]) -> Option<TranscriptCell> {
+    if queued_updates.is_empty() {
+        return None;
+    }
+    let body = queued_updates
+        .iter()
+        .enumerate()
+        .map(|(index, update)| {
+            let update = update.split_whitespace().collect::<Vec<_>>().join(" ");
+            format!("{}. {}", index + 1, update)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(TranscriptCell {
+        kind: TranscriptCellKind::Notice,
+        title: if queued_updates.len() == 1 {
+            "Queued update".to_string()
+        } else {
+            "Queued updates".to_string()
+        },
+        subtitle: Some("waiting".to_string()),
+        body,
+        group: MessageGroup::RuntimeNotice,
+        is_active: false,
+    })
 }
 
 fn should_force_live_viewport_redraw(state: &AppState) -> bool {
@@ -593,11 +624,11 @@ fn build_transient_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Lin
         return lines;
     }
 
-    let Some(active_turn) = state.active_turn.as_ref() else {
+    if state.active_turn.is_none() {
         return Vec::new();
-    };
+    }
     let pending_lines = Vec::new();
-    let live_cells = active_turn.cells.clone();
+    let live_cells = build_live_message_cells(state);
     let mut active_lines = build_cell_lines(&live_cells, width);
     if live_cells.len() > 1 && active_lines.len() >= max_rows as usize {
         active_lines = live_cells
@@ -2989,12 +3020,12 @@ mod tests {
         ProviderPickerItem, SkillPickerItem, TaskPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
-    use restflow_contracts::{StreamFrame, TaskStreamEvent};
     use restflow_core::models::{
         ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEventKind, ExecutionThread,
         ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource,
         ExecutionTraceStats, LifecycleTrace, RunKind, RunSummary, Skill, SkillSource,
     };
+    use restflow_traits::{StreamFrame, TaskStreamEvent};
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
@@ -5054,6 +5085,29 @@ mod tests {
         );
         assert!(rendered.iter().any(|line| line.contains("Input:")));
         assert!(rendered.iter().any(|line| line.contains("Final answer")));
+    }
+
+    #[test]
+    fn live_turn_renders_queued_updates_inside_message_panel() {
+        let mut state = AppState::empty();
+        state.begin_stream("turn-1".to_string());
+        state.push_local_user_message("first".to_string());
+        state.queue_active_turn_update("please use the shorter answer".to_string());
+
+        let lines = build_transient_lines(&state, 100, 12);
+        let rendered = line_texts(&lines);
+
+        assert!(rendered.iter().any(|line| line == "You"));
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("Queued update waiting"))
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.contains("1. please use the shorter answer"))
+        );
     }
 
     #[test]

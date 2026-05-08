@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_contracts::{CleanupReportResponse, request::TaskFromSessionRequest};
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::models::{
     AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, RunListQuery, RunSummary,
@@ -10,6 +9,7 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::{CleanupReportResponse, request::TaskFromSessionRequest};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -88,7 +88,7 @@ pub trait CommandExecutor: Send + Sync {
         &self,
         id: &str,
         approval_id: Option<&str>,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse>;
+    ) -> Result<restflow_traits::DeleteWithIdResponse>;
     async fn control_task(
         &self,
         id: &str,

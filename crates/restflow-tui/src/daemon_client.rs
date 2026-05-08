@@ -1,17 +1,20 @@
 use anyhow::{Result, bail};
-use restflow_contracts::request::{ChildRunListQuery, WireModelRef};
-use restflow_contracts::{ChatSessionEvent, ExecutionScope, IpcRequest, StreamFrame};
+use restflow_core::AppCore;
 use restflow_core::daemon::{
     DaemonConfig, IpcClient, is_daemon_available, start_daemon_with_config, stop_daemon,
 };
 use restflow_core::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionThread, ModelMetadataDTO, RunListQuery, RunSummary, Skill, Task,
+    ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill, Task,
 };
 use restflow_core::paths;
+use restflow_core::services::{session::SessionService, skills as skills_service};
 use restflow_core::storage::agent::{DEFAULT_ASSISTANT_NAME, StoredAgent};
+use restflow_traits::request::{ChildRunListQuery, WireModelRef};
+use restflow_traits::{ChatSessionEvent, IpcRequest, StreamFrame};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 
@@ -20,28 +23,17 @@ use super::event_loop::AppEvent;
 #[derive(Clone)]
 pub struct TuiDaemonClient {
     socket_path: PathBuf,
-    client_id: String,
-    terminal_id: String,
-}
-
-fn terminal_owner_id() -> String {
-    std::env::var("TERM_SESSION_ID")
-        .or_else(|_| std::env::var("WT_SESSION"))
-        .or_else(|_| std::env::var("TMUX_PANE"))
-        .unwrap_or_else(|_| format!("pid-{}", std::process::id()))
+    core: Arc<AppCore>,
 }
 
 impl TuiDaemonClient {
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
+        let db_path = paths::ensure_database_path_string()?;
+        let core = Arc::new(AppCore::new(&db_path).await?);
         Ok(Self {
             socket_path: paths::socket_path()?,
-            client_id: uuid::Uuid::new_v4().to_string(),
-            terminal_id: terminal_owner_id(),
+            core,
         })
-    }
-
-    fn foreground_scope(&self) -> ExecutionScope {
-        ExecutionScope::foreground(self.client_id.clone(), self.terminal_id.clone())
     }
 
     pub async fn daemon_running(&self) -> bool {
@@ -76,13 +68,15 @@ impl TuiDaemonClient {
     }
 
     pub async fn list_agents(&self) -> Result<Vec<StoredAgent>> {
-        let mut client = self.connect().await?;
-        client.list_agents().await
+        self.core.storage.agents.list_agents()
     }
 
     pub async fn get_agent(&self, id: &str) -> Result<StoredAgent> {
-        let mut client = self.connect().await?;
-        client.get_agent(id.to_string()).await
+        self.core
+            .storage
+            .agents
+            .get_agent(id.to_string())?
+            .ok_or_else(|| anyhow::anyhow!("Agent not found: {id}"))
     }
 
     pub async fn resolve_default_agent(
@@ -123,8 +117,7 @@ impl TuiDaemonClient {
     ) -> Result<Option<ChatSession>> {
         match session_override {
             Some(session_id) => {
-                let mut client = self.connect().await?;
-                client.get_session(session_id.to_string()).await.map(Some)
+                SessionService::from_storage(&self.core.storage).get_session_view(session_id)
             }
             None => Ok(None),
         }
@@ -135,25 +128,32 @@ impl TuiDaemonClient {
         agent_id: &str,
         model: Option<&str>,
     ) -> Result<ChatSession> {
-        let mut client = self.connect().await?;
-        client
-            .create_session(
-                Some(agent_id.to_string()),
-                model.map(ToOwned::to_owned),
-                None,
-                None,
-            )
-            .await
+        let agent_id = self
+            .core
+            .storage
+            .agents
+            .resolve_existing_agent_id(agent_id)?;
+        let model = match model {
+            Some(model) => normalize_model_input(model)?,
+            None => self
+                .core
+                .storage
+                .agents
+                .get_agent(agent_id.clone())?
+                .and_then(|agent| agent.agent.resolved_model_ref())
+                .map(|model_ref| model_ref.model.as_serialized_str().to_string())
+                .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()),
+        };
+        SessionService::from_storage(&self.core.storage)
+            .create_workspace_session(agent_id, model, None, None, None)
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
-        let mut client = self.connect().await?;
-        client.list_sessions().await
+        SessionService::from_storage(&self.core.storage).list_session_summaries(None, None, false)
     }
 
     pub async fn list_available_models(&self) -> Result<Vec<ModelMetadataDTO>> {
-        let mut client = self.connect().await?;
-        client.request_typed(IpcRequest::GetAvailableModels).await
+        Ok(available_model_catalog(&self.core))
     }
 
     pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
@@ -178,18 +178,17 @@ impl TuiDaemonClient {
     }
 
     pub async fn list_skills(&self) -> Result<Vec<Skill>> {
-        let mut client = self.connect().await?;
-        client.list_skills().await
+        skills_service::list_skills(&self.core).await
     }
 
     pub async fn get_skill(&self, skill_id: &str) -> Result<Option<Skill>> {
-        let mut client = self.connect().await?;
-        client.get_skill(skill_id.to_string()).await
+        skills_service::get_skill(&self.core, skill_id).await
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
-        let mut client = self.connect().await?;
-        client.get_session(session_id.to_string()).await
+        SessionService::from_storage(&self.core.storage)
+            .get_session_view(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {session_id}"))
     }
 
     pub async fn switch_session_model(
@@ -198,29 +197,26 @@ impl TuiDaemonClient {
         provider: &str,
         model: &str,
     ) -> Result<ChatSession> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::SwitchSessionModel {
-                session_id: session_id.to_string(),
-                model_ref: WireModelRef {
-                    provider: provider.to_string(),
-                    model: model.to_string(),
-                },
-                reason: Some("tui model picker".to_string()),
-            })
-            .await
+        let _model_ref = WireModelRef {
+            provider: provider.to_string(),
+            model: model.to_string(),
+        };
+        let model = normalize_model_input(model)?;
+        let session_service = SessionService::from_storage(&self.core.storage);
+        let mut session = session_service
+            .get_session_view(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {session_id}"))?;
+        session.set_model_identity_from_raw(&model);
+        session_service.save_session_metadata(&session)?;
+        Ok(session)
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
-        let mut client = self.connect().await?;
-        client.delete_session(session_id.to_string()).await
+        SessionService::from_storage(&self.core.storage).delete_session(session_id)
     }
 
     pub async fn cancel_chat_stream(&self, stream_id: &str) -> Result<bool> {
-        let mut client = self.connect().await?;
-        client
-            .cancel_chat_session_stream(stream_id.to_string())
-            .await
+        Ok(restflow_core::daemon::cancel_foreground_chat_stream(&self.core, stream_id).await)
     }
 
     pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {
@@ -284,6 +280,9 @@ impl TuiDaemonClient {
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
         tokio::spawn(async move {
+            if !client.daemon_running().await {
+                return;
+            }
             let mut ipc = match client.connect().await {
                 Ok(ipc) => ipc,
                 Err(error) => {
@@ -313,6 +312,9 @@ impl TuiDaemonClient {
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
         tokio::spawn(async move {
+            if !client.daemon_running().await {
+                return;
+            }
             let mut ipc = match client.connect().await {
                 Ok(ipc) => ipc,
                 Err(error) => {
@@ -345,41 +347,142 @@ impl TuiDaemonClient {
         tx: mpsc::UnboundedSender<AppEvent>,
     ) -> tokio::task::JoinHandle<()> {
         let client = self.clone();
-        let scope = Some(client.foreground_scope());
         let workspace_root = std::env::current_dir()
             .ok()
             .map(|path| path.to_string_lossy().into_owned());
         tokio::spawn(async move {
-            let mut ipc = match client.connect().await {
-                Ok(ipc) => ipc,
+            let stream = restflow_core::daemon::open_foreground_chat_session_stream(
+                client.core.clone(),
+                session_id.clone(),
+                Some(input),
+                stream_id,
+                workspace_root,
+            )
+            .await;
+            let mut rx = match stream {
+                Ok(rx) => rx,
                 Err(error) => {
-                    let _ = tx.send(AppEvent::Error(error.to_string()));
+                    let _ = tx.send(AppEvent::Error(format!("Chat stream failed: {error}")));
                     return;
                 }
             };
             let mut saw_terminal_frame = false;
-            let result = ipc
-                .execute_chat_session_stream(
-                    session_id.clone(),
-                    Some(input),
-                    stream_id,
-                    workspace_root,
-                    scope,
-                    |frame: StreamFrame| {
-                        saw_terminal_frame =
-                            matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
-                        tx.send(AppEvent::StreamFrame(frame))
-                            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-                        Ok(())
-                    },
-                )
-                .await;
+            while let Some(frame) = rx.recv().await {
+                saw_terminal_frame =
+                    matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
+                if tx.send(AppEvent::StreamFrame(frame)).is_err() {
+                    break;
+                }
+            }
 
-            if let Err(error) = result
-                && !saw_terminal_frame
-            {
-                let _ = tx.send(AppEvent::Error(format!("Chat stream failed: {error}")));
+            if !saw_terminal_frame {
+                let _ = tx.send(AppEvent::Error(
+                    "Chat stream ended before a terminal frame.".to_string(),
+                ));
             }
         })
+    }
+
+    pub async fn steer_chat_stream(&self, session_id: String, instruction: String) -> Result<bool> {
+        Ok(restflow_core::daemon::steer_foreground_chat_stream(
+            &self.core,
+            &session_id,
+            &instruction,
+        )
+        .await)
+    }
+}
+
+fn normalize_model_input(model: &str) -> Result<String> {
+    ModelId::normalize_model_id(model)
+        .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
+}
+
+fn is_catalog_model(model: ModelId) -> bool {
+    !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
+}
+
+fn is_legacy_openai_model(model: ModelId) -> bool {
+    matches!(
+        model,
+        ModelId::Gpt5
+            | ModelId::Gpt5Mini
+            | ModelId::Gpt5Nano
+            | ModelId::Gpt5Pro
+            | ModelId::Gpt5_1
+            | ModelId::Gpt5_2
+    )
+}
+
+fn provider_has_secret(core: &AppCore, provider: Provider) -> bool {
+    provider.api_key_env_candidates().any(|key| {
+        core.storage
+            .secrets
+            .get_non_empty(key)
+            .ok()
+            .flatten()
+            .is_some()
+    })
+}
+
+fn available_model_catalog(core: &AppCore) -> Vec<ModelMetadataDTO> {
+    let mut providers = Vec::new();
+    for provider in Provider::all().iter().copied() {
+        if provider == Provider::Codex || provider_has_secret(core, provider) {
+            providers.push(provider);
+        }
+    }
+    providers.sort_by_key(|provider| format!("{provider:?}"));
+
+    let mut models = ModelId::all_with_metadata()
+        .into_iter()
+        .filter(|metadata| is_catalog_model(metadata.model))
+        .filter(|metadata| providers.contains(&metadata.provider))
+        .collect::<Vec<_>>();
+    models.sort_by(|left, right| {
+        format!("{:?}", left.provider)
+            .cmp(&format!("{:?}", right.provider))
+            .then_with(|| model_sort_rank(left.model).cmp(&model_sort_rank(right.model)))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    models
+}
+
+fn model_sort_rank(model: ModelId) -> usize {
+    if model == ModelId::Gpt5_4Codex {
+        return 0;
+    }
+    if model == ModelId::Gpt5_4MiniCodex {
+        return 1;
+    }
+    if model == ModelId::CodexCli {
+        return 2;
+    }
+    if model == ModelId::Gpt5Codex || model == ModelId::Gpt5_1Codex || model == ModelId::Gpt5_2Codex
+    {
+        return 20;
+    }
+    10
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_catalog_sort_prefers_supported_default() {
+        let mut models = [
+            ModelId::Gpt5Codex,
+            ModelId::Gpt5_1Codex,
+            ModelId::Gpt5_4MiniCodex,
+            ModelId::Gpt5_4Codex,
+            ModelId::CodexCli,
+        ];
+
+        models.sort_by_key(|model| model_sort_rank(*model));
+
+        assert_eq!(models[0], ModelId::Gpt5_4Codex);
+        assert_eq!(models[1], ModelId::Gpt5_4MiniCodex);
+        assert_eq!(models[2], ModelId::CodexCli);
     }
 }

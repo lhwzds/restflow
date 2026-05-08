@@ -1,5 +1,5 @@
 use super::super::*;
-use restflow_contracts::CleanupReportResponse;
+use restflow_traits::CleanupReportResponse;
 
 impl IpcServer {
     pub(super) async fn handle_run_cleanup(core: &Arc<AppCore>) -> IpcResponse {

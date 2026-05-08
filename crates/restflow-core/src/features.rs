@@ -1,4 +1,4 @@
-use restflow_storage::SystemConfig;
+use crate::SystemConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::str::FromStr;

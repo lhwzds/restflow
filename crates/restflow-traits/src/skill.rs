@@ -4,7 +4,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 /// Skill source used by the unified skill catalog.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
 pub enum SkillSource {

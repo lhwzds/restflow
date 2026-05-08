@@ -13,12 +13,12 @@ use redb::Database;
 use restflow_ai::llm::{
     ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
-use restflow_contracts::request::{
-    AgentNode as ContractAgentNode, InlineAgentRunConfig as ContractInlineAgentRunConfig,
-    RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
-};
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
+};
+use restflow_traits::request::{
+    AgentNode as ContractAgentNode, InlineAgentRunConfig as ContractInlineAgentRunConfig,
+    RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
 };
 use restflow_traits::store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, TaskControlRequest, TaskCreateRequest,
@@ -870,7 +870,7 @@ fn test_task_store_adapter_task_flow() {
             name: "Task".to_string(),
             agent_id: created_agent.id,
             chat_session_id: None,
-            schedule: restflow_contracts::request::TaskSchedule::default(),
+            schedule: restflow_traits::request::TaskSchedule::default(),
             input: Some("Run periodic checks".to_string()),
             input_template: Some("Template {{task.id}}".to_string()),
             timeout_secs: Some(1800),

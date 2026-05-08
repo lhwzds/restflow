@@ -114,11 +114,9 @@ impl ModelSpec {
 #[cfg(test)]
 mod tests {
     use restflow_traits::ModelProvider;
-    use ts_rs::TS;
 
     use super::{
-        ALL_PROVIDER_META, ClientKind, LlmProvider, ModelId, ModelMetadataDTO, ModelSpec, Provider,
-        provider_meta,
+        ALL_PROVIDER_META, ClientKind, LlmProvider, ModelId, ModelSpec, Provider, provider_meta,
     };
 
     #[test]
@@ -229,20 +227,5 @@ mod tests {
             provider_meta(ModelProvider::ZaiCodingPlan).default_model_id,
             ModelId::Glm5_1CodingPlan
         );
-    }
-
-    #[test]
-    fn export_bindings_provider() {
-        Provider::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_model_id() {
-        ModelId::export_to_string(&ts_rs::Config::default()).unwrap();
-    }
-
-    #[test]
-    fn export_bindings_model_metadata_dto() {
-        ModelMetadataDTO::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 }

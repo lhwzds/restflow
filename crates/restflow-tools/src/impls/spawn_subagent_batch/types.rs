@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ToolError;
-use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::SubagentEffectiveLimits;
+use restflow_traits::request::RunSpawnRequest as ContractRunSpawnRequest;
 
 /// Operation for spawn_subagent_batch tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum SpawnSubagentBatchOperation {
     /// Spawn one batch of sub-agents immediately.
@@ -21,14 +19,11 @@ fn default_member_count() -> u32 {
 
 /// One batch member specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
 pub struct BatchSubagentSpec {
     /// Optional agent ID or name.
     ///
     /// If omitted, a temporary sub-agent is created from inline fields or defaults.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub agent: Option<String>,
 
     /// Number of identical sub-agents to spawn for this spec.
@@ -39,7 +34,6 @@ pub struct BatchSubagentSpec {
     ///
     /// If omitted, top-level `task` is used.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
 
     /// Optional transient per-instance task list.
@@ -47,49 +41,39 @@ pub struct BatchSubagentSpec {
     /// When provided, each spawned instance uses the corresponding entry in this list.
     /// This allows one worker spec to fan out with distinct prompts.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub tasks: Option<Vec<String>>,
 
     /// Optional per-spec timeout (seconds) passed to sub-agent execution.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub timeout_secs: Option<u64>,
 
     /// Optional model override.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
 
     /// Optional provider override paired with model.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub provider: Option<String>,
 
     /// Optional name for temporary sub-agent creation.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub inline_name: Option<String>,
 
     /// Optional system prompt for temporary sub-agent creation.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub inline_system_prompt: Option<String>,
 
     /// Optional allowlist for temporary sub-agent tools.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub inline_allowed_tools: Option<Vec<String>>,
 
     /// Optional max iterations override for temporary sub-agent creation.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub inline_max_iterations: Option<u32>,
 }
 
 /// Parameters for spawn_subagent_batch tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
 pub struct SpawnSubagentBatchParams {
     /// Operation to perform.
     #[serde(default)]
@@ -99,19 +83,16 @@ pub struct SpawnSubagentBatchParams {
     ///
     /// For `spawn`, `specs` is required.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub specs: Option<Vec<BatchSubagentSpec>>,
 
     /// Default transient task for all specs that do not set per-spec `task`.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
 
     /// Transient per-instance task list for this spawn.
     ///
     /// When provided, tasks are assigned across all instances in spec order.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub tasks: Option<Vec<String>>,
 
     /// If true, wait for all spawned tasks to complete.
@@ -120,22 +101,18 @@ pub struct SpawnSubagentBatchParams {
 
     /// Timeout in seconds for wait and as fallback spawn timeout.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub timeout_secs: Option<u64>,
 
     /// Optional parent run ID for context propagation (runtime-injected).
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub parent_run_id: Option<String>,
 
     /// Optional trace session ID for context propagation (runtime-injected).
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub trace_session_id: Option<String>,
 
     /// Optional trace scope ID for context propagation (runtime-injected).
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub trace_scope_id: Option<String>,
 
     /// If true, validate and preview capability warnings/blockers without executing.
@@ -144,7 +121,6 @@ pub struct SpawnSubagentBatchParams {
 
     /// Approval ID returned by preview when warnings require explicit confirmation.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub approval_id: Option<String>,
 }
 

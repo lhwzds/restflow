@@ -4,6 +4,7 @@ use super::ipc_protocol::{
 };
 use super::session_events::subscribe_session_events;
 use super::subscribe_task_events;
+use crate::AgentDefaults;
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::models::{
@@ -32,9 +33,8 @@ use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::telemetry::RestflowTrace;
-use restflow_contracts::ExecutionScope;
-use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
+use restflow_traits::ExecutionScope;
 use restflow_traits::store::ReplySender;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -77,13 +77,19 @@ fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ActiveChatStreamBinding {
     stream_id: String,
+    turn_id: String,
     scope: Option<ExecutionScope>,
 }
 
 impl ActiveChatStreamBinding {
-    fn new(stream_id: impl Into<String>, scope: Option<ExecutionScope>) -> Self {
+    fn new(
+        stream_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        scope: Option<ExecutionScope>,
+    ) -> Self {
         Self {
             stream_id: stream_id.into(),
+            turn_id: turn_id.into(),
             scope,
         }
     }
@@ -102,6 +108,36 @@ fn active_chat_stream_sessions() -> &'static Mutex<HashMap<String, ActiveChatStr
 fn active_chat_stream_steers() -> &'static Mutex<HashMap<String, mpsc::Sender<SteerMessage>>> {
     static STEERS: OnceLock<Mutex<HashMap<String, mpsc::Sender<SteerMessage>>>> = OnceLock::new();
     STEERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub async fn open_foreground_chat_session_stream(
+    core: Arc<AppCore>,
+    session_id: String,
+    user_input: Option<String>,
+    stream_id: String,
+    workspace_root: Option<String>,
+) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
+    IpcServer::open_execute_chat_session_stream(
+        core,
+        session_id,
+        user_input,
+        stream_id,
+        workspace_root,
+        None,
+    )
+    .await
+}
+
+pub async fn steer_foreground_chat_stream(
+    core: &Arc<AppCore>,
+    session_id: &str,
+    instruction: &str,
+) -> bool {
+    runtime::steer_chat_stream(core, session_id, instruction, None).await
+}
+
+pub async fn cancel_foreground_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> bool {
+    runtime::cancel_chat_stream(core, stream_id).await
 }
 
 fn daemon_started_at_ms() -> i64 {
@@ -495,26 +531,12 @@ impl IpcServer {
     }
 
     pub(crate) async fn open_stream(
-        core: Arc<AppCore>,
+        _core: Arc<AppCore>,
         request: IpcRequest,
     ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         match request {
-            IpcRequest::ExecuteChatSessionStream {
-                session_id,
-                user_input,
-                stream_id,
-                workspace_root,
-                scope,
-            } => {
-                Self::open_execute_chat_session_stream(
-                    core,
-                    session_id,
-                    user_input,
-                    stream_id,
-                    workspace_root,
-                    scope,
-                )
-                .await
+            IpcRequest::ExecuteChatSessionStream { .. } => {
+                anyhow::bail!("Foreground chat streaming runs in the TUI process")
             }
             IpcRequest::SubscribeTaskEvents {
                 task_id,
@@ -569,7 +591,11 @@ impl IpcServer {
                 }
                 _ => session_streams.insert(
                     session_id.clone(),
-                    ActiveChatStreamBinding::new(stream_id.clone(), scope.clone()),
+                    ActiveChatStreamBinding::new(
+                        stream_id.clone(),
+                        stream_id.clone(),
+                        scope.clone(),
+                    ),
                 ),
             }
         };

@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
-use restflow_contracts::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
 use restflow_core::models::{
     ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus, ExecutionThread,
     ModelId, ModelMetadataDTO, Provider, RunKind, RunSummary, Skill, SkillSource,
 };
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
 
 use super::activity::{ActivityState, BackgroundWorkStatus};
 use super::composer::ComposerState;
@@ -169,6 +169,7 @@ pub struct AnchoredRuntimeCell {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ActiveTurn {
     pub cells: Vec<TranscriptCell>,
+    pub queued_updates: Vec<String>,
     active_assistant_index: Option<usize>,
 }
 
@@ -1554,8 +1555,13 @@ impl AppState {
         self.active_turn_session_id = self.current_session_id().map(ToOwned::to_owned);
         self.active_turn = Some(ActiveTurn {
             cells: vec![cell],
+            queued_updates: Vec::new(),
             active_assistant_index: None,
         });
+    }
+
+    pub fn queue_active_turn_update(&mut self, instruction: String) {
+        self.ensure_active_turn().queued_updates.push(instruction);
     }
 
     pub fn replace_session_projection(&mut self, messages: Vec<ShellMessage>) {
@@ -1937,7 +1943,7 @@ fn append_active_text(body: &mut String, text: &str) {
 mod tests {
     use super::{AppState, OverlayState, TaskPickerItem};
     use crate::transcript::TranscriptCellKind;
-    use restflow_contracts::{ChatSessionEvent, StreamFrame};
+    use restflow_traits::{ChatSessionEvent, StreamFrame};
 
     #[test]
     fn app_state_session_picker_uses_overlay() {
@@ -2633,6 +2639,37 @@ mod tests {
         assert_eq!(rendered.len(), 2);
         assert_eq!(rendered[0].body, "hello");
         assert_eq!(rendered[1].body, "done");
+    }
+
+    #[test]
+    fn refresh_current_session_projects_queued_update_as_user_message_when_turn_finishes() {
+        let mut state = AppState::empty();
+        let turn_id = "turn-1".to_string();
+        let mut session =
+            restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(session.clone());
+        state.begin_stream(turn_id.clone());
+        state.push_local_user_message("hello".to_string());
+        state.queue_active_turn_update("please be shorter".to_string());
+
+        session.record_turn_user_message(&turn_id, "hello");
+        session.record_turn_user_message(&turn_id, "please be shorter");
+        session.complete_turn_with_assistant_message(&turn_id, "done");
+        state.refresh_current_session(session);
+
+        assert!(state.active_turn.is_none());
+        let rendered = state.transcript_cells_for_render();
+        assert_eq!(
+            rendered
+                .iter()
+                .map(|cell| (cell.kind, cell.body.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (TranscriptCellKind::User, "hello"),
+                (TranscriptCellKind::User, "please be shorter"),
+                (TranscriptCellKind::Assistant, "done"),
+            ]
+        );
     }
 
     #[test]

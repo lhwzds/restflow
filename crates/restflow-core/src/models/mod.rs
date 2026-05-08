@@ -56,13 +56,13 @@ pub use execution_trace::{
     ToolCallCompletion, ToolCallPhase, ToolCallTrace,
 };
 
+pub use crate::Secret;
 pub use chat_session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
     ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary,
     ChatSessionUpdate, ChatTurn, ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus,
     ExecutionStepInfo, MessageExecution,
 };
-pub use restflow_storage::Secret;
 pub use restflow_traits::skill::SkillSource;
 pub use security::{
     AgentSecurityConfig, ApprovalStatus, AskMode, CommandPattern, PendingApproval, SecurityAction,

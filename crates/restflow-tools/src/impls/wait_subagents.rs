@@ -13,22 +13,18 @@ use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager, SubagentSt
 
 /// Parameters for wait_subagents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
 pub struct WaitSubagentsParams {
     /// Task IDs to wait for.
     pub task_ids: Vec<String>,
 
     /// Parent run scope that owns the requested tasks.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub parent_run_id: Option<String>,
 
     /// Timeout in seconds.
     /// - `Some(0)` means wait without timeout.
     /// - `None` uses subagent manager default timeout.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
     pub timeout_secs: Option<u64>,
 }
 
@@ -174,8 +170,8 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
     use restflow_traits::SubagentManager;
+    use restflow_traits::request::RunSpawnRequest as ContractRunSpawnRequest;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 

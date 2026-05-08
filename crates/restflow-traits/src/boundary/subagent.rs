@@ -1,4 +1,4 @@
-use restflow_contracts::request::{
+use crate::contracts::request::{
     InlineAgentRunConfig as ContractInlineAgentRunConfig,
     RunSpawnRequest as ContractRunSpawnRequest, SpawnPriority as ContractSpawnPriority,
 };

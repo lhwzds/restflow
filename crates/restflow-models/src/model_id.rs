@@ -1,7 +1,6 @@
 use crate::{ClientKind, ModelMetadata, ModelMetadataDTO, ModelSpec, Provider, catalog};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
-use ts_rs::TS;
 
 mod constants;
 
@@ -9,9 +8,7 @@ mod constants;
 ///
 /// This replaces the old large enum with a lightweight value object backed by
 /// the provider/model catalog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TS, Type)]
-#[specta(skip_attr = "ts")]
-#[ts(type = "string")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Type)]
 pub struct ModelId(&'static str);
 
 impl Serialize for ModelId {

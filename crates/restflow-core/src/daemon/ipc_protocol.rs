@@ -1,5 +1,5 @@
-use restflow_contracts::ResponseEnvelope;
-pub use restflow_contracts::{
+use restflow_traits::ResponseEnvelope;
+pub use restflow_traits::{
     IpcDaemonStatus, IpcRequest, IpcStreamEvent, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
 use serde_json::Value;
@@ -13,7 +13,7 @@ pub type IpcResponse = ResponseEnvelope<Value>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_contracts::TaskStreamEvent;
+    use restflow_traits::TaskStreamEvent;
 
     #[test]
     fn test_ipc_request_reexport_roundtrip() {
@@ -51,7 +51,7 @@ mod tests {
             assert_eq!(error.code, 404);
             assert_eq!(error.message, "Not found");
             assert_eq!(error.details, None);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
+            assert_eq!(error.kind, restflow_traits::ErrorKind::NotFound);
         } else {
             panic!("Wrong variant");
         }

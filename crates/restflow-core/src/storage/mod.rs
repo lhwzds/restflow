@@ -1,7 +1,7 @@
-//! Storage layer with typed wrappers around restflow-storage.
+//! Storage layer with typed wrappers around RestFlow persistence.
 //!
 //! This module provides type-safe access to the storage layer by wrapping
-//! the byte-level APIs from restflow-storage with Rust types from our models.
+//! lower-level persistence APIs with Rust types from our models.
 
 pub mod agent;
 pub mod chat_session;
@@ -16,8 +16,7 @@ use redb::{Database, TableHandle};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-// Re-export types that are self-contained in restflow-storage
-pub use restflow_storage::{
+pub use crate::{
     AgentDefaults, AgentSettings, ApiDefaults, ApiSettings, CliConfig, ConfigDocument,
     ConfigSourcePathInfo, ConfigStorage, RegistryDefaults, RegistrySettings, RuntimeDefaults,
     RuntimeSettings, Secret, SecretStorage, SecretStorageConfig, SystemConfig,

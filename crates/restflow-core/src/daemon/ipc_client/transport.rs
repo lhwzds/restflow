@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use restflow_contracts::ErrorPayload;
+use restflow_traits::ErrorPayload;
 
 #[cfg(unix)]
 impl IpcClient {

@@ -133,7 +133,7 @@ mod tests {
 
         let storage = SecretStorage::with_config(
             db,
-            restflow_storage::SecretStorageConfig {
+            crate::SecretStorageConfig {
                 allow_insecure_file_permissions: true,
             },
         )

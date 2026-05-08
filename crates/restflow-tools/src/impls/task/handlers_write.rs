@@ -1,6 +1,6 @@
 use crate::impls::operation_assessment::guarded_confirmation_required_output;
 use crate::{Result, ToolError, ToolOutput};
-use restflow_contracts::request::{
+use restflow_traits::request::{
     ExecutionMode as ContractExecutionMode, ResourceLimits as ContractResourceLimits,
     TaskSchedule as ContractTaskSchedule,
 };
