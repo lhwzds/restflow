@@ -25,6 +25,12 @@ impl ExecutionTraceStorage {
         })
     }
 
+    pub fn new_namespace(namespace: usize) -> Result<Self> {
+        Ok(Self {
+            inner: ExecutionTraceRawStorage::new_namespace(namespace)?,
+        })
+    }
+
     /// Create an in-memory execution trace storage (for testing).
     #[allow(dead_code)]
     pub fn in_memory() -> Result<Self> {
@@ -50,6 +56,7 @@ impl ExecutionTraceStorage {
     }
 
     /// Access the underlying database for related projection stores.
+    #[cfg(test)]
     pub fn db(&self) -> Arc<Database> {
         self.inner.db().clone()
     }

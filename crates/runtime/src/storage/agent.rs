@@ -62,6 +62,13 @@ impl AgentStorage {
         })
     }
 
+    pub fn new_namespace(namespace: usize) -> Result<Self> {
+        Ok(Self {
+            inner: AgentRawStorage::new_namespace(namespace)?,
+            delete_lock: Arc::new(Mutex::new(())),
+        })
+    }
+
     pub fn create_agent(&self, name: String, mut agent: AgentNode) -> Result<StoredAgent> {
         normalize_model_fields(&mut agent)?;
         let now = time_utils::now_ms();

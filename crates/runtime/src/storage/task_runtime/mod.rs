@@ -106,11 +106,30 @@ impl TaskStorage {
         })
     }
 
+    pub fn new_namespace(namespace: usize) -> Result<Self> {
+        let execution_traces = ExecutionTraceStorage::new_namespace(namespace)?;
+        Ok(Self {
+            inner: RawTaskStorage::new_namespace(namespace)?,
+            execution_traces,
+        })
+    }
+
     /// Create a new TaskStorage instance backed by a JSON snapshot file.
     pub fn new_file_backed(db: Arc<Database>, file_path: impl Into<PathBuf>) -> Result<Self> {
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
             inner: RawTaskStorage::new_file_backed(db.clone(), file_path)?,
+            execution_traces,
+        })
+    }
+
+    pub fn new_file_backed_namespace(
+        namespace: usize,
+        file_path: impl Into<PathBuf>,
+    ) -> Result<Self> {
+        let execution_traces = ExecutionTraceStorage::new_namespace(namespace)?;
+        Ok(Self {
+            inner: RawTaskStorage::new_file_backed_namespace(namespace, file_path)?,
             execution_traces,
         })
     }

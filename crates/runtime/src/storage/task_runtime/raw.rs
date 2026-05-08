@@ -142,10 +142,29 @@ impl TaskStorage {
         })
     }
 
+    pub fn new_namespace(namespace: usize) -> Result<Self> {
+        Ok(Self {
+            namespace,
+            file_path: None,
+        })
+    }
+
     /// Create a new TaskStorage instance backed by a JSON snapshot file.
     pub fn new_file_backed(db: Arc<Database>, file_path: impl Into<PathBuf>) -> Result<Self> {
         let storage = Self {
             namespace: namespace_for_db(&db),
+            file_path: Some(file_path.into()),
+        };
+        storage.refresh_from_file()?;
+        Ok(storage)
+    }
+
+    pub fn new_file_backed_namespace(
+        namespace: usize,
+        file_path: impl Into<PathBuf>,
+    ) -> Result<Self> {
+        let storage = Self {
+            namespace,
             file_path: Some(file_path.into()),
         };
         storage.refresh_from_file()?;

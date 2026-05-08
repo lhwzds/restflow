@@ -58,6 +58,12 @@ impl ChatSessionStorage {
         })
     }
 
+    pub fn new_namespace(namespace: usize) -> Result<Self> {
+        Ok(Self {
+            inner: ChatSessionRawStorage::new_namespace(namespace)?,
+        })
+    }
+
     /// Create a new chat session (fails if already exists).
     pub fn create(&self, session: &ChatSession) -> Result<()> {
         let mut normalized = session.clone();

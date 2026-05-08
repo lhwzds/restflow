@@ -1,5 +1,8 @@
 use anyhow::Result;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::sync::{Mutex, OnceLock};
@@ -35,6 +38,14 @@ pub(crate) fn namespace_for_db(db: &Arc<redb::Database>) -> usize {
     namespace
 }
 
+pub(crate) fn namespace_for_path(path: impl AsRef<Path>) -> usize {
+    let normalized = path.as_ref().to_string_lossy();
+    let mut hasher = DefaultHasher::new();
+    normalized.hash(&mut hasher);
+    let namespace = hasher.finish() as usize;
+    if namespace == 0 { 1 } else { namespace }
+}
+
 /// Trait for simple in-process key-value storage modules.
 pub trait SimpleStorage: Send + Sync {
     /// Logical store name for this storage type.
@@ -42,9 +53,6 @@ pub trait SimpleStorage: Send + Sync {
 
     /// Process-local namespace derived from the owning database handle.
     fn namespace(&self) -> usize;
-
-    /// Get reference to the database handle that owns this namespace.
-    fn db(&self) -> &std::sync::Arc<redb::Database>;
 
     /// Insert only if key doesn't exist (atomic check-and-insert).
     fn insert_if_absent(&self, id: &str, data: &[u8]) -> Result<bool> {
@@ -159,16 +167,33 @@ macro_rules! define_simple_storage {
         $(#[$meta])*
         #[derive(Debug, Clone)]
         $vis struct $name {
-            db: std::sync::Arc<redb::Database>,
             namespace: usize,
+            #[cfg(test)]
+            db: Option<std::sync::Arc<redb::Database>>,
         }
 
         impl $name {
             pub fn new(db: std::sync::Arc<redb::Database>) -> anyhow::Result<Self> {
                 Ok(Self {
                     namespace: $crate::storage::simple_storage::namespace_for_db(&db),
-                    db,
+                    #[cfg(test)]
+                    db: Some(db),
                 })
+            }
+
+            pub fn new_namespace(namespace: usize) -> anyhow::Result<Self> {
+                Ok(Self {
+                    namespace,
+                    #[cfg(test)]
+                    db: None,
+                })
+            }
+
+            #[cfg(test)]
+            pub fn db(&self) -> &std::sync::Arc<redb::Database> {
+                self.db
+                    .as_ref()
+                    .expect("storage was not constructed with a redb database")
             }
         }
 
@@ -179,9 +204,6 @@ macro_rules! define_simple_storage {
                 self.namespace
             }
 
-            fn db(&self) -> &std::sync::Arc<redb::Database> {
-                &self.db
-            }
         }
     };
 }

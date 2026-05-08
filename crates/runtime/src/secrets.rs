@@ -2,6 +2,7 @@
 
 use crate::encryption::SecretEncryptor;
 use crate::paths;
+use crate::storage::RedbLeaseProvider;
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::Rng;
@@ -59,14 +60,20 @@ impl Secret {
 /// Secret storage with AES-256-GCM encryption
 #[derive(Clone)]
 pub struct SecretStorage {
-    db: Arc<Database>,
+    backend: SecretStorageBackend,
     encryptor: Arc<SecretEncryptor>,
+}
+
+#[derive(Clone)]
+enum SecretStorageBackend {
+    Lease(RedbLeaseProvider),
+    Shared(Arc<Database>),
 }
 
 impl std::fmt::Debug for SecretStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SecretStorage")
-            .field("db", &"<redb::Database>")
+            .field("backend", &"<redb>")
             .field("encryptor", &"<SecretEncryptor>")
             .finish()
     }
@@ -82,6 +89,14 @@ impl SecretStorage {
         Self::with_master_key(db, master_key)
     }
 
+    pub fn with_config_path(
+        db_path: impl Into<PathBuf>,
+        config: SecretStorageConfig,
+    ) -> Result<Self> {
+        let master_key = load_master_key(&config)?;
+        Self::with_master_key_path(db_path, master_key)
+    }
+
     /// Create storage with an explicit master key.
     pub fn with_master_key(db: Arc<Database>, master_key: [u8; 32]) -> Result<Self> {
         let write_txn = db.begin_write()?;
@@ -90,7 +105,27 @@ impl SecretStorage {
 
         let encryptor = Arc::new(SecretEncryptor::new(&master_key)?);
 
-        Ok(Self { db, encryptor })
+        Ok(Self {
+            backend: SecretStorageBackend::Shared(db),
+            encryptor,
+        })
+    }
+
+    pub fn with_master_key_path(db_path: impl Into<PathBuf>, master_key: [u8; 32]) -> Result<Self> {
+        let provider = RedbLeaseProvider::new(db_path);
+        provider.with_database(|db| {
+            let write_txn = db.begin_write()?;
+            write_txn.open_table(SECRETS_TABLE)?;
+            write_txn.commit()?;
+            Ok(())
+        })?;
+
+        let encryptor = Arc::new(SecretEncryptor::new(&master_key)?);
+
+        Ok(Self {
+            backend: SecretStorageBackend::Lease(provider),
+            encryptor,
+        })
     }
 
     /// Create for testing with relaxed file permission checks.
@@ -106,27 +141,29 @@ impl SecretStorage {
 
     /// Set or update a secret
     pub fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SECRETS_TABLE)?;
+        self.with_database(|db| {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(SECRETS_TABLE)?;
 
-            let existing = table
-                .get(key)?
-                .map(|data| self.decode_secret_bytes(data.value()))
-                .transpose()?;
+                let existing = table
+                    .get(key)?
+                    .map(|data| self.decode_secret_bytes(data.value()))
+                    .transpose()?;
 
-            let secret = if let Some(mut existing_secret) = existing {
-                existing_secret.update(value.to_string(), description);
-                existing_secret
-            } else {
-                Secret::new(key.to_string(), value.to_string(), description)
-            };
+                let secret = if let Some(mut existing_secret) = existing {
+                    existing_secret.update(value.to_string(), description);
+                    existing_secret
+                } else {
+                    Secret::new(key.to_string(), value.to_string(), description)
+                };
 
-            let encrypted = self.encode_secret(&secret)?;
-            table.insert(key, encrypted.as_slice())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+                let encrypted = self.encode_secret(&secret)?;
+                table.insert(key, encrypted.as_slice())?;
+            }
+            write_txn.commit()?;
+            Ok(())
+        })
     }
 
     /// Create a new secret (fails if already exists)
@@ -134,21 +171,23 @@ impl SecretStorage {
     /// This operation is atomic - the existence check and insert happen
     /// within the same write transaction to prevent race conditions.
     pub fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SECRETS_TABLE)?;
+        self.with_database(|db| {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(SECRETS_TABLE)?;
 
-            // Check existence within write transaction to prevent TOCTOU race
-            if table.get(key)?.is_some() {
-                return Err(anyhow::anyhow!("Secret {} already exists", key));
+                // Check existence within write transaction to prevent TOCTOU race
+                if table.get(key)?.is_some() {
+                    return Err(anyhow::anyhow!("Secret {} already exists", key));
+                }
+
+                let secret = Secret::new(key.to_string(), value.to_string(), description);
+                let encrypted = self.encode_secret(&secret)?;
+                table.insert(key, encrypted.as_slice())?;
             }
-
-            let secret = Secret::new(key.to_string(), value.to_string(), description);
-            let encrypted = self.encode_secret(&secret)?;
-            table.insert(key, encrypted.as_slice())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+            write_txn.commit()?;
+            Ok(())
+        })
     }
 
     /// Update an existing secret (fails if not exists)
@@ -156,39 +195,43 @@ impl SecretStorage {
     /// This operation is atomic - the existence check and update happen
     /// within the same write transaction to prevent race conditions.
     pub fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SECRETS_TABLE)?;
+        self.with_database(|db| {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(SECRETS_TABLE)?;
 
-            // Check existence and get current data within write transaction
-            let existing = table
-                .get(key)?
-                .map(|data| self.decode_secret_bytes(data.value()))
-                .transpose()?;
+                // Check existence and get current data within write transaction
+                let existing = table
+                    .get(key)?
+                    .map(|data| self.decode_secret_bytes(data.value()))
+                    .transpose()?;
 
-            let mut existing_secret =
-                existing.ok_or_else(|| anyhow::anyhow!("Secret {} not found", key))?;
+                let mut existing_secret =
+                    existing.ok_or_else(|| anyhow::anyhow!("Secret {} not found", key))?;
 
-            existing_secret.update(value.to_string(), description);
-            let encrypted = self.encode_secret(&existing_secret)?;
-            table.insert(key, encrypted.as_slice())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+                existing_secret.update(value.to_string(), description);
+                let encrypted = self.encode_secret(&existing_secret)?;
+                table.insert(key, encrypted.as_slice())?;
+            }
+            write_txn.commit()?;
+            Ok(())
+        })
     }
 
     /// Get secret model (internal)
     fn get_secret_model(&self, key: &str) -> Result<Option<Secret>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SECRETS_TABLE)?;
+        self.with_database(|db| {
+            let read_txn = db.begin_read()?;
+            let table = read_txn.open_table(SECRETS_TABLE)?;
 
-        if let Some(data) = table.get(key)? {
-            let raw = data.value();
-            let secret = self.decode_secret_bytes(raw)?;
-            Ok(Some(secret))
-        } else {
-            Ok(None)
-        }
+            if let Some(data) = table.get(key)? {
+                let raw = data.value();
+                let secret = self.decode_secret_bytes(raw)?;
+                Ok(Some(secret))
+            } else {
+                Ok(None)
+            }
+        })
     }
 
     /// Get a managed secret value from storage.
@@ -213,38 +256,44 @@ impl SecretStorage {
 
     /// Delete a secret
     pub fn delete_secret(&self, key: &str) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SECRETS_TABLE)?;
-            table.remove(key)?;
-        }
-        write_txn.commit()?;
-        Ok(())
+        self.with_database(|db| {
+            let write_txn = db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(SECRETS_TABLE)?;
+                table.remove(key)?;
+            }
+            write_txn.commit()?;
+            Ok(())
+        })
     }
 
     /// List all secrets (values are cleared for security)
     pub fn list_secrets(&self) -> Result<Vec<Secret>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SECRETS_TABLE)?;
+        self.with_database(|db| {
+            let read_txn = db.begin_read()?;
+            let table = read_txn.open_table(SECRETS_TABLE)?;
 
-        let mut secrets = Vec::new();
-        for item in table.iter()? {
-            let (_, value) = item?;
-            let secret = self.decode_secret_bytes(value.value())?;
-            let mut secret = secret;
-            // Clear the value for security
-            secret.value = String::new();
-            secrets.push(secret);
-        }
+            let mut secrets = Vec::new();
+            for item in table.iter()? {
+                let (_, value) = item?;
+                let secret = self.decode_secret_bytes(value.value())?;
+                let mut secret = secret;
+                // Clear the value for security
+                secret.value = String::new();
+                secrets.push(secret);
+            }
 
-        Ok(secrets)
+            Ok(secrets)
+        })
     }
 
     /// Check whether the secret is managed in storage.
     pub fn has_secret(&self, key: &str) -> Result<bool> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SECRETS_TABLE)?;
-        Ok(table.get(key)?.is_some())
+        self.with_database(|db| {
+            let read_txn = db.begin_read()?;
+            let table = read_txn.open_table(SECRETS_TABLE)?;
+            Ok(table.get(key)?.is_some())
+        })
     }
 
     /// Check whether the secret is available from managed storage.
@@ -260,6 +309,13 @@ impl SecretStorage {
     fn decode_secret_bytes(&self, payload: &[u8]) -> Result<Secret> {
         let plaintext = self.encryptor.decrypt(payload)?;
         Ok(serde_json::from_slice(&plaintext)?)
+    }
+
+    fn with_database<T>(&self, operation: impl FnOnce(&Database) -> Result<T>) -> Result<T> {
+        match &self.backend {
+            SecretStorageBackend::Lease(provider) => provider.with_database(operation),
+            SecretStorageBackend::Shared(db) => operation(db),
+        }
     }
 }
 

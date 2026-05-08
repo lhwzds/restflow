@@ -68,7 +68,7 @@ impl CliTaskRunner {
 
         let auth_manager = Arc::new(create_auth_manager(
             secrets.clone(),
-            AuthProfileStorage::new(storage.get_db())?,
+            AuthProfileStorage::new_namespace(storage.namespace())?,
         )?);
         auth_manager.initialize().await?;
 

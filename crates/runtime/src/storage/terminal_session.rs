@@ -19,6 +19,12 @@ impl TerminalSessionStorage {
         })
     }
 
+    pub fn new_namespace(namespace: usize) -> Result<Self> {
+        Ok(Self {
+            inner: TerminalSessionRawStorage::new_namespace(namespace)?,
+        })
+    }
+
     /// Create a new terminal session (fails if already exists)
     pub fn create(&self, session: &TerminalSession) -> Result<()> {
         if self.inner.exists(&session.id)? {

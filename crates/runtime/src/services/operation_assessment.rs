@@ -37,7 +37,7 @@ pub struct OperationAssessorAdapter {
 
 #[derive(Clone)]
 struct AssessmentContext {
-    db: Arc<redb::Database>,
+    namespace: usize,
     secrets: SecretStorage,
     session_service: SessionService,
     config: ConfigStorage,
@@ -52,7 +52,7 @@ impl AssessmentContext {
 
     fn from_storage(storage: &Storage) -> Self {
         Self {
-            db: storage.get_db(),
+            namespace: storage.namespace(),
             secrets: storage.secrets.clone(),
             session_service: SessionService::from_storage(storage),
             config: storage.config.clone(),
@@ -254,7 +254,7 @@ fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessme
 
 async fn build_auth(context: &AssessmentContext) -> Result<AuthProfileManager> {
     let secrets = Arc::new(context.secrets.clone());
-    let profile_storage = AuthProfileStorage::new(context.db.clone())?;
+    let profile_storage = AuthProfileStorage::new_namespace(context.namespace)?;
     let manager = AuthProfileManager::with_storage(
         AuthManagerConfig::default(),
         secrets,
