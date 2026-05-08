@@ -23,7 +23,7 @@ tools = { workspace = true }
 aes-gcm = "0.10"
 anyhow = "1.0.101"
 async-trait = "0.1.89"
-axum = { version = "0.8.6", features = ["json"] }
+axum = { version = "0.8.9", features = ["json"] }
 base64 = "0.22"
 chrono = "0.4.44"
 chrono-tz = "0.10"
