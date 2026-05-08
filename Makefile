@@ -77,21 +77,21 @@ stress:
 	@set -e; \
 	TYPEGEN_DIR="$$(mktemp -d)"; \
 	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_background_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p restflow-core --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1
+	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_task_profiles -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_task_profiles -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_task_profiles -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
+	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1
 
 # Run Rust lint checks
 lint: toolchain
@@ -105,7 +105,7 @@ audit: toolchain
 
 # Build CLI
 cli:
-	cargo build --release --package restflow-cli
+	cargo build --release --package cli
 
 release-check:
 	$(MAKE) lint

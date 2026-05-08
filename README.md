@@ -47,7 +47,7 @@ npm install -g restflow-cli
 **From source**
 
 ```bash
-cargo install --git https://github.com/lhwzds/restflow --package restflow-cli
+cargo install --git https://github.com/lhwzds/restflow --package cli
 ```
 
 ### Start the daemon
@@ -103,11 +103,11 @@ A compiled execution flow.
 
 RestFlow is not a split frontend/backend app. It is a Rust runtime and TUI:
 
-- `restflow-core` owns daemon execution and runtime adapters
-- `restflow-ai` owns the agent loop, model execution, and subagent runtime capability
-- `restflow-ai` exposes the optional PyO3 native module for Python SDK primitives
-- `restflow-tools` owns tool implementations and registry assembly helpers
-- `restflow-tui` is the primary user interface
+- `runtime` owns daemon execution and runtime adapters
+- `ai` owns the agent loop, model execution, and subagent runtime capability
+- Python capabilities live outside the core runtime as skrun-compatible examples
+- `tools` owns tool implementations and registry assembly helpers
+- `tui` is the primary user interface
 - `skrun` owns external executable tool examples and installed skill runs
 
 Execution naming follows one canonical model:
@@ -117,9 +117,8 @@ Execution naming follows one canonical model:
 - `Run`: one execution of a task
 - `Sub-agent`: delegated execution spawned within a run
 
-See the local architecture references for the current design:
+See the local task/run domain reference for the current design:
 
-- [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 - [docs/TASK_RUN_DOMAIN_MODEL.md](./docs/TASK_RUN_DOMAIN_MODEL.md)
 
 ## Current State

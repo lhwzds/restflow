@@ -1,5 +1,5 @@
 {
-  "commit": "387ef77d748e7e2fa255b4d2e02f0103c5575e19",
+  "commit": "91ccf780de25fcb079ac38348d6947fa619619d5",
   "docs": {
     "docs/TASK_RUN_DOMAIN_MODEL.md": {
       "covers": ["crates/runtime/src/models/task_runtime.rs", "crates/runtime/src/runtime/task_runtime/**/*.rs", "crates/runtime/src/storage/task_runtime/**/*.rs", "crates/runtime/src/mcp/server/tasks.rs", "crates/tools/src/impls/task/**/*.rs"],
@@ -216,14 +216,13 @@
       }
     },
     "docs/index.md": {
-      "covers": ["README.md", "SYSTEM_ARCHITECTURE.md", "Cargo.toml", "Cargo.lock", "Dockerfile", "Makefile", "docker-compose.dev.yml", "crates/**/*.rs", "examples/skrun/**/*.py", "npm/scripts/**/*.js", "scripts/**/*.sh"],
+      "covers": ["README.md", "Cargo.toml", "Cargo.lock", "Dockerfile", "Makefile", "docker-compose.dev.yml", "crates/**/*.rs", "examples/skrun/**/*.py", "npm/scripts/**/*.js", "scripts/**/*.sh"],
       "files": {
         "Cargo.lock": "ec33c890fd3efc80",
         "Cargo.toml": "f8da160da9079914",
-        "Dockerfile": "3caae2f45cbd92a0",
-        "Makefile": "a125a0a6f059cc72",
-        "README.md": "1a412d5a8f139426",
-        "SYSTEM_ARCHITECTURE.md": "a9d3bc10bd1d2a9a",
+        "Dockerfile": "0faea0c861caecaf",
+        "Makefile": "700c28e21c1d50b2",
+        "README.md": "1c43598fbf7c75b8",
         "crates/ai/src/agent/context.rs": "55609d5105ceb21f",
         "crates/ai/src/agent/context_manager/compact.rs": "1a62cd928dbe3281",
         "crates/ai/src/agent/context_manager/config.rs": "0f6e149afa65a502",
@@ -709,7 +708,7 @@
         "crates/types/src/http_client.rs": "8cbe472ce1f24da1",
         "crates/types/src/lib.rs": "6432d17ecaedb1eb",
         "crates/types/src/llm.rs": "b1214b1326eb9a3b",
-        "crates/types/src/model.rs": "f91ea9b86765e25a",
+        "crates/types/src/model.rs": "066c513c53fd195f",
         "crates/types/src/model_id/constants.rs": "da275655ac6f791e",
         "crates/types/src/model_id.rs": "df0d69767a987cf8",
         "crates/types/src/model_metadata.rs": "1106462af9229e8b",
@@ -744,8 +743,7 @@
         "examples/skrun/web-search/run.py": "e353528f93a7ebec",
         "npm/scripts/install.js": "c8bd89bb822d6e8c",
         "npm/scripts/install.test.js": "9c9c85c72747e12b",
-        "scripts/install.sh": "41679538d20bee25",
-        "scripts/stress/mock_daemon_soak.sh": "8b4fe86cc4457540"
+        "scripts/stress/mock_daemon_soak.sh": "e77b23d4fe2b77da"
       }
     },
     "docs/skills.md": {

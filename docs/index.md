@@ -2,7 +2,6 @@
 title: RestFlow Documentation
 covers:
   - README.md
-  - SYSTEM_ARCHITECTURE.md
   - Cargo.toml
   - Cargo.lock
   - Dockerfile
@@ -21,8 +20,7 @@ runtime owns agent execution, a small built-in tool surface, skill discovery,
 and executable skill calls through skrun.
 
 The Rust workspace is narrowed to the runtime crates that still define product
-boundaries: shared contracts/types, storage, AI execution, tools, core daemon
-runtime, CLI, and TUI.
+boundaries: shared types, AI execution, tools, daemon runtime, CLI, and TUI.
 
 ## What RestFlow Owns
 

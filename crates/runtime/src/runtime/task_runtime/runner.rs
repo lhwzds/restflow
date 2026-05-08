@@ -245,7 +245,7 @@ pub trait AgentExecutor: Send + Sync {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 #[async_trait::async_trait]
 pub trait NotificationSender: Send + Sync {
     async fn send(&self, task: &Task, success: bool, message: &str) -> Result<()>;
@@ -253,10 +253,10 @@ pub trait NotificationSender: Send + Sync {
     async fn send_formatted(&self, message: &str) -> Result<()>;
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub struct NoopNotificationSender;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 #[async_trait::async_trait]
 impl NotificationSender for NoopNotificationSender {
     async fn send(&self, _task: &Task, _success: bool, _message: &str) -> Result<()> {
@@ -294,7 +294,7 @@ impl TaskRunner {
     pub fn new(
         storage: Arc<TaskStorage>,
         executor: Arc<dyn AgentExecutor>,
-        #[cfg(test)] _notifier: Arc<dyn NotificationSender>,
+        #[cfg(any(test, feature = "test-utils"))] _notifier: Arc<dyn NotificationSender>,
         config: TaskRunnerConfig,
         steer_registry: Arc<SteerRegistry>,
     ) -> Self {
@@ -328,7 +328,7 @@ impl TaskRunner {
     pub fn with_heartbeat_emitter(
         storage: Arc<TaskStorage>,
         executor: Arc<dyn AgentExecutor>,
-        #[cfg(test)] _notifier: Arc<dyn NotificationSender>,
+        #[cfg(any(test, feature = "test-utils"))] _notifier: Arc<dyn NotificationSender>,
         config: TaskRunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
         steer_registry: Arc<SteerRegistry>,

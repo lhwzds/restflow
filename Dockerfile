@@ -8,7 +8,7 @@ RUN apt-get update && \
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
-RUN cargo build --release --package restflow-cli
+RUN cargo build --release --package cli
 
 FROM debian:bookworm-slim
 WORKDIR /app

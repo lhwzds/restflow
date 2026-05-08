@@ -48,10 +48,12 @@ jobs:
       fail-fast: false
       matrix:
         crate:
-          - restflow-storage
-          - restflow-core
-          - restflow-ai
-          - restflow-cli
+          - types
+          - ai
+          - tools
+          - runtime
+          - tui
+          - cli
 
     steps:
       - uses: actions/checkout@v4
@@ -88,10 +90,12 @@ jobs:
       fail-fast: false
       matrix:
         crate:
-          - restflow-storage
-          - restflow-core
-          - restflow-ai
-          - restflow-cli
+          - types
+          - ai
+          - tools
+          - runtime
+          - tui
+          - cli
 
     steps:
       - uses: actions/checkout@v4
@@ -164,5 +168,5 @@ jobs:
           echo "CARGO_BUILD_JOBS=1" >> $GITHUB_ENV
           echo "RUSTFLAGS=-C debuginfo=0 -C link-arg=/DEBUG:NONE" >> $GITHUB_ENV
 
-      - name: Build restflow-cli
-        run: cargo build --release --package restflow-cli --target ${{ matrix.target }}
+      - name: Build restflow
+        run: cargo build --release --package cli --target ${{ matrix.target }}
