@@ -1,12 +1,11 @@
 ---
 title: Skills
 covers:
-  - crates/restflow-core/src/loader/**/*.rs
-  - crates/restflow-core/src/registry/**/*.rs
-  - crates/restflow-core/src/services/skill*.rs
-  - crates/restflow-tools/src/skill/**/*.rs
-  - crates/restflow-tools/src/impls/load_skill.rs
-  - crates/restflow-tools/src/impls/skrun.rs
+  - crates/runtime/src/registry/**/*.rs
+  - crates/runtime/src/services/skill*.rs
+  - crates/tools/src/skill/**/*.rs
+  - crates/tools/src/impls/load_skill.rs
+  - crates/tools/src/impls/skrun.rs
 ---
 
 # Skills

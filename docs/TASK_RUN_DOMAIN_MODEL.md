@@ -1,11 +1,11 @@
 ---
 title: Task and Run Domain Model
 covers:
-  - crates/restflow-core/src/models/task_runtime.rs
-  - crates/restflow-core/src/runtime/task_runtime/**/*.rs
-  - crates/restflow-core/src/storage/task_runtime/**/*.rs
-  - crates/restflow-core/src/mcp/server/tasks.rs
-  - crates/restflow-tools/src/impls/task/**/*.rs
+  - crates/runtime/src/models/task_runtime.rs
+  - crates/runtime/src/runtime/task_runtime/**/*.rs
+  - crates/runtime/src/storage/task_runtime/**/*.rs
+  - crates/runtime/src/mcp/server/tasks.rs
+  - crates/tools/src/impls/task/**/*.rs
 ---
 
 # Task / Run Domain Model
@@ -39,10 +39,10 @@ not as a separate durable UI state model.
 
 ### Execution Ownership
 
-- `restflow-ai` owns subagent runtime capability and lifecycle.
-- `restflow-core` owns durable background/task runtime and daemon-side execution orchestration.
-- `restflow-core::runtime::subagent` is adapter-only and should not grow a second subagent runtime owner surface.
-- `restflow-tools` owns tool surfaces only, not runtime ownership.
+- `ai` owns subagent runtime capability and lifecycle.
+- `runtime` owns durable background/task runtime and daemon-side execution orchestration.
+- `runtime::runtime::subagent` is adapter-only and should not grow a second subagent runtime owner surface.
+- `tools` owns tool surfaces only, not runtime ownership.
 - Team-style coordination is skrun skill guidance, not a saved product object or reusable template.
 - `spawn_subagent_batch` is the only team-style execution primitive. Durable work must use Task/Run history instead of separate team runtime state, mailbox, assignment state, or approval state.
 
@@ -90,7 +90,7 @@ These terms are presentation vocabulary only. They must not create a second stat
 
 Shared public exports should expose canonical names only.
 
-Legacy names should not remain as public exports from `restflow-core`.
+Legacy names should not remain as public exports from `runtime`.
 
 ## Migration Guardrails
 

@@ -1,0 +1,200 @@
+#[cfg(not(unix))]
+use super::*;
+
+#[cfg(not(unix))]
+pub struct IpcClient;
+
+#[cfg(not(unix))]
+macro_rules! unsupported_result_methods {
+    ($(fn $name:ident(&mut self $(, $arg:ident : $arg_ty:ty )* ) -> $ret:ty;)+) => {
+        $(
+            pub async fn $name(&mut self, $($arg: $arg_ty),*) -> Result<$ret> {
+                $(let _ = &$arg;)*
+                Self::unsupported()
+            }
+        )+
+    };
+}
+
+#[cfg(not(unix))]
+impl IpcClient {
+    fn unsupported<T>() -> Result<T> {
+        Err(anyhow::anyhow!("IPC is not supported on this platform"))
+    }
+
+    pub async fn connect(_socket_path: &Path) -> Result<Self> {
+        Self::unsupported()
+    }
+
+    pub async fn request(&mut self, _req: IpcRequest) -> Result<IpcResponse> {
+        Self::unsupported()
+    }
+
+    pub async fn ping(&mut self) -> bool {
+        false
+    }
+
+    pub async fn get_status(&mut self) -> Result<IpcDaemonStatus> {
+        Self::unsupported()
+    }
+
+    pub async fn request_typed<T: DeserializeOwned>(&mut self, _req: IpcRequest) -> Result<T> {
+        Self::unsupported()
+    }
+
+    pub async fn request_optional<T: DeserializeOwned>(
+        &mut self,
+        _req: IpcRequest,
+    ) -> Result<Option<T>> {
+        Self::unsupported()
+    }
+
+    pub async fn list_tasks(&mut self, _status: Option<String>) -> Result<Vec<Task>> {
+        Self::unsupported()
+    }
+
+    pub async fn get_task(&mut self, _id: String) -> Result<Option<Task>> {
+        Self::unsupported()
+    }
+
+    pub async fn create_task(&mut self, _spec: TaskSpec) -> Result<Task> {
+        Self::unsupported()
+    }
+
+    pub async fn create_task_from_session(
+        &mut self,
+        _request: types::request::TaskFromSessionRequest,
+    ) -> Result<crate::models::TaskConversionResult> {
+        Self::unsupported()
+    }
+
+    pub async fn update_task(&mut self, _id: String, _patch: TaskPatch) -> Result<Task> {
+        Self::unsupported()
+    }
+
+    pub async fn delete_task(
+        &mut self,
+        _id: String,
+        _approval_id: Option<String>,
+    ) -> Result<types::DeleteWithIdResponse> {
+        Self::unsupported()
+    }
+
+    pub async fn control_task(
+        &mut self,
+        _id: String,
+        _action: TaskControlAction,
+        _approval_id: Option<String>,
+    ) -> Result<Task> {
+        Self::unsupported()
+    }
+
+    pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<TaskEvent>> {
+        Self::unsupported()
+    }
+
+    unsupported_result_methods! {
+        fn list_skills(&mut self) -> Vec<Skill>;
+        fn get_skill(&mut self, _id: String) -> Option<Skill>;
+        fn get_skill_reference(&mut self, _skill_id: String, _ref_id: String) -> Option<String>;
+        fn list_agents(&mut self) -> Vec<StoredAgent>;
+        fn get_agent(&mut self, _id: String) -> StoredAgent;
+        fn list_sessions(&mut self) -> Vec<ChatSessionSummary>;
+        fn list_full_sessions(&mut self) -> Vec<ChatSession>;
+        fn list_sessions_by_agent(&mut self, _agent_id: String) -> Vec<ChatSession>;
+        fn list_sessions_by_skill(&mut self, _skill_id: String) -> Vec<ChatSession>;
+        fn count_sessions(&mut self) -> usize;
+        fn delete_sessions_older_than(&mut self, _older_than_ms: i64) -> usize;
+        fn get_session(&mut self, _id: String) -> ChatSession;
+        fn create_session(&mut self, _agent_id: Option<String>, _model: Option<String>, _name: Option<String>, _skill_id: Option<String>) -> ChatSession;
+        fn update_session(&mut self, _id: String, _updates: ChatSessionUpdate) -> ChatSession;
+        fn rename_session(&mut self, _id: String, _name: String) -> ChatSession;
+        fn archive_session(&mut self, _id: String) -> bool;
+        fn delete_session(&mut self, _id: String) -> bool;
+        fn search_sessions(&mut self, _query: String, _agent_id: Option<String>, _limit: Option<usize>) -> Vec<ChatSessionSummary>;
+        fn add_message(&mut self, _session_id: String, _role: ChatRole, _content: String) -> ChatSession;
+        fn append_message(&mut self, _session_id: String, _message: ChatMessage) -> ChatSession;
+        fn execute_chat_session(
+            &mut self,
+            _session_id: String,
+            _user_input: Option<String>,
+            _workspace_root: Option<String>,
+        ) -> ChatSession;
+        fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
+        fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<types::ExecutionScope>) -> bool;
+        fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
+        fn list_runs(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
+        fn query_execution_traces(&mut self, _query: ExecutionTraceQuery) -> Vec<ExecutionTraceEvent>;
+        fn get_execution_trace_stats(&mut self, _run_id: Option<String>) -> ExecutionTraceStats;
+        fn get_execution_run_timeline(&mut self, _run_id: String) -> types::request::ExecutionTimeline;
+        fn get_execution_run_metrics(&mut self, _run_id: String) -> types::request::ExecutionMetricsResponse;
+        fn get_provider_health(&mut self, _query: crate::models::ProviderHealthQuery) -> crate::models::ProviderHealthResponse;
+        fn query_execution_run_logs(&mut self, _run_id: String) -> types::request::ExecutionLogResponse;
+        fn get_execution_trace_by_id(&mut self, _id: String) -> Option<ExecutionTraceEvent>;
+        fn list_terminal_sessions(&mut self) -> Vec<TerminalSession>;
+        fn get_terminal_session(&mut self, _id: String) -> TerminalSession;
+        fn create_terminal_session(&mut self) -> TerminalSession;
+        fn rename_terminal_session(&mut self, _id: String, _name: String) -> TerminalSession;
+        fn update_terminal_session(&mut self, _id: String, _name: Option<String>, _working_directory: Option<String>, _startup_command: Option<String>) -> TerminalSession;
+        fn save_terminal_session(&mut self, _session: TerminalSession) -> TerminalSession;
+        fn delete_terminal_session(&mut self, _id: String) -> ();
+        fn mark_all_terminal_sessions_stopped(&mut self) -> usize;
+        fn list_auth_profiles(&mut self) -> Vec<AuthProfile>;
+        fn get_auth_profile(&mut self, _id: String) -> AuthProfile;
+        fn add_auth_profile(&mut self, _name: String, _credential: Credential, _source: CredentialSource, _provider: AuthProvider) -> AuthProfile;
+        fn remove_auth_profile(&mut self, _id: String) -> AuthProfile;
+        fn update_auth_profile(&mut self, _id: String, _updates: ProfileUpdate) -> AuthProfile;
+        fn enable_auth_profile(&mut self, _id: String) -> ();
+        fn disable_auth_profile(&mut self, _id: String, _reason: String) -> ();
+        fn get_api_key(&mut self, _provider: AuthProvider) -> String;
+        fn get_api_key_for_profile(&mut self, _id: String) -> String;
+        fn test_auth_profile(&mut self, _id: String) -> bool;
+        fn mark_auth_success(&mut self, _id: String) -> ();
+        fn mark_auth_failure(&mut self, _id: String) -> ();
+        fn clear_auth_profiles(&mut self) -> ();
+        fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> String;
+        fn init_python(&mut self) -> bool;
+        fn get_available_tool_definitions(&mut self) -> Vec<ToolDefinition>;
+        fn execute_tool(&mut self, _name: String, _input: serde_json::Value) -> ToolExecutionResult;
+    }
+
+    pub async fn execute_chat_session_stream<F>(
+        &mut self,
+        _session_id: String,
+        _user_input: Option<String>,
+        _stream_id: String,
+        _workspace_root: Option<String>,
+        _scope: Option<types::ExecutionScope>,
+        _on_frame: F,
+    ) -> Result<()>
+    where
+        F: FnMut(StreamFrame) -> Result<()>,
+    {
+        Self::unsupported()
+    }
+
+    pub async fn subscribe_task_events<F>(
+        &mut self,
+        _task_id: String,
+        _run_id: Option<String>,
+        _scope: Option<types::ExecutionScope>,
+        _on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(TaskStreamEvent) -> Result<()>,
+    {
+        Self::unsupported()
+    }
+
+    pub async fn subscribe_session_events<F>(&mut self, _on_event: F) -> Result<()>
+    where
+        F: FnMut(ChatSessionEvent) -> Result<()>,
+    {
+        Self::unsupported()
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn is_daemon_available(_socket_path: &Path) -> bool {
+    false
+}

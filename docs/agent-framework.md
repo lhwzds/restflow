@@ -1,15 +1,13 @@
 ---
 title: Agent Framework
 covers:
-  - crates/restflow-ai/Cargo.toml
-  - crates/restflow-ai/README.md
-  - crates/restflow-ai/pyproject.toml
-  - crates/restflow-ai/**/*.rs
-  - python/restflow_ai/**/*.py
-  - crates/restflow-core/src/runtime/agent/**/*.rs
-  - crates/restflow-core/src/runtime/orchestrator/**/*.rs
-  - crates/restflow-core/src/services/tool_registry/**/*.rs
-  - crates/restflow-tools/src/**/*.rs
+  - crates/ai/Cargo.toml
+  - crates/ai/README.md
+  - crates/ai/**/*.rs
+  - crates/runtime/src/runtime/agent/**/*.rs
+  - crates/runtime/src/runtime/orchestrator/**/*.rs
+  - crates/runtime/src/services/tool_registry/**/*.rs
+  - crates/tools/src/**/*.rs
 ---
 
 # Agent Framework
@@ -55,22 +53,22 @@ They should live as external skrun skills or optional clients.
 
 ## Event Boundary
 
-Client-visible task and session stream events live in `restflow-contracts`.
+Client-visible task and session stream events live in `types`.
 They should describe realtime UI/runtime state only and should not embed trace
 payloads. Trace records can be derived from runtime events or exported through a
 separate adapter.
 
-The shared telemetry event domain lives in `restflow-ai`; `restflow-core`
+The shared telemetry event domain lives in `ai`; `runtime`
 projects those events into daemon-owned persistence.
 
 ## Python Integration
 
-Python should integrate through explicit boundaries:
+Python integration stays outside the core runtime:
 
-- `restflow-ai` exposes a PyO3 native module for agent-facing SDK primitives;
-- a Python SDK can create and run RestFlow agents through that native module;
-- Python-defined tools can be called through a tool host;
-- generic `run_python` behavior belongs in an external skrun example.
+- generic `run_python` behavior belongs in an external skrun example;
+- Python-defined tools should be exposed through skrun-compatible commands;
+- RestFlow should not own a Python package, PyO3 native module, or embedded
+  Python SDK boundary.
 
 This keeps the framework focused on agent orchestration rather than owning every
 language runtime.

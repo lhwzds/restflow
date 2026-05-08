@@ -52,8 +52,8 @@ flowchart TD
     McpCallers["MCP callers"] -->|"JSON-RPC over HTTP"| Daemon
 
     Foreground --> Chat["Chat session runtime"]
-    Foreground --> AgentLoop["restflow-ai agent loop"]
-    Foreground --> Tools["restflow-tools / skrun bridge"]
+    Foreground --> AgentLoop["ai agent loop"]
+    Foreground --> Tools["tools / skrun bridge"]
     Foreground --> SessionFiles
 
     Daemon --> Ipc["IPC server"]
@@ -73,25 +73,20 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Traits --> Models["restflow-models"]
-    Traits --> Ai["restflow-ai"]
-    Traits --> Tools["restflow-tools"]
-    Traits --> Core["restflow-core"]
-    Traits --> Tui["restflow-tui"]
-
-    Models --> Ai
-    Models --> Tools
-    Models --> Core
+    Types["types"] --> Ai["ai"]
+    Types --> Tools["tools"]
+    Types --> Core["runtime"]
+    Types --> Tui["tui"]
     Ai --> Core
     Tools --> Core
 
-    Core --> Cli["restflow-cli"]
+    Core --> Cli["cli"]
     Core --> Tui
 ```
 
 Notes:
 
-- `restflow-tools` only depends on `restflow-ai` in `dev-dependencies`; there is no production `tools -> ai` dependency.
+- `tools` only depends on `ai` in `dev-dependencies`; there is no production `tools -> ai` dependency.
 - Browser automation is no longer a core crate or daemon tool. Use an external
   skrun skill when browser automation is required.
 
@@ -181,17 +176,17 @@ subagents into task storage.
 
 ### Execution Ownership Split
 
-- `restflow-ai` owns the agent loop, LLM runtime, and subagent execution runtime.
-- `restflow-core` owns the daemon, durable background/task runtime, and client-facing execution services.
-- `restflow-core::runtime::subagent` is adapter-only and must stay limited to definition lookup and storage-backed registry wiring.
-- `restflow-tools` owns tool implementations and template/payload adapters, not daemon runtime ownership.
+- `ai` owns the agent loop, LLM runtime, and subagent execution runtime.
+- `runtime` owns the daemon, durable background/task runtime, and client-facing execution services.
+- `runtime::runtime::subagent` is adapter-only and must stay limited to definition lookup and storage-backed registry wiring.
+- `tools` owns tool implementations and template/payload adapters, not daemon runtime ownership.
 - The main TUI agent exposes `manage_tasks` so durable background work can be created, run, and inspected from the TUI entrypoint.
 - Team-style coordination is guidance from the `team` skrun skill executed through `spawn_subagent_batch`; Task/Run history remains the only durable execution state.
 
 ### Auxiliary Reviewer Agent Gate
 
 The primary agent loop may be configured with an auxiliary tool-call reviewer
-inside the same session execution. This is a runtime gate in `restflow-ai`, not a
+inside the same session execution. This is a runtime gate in `ai`, not a
 new storage owner.
 
 ```mermaid
@@ -215,10 +210,10 @@ Invariants:
 
 Provider/model ownership is intentionally split from daemon runtime ownership:
 
-- `restflow-traits` owns canonical provider identity and runtime switching contracts.
-- `restflow-models` owns shared provider metadata, model catalog, selectors, and runtime model specs.
-- `restflow-ai` owns client construction and hot-swapping mechanics.
-- `restflow-core` owns daemon-specific pairing and auth policy.
+- `types` owns canonical provider identity and runtime switching contracts.
+- `types` owns shared provider metadata, model catalog, selectors, and runtime model specs.
+- `ai` owns client construction and hot-swapping mechanics.
+- `runtime` owns daemon-specific pairing and auth policy.
 
 #### Current Provider and Boundary Map
 
@@ -231,23 +226,23 @@ flowchart LR
     end
 
     subgraph BOUNDARY["Boundary Layer"]
-        BA["core::boundary::agent"]
-        BB["core::boundary::task"]
-        BS["traits::boundary::subagent"]
+        BA["runtime::boundary::agent"]
+        BB["runtime::boundary::task"]
+        BS["types::boundary::subagent"]
     end
 
     subgraph DOMAIN["Domain and Runtime"]
-        DA["core::AgentNode / ModelRef"]
-        DB["core::TaskSpec / Patch"]
+        DA["runtime::AgentNode / ModelRef"]
+        DB["runtime::TaskSpec / Patch"]
         SR["SpawnRequest (runtime-only)"]
         SM["SubagentManager"]
     end
 
     subgraph MODELS["Shared Model Ownership"]
-        T["restflow-traits\nModelProvider / LlmProvider / ClientKind / LlmSwitcher"]
-        M["restflow-models\nProviderMeta / ModelId / catalog / selector / ModelSpec"]
-        AI["restflow-ai\nSwappableLlm / LlmClientFactory / execution runtime"]
-        C0["restflow-core\nprovider_access / provider_policy / daemon pairing"]
+        T["types\nModelProvider / LlmProvider / ClientKind / LlmSwitcher"]
+        M["types\nProviderMeta / ModelId / catalog / selector / ModelSpec"]
+        AI["ai\nSwappableLlm / LlmClientFactory / execution runtime"]
+        C0["runtime\nprovider_access / provider_policy / daemon pairing"]
     end
 
     A --> BA --> DA
@@ -265,19 +260,19 @@ flowchart LR
 Operational notes:
 
 - `AgentNode`, task, and `Subagent` ingress now normalize through dedicated boundary modules instead of ad-hoc `serde_json` conversion in services or tool handlers.
-- `SpawnRequest` is a runtime-only type. Public subagent ingress must start from `ContractSubagentSpawnRequest` and pass through `traits::boundary::subagent`.
+- `SpawnRequest` is a runtime-only type. Public subagent ingress must start from `ContractSubagentSpawnRequest` and pass through `types::boundary::subagent`.
 - `ProviderMeta` remains the source of shared provider defaults. `ZaiCodingPlan` currently defaults to `GLM-5.1` in the shared model catalog.
 
 #### Shared Ownership Map
 
-`restflow-traits` owns cross-crate identities and runtime switching contracts:
+`types` owns cross-crate identities and runtime switching contracts:
 
 - `ModelProvider`: canonical provider identity
 - `ClientKind`: concrete execution path
 - `LlmProvider`: runtime provider bucket used by the LLM factory
 - `LlmSwitcher`: runtime model switching interface used by tools and task execution
 
-`restflow-models` owns shared model/provider data and parsing logic:
+`types` owns shared model/provider data and parsing logic:
 
 - `Provider`: API-facing wrapper around `ModelProvider`
 - `ProviderMeta`: runtime provider mapping, API key envs, default model, and external aliases
@@ -294,13 +289,13 @@ Current notable provider defaults:
 - `Zai`: `GLM-5`
 - `ZaiCodingPlan`: `GLM-5.1`
 
-`restflow-ai` owns runtime execution mechanics:
+`ai` owns runtime execution mechanics:
 
 - `SwappableLlm`: active client holder with hot-swap support
 - `LlmClientFactory`: concrete client creation
 - `LlmSwitcherImpl`: bridge from runtime execution to the shared `LlmSwitcher` trait
 
-`restflow-core` owns daemon-specific policy and pairing logic:
+`runtime` owns daemon-specific policy and pairing logic:
 
 - `ModelRef`: pair/validation wrapper used by daemon-side models
 - `auth/provider_access.rs`: availability resolution, credential-driven default model selection, runtime key lookup
@@ -338,22 +333,22 @@ Tool or runtime consumer
 Design intent:
 
 - `LlmSwitcher` is the cross-crate switching contract.
-- `SwappableLlm` remains in `restflow-ai` because hot-swapping the active client is a runtime concern, not a catalog concern.
+- `SwappableLlm` remains in `ai` because hot-swapping the active client is a runtime concern, not a catalog concern.
 
 #### Contributor Rules
 
 When adding or changing a provider/model:
 
-1. Add or update the canonical provider in `restflow-traits/src/model.rs`.
-2. Update shared provider metadata in `restflow-models/src/provider_meta.rs`.
-3. Add or update descriptors and aliases under `restflow-models/src/catalog/`.
-4. Update auth policy in `restflow-core` only if authentication behavior changes.
+1. Add or update the canonical provider in `types/src/model.rs`.
+2. Update shared provider metadata in `types/src/provider_meta.rs`.
+3. Add or update descriptors and aliases under `types/src/catalog/`.
+4. Update auth policy in `runtime` only if authentication behavior changes.
 5. Keep generated bindings out of the runtime source tree; export checks should
    write to a temporary or target directory.
 
 Review guidance:
 
-- If a change adds an alias table to CLI, tool, or agent code, first check whether it belongs in `restflow-models`.
+- If a change adds an alias table to CLI, tool, or agent code, first check whether it belongs in `types`.
 - If a change introduces another provider enum, it is almost certainly the wrong abstraction.
 - If a change touches runtime switching, prefer extending `LlmSwitcher` instead of adding a parallel switching trait.
 
@@ -372,17 +367,17 @@ of the runtime.
 
 #### Trace Domain Ownership
 
-- `restflow-core` owns trace domain models, typed trace wrappers, and runtime
+- `runtime` owns trace domain models, typed trace wrappers, and runtime
   trace services
-- `restflow-core` owns config loading and the reduced secrets table
-- `restflow-traits::contracts` owns IPC-visible task/session stream contracts
-- `restflow-ai` owns AI-internal execution stream types and telemetry events
+- `runtime` owns config loading and the reduced secrets table
+- `types::contracts` owns IPC-visible task/session stream contracts
+- `ai` owns AI-internal execution stream types and telemetry events
 
 This means:
 
-- typed trace models belong in `restflow-core`
-- process-local runtime stores stay inside `restflow-core`; only secrets use a redb table
-- client-visible stream contracts stay in `restflow-traits::contracts`
+- typed trace models belong in `runtime`
+- process-local runtime stores stay inside `runtime`; only secrets use a redb table
+- client-visible stream contracts stay in `types::contracts`
 - AI-internal execution streaming abstractions stay near AI execution runtime
   code
 
@@ -391,10 +386,10 @@ This means:
 The following boundaries are intentional and should not be refactored away
 without a full dependency review:
 
-1. `StreamEmitter` stays in `restflow-ai`
+1. `StreamEmitter` stays in `ai`
    - it is coupled to AI execution streaming semantics and AI-specific stream
      payloads
-2. Runtime emitter implementations stay in `restflow-core`
+2. Runtime emitter implementations stay in `runtime`
    - they depend on storage, sanitization, runtime services, and daemon-owned
      execution policy
 3. Trace storage must not reintroduce redb tables
@@ -605,7 +600,7 @@ After architecture-sensitive changes, verify at least these flows:
 
 ### Execution Response Contract Migration Notes
 
-Execution query ownership now lives in `restflow-traits::contracts`. Response-side
+Execution query ownership now lives in `types::contracts`. Response-side
 execution DTOs should follow the same daemon-owned rule, but only after
 runtime builders are separated from transport payloads.
 
@@ -613,25 +608,25 @@ Current inventory:
 
 | Type | Current owner | Target owner | Notes |
 | --- | --- | --- | --- |
-| `ExecutionTraceEvent` | `restflow-core` | split | Still carries runtime constructors and builder helpers |
-| `ExecutionTimeline` | `restflow-core` | `restflow-traits::contracts` | Move after `ExecutionTraceEvent` contract DTO exists |
-| `ExecutionMetricsResponse` | `restflow-core` | `restflow-traits::contracts` | Pure transport wrapper once event DTO is contract-owned |
-| `ProviderHealthResponse` | `restflow-core` | `restflow-traits::contracts` | Pure transport wrapper once event DTO is contract-owned |
-| `ExecutionLogResponse` | `restflow-core` | `restflow-traits::contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ExecutionTraceEvent` | `runtime` | split | Still carries runtime constructors and builder helpers |
+| `ExecutionTimeline` | `runtime` | `types::contracts` | Move after `ExecutionTraceEvent` contract DTO exists |
+| `ExecutionMetricsResponse` | `runtime` | `types::contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ProviderHealthResponse` | `runtime` | `types::contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ExecutionLogResponse` | `runtime` | `types::contracts` | Pure transport wrapper once event DTO is contract-owned |
 
 Response migration order:
 
 1. Add contract-side DTOs for `ExecutionTraceEvent` and nested payload types.
-2. Keep builder/helper APIs in `restflow-core`, but make them construct
+2. Keep builder/helper APIs in `runtime`, but make them construct
    contract-owned DTOs.
 3. Move simple response wrappers plus `ExecutionTraceStats` and
-   `ExecutionTraceTimeRange` into `restflow-traits::contracts`.
+   `ExecutionTraceTimeRange` into `types::contracts`.
 4. Delete redundant core-owned DTO structs only after parity tests pass.
 
 Required parity guards before the response move:
 
-- Rust round-trip tests between `restflow-core` re-exports and
-  `restflow-traits::contracts` DTOs.
+- Rust round-trip tests between `runtime` re-exports and
+  `types::contracts` DTOs.
 - Serialization compatibility tests for representative event payloads.
 - Contract existence and field-shape tests for event/timeline response types.
 - No wrapper-only response shapes added in TUI, CLI, IPC, or MCP facades.

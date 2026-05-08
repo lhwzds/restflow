@@ -1,17 +1,16 @@
 [workspace]
 members = [
-    "crates/restflow-models",
-    "crates/restflow-traits",
-    "crates/restflow-core",
-    "crates/restflow-cli",
-    "crates/restflow-tui",
-    "crates/restflow-ai",
-    "crates/restflow-tools",
+    "crates/types",
+    "crates/ai",
+    "crates/tools",
+    "crates/runtime",
+    "crates/tui",
+    "crates/cli",
 ]
 resolver = "2"
 
 # Default to running core
-default-members = ["crates/restflow-core"]
+default-members = ["crates/runtime"]
 
 [workspace.package]
 version = "0.4.2"
@@ -19,12 +18,11 @@ authors = ["RestFlow Team"]
 edition = "2024"
 
 [workspace.dependencies]
-restflow-models = { path = "crates/restflow-models" }
-restflow-traits = { path = "crates/restflow-traits" }
-restflow-core = { path = "crates/restflow-core" }
-restflow-tui = { path = "crates/restflow-tui" }
-restflow-ai = { path = "crates/restflow-ai" }
-restflow-tools = { path = "crates/restflow-tools" }
+types = { path = "crates/types" }
+ai = { path = "crates/ai" }
+tools = { path = "crates/tools" }
+runtime = { path = "crates/runtime" }
+tui = { path = "crates/tui" }
 monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.7" }
 anyhow = "1.0.101"
 async-trait = "0.1.89"

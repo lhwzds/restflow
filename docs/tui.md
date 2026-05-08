@@ -1,9 +1,9 @@
 ---
 title: TUI
 covers:
-  - crates/restflow-tui/**/*.rs
-  - crates/restflow-cli/src/cli.rs
-  - crates/restflow-cli/src/commands/start.rs
+  - crates/tui/**/*.rs
+  - crates/cli/src/cli.rs
+  - crates/cli/src/commands/start.rs
 ---
 
 # TUI

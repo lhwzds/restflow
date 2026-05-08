@@ -71,6 +71,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai"
+version = "0.4.2"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "dirs",
+ "futures",
+ "nix 0.31.2",
+ "once_cell",
+ "parking_lot",
+ "postcard",
+ "redb",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "types",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -551,6 +580,43 @@ checksum = "7e30ffc187e2e3aeafcd1c6e2aa416e29739454c0ccaa419226d5ecd181f2d78"
 dependencies = [
  "clap",
  "roff",
+]
+
+[[package]]
+name = "cli"
+version = "0.4.2"
+dependencies = [
+ "ai",
+ "anyhow",
+ "assert_cmd",
+ "async-trait",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "clap_mangen",
+ "colored",
+ "comfy-table",
+ "dirs",
+ "flate2",
+ "nix 0.31.2",
+ "predicates",
+ "reqwest",
+ "rpassword",
+ "runtime",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "tui",
+ "types",
+ "uuid",
+ "walkdir",
+ "zip",
 ]
 
 [[package]]
@@ -2076,15 +2142,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2439,12 +2496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "portable-atomic"
-version = "1.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
-
-[[package]]
 name = "portable-pty"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2565,67 +2616,6 @@ checksum = "3852766467df634d74f0b2d7819bf8dc483a0eb2e3b0f50f756f9cfe8b0d18d8"
 dependencies = [
  "ar_archive_writer",
  "cc",
-]
-
-[[package]]
-name = "pyo3"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab53c047fcd1a1d2a8820fe84f05d6be69e9526be40cb03b73f86b6b03e6d87d"
-dependencies = [
- "indoc",
- "libc",
- "memoffset",
- "once_cell",
- "portable-atomic",
- "pyo3-build-config",
- "pyo3-ffi",
- "pyo3-macros",
- "unindent",
-]
-
-[[package]]
-name = "pyo3-build-config"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b455933107de8642b4487ed26d912c2d899dec6114884214a0b3bb3be9261ea6"
-dependencies = [
- "target-lexicon",
-]
-
-[[package]]
-name = "pyo3-ffi"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c85c9cbfaddf651b1221594209aed57e9e5cff63c4d11d1feead529b872a089"
-dependencies = [
- "libc",
- "pyo3-build-config",
-]
-
-[[package]]
-name = "pyo3-macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a5b10c9bf9888125d917fb4d2ca2d25c8df94c7ab5a52e13313a07e050a3b02"
-dependencies = [
- "proc-macro2",
- "pyo3-macros-backend",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "pyo3-macros-backend"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03b51720d314836e53327f5871d4c0cfb4fb37cc2c4a11cc71907a86342c40f9"
-dependencies = [
- "heck",
- "proc-macro2",
- "pyo3-build-config",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -2920,226 +2910,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "restflow-ai"
-version = "0.4.2"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "chrono",
- "dashmap",
- "dirs",
- "futures",
- "nix 0.31.2",
- "once_cell",
- "parking_lot",
- "postcard",
- "pyo3",
- "pyo3-build-config",
- "redb",
- "regex",
- "reqwest",
- "restflow-models",
- "restflow-traits",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
- "wiremock",
-]
-
-[[package]]
-name = "restflow-cli"
-version = "0.4.2"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "async-trait",
- "chrono",
- "clap",
- "clap_complete",
- "clap_mangen",
- "colored",
- "comfy-table",
- "dirs",
- "flate2",
- "nix 0.31.2",
- "predicates",
- "reqwest",
- "restflow-ai",
- "restflow-core",
- "restflow-traits",
- "restflow-tui",
- "rpassword",
- "serde",
- "serde_json",
- "tar",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "walkdir",
- "zip",
-]
-
-[[package]]
-name = "restflow-core"
-version = "0.4.2"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-stream",
- "async-trait",
- "axum",
- "base64",
- "bytes",
- "chrono",
- "chrono-tz",
- "cron",
- "crossbeam-queue",
- "dashmap",
- "dirs",
- "filetime",
- "futures",
- "glob-match",
- "hex",
- "http",
- "http-body",
- "http-body-util",
- "hyper",
- "hyper-util",
- "keyring",
- "lettre",
- "lsp-types",
- "nix 0.31.2",
- "notify",
- "num_cpus",
- "parking_lot",
- "petgraph",
- "portable-pty",
- "rand 0.10.1",
- "redb",
- "regex",
- "reqwest",
- "restflow-ai",
- "restflow-models",
- "restflow-tools",
- "restflow-traits",
- "rmcp",
- "schemars",
- "scopeguard",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "shell-words",
- "skrun",
- "specta",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-cron-scheduler",
- "tokio-stream",
- "tokio-tungstenite",
- "tokio-util",
- "toml",
- "tower",
- "tower-http",
- "tracing",
- "url",
- "urlencoding",
- "uuid",
- "walkdir",
- "which",
- "zip",
-]
-
-[[package]]
-name = "restflow-models"
-version = "0.4.2"
-dependencies = [
- "restflow-traits",
- "serde",
- "specta",
-]
-
-[[package]]
-name = "restflow-tools"
-version = "0.4.2"
-dependencies = [
- "anyhow",
- "async-recursion",
- "async-trait",
- "chrono",
- "dashmap",
- "dirs",
- "futures",
- "glob-match",
- "hex",
- "lsp-types",
- "nix 0.31.2",
- "once_cell",
- "parking_lot",
- "postcard",
- "redb",
- "regex",
- "restflow-ai",
- "restflow-models",
- "restflow-traits",
- "serde",
- "serde_json",
- "sha2",
- "skrun",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "restflow-traits"
-version = "0.4.2"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "lsp-types",
- "reqwest",
- "serde",
- "serde_json",
- "specta",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "restflow-tui"
-version = "0.4.2"
-dependencies = [
- "anyhow",
- "chrono",
- "crossterm 0.28.1",
- "ratatui",
- "restflow-core",
- "restflow-traits",
- "serde",
- "serde_json",
- "tokio",
- "unicode-width 0.2.0",
- "uuid",
-]
-
-[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3222,6 +2992,77 @@ checksum = "a7cc970b249fbe527d6e02e0a227762c9108b2f49d81094fe357ffc6d14d7f6f"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "runtime"
+version = "0.4.2"
+dependencies = [
+ "aes-gcm",
+ "ai",
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64",
+ "bytes",
+ "chrono",
+ "chrono-tz",
+ "cron",
+ "crossbeam-queue",
+ "dashmap",
+ "dirs",
+ "filetime",
+ "futures",
+ "glob-match",
+ "hex",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "keyring",
+ "lettre",
+ "lsp-types",
+ "nix 0.31.2",
+ "notify",
+ "num_cpus",
+ "parking_lot",
+ "petgraph",
+ "portable-pty",
+ "rand 0.10.1",
+ "redb",
+ "regex",
+ "reqwest",
+ "rmcp",
+ "schemars",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "shell-words",
+ "skrun",
+ "specta",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-cron-scheduler",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "toml",
+ "tools",
+ "tower",
+ "tower-http",
+ "tracing",
+ "types",
+ "url",
+ "urlencoding",
+ "uuid",
+ "walkdir",
+ "which",
+ "zip",
 ]
 
 [[package]]
@@ -3885,12 +3726,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "target-lexicon"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
-
-[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4158,6 +3993,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
+name = "tools"
+version = "0.4.2"
+dependencies = [
+ "ai",
+ "anyhow",
+ "async-recursion",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "dirs",
+ "futures",
+ "glob-match",
+ "hex",
+ "lsp-types",
+ "nix 0.31.2",
+ "once_cell",
+ "parking_lot",
+ "postcard",
+ "redb",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "skrun",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "types",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4294,6 +4163,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tui"
+version = "0.4.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "crossterm 0.28.1",
+ "ratatui",
+ "runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+ "types",
+ "unicode-width 0.2.0",
+ "uuid",
+]
+
+[[package]]
 name = "tungstenite"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4317,6 +4203,24 @@ name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+
+[[package]]
+name = "types"
+version = "0.4.2"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "lsp-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+]
 
 [[package]]
 name = "unicase"
@@ -4364,12 +4268,6 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
-
-[[package]]
-name = "unindent"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7264e107f553ccae879d21fbea1d6724ac785e8c3bfc762137959b5802826ef3"
 
 [[package]]
 name = "universal-hash"
