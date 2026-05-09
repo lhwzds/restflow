@@ -1,21 +1,21 @@
 //! SessionStore adapter backed by the canonical SessionService boundary.
 
 use crate::services::session::SessionService;
-use crate::storage::{AgentStorage, SessionStorage, TaskStorage};
+use crate::storage::{AgentStorage, ChatSessionStorage, TaskStorage};
 use serde_json::{Value, json};
 use tools::ToolError;
 use types::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
 
 #[derive(Clone)]
 pub struct SessionStorageAdapter {
-    sessions: SessionStorage,
+    sessions: ChatSessionStorage,
     agent_storage: AgentStorage,
     task_storage: TaskStorage,
 }
 
 impl SessionStorageAdapter {
     pub fn new(
-        sessions: SessionStorage,
+        sessions: ChatSessionStorage,
         agent_storage: AgentStorage,
         task_storage: TaskStorage,
     ) -> Self {
@@ -129,8 +129,7 @@ mod tests {
         let env = RestflowTestEnv::new();
         let db_path = env.db_path("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let session_storage =
-            SessionStorage::new(crate::storage::ChatSessionStorage::new(db.clone()).unwrap());
+        let session_storage = ChatSessionStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let task_storage = TaskStorage::new(db.clone()).unwrap();
         (

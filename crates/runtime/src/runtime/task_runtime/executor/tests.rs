@@ -130,7 +130,7 @@ fn load_chat_session_reads_file_session_without_materializing_to_redb() {
         .write_session(&FileSession::from_chat_session(&session), false)
         .unwrap();
     let session_service = SessionService::new(
-        storage.sessions.clone(),
+        storage.chat_sessions.clone(),
         Some(storage.agents.clone()),
         storage.tasks.clone(),
     )

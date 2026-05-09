@@ -374,7 +374,7 @@ pub fn registry_from_allowlist_with_security_gate(
             "manage_sessions" | "sessions" => {
                 with_storage!(storage, "manage_sessions", builder, |s| {
                     builder.with_session(Arc::new(SessionStorageAdapter::new(
-                        s.sessions.clone(),
+                        s.chat_sessions.clone(),
                         s.agents.clone(),
                         s.tasks.clone(),
                     )))

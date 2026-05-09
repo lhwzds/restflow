@@ -6,7 +6,7 @@ use crate::models::{
 use crate::runtime::session_turn::hydrate_voice_message_metadata;
 use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
 use crate::session_log::{FileSession, FileSessionStore};
-use crate::storage::{AgentStorage, SessionStorage, Storage, TaskStorage};
+use crate::storage::{AgentStorage, ChatSessionStorage, Storage, TaskStorage};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -14,7 +14,7 @@ use tracing::warn;
 
 #[derive(Clone)]
 pub struct SessionService {
-    sessions: SessionStorage,
+    sessions: ChatSessionStorage,
     agents: Option<AgentStorage>,
     policy: SessionPolicy,
     file_sessions: Option<FileSessionStore>,
@@ -32,7 +32,11 @@ pub struct PersistInteractiveTurnRequest<'a> {
 }
 
 impl SessionService {
-    pub fn new(sessions: SessionStorage, agents: Option<AgentStorage>, tasks: TaskStorage) -> Self {
+    pub fn new(
+        sessions: ChatSessionStorage,
+        agents: Option<AgentStorage>,
+        tasks: TaskStorage,
+    ) -> Self {
         let policy = SessionPolicy::new(sessions.clone(), tasks);
         Self {
             sessions,
@@ -45,7 +49,7 @@ impl SessionService {
 
     pub fn from_storage(storage: &Storage) -> Self {
         let service = Self::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         );
@@ -103,7 +107,7 @@ impl SessionService {
     }
 
     pub fn get_session_view(&self, session_id: &str) -> Result<Option<ChatSession>> {
-        let redb_session = self.sessions.get_session(session_id)?;
+        let redb_session = self.sessions.get(session_id)?;
         let file_session = self
             .file_sessions
             .as_ref()
@@ -129,7 +133,6 @@ impl SessionService {
 
         let redb_session = self
             .sessions
-            .chat_sessions
             .list_all()?
             .into_iter()
             .find(|session| session.turns.iter().any(|turn| turn.id == turn_id));
@@ -152,7 +155,7 @@ impl SessionService {
     }
 
     pub fn materialize_session_for_runtime(&self, session_id: &str) -> Result<Option<ChatSession>> {
-        if let Some(mut session) = self.sessions.get_session(session_id)? {
+        if let Some(mut session) = self.sessions.get(session_id)? {
             session.hydrate_provider_from_model();
             return Ok(Some(session));
         }
@@ -161,7 +164,7 @@ impl SessionService {
             return Ok(None);
         };
         session.hydrate_provider_from_model();
-        self.sessions.save_session(&session)?;
+        self.sessions.save(&session)?;
         self.mirror_file_session(&session, "materialize_runtime");
         Ok(Some(session))
     }
@@ -173,14 +176,12 @@ impl SessionService {
         include_archived: bool,
     ) -> Result<Vec<ChatSession>> {
         let mut sessions = match (agent_id, skill_id, include_archived) {
-            (Some(agent_id), _, true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
-            (Some(agent_id), _, false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
-            (None, Some(skill_id), true) => {
-                self.sessions.chat_sessions.list_by_skill_all(skill_id)?
-            }
-            (None, Some(skill_id), false) => self.sessions.chat_sessions.list_by_skill(skill_id)?,
-            (None, None, true) => self.sessions.chat_sessions.list_all()?,
-            (None, None, false) => self.sessions.chat_sessions.list()?,
+            (Some(agent_id), _, true) => self.sessions.list_by_agent_all(agent_id)?,
+            (Some(agent_id), _, false) => self.sessions.list_by_agent(agent_id)?,
+            (None, Some(skill_id), true) => self.sessions.list_by_skill_all(skill_id)?,
+            (None, Some(skill_id), false) => self.sessions.list_by_skill(skill_id)?,
+            (None, None, true) => self.sessions.list_all()?,
+            (None, None, false) => self.sessions.list()?,
         };
 
         for session in &mut sessions {
@@ -202,8 +203,8 @@ impl SessionService {
         include_archived: bool,
     ) -> Result<Vec<ChatSessionSummary>> {
         let mut summaries = match include_archived {
-            true => self.sessions.chat_sessions.list_summaries_all()?,
-            false => self.sessions.chat_sessions.list_summaries()?,
+            true => self.sessions.list_summaries_all()?,
+            false => self.sessions.list_summaries()?,
         };
         summaries.retain(|summary| {
             Self::summary_matches_list_filter(summary, agent_id, skill_id, include_archived)
@@ -363,7 +364,7 @@ impl SessionService {
         source_channel: ChatSessionSource,
         conversation_id: &str,
     ) -> Result<Option<ChatSession>> {
-        for mut session in self.sessions.list_sessions_all()? {
+        for mut session in self.sessions.list_all()? {
             if session.source_channel == Some(source_channel)
                 && session.source_conversation_id.as_deref() == Some(conversation_id)
             {
@@ -880,11 +881,8 @@ impl SessionService {
             .ensure_workspace_operation_allowed(&session, "deleted")?;
 
         let mut deleted = false;
-        if self.sessions.get_session(session_id)?.is_some() {
-            deleted = self.sessions.delete_session(session_id)?;
-            if deleted {
-                self.cleanup_session_artifacts(session_id)?;
-            }
+        if self.sessions.get(session_id)?.is_some() {
+            deleted = self.sessions.delete(session_id)?;
         }
         let file_deleted = self.delete_file_session(session_id);
         if deleted || file_deleted {
@@ -893,10 +891,6 @@ impl SessionService {
             });
         }
         Ok(deleted || file_deleted)
-    }
-
-    pub fn cleanup_session_artifacts(&self, session_id: &str) -> Result<()> {
-        self.policy.cleanup_session_artifacts(session_id)
     }
 
     pub fn cleanup_workspace_sessions_older_than(
@@ -952,10 +946,10 @@ impl SessionService {
     }
 
     fn persist_session_view(&self, session: &ChatSession, operation: &'static str) -> Result<()> {
-        let redb_exists = self.sessions.get_session(&session.id)?.is_some();
+        let redb_exists = self.sessions.get(&session.id)?.is_some();
         let wrote_redb = redb_exists || self.file_sessions.is_none();
         if wrote_redb {
-            self.sessions.save_session(session)?;
+            self.sessions.save(session)?;
         }
         if let Err(error) = self.write_file_session(session) {
             if wrote_redb {
@@ -1158,7 +1152,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1190,7 +1184,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&file_session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1216,7 +1210,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1246,7 +1240,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&file_session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1275,7 +1269,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&archived_session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1314,7 +1308,7 @@ mod tests {
             .unwrap();
 
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1337,7 +1331,7 @@ mod tests {
         std::fs::create_dir_all(&day_dir).unwrap();
         std::fs::write(day_dir.join("broken-session.jsonl"), "{not-json}\n").unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1362,7 +1356,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1384,7 +1378,7 @@ mod tests {
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1415,7 +1409,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1450,7 +1444,7 @@ mod tests {
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )
@@ -1468,7 +1462,7 @@ mod tests {
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
         let service = SessionService::new(
-            storage.sessions.clone(),
+            storage.chat_sessions.clone(),
             Some(storage.agents.clone()),
             storage.tasks.clone(),
         )

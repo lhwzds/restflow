@@ -1,5 +1,5 @@
 use crate::models::{ChatSession, ChatSessionSource, Task};
-use crate::storage::{SessionStorage, Storage, TaskStorage};
+use crate::storage::{ChatSessionStorage, Storage, TaskStorage};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -75,17 +75,17 @@ pub struct EffectiveSessionSource {
 
 #[derive(Clone)]
 pub struct SessionPolicy {
-    sessions: SessionStorage,
+    sessions: ChatSessionStorage,
     tasks: TaskStorage,
 }
 
 impl SessionPolicy {
-    pub fn new(sessions: SessionStorage, tasks: TaskStorage) -> Self {
+    pub fn new(sessions: ChatSessionStorage, tasks: TaskStorage) -> Self {
         Self { sessions, tasks }
     }
 
     pub fn from_storage(storage: &Storage) -> Self {
-        Self::new(storage.sessions.clone(), storage.tasks.clone())
+        Self::new(storage.chat_sessions.clone(), storage.tasks.clone())
     }
 
     fn normalize_session_id(session_id: &str) -> Option<String> {
@@ -172,37 +172,29 @@ impl SessionPolicy {
         Ok(())
     }
 
-    pub fn cleanup_session_artifacts(&self, session_id: &str) -> Result<()> {
-        self.sessions.cleanup_artifacts(session_id)
-    }
-
     pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
-        let Some(session) = self.sessions.get_session(session_id)? else {
+        let Some(session) = self.sessions.get(session_id)? else {
             return Ok(false);
         };
 
         self.ensure_workspace_operation_allowed(&session, "archived")?;
-        self.sessions.archive_session(session_id)
+        self.sessions.archive(session_id)
     }
 
     pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
-        let Some(session) = self.sessions.get_session(session_id)? else {
+        let Some(session) = self.sessions.get(session_id)? else {
             return Ok(false);
         };
 
         self.ensure_workspace_operation_allowed(&session, "deleted")?;
-        let deleted = self.sessions.delete_session(session_id)?;
-        if deleted {
-            self.cleanup_session_artifacts(session_id)?;
-        }
-        Ok(deleted)
+        self.sessions.delete(session_id)
     }
 
     pub fn cleanup_workspace_sessions_older_than(
         &self,
         older_than_ms: i64,
     ) -> Result<SessionPolicyCleanupStats> {
-        let sessions = self.sessions.list_sessions_all()?;
+        let sessions = self.sessions.list_all()?;
         let task_map = self.task_by_session_map()?;
         let mut stats = SessionPolicyCleanupStats {
             scanned: sessions.len(),
@@ -228,8 +220,7 @@ impl SessionPolicy {
             let serialized_len = serde_json::to_vec(&session)
                 .map(|bytes| bytes.len() as u64)
                 .unwrap_or(0);
-            if self.sessions.delete_session(&session.id)? {
-                self.cleanup_session_artifacts(&session.id)?;
+            if self.sessions.delete(&session.id)? {
                 stats.deleted += 1;
                 stats.bytes_freed += serialized_len;
             }
@@ -242,7 +233,7 @@ impl SessionPolicy {
         &self,
         now_ms: i64,
     ) -> Result<SessionPolicyCleanupStats> {
-        let sessions = self.sessions.list_sessions_all()?;
+        let sessions = self.sessions.list_all()?;
         let task_map = self.task_by_session_map()?;
         let mut stats = SessionPolicyCleanupStats {
             scanned: sessions.len(),
@@ -279,8 +270,7 @@ impl SessionPolicy {
             let serialized_len = serde_json::to_vec(&session)
                 .map(|bytes| bytes.len() as u64)
                 .unwrap_or(0);
-            if self.sessions.delete_session(&session.id)? {
-                self.cleanup_session_artifacts(&session.id)?;
+            if self.sessions.delete(&session.id)? {
                 stats.deleted += 1;
                 stats.bytes_freed += serialized_len;
             }

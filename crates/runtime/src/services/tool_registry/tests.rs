@@ -849,11 +849,7 @@ fn test_task_store_adapter_task_flow() {
     let adapter = TaskStoreAdapter::new(
         task_storage.clone(),
         agent_storage.clone(),
-        SessionService::new(
-            crate::storage::SessionStorage::new(chat_storage),
-            Some(agent_storage),
-            task_storage,
-        ),
+        SessionService::new(chat_storage, Some(agent_storage), task_storage),
     )
     .with_assessor(Arc::new(BackgroundMutationAssessor));
 

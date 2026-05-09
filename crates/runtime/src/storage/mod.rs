@@ -6,7 +6,6 @@
 pub mod agent;
 pub mod chat_session;
 pub mod redb_lease;
-pub mod session;
 pub mod simple_storage;
 pub mod task_runtime;
 pub mod terminal_session;
@@ -24,7 +23,6 @@ pub use crate::{
 pub use agent::AgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use redb_lease::RedbLeaseProvider;
-pub use session::SessionStorage;
 pub use simple_storage::{AuthProfileRawStorage as AuthProfileStorage, SimpleStorage};
 pub use task_runtime::TaskStorage;
 pub use terminal_session::TerminalSessionStorage;
@@ -43,7 +41,6 @@ pub struct Storage {
     pub secrets: SecretStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub chat_sessions: ChatSessionStorage,
-    pub sessions: SessionStorage,
 }
 
 impl Storage {
@@ -64,7 +61,6 @@ impl Storage {
         let secrets = SecretStorage::with_config_path(db_path.clone(), secret_config)?;
         let terminal_sessions = TerminalSessionStorage::new_namespace(namespace)?;
         let chat_sessions = ChatSessionStorage::new_namespace(namespace)?;
-        let sessions = SessionStorage::new(chat_sessions.clone());
 
         Ok(Self {
             #[cfg(test)]
@@ -76,7 +72,6 @@ impl Storage {
             secrets,
             terminal_sessions,
             chat_sessions,
-            sessions,
         })
     }
 

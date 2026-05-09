@@ -6,7 +6,7 @@ use crate::models::{
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use crate::services::session::SessionService;
 use crate::session_log::FileSessionStore;
-use crate::storage::{ChatSessionStorage, SessionStorage};
+use crate::storage::ChatSessionStorage;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 use tempfile::tempdir;
@@ -173,7 +173,7 @@ fn persist_to_chat_session_uses_session_service_when_available() {
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let session_storage = SessionStorage::new(chat_storage.clone());
+    let session_storage = chat_storage.clone();
     let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
     let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
         .with_file_sessions(file_store.clone());
@@ -221,7 +221,7 @@ async fn running_task_persists_user_input_before_agent_completes() {
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let session_storage = SessionStorage::new(chat_storage);
+    let session_storage = chat_storage;
     let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
     let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
         .with_file_sessions(file_store.clone());
