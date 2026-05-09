@@ -616,6 +616,38 @@ impl TaskStorage {
         })
     }
 
+    pub fn set_active_run_raw(&self, task_id: &str, run_id: &str) -> Result<()> {
+        self.mutate_store(|store| {
+            if !store.tasks.contains_key(task_id) {
+                anyhow::bail!("active run references missing task '{}'", task_id);
+            }
+            let Some(raw) = store.runs.get(run_id) else {
+                anyhow::bail!("active run references missing run '{}'", run_id);
+            };
+            let run_task_id = Self::parse_run_task_id(raw)?;
+            let run_status = Self::parse_run_status(raw)?;
+            if run_task_id != task_id {
+                anyhow::bail!(
+                    "active run '{}' references task '{}' instead of '{}'",
+                    run_id,
+                    run_task_id,
+                    task_id
+                );
+            }
+            if run_status != "running" {
+                anyhow::bail!(
+                    "active run '{}' is '{}' instead of running",
+                    run_id,
+                    run_status
+                );
+            }
+            store
+                .active_run
+                .insert(task_id.to_string(), run_id.to_string());
+            Ok(())
+        })
+    }
+
     pub fn list_active_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
         self.read_store(|store| {
             let Some(store) = store else {

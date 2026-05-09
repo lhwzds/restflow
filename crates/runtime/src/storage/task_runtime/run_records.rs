@@ -124,14 +124,7 @@ impl TaskStorage {
     }
 
     fn refresh_active_task_run_index(&self, run: &TaskRun) -> Result<()> {
-        let json_bytes = serde_json::to_vec(run)?;
-        self.inner.update_run_raw_with_status(
-            &run.run_id,
-            &run.task_id,
-            run.status.as_str(),
-            run.status.as_str(),
-            &json_bytes,
-        )
+        self.inner.set_active_run_raw(&run.task_id, &run.run_id)
     }
 
     fn reconcile_active_task_runs(
@@ -145,7 +138,9 @@ impl TaskStorage {
             .collect::<Vec<_>>();
 
         if active_runs.is_empty() {
-            self.inner.clear_active_run_raw(task_id)?;
+            if self.inner.get_active_run_raw(task_id)?.is_some() {
+                self.inner.clear_active_run_raw(task_id)?;
+            }
             return Ok(None);
         }
 
@@ -162,7 +157,20 @@ impl TaskStorage {
             }
         }
 
-        self.refresh_active_task_run_index(&winner)?;
+        let active_index_is_current = self
+            .inner
+            .get_active_run_raw(task_id)?
+            .and_then(|(run_id, raw)| {
+                if run_id != winner.run_id {
+                    return None;
+                }
+                serde_json::from_slice::<TaskRun>(&raw).ok()
+            })
+            .is_some_and(|run| run.status.is_active() && run.task_id == task_id);
+
+        if !active_index_is_current {
+            self.refresh_active_task_run_index(&winner)?;
+        }
         Ok(Some(winner))
     }
 }

@@ -400,6 +400,46 @@ fn test_task_runs_round_trip() {
     assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
 }
 
+#[cfg(unix)]
+#[test]
+fn test_active_run_reads_do_not_rewrite_file_backed_store() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = tempdir().unwrap();
+    let task_store_path = temp_dir.path().join("tasks.json");
+    let db = Arc::new(Database::create(temp_dir.path().join("tasks.db")).unwrap());
+    let storage = TaskStorage::new_file_backed(db, task_store_path).unwrap();
+    let task = storage
+        .create_task(
+            "Read Only Active Run".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+    storage
+        .start_task_run(&task.id, "run-1", "exec-1", 100)
+        .unwrap();
+
+    let original_mode = temp_dir.path().metadata().unwrap().permissions().mode();
+    std::fs::set_permissions(temp_dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = (|| {
+        let active = storage.get_active_task_run(&task.id)?.expect("active run");
+        assert_eq!(active.run_id, "run-1");
+
+        let active_runs = storage.list_active_task_runs()?;
+        assert_eq!(active_runs.len(), 1);
+        assert_eq!(active_runs[0].run_id, "run-1");
+        anyhow::Ok(())
+    })();
+    std::fs::set_permissions(
+        temp_dir.path(),
+        std::fs::Permissions::from_mode(original_mode & 0o777),
+    )
+    .unwrap();
+
+    result.unwrap();
+}
+
 #[test]
 fn test_start_task_run_rejects_second_active_run_for_task() {
     let storage = create_test_storage();
