@@ -318,35 +318,11 @@ impl AgentExecutor for OrchestratingAgentExecutor {
         task_id: Option<&str>,
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-    ) -> Result<ExecutionResult> {
-        self.orchestrator
-            .run_task_execution(agent_id, task_id, input, steer_rx, None)
-            .await
-    }
-
-    async fn execute_with_emitter(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
+        _telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.orchestrator
             .run_task_execution(agent_id, task_id, input, steer_rx, emitter)
-            .await
-    }
-
-    async fn execute_from_state(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        state: AgentState,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        self.orchestrator
-            .run_task_execution_from_state(agent_id, task_id, state, steer_rx, emitter)
             .await
     }
 }
@@ -920,7 +896,7 @@ mod tests {
             OrchestratingAgentExecutor::new(Arc::new(AgentOrchestratorImpl::new(backend.clone())));
 
         let result = executor
-            .execute("agent-a", Some("task-1"), Some("run"), None)
+            .execute("agent-a", Some("task-1"), Some("run"), None, None, None)
             .await
             .expect("task execution should succeed");
 

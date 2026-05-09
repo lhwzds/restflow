@@ -182,6 +182,32 @@ pub enum ThreadFocus {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputMode {
+    #[default]
+    Chat,
+    Plan,
+    Task,
+}
+
+impl InputMode {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Chat => Self::Plan,
+            Self::Plan => Self::Task,
+            Self::Task => Self::Chat,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Chat => "Chat",
+            Self::Plan => "Plan",
+            Self::Task => "Task",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SessionThreadState {
     pub session: Option<ChatSession>,
@@ -295,6 +321,7 @@ pub struct AppState {
     last_error_notice: Option<String>,
     pub overlay: Option<OverlayState>,
     pub composer: ComposerState,
+    pub input_mode: InputMode,
     pub message_scroll_from_bottom: usize,
     pub status: String,
     pub is_streaming: bool,
@@ -335,6 +362,7 @@ impl AppState {
             last_error_notice: None,
             overlay: None,
             composer: ComposerState::default(),
+            input_mode: InputMode::default(),
             message_scroll_from_bottom: 0,
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
@@ -388,6 +416,11 @@ impl AppState {
 
     pub fn set_pending_session(&mut self, pending_session: Option<PendingSessionState>) {
         self.pending_session = pending_session;
+    }
+
+    pub fn cycle_input_mode(&mut self) {
+        self.input_mode = self.input_mode.next();
+        self.status = format!("{} mode", self.input_mode.label());
     }
 
     pub fn update_pending_session_model(

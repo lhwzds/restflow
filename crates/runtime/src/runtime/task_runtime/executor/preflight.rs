@@ -57,65 +57,6 @@ impl AgentRuntimeExecutor {
         Ok(available_tools)
     }
 
-    pub(super) fn build_task_system_prompt(
-        &self,
-        agent_node: &AgentNode,
-        agent_id: Option<&str>,
-        task_id: Option<&str>,
-        user_input: Option<&str>,
-    ) -> Result<String> {
-        let mut prompt_agent = agent_node.clone();
-
-        // SECURITY: Build allowed skill set from agent's assigned skills
-        let allowed_skills: HashSet<String> = agent_node
-            .skills
-            .as_ref()
-            .map(|s| s.iter().cloned().collect())
-            .unwrap_or_default();
-
-        if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
-            let triggered_skill_ids =
-                self.resolve_triggered_skill_ids(agent_node, agent_id, input)?;
-
-            // SECURITY: Only allow triggered skills that are in agent's skill list
-            // This prevents capability scope expansion via crafted input
-            let allowed_triggered: Vec<String> = triggered_skill_ids
-                .into_iter()
-                .filter(|skill_id| allowed_skills.contains(skill_id))
-                .collect();
-
-            if !allowed_triggered.is_empty() {
-                let mut effective_skills = prompt_agent.skills.clone().unwrap_or_default();
-                for skill_id in allowed_triggered {
-                    if !effective_skills
-                        .iter()
-                        .any(|existing| existing == &skill_id)
-                    {
-                        effective_skills.push(skill_id);
-                    }
-                }
-                prompt_agent.skills = Some(effective_skills);
-            }
-        }
-
-        let base_prompt = build_agent_system_prompt(self.storage.clone(), &prompt_agent, agent_id)?;
-        let policy_prompt = prompt_files::load_task_policy(task_id)?;
-        if policy_prompt.trim().is_empty() {
-            return Ok(base_prompt);
-        }
-        Ok(format!("{base_prompt}\n\n{policy_prompt}"))
-    }
-
-    pub(super) fn resolve_triggered_skill_ids(
-        &self,
-        agent_node: &AgentNode,
-        agent_id: Option<&str>,
-        user_input: &str,
-    ) -> Result<Vec<String>> {
-        self.resolve_skill_snapshot(agent_node, agent_id, Some(user_input))
-            .map(|snapshot| snapshot.triggered_skill_ids)
-    }
-
     pub(super) fn resolve_preflight_skills(
         &self,
         agent_node: &AgentNode,
@@ -193,7 +134,6 @@ impl AgentRuntimeExecutor {
         }
 
         Ok(ResolvedSkillSnapshot {
-            triggered_skill_ids: lookup.payload.triggered_skill_ids,
             resolved_skills: lookup.payload.resolved_skills,
         })
     }

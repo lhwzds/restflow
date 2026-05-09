@@ -4,54 +4,17 @@
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use types::{
-    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS, DEFAULT_TASK_MAX_TOOL_CALLS,
-};
+use types::{DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_TASK_MAX_TOOL_CALLS};
 
-/// Execution mode for agent tasks
+use super::chat_session::{ChatMessage, ChatTurnEvent};
+
+/// Execution mode for agent tasks.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ExecutionMode {
-    /// Use ai API executor (default)
+    /// Use the API-backed session turn executor.
     #[default]
     Api,
-    /// Use external CLI tool (e.g., claude, aider)
-    Cli(CliExecutionConfig),
-}
-
-/// Configuration for CLI-based execution
-#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
-pub struct CliExecutionConfig {
-    /// CLI binary name (e.g., "claude", "aider")
-    pub binary: String,
-    /// Additional arguments to pass to the CLI
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// Working directory for CLI execution
-    #[serde(default)]
-    pub working_dir: Option<String>,
-    /// Timeout in seconds for CLI execution
-    #[serde(default = "default_timeout_secs")]
-    pub timeout_secs: u64,
-    /// Whether to use PTY for interactive mode
-    #[serde(default)]
-    pub use_pty: bool,
-}
-
-fn default_timeout_secs() -> u64 {
-    DEFAULT_AGENT_TASK_TIMEOUT_SECS
-}
-
-impl Default for CliExecutionConfig {
-    fn default() -> Self {
-        Self {
-            binary: "claude".to_string(),
-            args: vec![],
-            working_dir: None,
-            timeout_secs: default_timeout_secs(),
-            use_pty: false,
-        }
-    }
 }
 
 /// Status of an agent task
@@ -512,6 +475,24 @@ pub struct TaskProgress {
     pub failure_count: u32,
     /// Pending queued message count
     pub pending_message_count: u32,
+    /// Optional preview of the transcript bound to this task.
+    pub transcript: Option<TaskTranscriptPreview>,
+}
+
+/// User-visible transcript preview for a task-bound chat session.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct TaskTranscriptPreview {
+    /// Chat session that owns the transcript.
+    pub chat_session_id: String,
+    /// Recent chat messages in chronological order.
+    #[serde(default)]
+    pub messages: Vec<ChatMessage>,
+    /// Recent turn events in chronological order.
+    #[serde(default)]
+    pub turn_events: Vec<ChatTurnEvent>,
+    /// Whether older transcript content was omitted.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Serialize)]
@@ -528,6 +509,7 @@ struct TaskProgressSerialize<'a> {
     success_count: u32,
     failure_count: u32,
     pending_message_count: u32,
+    transcript: Option<&'a TaskTranscriptPreview>,
 }
 
 #[derive(Deserialize)]
@@ -555,6 +537,8 @@ struct TaskProgressDeserialize {
     failure_count: u32,
     #[serde(default)]
     pending_message_count: u32,
+    #[serde(default)]
+    transcript: Option<TaskTranscriptPreview>,
 }
 
 impl Serialize for TaskProgress {
@@ -575,6 +559,7 @@ impl Serialize for TaskProgress {
             success_count: self.success_count,
             failure_count: self.failure_count,
             pending_message_count: self.pending_message_count,
+            transcript: self.transcript.as_ref(),
         }
         .serialize(serializer)
     }
@@ -603,6 +588,7 @@ impl<'de> Deserialize<'de> for TaskProgress {
             success_count: payload.success_count,
             failure_count: payload.failure_count,
             pending_message_count: payload.pending_message_count,
+            transcript: payload.transcript,
         })
     }
 }
@@ -833,9 +819,12 @@ pub struct Task {
     /// Optional per-task timeout (seconds) for API execution mode
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    /// Resource limits configuration
+    /// Optional task-specific resource limits.
+    ///
+    /// None means the task uses the same agent/chat run policy as a foreground
+    /// TUI session. Some(...) is an explicit task override.
     #[serde(default)]
-    pub resource_limits: ResourceLimits,
+    pub resource_limits: Option<ResourceLimits>,
     /// Task IDs that must complete before this task starts.
     #[serde(default)]
     pub prerequisites: Vec<String>,
@@ -899,7 +888,7 @@ impl Task {
             schedule,
             execution_mode: ExecutionMode::default(),
             timeout_secs: None,
-            resource_limits: ResourceLimits::default(),
+            resource_limits: None,
             prerequisites: Vec::new(),
             continuation: ContinuationConfig::default(),
             continuation_total_iterations: 0,
@@ -916,19 +905,6 @@ impl Task {
             last_error: None,
             summary_message_id: None,
         }
-    }
-
-    /// Create a new agent task with CLI execution mode
-    pub fn new_with_cli(
-        id: String,
-        name: String,
-        agent_id: String,
-        schedule: TaskSchedule,
-        cli_config: CliExecutionConfig,
-    ) -> Self {
-        let mut task = Self::new(id, name, agent_id, schedule);
-        task.execution_mode = ExecutionMode::Cli(cli_config);
-        task
     }
 
     /// Calculate the next run time based on the schedule
@@ -1466,16 +1442,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_execution_config_default() {
-        let config = CliExecutionConfig::default();
-        assert_eq!(config.binary, "claude");
-        assert!(config.args.is_empty());
-        assert!(config.working_dir.is_none());
-        assert_eq!(config.timeout_secs, 1800);
-        assert!(!config.use_pty);
-    }
-
-    #[test]
     fn test_task_with_api_execution() {
         let task = Task::new(
             "task-123".to_string(),
@@ -1487,76 +1453,21 @@ mod tests {
     }
 
     #[test]
-    fn test_task_with_cli_execution() {
-        let cli_config = CliExecutionConfig {
-            binary: "aider".to_string(),
-            args: vec!["--yes".to_string()],
-            working_dir: Some("/tmp/test".to_string()),
-            timeout_secs: 600,
-            use_pty: true,
-        };
-
-        let task = Task::new_with_cli(
-            "task-123".to_string(),
-            "CLI Task".to_string(),
-            "agent-456".to_string(),
-            TaskSchedule::default(),
-            cli_config.clone(),
-        );
-
-        match &task.execution_mode {
-            ExecutionMode::Cli(config) => {
-                assert_eq!(config.binary, "aider");
-                assert_eq!(config.args, vec!["--yes".to_string()]);
-                assert_eq!(config.working_dir, Some("/tmp/test".to_string()));
-                assert_eq!(config.timeout_secs, 600);
-                assert!(config.use_pty);
-            }
-            _ => panic!("Expected CLI execution mode"),
-        }
-    }
-
-    #[test]
     fn test_execution_mode_serialization() {
-        // Test API mode serialization
         let api_mode = ExecutionMode::Api;
         let json = serde_json::to_string(&api_mode).unwrap();
         assert!(json.contains("api"));
-
-        // Test CLI mode serialization
-        let cli_mode = ExecutionMode::Cli(CliExecutionConfig {
-            binary: "claude".to_string(),
-            args: vec!["-p".to_string()],
-            working_dir: None,
-            timeout_secs: 300,
-            use_pty: false,
-        });
-        let json = serde_json::to_string(&cli_mode).unwrap();
-        assert!(json.contains("cli"));
-        assert!(json.contains("claude"));
     }
 
     #[test]
     fn test_execution_mode_deserialization() {
-        // Test API mode deserialization
         let json = r#"{"type":"api"}"#;
         let mode: ExecutionMode = serde_json::from_str(json).unwrap();
         assert_eq!(mode, ExecutionMode::Api);
-
-        // Test CLI mode deserialization
-        let json =
-            r#"{"type":"cli","binary":"aider","args":[],"timeout_secs":300,"use_pty":false}"#;
-        let mode: ExecutionMode = serde_json::from_str(json).unwrap();
-        match mode {
-            ExecutionMode::Cli(config) => {
-                assert_eq!(config.binary, "aider");
-            }
-            _ => panic!("Expected CLI mode"),
-        }
     }
 
     #[test]
-    fn test_task_with_resource_limits_defaults() {
+    fn test_task_does_not_create_default_resource_limits() {
         let task = Task::new(
             "task-123".to_string(),
             "Test Task".to_string(),
@@ -1564,10 +1475,7 @@ mod tests {
             TaskSchedule::default(),
         );
 
-        assert_eq!(task.resource_limits.max_tool_calls, 100);
-        assert_eq!(task.resource_limits.max_duration_secs, 1800);
-        assert_eq!(task.resource_limits.max_output_bytes, 1_000_000);
-        assert_eq!(task.resource_limits.max_cost_usd, None);
+        assert_eq!(task.resource_limits, None);
     }
 
     #[test]
@@ -1640,6 +1548,7 @@ mod tests {
             success_count: 0,
             failure_count: 0,
             pending_message_count: 0,
+            transcript: None,
         };
         assert_eq!(progress.task_id(), "task-1");
     }
@@ -1690,10 +1599,20 @@ mod tests {
             success_count: 1,
             failure_count: 2,
             pending_message_count: 3,
+            transcript: Some(TaskTranscriptPreview {
+                chat_session_id: "session-123".to_string(),
+                messages: vec![ChatMessage::user("hello")],
+                turn_events: Vec::new(),
+                truncated: false,
+            }),
         };
 
         let json = serde_json::to_value(&progress).unwrap();
         assert_eq!(json["task_id"].as_str(), Some("task-123"));
+        assert_eq!(
+            json["transcript"]["chat_session_id"].as_str(),
+            Some("session-123")
+        );
     }
 
     #[test]
@@ -1716,5 +1635,6 @@ mod tests {
         let progress: TaskProgress = serde_json::from_value(json).unwrap();
         assert_eq!(progress.task_id, "task-123");
         assert_eq!(progress.task_id(), "task-123");
+        assert!(progress.transcript.is_none());
     }
 }

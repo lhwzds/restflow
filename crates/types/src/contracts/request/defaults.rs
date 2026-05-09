@@ -1,10 +1,5 @@
 const DEFAULT_TASK_MAX_TOOL_CALLS: usize = 100;
-const DEFAULT_AGENT_TASK_TIMEOUT_SECS: u64 = 1800;
 const DEFAULT_AGENT_MAX_DURATION_SECS: u64 = 1800;
-
-pub fn default_cli_timeout_secs() -> u64 {
-    DEFAULT_AGENT_TASK_TIMEOUT_SECS
-}
 
 pub fn default_max_tool_calls() -> usize {
     DEFAULT_TASK_MAX_TOOL_CALLS

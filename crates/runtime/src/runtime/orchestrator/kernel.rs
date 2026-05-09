@@ -106,8 +106,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_with_emitter(agent_id, task_id, input, steer_rx, emitter)
-            .await
+        AgentExecutor::execute(self, agent_id, task_id, input, steer_rx, emitter, None).await
     }
 
     async fn execute_task_from_state(
@@ -118,8 +117,8 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        self.execute_from_state(agent_id, task_id, state, steer_rx, emitter)
-            .await
+        let _ = (agent_id, task_id, state, steer_rx, emitter);
+        anyhow::bail!("task execution no longer supports persisted agent state")
     }
 
     async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> Result<ExecutionOutcome> {

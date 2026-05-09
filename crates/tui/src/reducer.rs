@@ -2,11 +2,11 @@ use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
 use super::state::{
-    AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
-    SkillPickerItem, TaskPickerItem,
+    AppState, InputMode, ModelPickerItem, PendingSessionState, ProviderPickerItem,
+    SkillManagerSelection, SkillPickerItem, TaskPickerItem,
 };
 use runtime::models::{
-    ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary,
+    ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary, Task,
 };
 use runtime::storage::agent::StoredAgent;
 use types::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
@@ -101,6 +101,11 @@ pub enum ShellAction {
         session: Box<ChatSession>,
         status: String,
     },
+    TaskGoalCreated {
+        task: Box<Task>,
+        session: Option<Box<ChatSession>>,
+        status: String,
+    },
     PendingSessionModelSelected {
         provider: String,
         model: String,
@@ -148,6 +153,9 @@ pub enum ShellEffect {
     SubmitMessage {
         message: String,
         stream_id: String,
+    },
+    CreateTaskGoal {
+        message: String,
     },
     SteerMessage {
         session_id: String,
@@ -365,6 +373,17 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.clear_overlay();
             state.status = status;
         }
+        ShellAction::TaskGoalCreated {
+            task,
+            session,
+            status,
+        } => {
+            if let Some(session) = session {
+                state.set_current_session(*session);
+            }
+            state.tasks.push(task_item_from_task(*task, None));
+            state.status = status;
+        }
         ShellAction::PendingSessionModelSelected {
             provider,
             model,
@@ -511,6 +530,11 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
         Action::OpenSessions => output.effects.push(ShellEffect::ListSessionsInline),
         Action::OpenRuns => output.effects.push(ShellEffect::ListRunsInline),
         Action::OpenHelp => output.actions.push(ShellAction::OpenHelpOverlay),
+        Action::CycleInputMode => {
+            if state.overlay.is_none() && !response_in_progress(state) {
+                state.cycle_input_mode();
+            }
+        }
         Action::Resize => output.effects.push(ShellEffect::ClearScreen),
         Action::Redraw => {
             state.status = "Screen redrawn".to_string();
@@ -764,6 +788,19 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
                 state.push_error(error.to_string());
             }
         }
+    } else if matches!(state.input_mode, InputMode::Task) {
+        if state.default_agent_id.is_none() {
+            let message =
+                "No default agent. Configure an agent before creating a task.".to_string();
+            state.status = message.clone();
+            state.push_error(message);
+        } else {
+            state.status = "Creating background task...".to_string();
+            state.push_info(format!("Task goal queued: {}", text.trim()));
+            output
+                .effects
+                .push(ShellEffect::CreateTaskGoal { message: text });
+        }
     } else if state.current_session_id().is_none() {
         if state.is_startup_mode() {
             let message = "Daemon is offline. Use /daemon to launch it.".to_string();
@@ -831,6 +868,16 @@ fn submit_message_effect(state: &mut AppState, message: String) -> ShellEffect {
     ShellEffect::SubmitMessage { message, stream_id }
 }
 
+fn task_item_from_task(task: Task, latest_run_id: Option<String>) -> TaskPickerItem {
+    TaskPickerItem {
+        task_id: task.id,
+        name: task.name,
+        status: format!("{:?}", task.status),
+        next_run_at: task.next_run_at,
+        latest_run_id,
+    }
+}
+
 fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
     match command {
         SlashCommand::NewChat => "Starting new chat...",
@@ -852,7 +899,7 @@ mod tests {
     };
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
-    use crate::state::{AppState, PendingSessionState, SkillPickerItem, TaskPickerItem};
+    use crate::state::{AppState, InputMode, PendingSessionState, SkillPickerItem, TaskPickerItem};
     use runtime::models::{ChatSession, ChatSessionSummary, Skill, SkillSource};
     use types::{ChatSessionEvent, StreamFrame};
 
@@ -889,6 +936,44 @@ mod tests {
             [ShellAction::SubmitText { text }] if text == "hi"
         ));
         assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn shift_tab_cycles_input_mode_without_overlay() {
+        let mut state = AppState::empty();
+
+        reduce(&mut state, ShellAction::Ui(Action::CycleInputMode));
+        assert_eq!(state.input_mode, InputMode::Plan);
+        reduce(&mut state, ShellAction::Ui(Action::CycleInputMode));
+        assert_eq!(state.input_mode, InputMode::Task);
+        reduce(&mut state, ShellAction::Ui(Action::CycleInputMode));
+        assert_eq!(state.input_mode, InputMode::Chat);
+    }
+
+    #[test]
+    fn task_mode_submit_creates_task_goal_effect() {
+        let mut state = AppState::empty();
+        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
+        state.input_mode = InputMode::Task;
+        state.composer.replace("review this repository");
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(matches!(
+            output.actions.as_slice(),
+            [ShellAction::SubmitText { text }] if text == "review this repository"
+        ));
+        let output = reduce(
+            &mut state,
+            ShellAction::SubmitText {
+                text: "review this repository".to_string(),
+            },
+        );
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::CreateTaskGoal { message }] if message == "review this repository"
+        ));
+        assert_eq!(state.status, "Creating background task...");
     }
 
     #[test]

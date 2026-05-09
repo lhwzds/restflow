@@ -1,6 +1,6 @@
 use super::*;
 use crate::models::{
-    ChatSession, Task, TaskControlAction, TaskEventType, TaskSchedule, TaskStatus,
+    ChatSession, ResourceLimits, Task, TaskControlAction, TaskEventType, TaskSchedule, TaskStatus,
 };
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use crate::services::session::SessionService;
@@ -13,7 +13,6 @@ use tempfile::tempdir;
 /// Mock executor for testing
 struct MockExecutor {
     call_count: AtomicU32,
-    resume_call_count: AtomicU32,
     should_fail: bool,
     delay_ms: u64,
     saw_emitter: AtomicBool,
@@ -23,7 +22,6 @@ impl MockExecutor {
     fn new() -> Self {
         Self {
             call_count: AtomicU32::new(0),
-            resume_call_count: AtomicU32::new(0),
             should_fail: false,
             delay_ms: 0,
             saw_emitter: AtomicBool::new(false),
@@ -33,7 +31,6 @@ impl MockExecutor {
     fn with_failure() -> Self {
         Self {
             call_count: AtomicU32::new(0),
-            resume_call_count: AtomicU32::new(0),
             should_fail: true,
             delay_ms: 0,
             saw_emitter: AtomicBool::new(false),
@@ -43,7 +40,6 @@ impl MockExecutor {
     fn with_delay(delay_ms: u64) -> Self {
         Self {
             call_count: AtomicU32::new(0),
-            resume_call_count: AtomicU32::new(0),
             should_fail: false,
             delay_ms,
             saw_emitter: AtomicBool::new(false),
@@ -81,8 +77,13 @@ impl AgentExecutor for MockExecutor {
         _task_id: Option<&str>,
         input: Option<&str>,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        _telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
+        if emitter.is_some() {
+            self.saw_emitter.store(true, Ordering::SeqCst);
+        }
 
         if self.delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
@@ -96,35 +97,6 @@ impl AgentExecutor for MockExecutor {
             Ok(ExecutionResult::success(output, Vec::new()))
         }
     }
-
-    async fn execute_with_emitter(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        if emitter.is_some() {
-            self.saw_emitter.store(true, Ordering::SeqCst);
-        }
-        self.execute(agent_id, task_id, input, steer_rx).await
-    }
-
-    async fn execute_from_state(
-        &self,
-        _agent_id: &str,
-        _task_id: Option<&str>,
-        state: ai::AgentState,
-        _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        _emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        self.resume_call_count.fetch_add(1, Ordering::SeqCst);
-        Ok(ExecutionResult::success(
-            format!("Resumed execution {}", state.execution_id),
-            state.messages,
-        ))
-    }
 }
 
 #[async_trait::async_trait]
@@ -135,7 +107,12 @@ impl AgentExecutor for FailsOnceExecutor {
         _task_id: Option<&str>,
         input: Option<&str>,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        _telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
+        if emitter.is_some() {
+            self.saw_emitter.store(true, Ordering::SeqCst);
+        }
         let call = self.call_count.fetch_add(1, Ordering::SeqCst);
         if call == 0 {
             Err(anyhow!("Mock execution failure"))
@@ -145,34 +122,6 @@ impl AgentExecutor for FailsOnceExecutor {
                 Vec::new(),
             ))
         }
-    }
-
-    async fn execute_with_emitter(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        if emitter.is_some() {
-            self.saw_emitter.store(true, Ordering::SeqCst);
-        }
-        self.execute(agent_id, task_id, input, steer_rx).await
-    }
-
-    async fn execute_from_state(
-        &self,
-        _agent_id: &str,
-        _task_id: Option<&str>,
-        state: ai::AgentState,
-        _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        _emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        Ok(ExecutionResult::success(
-            format!("Resumed execution {}", state.execution_id),
-            state.messages,
-        ))
     }
 }
 
@@ -205,24 +154,6 @@ impl NotificationSender for MockNotifier {
             .await
             .push(("formatted".to_string(), true, message.to_string()));
         Ok(())
-    }
-}
-
-struct DefaultDelegatingExecutor {
-    call_count: AtomicU32,
-}
-
-#[async_trait::async_trait]
-impl AgentExecutor for DefaultDelegatingExecutor {
-    async fn execute(
-        &self,
-        _agent_id: &str,
-        _task_id: Option<&str>,
-        _input: Option<&str>,
-        _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-    ) -> Result<ExecutionResult> {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
-        Ok(ExecutionResult::success("ok".to_string(), Vec::new()))
     }
 }
 
@@ -316,6 +247,44 @@ fn test_runner_config_defaults() {
     );
     assert_eq!(config.task_timeout_secs, None);
     assert_eq!(config.stall_timeout_secs, None);
+}
+
+#[test]
+fn test_api_task_without_resource_limits_has_no_default_timeout() {
+    let task = Task::new(
+        "task-1".to_string(),
+        "Task".to_string(),
+        "agent-001".to_string(),
+        TaskSchedule::default(),
+    );
+
+    assert_eq!(
+        super::resolve_execution_timeout_secs(&task, &TaskRunnerConfig::default()),
+        None
+    );
+}
+
+#[test]
+fn test_api_task_resource_limits_clamp_config_timeout() {
+    let mut task = Task::new(
+        "task-1".to_string(),
+        "Task".to_string(),
+        "agent-001".to_string(),
+        TaskSchedule::default(),
+    );
+    task.resource_limits = Some(ResourceLimits {
+        max_duration_secs: 60,
+        ..ResourceLimits::default()
+    });
+    let config = TaskRunnerConfig {
+        task_timeout_secs: Some(300),
+        ..TaskRunnerConfig::default()
+    };
+
+    assert_eq!(
+        super::resolve_execution_timeout_secs(&task, &config),
+        Some(60)
+    );
 }
 
 #[tokio::test]
@@ -1404,26 +1373,6 @@ fn test_resolve_task_input_returns_none_when_no_input_or_template() {
     );
 
     assert!(runner.resolve_task_input(&task).is_none());
-}
-
-#[tokio::test]
-async fn test_agent_executor_default_execute_with_emitter_delegates_to_execute() {
-    let executor = DefaultDelegatingExecutor {
-        call_count: AtomicU32::new(0),
-    };
-    let result = executor
-        .execute_with_emitter(
-            "agent-001",
-            None,
-            Some("hello"),
-            None,
-            Some(Box::new(ai::agent::NullEmitter)),
-        )
-        .await
-        .expect("execution should succeed");
-
-    assert!(result.success);
-    assert_eq!(executor.call_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

@@ -484,20 +484,6 @@ pub struct ProfileUpdate {
 pub enum ExecutionMode {
     #[default]
     Api,
-    Cli(CliExecutionConfig),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct CliExecutionConfig {
-    pub binary: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub working_dir: Option<String>,
-    #[serde(default = "defaults::default_cli_timeout_secs")]
-    pub timeout_secs: u64,
-    #[serde(default)]
-    pub use_pty: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1340,8 +1326,7 @@ mod tests {
                 "start_at": null
             },
             "execution_mode": {
-                "type": "cli",
-                "binary": "claude"
+                "type": "api"
             },
             "memory": {},
             "resource_limits": {},
@@ -1349,11 +1334,7 @@ mod tests {
         }))
         .expect("task defaults");
 
-        let cli = match contract.execution_mode.expect("execution mode") {
-            ExecutionMode::Cli(config) => config,
-            ExecutionMode::Api => panic!("expected cli config"),
-        };
-        assert_eq!(cli.timeout_secs, defaults::default_cli_timeout_secs());
+        assert_eq!(contract.execution_mode, Some(ExecutionMode::Api));
 
         let limits = contract.resource_limits.expect("resource limits");
         assert_eq!(limits.max_tool_calls, defaults::default_max_tool_calls());

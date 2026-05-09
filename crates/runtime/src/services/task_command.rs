@@ -4,8 +4,9 @@ use crate::boundary::task::{
 };
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{
-    ChatSession, ChatSessionSource, ModelId, Task, TaskControlAction, TaskConversionResult,
-    TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec,
+    ChatSession, ChatSessionSource, ChatTurnEvent, ModelId, Task, TaskControlAction,
+    TaskConversionResult, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec,
+    TaskTranscriptPreview,
 };
 use crate::services::operation_assessment::{
     assessment_requires_confirmation, assessment_summary, ensure_assessment_confirmed,
@@ -24,6 +25,8 @@ use types::{AgentOperationAssessor, OperationAssessment, TaskCommandOutcome};
 use types::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 
 type CommandResult<T> = std::result::Result<T, TaskCommandError>;
+const TASK_PROGRESS_MESSAGE_LIMIT: usize = 6;
+const TASK_PROGRESS_TURN_EVENT_LIMIT: usize = 20;
 
 #[derive(Debug, Clone)]
 struct RequestGuard {
@@ -304,21 +307,14 @@ impl TaskCommandService {
         }
 
         let current_chat_session_id = task.chat_session_id.trim();
-        if !current_chat_session_id.is_empty()
-            && self
-                .ensure_session_binding(current_chat_session_id, next_agent_id)
-                .is_ok()
-        {
-            self.ensure_unique_session_binding(current_chat_session_id, Some(&task.id))?;
-            return Ok(TaskSessionBinding {
-                session_id: current_chat_session_id.to_string(),
-                owns_session: task.owns_chat_session,
-            });
+        if current_chat_session_id.is_empty() {
+            anyhow::bail!("task '{}' is not bound to a chat session", task.id);
         }
-
+        self.ensure_session_binding(current_chat_session_id, next_agent_id)?;
+        self.ensure_unique_session_binding(current_chat_session_id, Some(&task.id))?;
         Ok(TaskSessionBinding {
-            session_id: self.create_bound_session(next_agent_id, &task.name)?,
-            owns_session: true,
+            session_id: current_chat_session_id.to_string(),
+            owns_session: task.owns_chat_session,
         })
     }
 
@@ -468,9 +464,57 @@ impl TaskCommandService {
     }
 
     pub fn progress(&self, id: &str, event_limit: usize) -> CommandResult<TaskProgress> {
-        self.storage
+        let mut progress = self
+            .storage
             .get_task_progress(id, event_limit)
-            .map_err(TaskCommandError::from_anyhow)
+            .map_err(TaskCommandError::from_anyhow)?;
+        progress.transcript = Some(
+            self.progress_transcript_preview(id)
+                .map_err(TaskCommandError::from_anyhow)?,
+        );
+        Ok(progress)
+    }
+
+    fn progress_transcript_preview(&self, id: &str) -> anyhow::Result<TaskTranscriptPreview> {
+        let task = self
+            .storage
+            .get_task(id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+        let chat_session_id = task.chat_session_id.trim();
+        if chat_session_id.is_empty() {
+            anyhow::bail!("task '{}' is not bound to a chat session", task.id);
+        }
+        let session = self
+            .session_service
+            .get_session_view(chat_session_id)?
+            .ok_or_else(|| anyhow::anyhow!("chat session '{}' not found", chat_session_id))?;
+        Ok(Self::transcript_preview_from_session(&session))
+    }
+
+    fn transcript_preview_from_session(session: &ChatSession) -> TaskTranscriptPreview {
+        let messages_start = session
+            .messages
+            .len()
+            .saturating_sub(TASK_PROGRESS_MESSAGE_LIMIT);
+        let messages = session.messages[messages_start..].to_vec();
+
+        let all_turn_events: Vec<ChatTurnEvent> = session
+            .turns
+            .iter()
+            .flat_map(|turn| turn.events.iter().cloned())
+            .collect();
+        let turn_events_start = all_turn_events
+            .len()
+            .saturating_sub(TASK_PROGRESS_TURN_EVENT_LIMIT);
+        let turn_events = all_turn_events[turn_events_start..].to_vec();
+
+        TaskTranscriptPreview {
+            chat_session_id: session.id.clone(),
+            messages,
+            turn_events,
+            truncated: session.messages.len() > TASK_PROGRESS_MESSAGE_LIMIT
+                || all_turn_events.len() > TASK_PROGRESS_TURN_EVENT_LIMIT,
+        }
     }
 
     pub fn send_message(
@@ -839,7 +883,9 @@ impl TaskCommandService {
 #[cfg(test)]
 mod tests {
     use super::{TaskCommandService, TaskExecutionMode};
-    use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId, TaskSpec};
+    use crate::models::{
+        AgentNode, ChatMessage, ChatSession, ChatTurnEventKind, ModelId, TaskSpec,
+    };
     use crate::prompt_files;
     use crate::services::session::SessionService;
     use crate::session_log::FileSessionStore;
@@ -1325,6 +1371,77 @@ mod tests {
     }
 
     #[test]
+    fn progress_includes_bound_session_transcript_preview() {
+        let (service, mut session, _dir) = setup();
+        session.add_message(ChatMessage::assistant("working on it"));
+        session.record_turn_user_message("turn-1", "continue this task");
+        session.record_turn_event(
+            "turn-1",
+            ChatTurnEventKind::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: "git diff --stat".to_string(),
+            },
+        );
+        service
+            .session_service
+            .save_existing_session(&session, "test")
+            .expect("save session");
+        let task = service
+            .create_from_spec_direct(TaskSpec {
+                name: "Progress Transcript".to_string(),
+                agent_id: session.agent_id.clone(),
+                chat_session_id: Some(session.id.clone()),
+                description: None,
+                input: Some("review".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                execution_mode: None,
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let progress = service.progress(&task.id, 5).expect("progress");
+        let transcript = progress.transcript.expect("transcript preview");
+
+        assert_eq!(transcript.chat_session_id, session.id);
+        assert_eq!(transcript.messages.len(), 2);
+        assert_eq!(transcript.messages[0].content, "continue this task");
+        assert_eq!(transcript.messages[1].content, "working on it");
+        assert_eq!(transcript.turn_events.len(), 2);
+        assert!(!transcript.truncated);
+    }
+
+    #[test]
+    fn progress_errors_when_bound_session_is_missing() {
+        let (service, session, _dir) = setup();
+        let mut task = service
+            .storage
+            .create_task(
+                "Missing Transcript".to_string(),
+                session.agent_id.clone(),
+                crate::models::TaskSchedule::default(),
+            )
+            .expect("create task");
+        task.chat_session_id = "missing-session".to_string();
+        service
+            .storage
+            .update_task(&task)
+            .expect("update task with missing session");
+
+        let err = service
+            .progress(&task.id, 5)
+            .expect_err("progress should fail");
+        assert!(
+            err.to_string()
+                .contains("chat session 'missing-session' not found")
+        );
+    }
+
+    #[test]
     fn task_command_types_are_canonical() {
         let (service, _session, _temp_dir) = setup();
         let _: &TaskCommandService = &service;
@@ -1457,8 +1574,7 @@ mod tests {
     async fn update_requires_confirmation_when_warning_assessment_requires_it() {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Update Guarded Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1516,8 +1632,7 @@ mod tests {
     async fn control_requires_confirmation_when_warning_assessment_requires_it() {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Control Guarded Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1599,8 +1714,7 @@ mod tests {
     async fn delete_preview_returns_confirmation_assessment_without_removing_task() {
         let (service, session, _dir) = setup();
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Delete Preview".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -1654,8 +1768,7 @@ mod tests {
     async fn delete_requires_confirmation_before_execution() {
         let (service, session, _dir) = setup();
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Delete Requires Confirmation".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -1708,8 +1821,7 @@ mod tests {
     async fn delete_executes_when_approval_id_matches() {
         let (service, session, _dir) = setup();
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Delete Confirmed".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -2056,8 +2168,7 @@ mod tests {
     async fn update_direct_executes_with_warning_assessment() {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Update Direct Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -2104,8 +2215,7 @@ mod tests {
     async fn control_direct_executes_with_warning_assessment() {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Control Direct Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -2171,8 +2281,7 @@ mod tests {
     async fn task_assessment_methods_are_used_by_command_service() {
         let (service, session, _dir) = setup_with_assessor(Arc::new(CanonicalTaskAssessor));
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Canonical Task".to_string(),
                 agent_id: session.agent_id.clone(),
                 chat_session_id: None,
@@ -2313,8 +2422,7 @@ mod tests {
             None,
         );
         let task = service
-            .storage
-            .create_task_from_spec(TaskSpec {
+            .create_from_spec_direct(TaskSpec {
                 name: "Delete Without Assessor".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,

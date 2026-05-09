@@ -6,9 +6,7 @@
 //! - Handling task lifecycle (start, complete, fail)
 //! - Persisting execution state and transcript updates
 
-use crate::models::{
-    ExecutionMode, SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus,
-};
+use crate::models::{SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus};
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
@@ -121,6 +119,18 @@ impl Default for TaskRunnerConfig {
     }
 }
 
+fn resolve_execution_timeout_secs(task: &Task, config: &TaskRunnerConfig) -> Option<u64> {
+    let execution_timeout_secs = task.timeout_secs.or(config.task_timeout_secs);
+
+    match task.resource_limits.as_ref() {
+        Some(limits) if limits.max_duration_secs > 0 => match execution_timeout_secs {
+            Some(timeout_secs) => Some(timeout_secs.min(limits.max_duration_secs)),
+            None => Some(limits.max_duration_secs),
+        },
+        _ => execution_timeout_secs,
+    }
+}
+
 /// Handle to control a running task runner.
 pub struct TaskRunnerHandle {
     command_tx: mpsc::Sender<TaskRunnerCommand>,
@@ -163,86 +173,20 @@ impl TaskRunnerHandle {
 /// Agent executor trait for dependency injection
 #[async_trait::async_trait]
 pub trait AgentExecutor: Send + Sync {
-    /// Execute an agent with the given input.
+    /// Execute a task input through the same session-turn runtime used by
+    /// foreground chat. Background tasks must be bound to a chat session.
     ///
-    /// Returns an `ExecutionResult` containing the output and conversation
-    /// messages for optional memory persistence.
+    /// Returns an `ExecutionResult` containing the final output and metrics.
+    #[allow(clippy::too_many_arguments)]
     async fn execute(
         &self,
         agent_id: &str,
         task_id: Option<&str>,
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult>;
-
-    /// Execute an agent with an optional streaming emitter for per-step updates.
-    ///
-    /// Default implementation keeps backward compatibility by delegating to
-    /// `execute` and ignoring the emitter.
-    async fn execute_with_emitter(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        let _ = emitter;
-        self.execute(agent_id, task_id, input, steer_rx).await
-    }
-
-    /// Execute an agent with an emitter and an explicit telemetry context.
-    ///
-    /// Task execution should prefer this method so the runner can
-    /// provide the authoritative top-level run identity for the current
-    /// execution attempt.
-    #[allow(clippy::too_many_arguments)]
-    async fn execute_with_emitter_and_telemetry(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
-    ) -> Result<ExecutionResult> {
-        let _ = telemetry_context;
-        self.execute_with_emitter(agent_id, task_id, input, steer_rx, emitter)
-            .await
-    }
-
-    /// Execute an agent from a previously persisted state.
-    ///
-    /// Default implementation falls back to a fresh execution.
-    async fn execute_from_state(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        state: ai::AgentState,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        let _ = state;
-        self.execute_with_emitter(agent_id, task_id, None, steer_rx, emitter)
-            .await
-    }
-
-    /// Execute an agent from a previously persisted state with an explicit
-    /// telemetry context supplied by the runner.
-    #[allow(clippy::too_many_arguments)]
-    async fn execute_from_state_with_emitter_and_telemetry(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        state: ai::AgentState,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
-    ) -> Result<ExecutionResult> {
-        let _ = telemetry_context;
-        self.execute_from_state(agent_id, task_id, state, steer_rx, emitter)
-            .await
-    }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -1140,80 +1084,69 @@ impl TaskRunner {
             Self::cleanup_agent_resources(&task_id);
         });
 
-        let execution_mode_str = match &task.execution_mode {
-            ExecutionMode::Api => "api".to_string(),
-            ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
-        };
+        let execution_mode_str = "api".to_string();
 
-        // Register steer channel for API-based tasks
-        let steer_rx = if matches!(task.execution_mode, ExecutionMode::Api) {
-            Some(self.steer_registry.register(task_id).await)
-        } else {
-            None
-        };
+        let steer_rx = Some(self.steer_registry.register(task_id).await);
 
         // Start a lightweight message pump so queued task messages can be
         // injected into the running agent loop.
         let pump_cancel = CancellationToken::new();
-        let mut message_pump = if matches!(task.execution_mode, ExecutionMode::Api) {
-            self.forward_pending_messages(task_id).await;
+        self.forward_pending_messages(task_id).await;
 
-            let storage = self.storage.clone();
-            let steer_registry = self.steer_registry.clone();
-            let task_id = task_id.to_string();
-            let cancel = pump_cancel.clone();
+        let storage = self.storage.clone();
+        let steer_registry = self.steer_registry.clone();
+        let task_id_for_pump = task_id.to_string();
+        let cancel = pump_cancel.clone();
 
-            Some(tokio::spawn(async move {
-                let mut ticker = interval(Duration::from_millis(500));
+        let mut message_pump = Some(tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_millis(500));
 
-                loop {
-                    tokio::select! {
-                        _ = cancel.cancelled() => break,
-                        _ = ticker.tick() => {}
-                    }
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = ticker.tick() => {}
+                }
 
-                    let pending_messages = match storage.list_pending_task_messages(&task_id, 32) {
+                let pending_messages =
+                    match storage.list_pending_task_messages(&task_id_for_pump, 32) {
                         Ok(messages) => messages,
                         Err(e) => {
                             warn!(
                                 "Failed to list pending task messages for task {}: {}",
-                                task_id, e
+                                task_id_for_pump, e
                             );
                             continue;
                         }
                     };
 
-                    if pending_messages.is_empty() {
-                        continue;
-                    }
+                if pending_messages.is_empty() {
+                    continue;
+                }
 
-                    for queued in pending_messages {
-                        let source = match &queued.source {
-                            TaskMessageSource::User => SteerSource::User,
-                            TaskMessageSource::Agent => SteerSource::Api,
-                            TaskMessageSource::System => SteerSource::System,
-                        };
-                        let steer_message = SteerMessage::message(queued.message.clone(), source);
+                for queued in pending_messages {
+                    let source = match &queued.source {
+                        TaskMessageSource::User => SteerSource::User,
+                        TaskMessageSource::Agent => SteerSource::Api,
+                        TaskMessageSource::System => SteerSource::System,
+                    };
+                    let steer_message = SteerMessage::message(queued.message.clone(), source);
 
-                        let sent = steer_registry.steer(&task_id, steer_message).await;
-                        if sent && let Err(e) = storage.mark_task_message_consumed(&queued.id) {
-                            warn!(
-                                "Failed to mark task message {} as consumed: {}",
-                                queued.id, e
-                            );
-                        }
+                    let sent = steer_registry.steer(&task_id_for_pump, steer_message).await;
+                    if sent && let Err(e) = storage.mark_task_message_consumed(&queued.id) {
+                        warn!(
+                            "Failed to mark task message {} as consumed: {}",
+                            queued.id, e
+                        );
                     }
                 }
-            }))
-        } else {
-            None
-        };
+            }
+        }));
 
         let resolved_input = self.resolve_task_input(&task);
         let trace_session_id = {
             let session_id = task.chat_session_id.trim();
             if session_id.is_empty() {
-                task.id.clone()
+                anyhow::bail!("task '{}' is not bound to a chat session", task.id);
             } else {
                 session_id.to_string()
             }
@@ -1223,20 +1156,7 @@ impl TaskRunner {
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4()
         );
-        let execution_timeout_secs = match &task.execution_mode {
-            ExecutionMode::Api => task.timeout_secs.or(self.config.task_timeout_secs),
-            ExecutionMode::Cli(cli_config) => Some(cli_config.timeout_secs),
-        };
-        let execution_timeout_secs = if task.resource_limits.max_duration_secs > 0 {
-            match execution_timeout_secs {
-                Some(timeout_secs) => {
-                    Some(timeout_secs.min(task.resource_limits.max_duration_secs))
-                }
-                None => Some(task.resource_limits.max_duration_secs),
-            }
-        } else {
-            execution_timeout_secs
-        };
+        let execution_timeout_secs = resolve_execution_timeout_secs(&task, &self.config);
         let resume_state = self.staged_resume_intent(task_id).await;
 
         let execution_trace_storage = self.execution_trace_storage();
@@ -1333,116 +1253,41 @@ impl TaskRunner {
             return Ok(false);
         }
 
-        let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api) {
-            Some(Box::new(NoopStreamEmitter) as Box<dyn StreamEmitter>)
-        } else {
-            None
-        };
+        let step_emitter = Some(Box::new(NoopStreamEmitter) as Box<dyn StreamEmitter>);
 
         let exec_future = async {
-            match &task.execution_mode {
-                ExecutionMode::Api => {
-                    // Use the injected API executor
-                    debug!("Using API executor for task '{}'", task.name);
-                    if let Some(state) = resume_state {
-                        if let Some(timeout_secs) = execution_timeout_secs {
-                            tokio::time::timeout(
-                                Duration::from_secs(timeout_secs),
-                                self.executor.execute_from_state_with_emitter_and_telemetry(
-                                    &task.agent_id,
-                                    Some(&task.id),
-                                    state,
-                                    steer_rx,
-                                    step_emitter,
-                                    telemetry_context.clone(),
-                                ),
-                            )
-                            .await
-                        } else {
-                            Ok(self
-                                .executor
-                                .execute_from_state_with_emitter_and_telemetry(
-                                    &task.agent_id,
-                                    Some(&task.id),
-                                    state,
-                                    steer_rx,
-                                    step_emitter,
-                                    telemetry_context.clone(),
-                                )
-                                .await)
-                        }
-                    } else if let Some(timeout_secs) = execution_timeout_secs {
-                        tokio::time::timeout(
-                            Duration::from_secs(timeout_secs),
-                            self.executor.execute_with_emitter_and_telemetry(
-                                &task.agent_id,
-                                Some(&task.id),
-                                resolved_input.as_deref(),
-                                steer_rx,
-                                step_emitter,
-                                telemetry_context.clone(),
-                            ),
-                        )
-                        .await
-                    } else {
-                        Ok(self
-                            .executor
-                            .execute_with_emitter_and_telemetry(
-                                &task.agent_id,
-                                Some(&task.id),
-                                resolved_input.as_deref(),
-                                steer_rx,
-                                step_emitter,
-                                telemetry_context.clone(),
-                            )
-                            .await)
-                    }
-                }
-                ExecutionMode::Cli(cli_config) => {
-                    // Use CliAgentExecutor for CLI-based execution
-                    use super::cli_executor::CliAgentExecutor;
-
-                    info!(
-                        "Using CLI executor for task '{}' (binary: {})",
-                        task.name, cli_config.binary
-                    );
-
-                    // Create CLI executor with event streaming
-                    let event_emitter = self.event_emitter.clone();
-                    let task_id_for_events = task_id.to_string();
-                    let run_id_for_events = run_handle.run_id().to_string();
-                    let session_id_for_events = (!task.chat_session_id.trim().is_empty())
-                        .then(|| task.chat_session_id.clone());
-
-                    let cli_executor = CliAgentExecutor::with_output_callback(move |line| {
-                        let event = TaskStreamEvent::output(&task_id_for_events, line, false)
-                            .with_run_context(
-                                Some(run_id_for_events.clone()),
-                                session_id_for_events.clone(),
-                                None,
-                                Some(ExecutionScope::durable_background(
-                                    task_id_for_events.clone(),
-                                )),
-                            );
-                        let emitter = event_emitter.clone();
-                        // Spawn a task to emit the event asynchronously
-                        tokio::spawn(async move {
-                            emitter.emit(event).await;
-                        });
-                    });
-
-                    if let Some(timeout_secs) = execution_timeout_secs {
-                        tokio::time::timeout(
-                            Duration::from_secs(timeout_secs),
-                            cli_executor.execute_cli(cli_config, resolved_input.as_deref()),
-                        )
-                        .await
-                    } else {
-                        Ok(cli_executor
-                            .execute_cli(cli_config, resolved_input.as_deref())
-                            .await)
-                    }
-                }
+            if resume_state.is_some() {
+                warn!(
+                    task_id = task.id,
+                    "Ignoring legacy persisted agent state; task execution now resumes through the bound chat session"
+                );
+            }
+            debug!("Using session-turn executor for task '{}'", task.name);
+            if let Some(timeout_secs) = execution_timeout_secs {
+                tokio::time::timeout(
+                    Duration::from_secs(timeout_secs),
+                    self.executor.execute(
+                        &task.agent_id,
+                        Some(&task.id),
+                        resolved_input.as_deref(),
+                        steer_rx,
+                        step_emitter,
+                        telemetry_context.clone(),
+                    ),
+                )
+                .await
+            } else {
+                Ok(self
+                    .executor
+                    .execute(
+                        &task.agent_id,
+                        Some(&task.id),
+                        resolved_input.as_deref(),
+                        steer_rx,
+                        step_emitter,
+                        telemetry_context.clone(),
+                    )
+                    .await)
             }
         };
 

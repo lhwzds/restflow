@@ -24,7 +24,7 @@ impl TaskStorage {
     pub fn create_task_from_spec(&self, spec: TaskSpec) -> Result<Task> {
         let session_binding = TaskSessionBinding {
             session_id: Self::normalize_optional_id(spec.chat_session_id.clone())
-                .unwrap_or_default(),
+                .ok_or_else(|| anyhow::anyhow!("task must be bound to a chat session"))?,
             owns_session: false,
         };
         self.create_task_from_spec_with_binding(spec, session_binding)
@@ -37,6 +37,7 @@ impl TaskStorage {
         session_binding: TaskSessionBinding,
     ) -> Result<Task> {
         Self::validate_create_spec(&spec)?;
+        Self::validate_task_session_binding(&session_binding)?;
         let TaskSpec {
             name,
             agent_id,
@@ -64,7 +65,7 @@ impl TaskStorage {
         }
         task.timeout_secs = timeout_secs;
         if let Some(resource_limits) = resource_limits {
-            task.resource_limits = resource_limits;
+            task.resource_limits = Some(resource_limits);
         }
         task.prerequisites = prerequisites;
         if let Some(continuation) = continuation {
@@ -107,6 +108,7 @@ impl TaskStorage {
         patch: TaskPatch,
         session_binding: TaskSessionBinding,
     ) -> Result<Task> {
+        Self::validate_task_session_binding(&session_binding)?;
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -154,7 +156,7 @@ impl TaskStorage {
             task.timeout_secs = Some(timeout_secs);
         }
         if let Some(resource_limits) = resource_limits {
-            task.resource_limits = resource_limits;
+            task.resource_limits = Some(resource_limits);
         }
         if let Some(prerequisites) = prerequisites {
             task.prerequisites = prerequisites;
@@ -238,6 +240,7 @@ impl TaskStorage {
             success_count: task.success_count,
             failure_count: task.failure_count,
             pending_message_count,
+            transcript: None,
         })
     }
 }

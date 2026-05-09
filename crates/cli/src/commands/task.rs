@@ -11,8 +11,8 @@ use crate::output::table::print_table;
 #[cfg(test)]
 use runtime::models::RunKind;
 use runtime::models::{
-    ExecutionContainerKind, ExecutionContainerRef, RunListQuery, RunSummary, TaskControlAction,
-    TaskPatch, TaskSchedule, TaskSpec,
+    ChatRole, ExecutionContainerKind, ExecutionContainerRef, RunListQuery, RunSummary,
+    TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
 };
 #[cfg(test)]
 use runtime::services::task_conversion::{derive_conversion_input, derive_conversion_name};
@@ -174,6 +174,7 @@ async fn show_task(
     }
     println!("Success:     {}", task.success_count);
     println!("Failed:      {}", task.failure_count);
+    println!("Progress:    restflow task progress {}", task.id);
 
     Ok(())
 }
@@ -380,8 +381,64 @@ async fn show_progress(
             event.message.unwrap_or_default()
         );
     }
+    if let Some(transcript) = progress.transcript {
+        println!();
+        println!("Latest messages:");
+        if transcript.messages.is_empty() && transcript.turn_events.is_empty() {
+            println!("  No transcript messages yet.");
+        }
+        for message in transcript.messages {
+            let role = match message.role {
+                ChatRole::User => "User",
+                ChatRole::Assistant => "Assistant",
+                ChatRole::System => "System",
+            };
+            println!("  {}: {}", role, truncate(&message.content, 200));
+        }
+        for event in transcript.turn_events {
+            println!(
+                "  [{}] {}",
+                format_timestamp(Some(event.timestamp)),
+                format_turn_event(&event.kind)
+            );
+        }
+        if transcript.truncated {
+            println!("  ... older transcript content omitted");
+        }
+    }
 
     Ok(())
+}
+
+fn format_turn_event(kind: &runtime::models::ChatTurnEventKind) -> String {
+    match kind {
+        runtime::models::ChatTurnEventKind::UserMessage { content } => {
+            format!("User: {}", truncate(content, 200))
+        }
+        runtime::models::ChatTurnEventKind::AssistantMessage { content } => {
+            format!("Assistant: {}", truncate(content, 200))
+        }
+        runtime::models::ChatTurnEventKind::ToolCall {
+            name, arguments, ..
+        } => {
+            format!("Tool call {name}: {}", truncate(arguments, 160))
+        }
+        runtime::models::ChatTurnEventKind::ToolResult {
+            call_id,
+            success,
+            result,
+        } => {
+            let status = if *success { "ok" } else { "failed" };
+            format!(
+                "Tool result {call_id} ({status}): {}",
+                truncate(result, 160)
+            )
+        }
+        runtime::models::ChatTurnEventKind::Error { message } => {
+            format!("Error: {}", truncate(message, 200))
+        }
+        runtime::models::ChatTurnEventKind::Canceled => "Canceled".to_string(),
+    }
 }
 
 async fn send_message(

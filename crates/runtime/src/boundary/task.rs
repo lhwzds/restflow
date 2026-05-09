@@ -284,7 +284,7 @@ fn decode_optional_contract<T: Serialize, U: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{CliExecutionConfig, ContinuationConfig};
+    use crate::models::ContinuationConfig;
 
     #[test]
     fn contract_spec_to_core_preserves_task_defaults() {
@@ -297,8 +297,7 @@ mod tests {
                 "start_at": null
             },
             "execution_mode": {
-                "type": "cli",
-                "binary": "claude"
+                "type": "api"
             },
             "memory": {},
             "resource_limits": {},
@@ -308,15 +307,7 @@ mod tests {
 
         let core = contract_spec_to_core(contract).expect("core background spec");
 
-        match core.execution_mode {
-            Some(ExecutionMode::Cli(config)) => {
-                assert_eq!(
-                    config.timeout_secs,
-                    CliExecutionConfig::default().timeout_secs
-                );
-            }
-            other => panic!("expected cli execution mode, got {other:?}"),
-        }
+        assert_eq!(core.execution_mode, Some(ExecutionMode::Api));
 
         assert_eq!(
             core.resource_limits.expect("resource limits"),

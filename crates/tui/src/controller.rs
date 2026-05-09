@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use runtime::models::{
     ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary,
-    SkillSource,
+    SkillSource, TaskSchedule, TaskSpec,
 };
 use runtime::storage::agent::StoredAgent;
 
@@ -99,6 +99,9 @@ impl ShellController {
                 self.submit_message_effect(state, message, stream_id, tx)
                     .await?;
                 Ok(Vec::new())
+            }
+            ShellEffect::CreateTaskGoal { message } => {
+                self.create_task_goal_actions(state, message).await
             }
             ShellEffect::SteerMessage {
                 session_id,
@@ -473,6 +476,69 @@ impl ShellController {
             runs: Vec::new(),
             child_runs: Vec::new(),
             message,
+        }])
+    }
+
+    async fn create_task_goal_actions(
+        &self,
+        state: &AppState,
+        message: String,
+    ) -> Result<Vec<ShellAction>> {
+        if !self.client.daemon_running().await {
+            self.client.start_daemon().await?;
+        }
+
+        let session = match state.current_session() {
+            Some(_) => None,
+            None => {
+                let agent_id = state
+                    .pending_session
+                    .as_ref()
+                    .map(|session| session.agent_id.as_str())
+                    .or(state.default_agent_id.as_deref());
+                let Some(agent_id) = agent_id else {
+                    bail!("No default agent configured. Create one before creating a task.");
+                };
+                Some(
+                    self.client
+                        .create_session_for_agent(
+                            agent_id,
+                            state
+                                .pending_session
+                                .as_ref()
+                                .map(|session| session.model.as_str()),
+                        )
+                        .await?,
+                )
+            }
+        };
+        let bound_session = session.as_ref().or_else(|| state.current_session());
+        let Some(bound_session) = bound_session else {
+            bail!("No session available for task binding.");
+        };
+        let task = self
+            .client
+            .create_task(TaskSpec {
+                name: task_name_from_goal(&message),
+                agent_id: bound_session.agent_id.clone(),
+                chat_session_id: Some(bound_session.id.clone()),
+                description: None,
+                input: Some(message.clone()),
+                input_template: None,
+                schedule: TaskSchedule::Once {
+                    run_at: chrono::Utc::now().timestamp_millis(),
+                },
+                execution_mode: None,
+                timeout_secs: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .await?;
+        Ok(vec![ShellAction::TaskGoalCreated {
+            task: Box::new(task),
+            session: session.map(Box::new),
+            status: "Task goal created.".to_string(),
         }])
     }
 
@@ -955,6 +1021,26 @@ fn task_item_from_task(
         status: format!("{:?}", task.status),
         next_run_at: task.next_run_at,
         latest_run_id,
+    }
+}
+
+fn task_name_from_goal(goal: &str) -> String {
+    let first_line = goal
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            (!trimmed.is_empty()).then_some(trimmed)
+        })
+        .unwrap_or("Task goal");
+    let mut chars = first_line.chars();
+    let mut name: String = chars.by_ref().take(60).collect();
+    if chars.next().is_some() {
+        name.push_str("...");
+    }
+    if name.is_empty() {
+        "Task goal".to_string()
+    } else {
+        name
     }
 }
 

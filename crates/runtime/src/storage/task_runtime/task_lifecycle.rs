@@ -14,20 +14,22 @@ pub enum ResolveTaskIdError {
 impl TaskStorage {
     // ============== Agent Task Operations ==============
 
-    /// Create a new agent task
+    /// Create a new agent task for storage-level tests.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn create_task(
         &self,
         name: String,
         agent_id: String,
         schedule: TaskSchedule,
     ) -> Result<Task> {
-        let task = Task::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
+        let mut task = Task::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
+        task.chat_session_id = format!("test-session-{}", task.id);
+        task.owns_chat_session = false;
 
         let json_bytes = serde_json::to_vec(&task)?;
         self.inner
             .put_task_raw_with_status(&task.id, task.status.as_str(), &json_bytes)?;
 
-        // Create a "created" event
         let event =
             TaskEvent::new(task.id.clone(), TaskEventType::Created).with_message("Task created");
         self.add_event(&event)?;
@@ -272,6 +274,7 @@ impl TaskStorage {
     /// Save an agent task (insert or replace).
     /// Unlike `update_task`, this does not require the task to already exist.
     pub fn save_task(&self, task: &Task) -> Result<()> {
+        Self::validate_task_has_session(task)?;
         let json_bytes = serde_json::to_vec(task)?;
         if let Some(existing) = self.get_task(&task.id)? {
             self.inner.update_task_raw_with_status(
@@ -290,11 +293,12 @@ impl TaskStorage {
     /// Update an existing agent task.
     /// Returns an error if the task does not exist.
     pub fn update_task(&self, task: &Task) -> Result<()> {
-        let json_bytes = serde_json::to_vec(task)?;
         let previous_status = self
             .get_task(&task.id)?
             .map(|existing| existing.status)
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", task.id))?;
+        Self::validate_task_has_session(task)?;
+        let json_bytes = serde_json::to_vec(task)?;
         self.inner.update_task_raw_with_status(
             &task.id,
             previous_status.as_str(),
@@ -309,6 +313,7 @@ impl TaskStorage {
         task: &Task,
         expected_status: TaskStatus,
     ) -> Result<bool> {
+        Self::validate_task_has_session(task)?;
         let json_bytes = serde_json::to_vec(task)?;
         self.inner.update_task_raw_if_status_matches(
             &task.id,

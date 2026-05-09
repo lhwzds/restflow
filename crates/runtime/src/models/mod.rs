@@ -40,10 +40,10 @@ pub(crate) use provider_policy::{
 pub use run_artifact::{RunArtifact, RunArtifactKind};
 pub use steer::{SteerMessage, SteerSource};
 pub use task_runtime::{
-    CliExecutionConfig, ContinuationConfig, ExecutionMode, ResourceLimits, Task, TaskControlAction,
+    ContinuationConfig, ExecutionMode, ResourceLimits, Task, TaskControlAction,
     TaskConversionResult, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
     TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus,
-    TaskSchedule, TaskSpec, TaskStatus,
+    TaskSchedule, TaskSpec, TaskStatus, TaskTranscriptPreview,
 };
 pub use types::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 // Export execution trace types (new naming)

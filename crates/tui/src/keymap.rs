@@ -7,6 +7,7 @@ pub enum Action {
     OpenSessions,
     OpenRuns,
     OpenHelp,
+    CycleInputMode,
     Redraw,
     Resize,
     NavUp,
@@ -50,6 +51,10 @@ pub fn map_event(event: Event) -> Action {
         Event::Key(KeyEvent {
             code: KeyCode::Esc, ..
         }) => Action::CloseOverlay,
+        Event::Key(KeyEvent {
+            code: KeyCode::BackTab,
+            ..
+        }) => Action::CycleInputMode,
         Event::Key(KeyEvent {
             code: KeyCode::Char('p'),
             modifiers,
@@ -163,6 +168,12 @@ mod tests {
     fn maps_esc_to_close_overlay_without_quit() {
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(map_event(event), Action::CloseOverlay);
+    }
+
+    #[test]
+    fn maps_shift_tab_to_cycle_input_mode() {
+        let event = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(map_event(event), Action::CycleInputMode);
     }
 
     #[test]

@@ -1520,7 +1520,7 @@ mod tests {
             .create_task_from_spec(crate::models::TaskSpec {
                 name: "Delete Target".to_string(),
                 agent_id: created.id.clone(),
-                chat_session_id: None,
+                chat_session_id: Some("task-session-delete-warning".to_string()),
                 description: None,
                 input: Some("run".to_string()),
                 input_template: None,

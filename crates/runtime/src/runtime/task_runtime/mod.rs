@@ -10,7 +10,6 @@
 //!
 //! - `runner`: The task runner that polls for and executes tasks
 //! - `executor`: Real agent executor that bridges to `ai`
-//! - `cli_executor`: CLI agent executor for external tools (Claude Code, Aider)
 //! - `events`: Real-time streaming events for runtime clients
 //! - `heartbeat`: Status types and emitters (integrated into runner)
 //! - `retry`: Retry mechanism for transient failures
@@ -18,10 +17,10 @@
 //! - `AgentExecutor`: Trait for executing agents (allows dependency injection)
 //! - `TaskEventEmitter`: Trait for emitting real-time events (allows DI)
 //!
-//! # Execution Modes
+//! # Execution
 //!
-//! - **API Mode**: Uses the injected `AgentExecutor` for LLM API-based execution
-//! - **CLI Mode**: Uses `CliAgentExecutor` for external CLI tools (claude, aider, etc.)
+//! Tasks are durable triggers for bound chat sessions. The runner executes each
+//! task as a session turn through the injected `AgentExecutor`.
 //!
 //! # Usage
 //!
@@ -117,7 +116,6 @@
 //! }
 //! ```
 //!
-pub mod cli_executor;
 pub mod error_classification;
 pub mod events;
 pub mod executor;
@@ -134,7 +132,6 @@ pub mod skill_snapshot;
 pub mod testkit;
 
 pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
-pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
 pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
     TaskEventEmitter, TaskStreamEvent,

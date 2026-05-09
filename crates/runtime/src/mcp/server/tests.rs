@@ -35,10 +35,14 @@ async fn create_test_server() -> (
     unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
     let db_path = state.db_path("test.db");
     let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+    core.storage
+        .secrets
+        .set_secret("OPENAI_API_KEY", "test_key", None)
+        .unwrap();
     let default_agent = core.storage.agents.resolve_default_agent().unwrap();
     let mut configured_agent = default_agent.agent.clone();
     configured_agent.model_ref = Some(crate::models::ModelRef::from_model(ModelId::Gpt5));
-    configured_agent.api_key_config = Some(ApiKeyConfig::Direct("test_key".to_string()));
+    configured_agent.api_key_config = Some(ApiKeyConfig::Secret("OPENAI_API_KEY".to_string()));
     core.storage
         .agents
         .update_agent(default_agent.id.clone(), None, Some(configured_agent))
@@ -714,7 +718,7 @@ impl McpBackend for MockBackend {
         }
         task.timeout_secs = spec.timeout_secs;
         if let Some(resource_limits) = spec.resource_limits {
-            task.resource_limits = resource_limits;
+            task.resource_limits = Some(resource_limits);
         }
         task.prerequisites = spec.prerequisites;
         if let Some(continuation) = spec.continuation {

@@ -194,48 +194,4 @@ impl AgentRuntimeExecutor {
 
         Ok(factory.create_client(model.as_serialized_str(), api_key)?)
     }
-
-    pub(super) async fn build_failover_config(
-        &self,
-        primary: ModelId,
-        agent_api_key_config: Option<&ApiKeyConfig>,
-    ) -> FailoverConfig {
-        let primary_provider = primary.provider();
-        let api_keys = self
-            .build_api_keys(agent_api_key_config, primary_provider)
-            .await;
-
-        let available_providers: HashSet<Provider> = api_keys
-            .keys()
-            .filter_map(|llm_provider| {
-                Provider::all()
-                    .iter()
-                    .find(|p| p.as_llm_provider() == *llm_provider)
-                    .copied()
-            })
-            .collect();
-
-        // Get manually configured fallback models from config
-        let config = self.storage.config.get_effective_config().ok();
-        let fallback_models: Option<Vec<ModelId>> = config
-            .as_ref()
-            .and_then(|c| c.agent.fallback_models.clone())
-            .map(|models| {
-                models
-                    .iter()
-                    .filter_map(|s| ModelId::from_api_name(s))
-                    .collect()
-            });
-
-        let config = FailoverConfig::build_smart(primary, &available_providers, fallback_models);
-
-        info!(
-            primary = %primary.as_str(),
-            fallbacks = ?config.fallbacks.iter().map(|m| m.as_str()).collect::<Vec<_>>(),
-            "Built failover chain with {} available fallbacks",
-            config.fallbacks.len()
-        );
-
-        config
-    }
 }

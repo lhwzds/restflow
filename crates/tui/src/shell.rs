@@ -350,7 +350,7 @@ fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSna
     };
 
     let lines = if show_placeholder {
-        vec![placeholder_line(content_width)]
+        vec![placeholder_line(state.input_mode, content_width)]
     } else {
         state
             .composer
@@ -2550,23 +2550,23 @@ fn compact_tool_path(path: &str) -> String {
 }
 
 fn footer_status_line(state: &AppState) -> String {
-    let base = {
-        let Some(session) = state.current_session() else {
-            if let Some(pending_session) = state.pending_session.as_ref() {
-                return append_background_footer(pending_session.model_label(), state);
+    let base = match state.current_session() {
+        Some(session) => {
+            let provider = session.provider.trim();
+            let model = session.model.trim();
+            match (provider, model.is_empty()) {
+                (provider, false) if !provider.is_empty() => format!("{provider} · {model}"),
+                (_, false) => model.to_string(),
+                _ => state.status.clone(),
             }
-            return append_background_footer(state.status.clone(), state);
-        };
-
-        let provider = session.provider.trim();
-        let model = session.model.trim();
-        match (provider, model.is_empty()) {
-            (provider, false) if !provider.is_empty() => format!("{provider} · {model}"),
-            (_, false) => model.to_string(),
-            _ => state.status.clone(),
         }
+        None => state
+            .pending_session
+            .as_ref()
+            .map(|pending_session| pending_session.model_label())
+            .unwrap_or_else(|| state.status.clone()),
     };
-    append_background_footer(base, state)
+    append_background_footer(mode_prefixed_footer(state.input_mode, base), state)
 }
 
 fn append_background_footer(base: String, state: &AppState) -> String {
@@ -2579,11 +2579,26 @@ fn append_background_footer(base: String, state: &AppState) -> String {
     base
 }
 
-fn placeholder_line(inner_width: u16) -> Line<'static> {
-    styled_line(
-        truncate_to_width("Type your message or use /help", inner_width),
-        muted_style(),
-    )
+fn mode_prefixed_footer(mode: crate::state::InputMode, base: String) -> String {
+    match mode {
+        crate::state::InputMode::Chat => base,
+        crate::state::InputMode::Plan | crate::state::InputMode::Task => {
+            if base.trim().is_empty() {
+                mode.label().to_string()
+            } else {
+                format!("{} · {}", mode.label(), base)
+            }
+        }
+    }
+}
+
+fn placeholder_line(mode: crate::state::InputMode, inner_width: u16) -> Line<'static> {
+    let placeholder = match mode {
+        crate::state::InputMode::Chat => "Type your message or use /help",
+        crate::state::InputMode::Plan => "Plan mode: describe the plan",
+        crate::state::InputMode::Task => "Task mode: describe a background goal",
+    };
+    styled_line(truncate_to_width(placeholder, inner_width), muted_style())
 }
 
 #[cfg(test)]

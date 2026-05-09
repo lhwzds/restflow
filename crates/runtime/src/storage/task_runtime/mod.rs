@@ -5,9 +5,11 @@
 
 pub(crate) mod raw;
 
+#[cfg(any(test, feature = "test-utils"))]
+use crate::models::TaskSchedule;
 use crate::models::{
     Task, TaskControlAction, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
-    TaskMessageStatus, TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
+    TaskMessageStatus, TaskPatch, TaskProgress, TaskSpec, TaskStatus,
 };
 use anyhow::Result;
 use redb::Database;
@@ -35,6 +37,20 @@ pub struct TaskSessionBinding {
 
 impl TaskStorage {
     const MIN_TASK_TIMEOUT_SECS: u64 = 10;
+
+    fn validate_task_session_binding(session_binding: &TaskSessionBinding) -> Result<()> {
+        if session_binding.session_id.trim().is_empty() {
+            anyhow::bail!("task must be bound to a chat session");
+        }
+        Ok(())
+    }
+
+    fn validate_task_has_session(task: &Task) -> Result<()> {
+        if task.chat_session_id.trim().is_empty() {
+            anyhow::bail!("task '{}' must be bound to a chat session", task.id);
+        }
+        Ok(())
+    }
 
     fn has_non_empty_text(value: Option<&str>) -> bool {
         value.is_some_and(|text| !text.trim().is_empty())

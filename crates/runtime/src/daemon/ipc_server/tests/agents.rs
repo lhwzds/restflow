@@ -10,6 +10,10 @@ fn raw_agent_storage(core: &Arc<AppCore>) -> AgentRawStorage {
 }
 
 fn ensure_test_agent_with_id(core: &Arc<AppCore>, id: &str) {
+    core.storage
+        .secrets
+        .set_secret("OPENAI_API_KEY", "test-openai-key", None)
+        .expect("store openai key");
     if core
         .storage
         .agents
@@ -50,7 +54,18 @@ fn task_spec(name: &str) -> crate::models::TaskSpec {
     }
 }
 
+fn bound_task_spec(name: &str) -> crate::models::TaskSpec {
+    crate::models::TaskSpec {
+        chat_session_id: Some(format!("session-{name}")),
+        ..task_spec(name)
+    }
+}
+
 fn configure_default_agent(core: &Arc<AppCore>) -> String {
+    core.storage
+        .secrets
+        .set_secret("OPENAI_API_KEY", "test-openai-key", None)
+        .expect("store openai key");
     let default_id = core.storage.agents.resolve_default_agent_id().unwrap();
     core.storage
         .agents
@@ -71,18 +86,19 @@ fn raw_task_storage(core: &Arc<AppCore>) -> crate::storage::task_runtime::raw::T
 }
 
 fn insert_task_with_id(core: &Arc<AppCore>, id: &str) -> crate::models::Task {
-    ensure_test_agent_with_id(core, "agent-1");
+    let agent_id = configure_default_agent(core);
     let mut task = crate::models::Task::new(
         id.to_string(),
         format!("Task {id}"),
-        "agent-1".to_string(),
+        agent_id,
         crate::models::TaskSchedule::default(),
     );
     task.input = Some("run".to_string());
-    let raw = serde_json::to_vec(&task).unwrap();
-    raw_task_storage(core)
-        .put_task_raw_with_status(id, task.status.as_str(), &raw)
-        .unwrap();
+    task.chat_session_id = format!("session-{id}");
+    let mut session = crate::models::ChatSession::new(task.agent_id.clone(), "gpt-5".to_string());
+    session.id = task.chat_session_id.clone();
+    core.storage.chat_sessions.create(&session).unwrap();
+    core.storage.tasks.save_task(&task).unwrap();
     task
 }
 
@@ -95,7 +111,7 @@ async fn process_get_task_returns_created_task() {
     let task = core
         .storage
         .tasks
-        .create_task_from_spec(task_spec("ipc-background"))
+        .create_task_from_spec(bound_task_spec("ipc-background"))
         .unwrap();
 
     let response = IpcServer::process(
@@ -126,7 +142,7 @@ async fn process_delete_task_requires_confirmation() {
     let task = core
         .storage
         .tasks
-        .create_task_from_spec(task_spec("ipc-delete"))
+        .create_task_from_spec(bound_task_spec("ipc-delete"))
         .unwrap();
 
     let response = IpcServer::process(
@@ -160,7 +176,7 @@ async fn process_delete_task_replays_confirmation_with_approval_id() {
     let task = core
         .storage
         .tasks
-        .create_task_from_spec(task_spec("ipc-delete-replay"))
+        .create_task_from_spec(bound_task_spec("ipc-delete-replay"))
         .unwrap();
 
     let response = IpcServer::process(
@@ -210,9 +226,21 @@ async fn process_delete_task_replays_confirmation_with_approval_id() {
 async fn process_convert_session_task_returns_direct_result() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
-    ensure_test_agent_with_id(&core, "agent-1");
+    core.storage
+        .secrets
+        .set_secret("OPENAI_API_KEY", "test-openai-key", None)
+        .expect("store openai key");
+    let agent = core
+        .storage
+        .agents
+        .create_agent(
+            "convert task agent".to_string(),
+            AgentNode::with_model(ModelId::Gpt5)
+                .with_api_key(ApiKeyConfig::Direct("test-key".to_string())),
+        )
+        .unwrap();
 
-    let mut session = crate::models::ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let mut session = crate::models::ChatSession::new(agent.id.clone(), "gpt-5".to_string());
     session.add_message(crate::models::ChatMessage::user("continue this task"));
     core.storage
         .chat_sessions
@@ -257,7 +285,7 @@ async fn process_handle_task_approval_returns_typed_response() {
     let task = core
         .storage
         .tasks
-        .create_task_from_spec(task_spec("ipc-approval"))
+        .create_task_from_spec(bound_task_spec("ipc-approval"))
         .unwrap();
 
     let response = IpcServer::process(
@@ -335,7 +363,7 @@ async fn process_get_task_returns_bad_request_for_ambiguous_prefix() {
 }
 
 #[tokio::test]
-async fn process_get_task_returns_internal_error_when_resolution_scan_fails() {
+async fn process_get_task_returns_not_found_when_unrelated_record_is_malformed() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let raw_storage = raw_task_storage(&core);
@@ -355,9 +383,9 @@ async fn process_get_task_returns_internal_error_when_resolution_scan_fails() {
 
     match response {
         IpcResponse::Error(error) => {
-            assert_eq!(error.code, 500);
-            assert_eq!(error.kind, types::ErrorKind::Internal);
-            assert!(error.message.contains("key must be a string"));
+            assert_eq!(error.code, 404);
+            assert_eq!(error.kind, types::ErrorKind::NotFound);
+            assert!(error.message.contains("Task not found"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -505,7 +533,7 @@ async fn process_get_task_history_returns_not_found_for_missing_task() {
 }
 
 #[tokio::test]
-async fn process_list_task_messages_returns_internal_error_when_resolution_scan_fails() {
+async fn process_list_task_messages_returns_not_found_when_unrelated_record_is_malformed() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     raw_task_storage(&core)
@@ -524,8 +552,8 @@ async fn process_list_task_messages_returns_internal_error_when_resolution_scan_
 
     match response {
         IpcResponse::Error(error) => {
-            assert_eq!(error.code, 500);
-            assert_eq!(error.kind, types::ErrorKind::Internal);
+            assert_eq!(error.code, 404);
+            assert_eq!(error.kind, types::ErrorKind::NotFound);
         }
         other => panic!("expected error response, got {other:?}"),
     }

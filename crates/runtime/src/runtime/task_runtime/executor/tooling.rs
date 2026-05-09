@@ -3,17 +3,6 @@ use ai::agent::SubagentManagerImpl;
 use types::SubagentManager;
 
 impl AgentRuntimeExecutor {
-    pub(super) fn to_agent_resource_limits(
-        limits: &crate::models::ResourceLimits,
-    ) -> AgentResourceLimits {
-        AgentResourceLimits {
-            max_tool_calls: limits.max_tool_calls,
-            max_wall_clock: Duration::from_secs(limits.max_duration_secs),
-            max_depth: AgentResourceLimits::default().max_depth,
-            max_cost_usd: limits.max_cost_usd,
-        }
-    }
-
     pub(super) fn chat_resource_limits(
         max_tool_calls: usize,
         max_wall_clock_secs: Option<u64>,
@@ -65,10 +54,6 @@ impl AgentRuntimeExecutor {
             );
         }
         config
-    }
-
-    pub(super) fn non_main_agent_prompt_flags() -> PromptFlags {
-        PromptFlags::new().without_workspace_context()
     }
 
     pub(super) fn effective_max_tool_result_length(

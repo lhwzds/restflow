@@ -6,6 +6,7 @@ use runtime::daemon::{
 use runtime::models::{
     ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
     ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill, Task,
+    TaskSpec,
 };
 use runtime::paths;
 use runtime::services::{session::SessionService, skills as skills_service};
@@ -175,6 +176,11 @@ impl TuiDaemonClient {
         client
             .request_typed(IpcRequest::ListTasks { status: None })
             .await
+    }
+
+    pub async fn create_task(&self, spec: TaskSpec) -> Result<Task> {
+        let mut client = self.connect().await?;
+        client.create_task(spec).await
     }
 
     pub async fn list_skills(&self) -> Result<Vec<Skill>> {

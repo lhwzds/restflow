@@ -19,14 +19,10 @@ use crate::{
         ChatTurnStatus, Skill, SteerMessage, TaskStatus,
     },
     process::ProcessRegistry,
-    prompt_files,
     services::skill_triggers::match_triggers,
     storage::Storage,
 };
-use ai::agent::{
-    LlmToolCallReviewer, ModelRoutingConfig as AiModelRoutingConfig, PromptFlags,
-    SharedStreamEmitter, StreamEmitter,
-};
+use ai::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
 use ai::llm::Message;
 use ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, CodexClient,
@@ -37,8 +33,8 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tools::{ProcessTool, ReplyTool, SwitchModelTool};
 use tracing::{debug, info, warn};
-use types::llm::{LlmProvider, LlmSwitcher, SwapResult};
-use types::{ExecutionOutcome, ExecutionPlan, ReplySender, ToolError};
+use types::llm::LlmProvider;
+use types::{ExecutionOutcome, ExecutionPlan, ReplySender};
 
 use super::error_classification::{classify_execution_error, is_authentication_classification};
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
@@ -157,66 +153,7 @@ pub enum SessionInputMode {
 
 #[derive(Debug, Clone)]
 struct ResolvedSkillSnapshot {
-    triggered_skill_ids: Vec<String>,
     resolved_skills: Vec<Skill>,
-}
-
-struct RuntimeModelSwitcher {
-    swappable: Arc<SwappableLlm>,
-    factory: Arc<dyn LlmClientFactory>,
-    agent_node: AgentNode,
-}
-
-impl LlmSwitcher for RuntimeModelSwitcher {
-    fn current_model(&self) -> String {
-        self.swappable.current_model()
-    }
-
-    fn current_provider(&self) -> String {
-        self.swappable.current_provider()
-    }
-
-    fn available_models(&self) -> Vec<String> {
-        self.factory.available_models()
-    }
-
-    fn provider_for_model(&self, model: &str) -> Option<LlmProvider> {
-        self.factory.provider_for_model(model)
-    }
-
-    fn resolve_api_key(&self, provider: LlmProvider) -> Option<String> {
-        self.factory.resolve_api_key(provider)
-    }
-
-    fn client_kind_for_model(&self, model: &str) -> Option<types::ClientKind> {
-        self.factory.client_kind_for_model(model)
-    }
-
-    fn create_and_swap(
-        &self,
-        model: &str,
-        api_key: Option<&str>,
-    ) -> std::result::Result<SwapResult, ToolError> {
-        let model = ModelId::from_api_name(model)
-            .ok_or_else(|| ToolError::Tool(format!("Unsupported routed model: {}", model)))?;
-        let client = AgentRuntimeExecutor::create_llm_client(
-            self.factory.as_ref(),
-            model,
-            api_key,
-            &self.agent_node,
-        )
-        .map_err(|error| ToolError::Tool(error.to_string()))?;
-        let previous = self.swappable.swap(client.clone());
-        let previous_runtime_provider = self.factory.provider_for_model(previous.model());
-        Ok(SwapResult {
-            previous_provider: previous.provider().to_string(),
-            previous_model: previous.model().to_string(),
-            previous_runtime_provider,
-            new_provider: client.provider().to_string(),
-            new_model: client.model().to_string(),
-            new_runtime_provider: model.provider().as_llm_provider(),
-        })
-    }
 }
 
 impl AgentRuntimeExecutor {
@@ -296,25 +233,6 @@ impl AgentRuntimeExecutor {
         } else {
             Err(anyhow!("Prerequisites not met: {}", failed.join(", ")))
         }
-    }
-
-    fn persist_artifact_if_needed(
-        &self,
-        task_id: Option<&str>,
-        run_id: &str,
-        agent_id: &str,
-        _output: &str,
-    ) -> Result<()> {
-        let _ = (task_id, run_id, agent_id);
-        Ok(())
-    }
-
-    fn create_tool_output_dir_for_task(task_id: &str) -> Result<std::path::PathBuf> {
-        let base_dir = crate::paths::ensure_restflow_dir()?.join("tool-output");
-        std::fs::create_dir_all(&base_dir)?;
-        let path = base_dir.join(task_id);
-        std::fs::create_dir_all(&path)?;
-        Ok(path)
     }
 
     /// Create a new AgentRuntimeExecutor with access to storage.

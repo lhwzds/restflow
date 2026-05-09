@@ -24,7 +24,7 @@ fn test_file_backed_task_storage_survives_process_namespace_change() {
             .create_task_from_spec(TaskSpec {
                 name: "File Backed Task".to_string(),
                 agent_id: "agent-001".to_string(),
-                chat_session_id: None,
+                chat_session_id: Some("session-1".to_string()),
                 description: None,
                 input: Some("persist me".to_string()),
                 input_template: None,
@@ -67,7 +67,7 @@ fn test_file_backed_task_storage_serializes_parallel_creates() {
                     .create_task_from_spec(TaskSpec {
                         name: name.to_string(),
                         agent_id: "agent-001".to_string(),
-                        chat_session_id: None,
+                        chat_session_id: Some("session-1".to_string()),
                         description: None,
                         input: Some(name.to_string()),
                         input_template: None,
@@ -121,7 +121,7 @@ fn test_file_backed_task_storage_serializes_parallel_creates_across_namespaces()
                 .create_task_from_spec(TaskSpec {
                     name: name.to_string(),
                     agent_id: "agent-001".to_string(),
-                    chat_session_id: None,
+                    chat_session_id: Some("session-1".to_string()),
                     description: None,
                     input: Some(name.to_string()),
                     input_template: None,
@@ -164,7 +164,7 @@ fn test_resolve_existing_task_id_exact_match() {
         .create_task_from_spec(TaskSpec {
             name: "Test Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("test input".to_string()),
             input_template: None,
@@ -206,7 +206,7 @@ fn test_resolve_existing_task_id_unique_prefix() {
         .create_task_from_spec(TaskSpec {
             name: "Test Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("test input".to_string()),
             input_template: None,
@@ -271,7 +271,7 @@ fn test_resolve_existing_task_id_ambiguous_prefix() {
         .create_task_from_spec(TaskSpec {
             name: "Task 1".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("test input".to_string()),
             input_template: None,
@@ -288,7 +288,7 @@ fn test_resolve_existing_task_id_ambiguous_prefix() {
         .create_task_from_spec(TaskSpec {
             name: "Task 2".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("test input".to_string()),
             input_template: None,
@@ -483,7 +483,7 @@ fn test_resolve_existing_task_id_exact_priority_over_prefix() {
         .create_task_from_spec(TaskSpec {
             name: "Test Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("test input".to_string()),
             input_template: None,
@@ -972,7 +972,7 @@ fn test_delete_task_does_not_archive_owned_chat_session() {
             TaskSpec {
                 name: "Archive On Delete".to_string(),
                 agent_id: "agent-archive".to_string(),
-                chat_session_id: None,
+                chat_session_id: Some("session-1".to_string()),
                 description: None,
                 input: Some("archive me".to_string()),
                 input_template: None,
@@ -1281,7 +1281,7 @@ fn test_list_runnable_tasks_repairs_missing_next_run_for_cron() {
         .create_task_from_spec(TaskSpec {
             name: "Cron Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("hello".to_string()),
             input_template: None,
@@ -1317,7 +1317,7 @@ fn test_list_runnable_tasks_repairs_stale_next_run() {
         .create_task_from_spec(TaskSpec {
             name: "Stale Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("hello".to_string()),
             input_template: None,
@@ -1364,7 +1364,7 @@ fn test_repair_runnable_task_does_not_overwrite_paused_status_from_stale_snapsho
         .create_task_from_spec(TaskSpec {
             name: "Pause Race Guard".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("hello".to_string()),
             input_template: None,
@@ -1410,7 +1410,7 @@ fn test_list_runnable_tasks_repairs_stale_task_with_duplicate_session_binding() 
         .create_task_from_spec(TaskSpec {
             name: "Repair Failure".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("hello".to_string()),
             input_template: None,
@@ -1512,7 +1512,7 @@ fn test_task_lifecycle() {
         .create_task_from_spec(TaskSpec {
             name: "BG Agent".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: Some("Background agent".to_string()),
             input: Some("Run checks".to_string()),
             input_template: None,
@@ -1636,7 +1636,7 @@ fn test_create_task_with_template() {
         .create_task_from_spec(TaskSpec {
             name: "Templated Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("fallback".to_string()),
             input_template: Some("Run task {{task.id}}".to_string()),
@@ -1656,27 +1656,30 @@ fn test_create_task_with_template() {
 }
 
 #[test]
-fn test_create_task_does_not_auto_create_bound_chat_session() {
+fn test_create_task_requires_explicit_chat_session_binding() {
     let storage = create_test_storage();
-    let created = storage
-        .create_task_from_spec(TaskSpec {
-            name: "Bound Session Task".to_string(),
-            agent_id: "agent-001".to_string(),
-            chat_session_id: None,
-            description: None,
-            input: Some("Run with auto session".to_string()),
-            input_template: None,
-            schedule: TaskSchedule::default(),
-            execution_mode: None,
-            timeout_secs: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .unwrap();
+    let result = storage.create_task_from_spec(TaskSpec {
+        name: "Bound Session Task".to_string(),
+        agent_id: "agent-001".to_string(),
+        chat_session_id: None,
+        description: None,
+        input: Some("Run with auto session".to_string()),
+        input_template: None,
+        schedule: TaskSchedule::default(),
+        execution_mode: None,
+        timeout_secs: None,
+        resource_limits: None,
+        prerequisites: Vec::new(),
+        continuation: None,
+    });
 
-    assert!(created.chat_session_id.trim().is_empty());
-    assert!(!created.owns_chat_session);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("task must be bound to a chat session")
+    );
 }
 
 #[test]
@@ -1798,7 +1801,7 @@ fn test_update_task_updates_template() {
         .create_task_from_spec(TaskSpec {
             name: "Updatable Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("Fallback task input".to_string()),
             input_template: None,
@@ -1833,7 +1836,7 @@ fn test_create_task_rejects_timeout_below_minimum() {
     let result = storage.create_task_from_spec(TaskSpec {
         name: "Too Fast Timeout".to_string(),
         agent_id: "agent-001".to_string(),
-        chat_session_id: None,
+        chat_session_id: Some("session-1".to_string()),
         description: None,
         input: Some("Run timeout validation".to_string()),
         input_template: None,
@@ -1861,7 +1864,7 @@ fn test_update_task_updates_timeout_secs() {
         .create_task_from_spec(TaskSpec {
             name: "Timeout Update Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("Run timeout update".to_string()),
             input_template: None,
@@ -1896,7 +1899,7 @@ fn test_task_resource_limits_roundtrip() {
         .create_task_from_spec(TaskSpec {
             name: "Resource Limits Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("Run resource limit roundtrip".to_string()),
             input_template: None,
@@ -1914,10 +1917,11 @@ fn test_task_resource_limits_roundtrip() {
         })
         .unwrap();
 
-    assert_eq!(created.resource_limits.max_tool_calls, 12);
-    assert_eq!(created.resource_limits.max_duration_secs, 90);
-    assert_eq!(created.resource_limits.max_output_bytes, 2048);
-    assert_eq!(created.resource_limits.max_cost_usd, Some(1.25));
+    let created_limits = created.resource_limits.as_ref().expect("resource limits");
+    assert_eq!(created_limits.max_tool_calls, 12);
+    assert_eq!(created_limits.max_duration_secs, 90);
+    assert_eq!(created_limits.max_output_bytes, 2048);
+    assert_eq!(created_limits.max_cost_usd, Some(1.25));
 
     let updated = storage
         .update_task_from_patch(
@@ -1934,10 +1938,34 @@ fn test_task_resource_limits_roundtrip() {
         )
         .unwrap();
 
-    assert_eq!(updated.resource_limits.max_tool_calls, 34);
-    assert_eq!(updated.resource_limits.max_duration_secs, 120);
-    assert_eq!(updated.resource_limits.max_output_bytes, 4096);
-    assert_eq!(updated.resource_limits.max_cost_usd, Some(2.5));
+    let updated_limits = updated.resource_limits.as_ref().expect("resource limits");
+    assert_eq!(updated_limits.max_tool_calls, 34);
+    assert_eq!(updated_limits.max_duration_secs, 120);
+    assert_eq!(updated_limits.max_output_bytes, 4096);
+    assert_eq!(updated_limits.max_cost_usd, Some(2.5));
+}
+
+#[test]
+fn test_task_without_resource_limits_stays_unlimited_by_task_defaults() {
+    let storage = create_test_storage();
+    let created = storage
+        .create_task_from_spec(TaskSpec {
+            name: "No Resource Limits Task".to_string(),
+            agent_id: "agent-001".to_string(),
+            chat_session_id: Some("session-1".to_string()),
+            description: None,
+            input: Some("Run without task limits".to_string()),
+            input_template: None,
+            schedule: TaskSchedule::default(),
+            execution_mode: None,
+            timeout_secs: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })
+        .unwrap();
+
+    assert_eq!(created.resource_limits, None);
 }
 
 #[test]
@@ -1949,7 +1977,7 @@ fn test_task_continuation_roundtrip() {
         .create_task_from_spec(TaskSpec {
             name: "Continuation Task".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("Run continuation roundtrip".to_string()),
             input_template: None,
@@ -2011,7 +2039,7 @@ fn test_create_task_rejects_missing_input_and_template() {
     let result = storage.create_task_from_spec(TaskSpec {
         name: "Missing Input".to_string(),
         agent_id: "agent-001".to_string(),
-        chat_session_id: None,
+        chat_session_id: Some("session-1".to_string()),
         description: None,
         input: None,
         input_template: None,
@@ -2039,7 +2067,7 @@ fn test_update_task_rejects_empty_input_and_template() {
         .create_task_from_spec(TaskSpec {
             name: "Mutable Input".to_string(),
             agent_id: "agent-001".to_string(),
-            chat_session_id: None,
+            chat_session_id: Some("session-1".to_string()),
             description: None,
             input: Some("Initial input".to_string()),
             input_template: Some("Template {{task.name}}".to_string()),
@@ -2076,7 +2104,7 @@ fn test_create_task_allows_task_input_template_when_input_exists() {
     let result = storage.create_task_from_spec(TaskSpec {
         name: "Task Input Template".to_string(),
         agent_id: "agent-001".to_string(),
-        chat_session_id: None,
+        chat_session_id: Some("session-1".to_string()),
         description: None,
         input: Some("Use fallback".to_string()),
         input_template: Some("{{task.input}}".to_string()),
@@ -2097,7 +2125,7 @@ fn test_create_task_rejects_template_that_renders_empty_without_fallback() {
     let result = storage.create_task_from_spec(TaskSpec {
         name: "Empty Template".to_string(),
         agent_id: "agent-001".to_string(),
-        chat_session_id: None,
+        chat_session_id: Some("session-1".to_string()),
         description: None,
         input: None,
         input_template: Some("{{task.input}}".to_string()),
@@ -2124,7 +2152,7 @@ fn test_create_task_keeps_non_empty_template_compatibility() {
     let result = storage.create_task_from_spec(TaskSpec {
         name: "Template Compatibility".to_string(),
         agent_id: "agent-001".to_string(),
-        chat_session_id: None,
+        chat_session_id: Some("session-1".to_string()),
         description: None,
         input: None,
         input_template: Some("Task {{task.name}}".to_string()),

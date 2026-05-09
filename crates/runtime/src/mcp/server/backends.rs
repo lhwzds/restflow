@@ -180,10 +180,8 @@ impl McpBackend for CoreBackend {
         id: &str,
         event_limit: usize,
     ) -> Result<TaskProgress, String> {
-        self.core
-            .storage
-            .tasks
-            .get_task_progress(id, event_limit)
+        self.task_command_service()
+            .progress(id, event_limit)
             .map_err(|e| e.to_string())
     }
 

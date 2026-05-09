@@ -153,20 +153,6 @@ fn test_context_window_for_model() {
 }
 
 #[test]
-fn test_to_agent_resource_limits_maps_cost_budget() {
-    let limits = crate::models::ResourceLimits {
-        max_tool_calls: 12,
-        max_duration_secs: 34,
-        max_output_bytes: 56,
-        max_cost_usd: Some(7.5),
-    };
-    let mapped = AgentRuntimeExecutor::to_agent_resource_limits(&limits);
-    assert_eq!(mapped.max_tool_calls, 12);
-    assert_eq!(mapped.max_wall_clock, Duration::from_secs(34));
-    assert_eq!(mapped.max_cost_usd, Some(7.5));
-}
-
-#[test]
 fn test_chat_resource_limits_disable_wall_clock_when_unset() {
     let mapped = AgentRuntimeExecutor::chat_resource_limits(88, None);
     assert_eq!(mapped.max_tool_calls, 88);
@@ -278,97 +264,6 @@ fn test_filter_requested_tool_names_keeps_reply_with_sender() {
 
     assert!(filtered.iter().any(|name| name == "reply"));
     assert!(filtered.iter().any(|name| name == "bash"));
-}
-
-#[test]
-fn test_non_main_agent_prompt_flags_disable_workspace_injection() {
-    let flags = AgentRuntimeExecutor::non_main_agent_prompt_flags();
-    assert!(!flags.include_workspace_context);
-    assert!(flags.include_base);
-    assert!(flags.include_tools);
-}
-
-/// Skills are now registered as callable tools, not injected into the prompt.
-/// Triggered skills are resolved but do not appear in the system prompt.
-#[test]
-fn test_build_task_system_prompt_does_not_inject_triggered_skill() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage);
-
-    let node = AgentNode {
-        prompt: Some("Base Prompt".to_string()),
-        skills: Some(vec!["triggered-skill".to_string()]),
-        ..AgentNode::new()
-    };
-    let prompt = executor
-        .build_task_system_prompt(&node, None, None, Some("please do code review"))
-        .unwrap();
-
-    assert!(prompt.contains("Base Prompt"));
-    // Skills are now tools, not injected into prompt
-    assert!(!prompt.contains("Triggered Content"));
-}
-
-#[test]
-fn test_build_task_system_prompt_skips_non_matching_skill() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage);
-
-    let node = AgentNode {
-        prompt: Some("Base Prompt".to_string()),
-        ..AgentNode::new()
-    };
-    let prompt = executor
-        .build_task_system_prompt(&node, None, None, Some("review this patch"))
-        .unwrap();
-
-    assert!(prompt.contains("Base Prompt"));
-    assert!(!prompt.contains("Triggered Content"));
-}
-
-/// SECURITY TEST: Triggered skills NOT in agent's skill list must be ignored
-/// to prevent capability scope expansion via crafted input
-#[test]
-fn test_build_task_system_prompt_ignores_unauthorized_triggered_skill() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage);
-
-    // Agent does NOT have the privileged skill in its skill list
-    let node = AgentNode {
-        prompt: Some("Base Prompt".to_string()),
-        skills: Some(vec!["regular-skill".to_string()]),
-        ..AgentNode::new()
-    };
-
-    // User input triggers the privileged skill
-    let prompt = executor
-        .build_task_system_prompt(&node, None, None, Some("please do admin"))
-        .unwrap();
-
-    assert!(prompt.contains("Base Prompt"));
-    // SECURITY: Privileged skill content must NOT be included
-    assert!(!prompt.contains("Privileged Content"));
-}
-
-/// Even authorized triggered skills are not injected into prompt (skills are now tools).
-#[test]
-fn test_build_task_system_prompt_does_not_inject_authorized_triggered_skill() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage);
-
-    let node = AgentNode {
-        prompt: Some("Base Prompt".to_string()),
-        skills: Some(vec!["authorized-skill".to_string()]),
-        ..AgentNode::new()
-    };
-
-    let prompt = executor
-        .build_task_system_prompt(&node, None, None, Some("please do code review"))
-        .unwrap();
-
-    assert!(prompt.contains("Base Prompt"));
-    // Skills are now tools, not injected into prompt
-    assert!(!prompt.contains("Authorized Content"));
 }
 
 #[cfg(unix)]
@@ -565,10 +460,10 @@ async fn test_executor_agent_not_found() {
     let executor = create_test_executor(storage);
 
     let result = executor
-        .execute("nonexistent-agent", None, None, None)
+        .execute("nonexistent-agent", None, None, None, None, None)
         .await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("not found"));
+    assert!(result.unwrap_err().to_string().contains("requires task_id"));
 }
 
 #[tokio::test]
@@ -633,49 +528,6 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
             None,
             SessionTurnRuntimeOptions::default(),
         )
-        .await;
-
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("Preflight check failed"));
-    assert!(err.contains("missing_tool"));
-    assert!(err.contains("missing_input"));
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn test_execute_from_state_enforces_skill_preflight_policy() {
-    let (storage, temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    let bin = install_skrun_skills(
-        &temp_dir,
-        r##"[{
-          "id": "preflight-resume-skill",
-          "name": "Preflight Blocking Skill",
-          "version": "0.1.0",
-          "kind": "markdown",
-          "content": "Use {{missing_input}} to proceed",
-          "suggested_tools": ["missing_tool_for_test"],
-          "executable": false
-        }]"##,
-    );
-    let _skrun_bin = EnvVarGuard::set_path("SKRUN_SKILLS_DIR", &bin);
-
-    storage
-        .secrets
-        .set_secret("OPENAI_API_KEY", "test-openai-key", None)
-        .unwrap();
-    let agent = AgentNode::with_model(ModelId::CodexCli)
-        .with_skills(vec!["preflight-resume-skill".to_string()])
-        .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
-    let stored_agent = storage
-        .agents
-        .create_agent("resume-preflight-agent".to_string(), agent)
-        .unwrap();
-
-    let state = ai::agent::AgentState::new("resume-state-test".to_string(), 8);
-    let result = executor
-        .execute_from_state(&stored_agent.id, None, state, None, None)
         .await;
 
     assert!(result.is_err());
@@ -780,16 +632,6 @@ fn test_validate_prerequisites_fails_when_missing() {
         .validate_prerequisites(&prerequisites)
         .expect_err("validation should fail");
     assert!(err.to_string().contains("missing-task (not found)"));
-}
-
-#[test]
-fn test_persist_artifact_if_needed_does_not_write_run_artifact_payload() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-
-    executor
-        .persist_artifact_if_needed(Some("task-save"), "run-save", "agent-1", "final answer")
-        .expect("artifact persistence should be a no-op");
 }
 
 #[test]
