@@ -147,17 +147,6 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
-    if matches!(
-        &cli.command,
-        Some(Commands::Key { .. }) | Some(Commands::Auth { .. })
-    ) {
-        return match cli.command {
-            Some(Commands::Key { command }) => commands::key::run(command, cli.format).await,
-            Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
-            _ => unreachable!(),
-        };
-    }
-
     if let Some(Commands::Mcp { command }) = &cli.command {
         return commands::mcp::run(command.clone(), cli.format).await;
     }

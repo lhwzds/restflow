@@ -23,6 +23,25 @@ fn chat_session_with_completed_turn(agent_id: &str, model: &str, turn_id: &str) 
     session
 }
 
+fn save_chat_session(core: &AppCore, session: &ChatSession) {
+    core.storage
+        .file_sessions
+        .write_session(
+            &crate::session_log::FileSession::from_chat_session(session),
+            true,
+        )
+        .unwrap();
+}
+
+fn load_chat_session(core: &AppCore, session_id: &str) -> ChatSession {
+    core.storage
+        .file_sessions
+        .get(session_id)
+        .unwrap()
+        .expect("session")
+        .to_chat_session()
+}
+
 #[tokio::test]
 async fn get_execution_run_thread_returns_not_found_for_missing_run() {
     let (core, _temp) = create_test_core().await;
@@ -64,7 +83,7 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
 
     let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
     let session_id = session.id.clone();
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     let response = IpcServer::process(
         &core,
@@ -84,7 +103,7 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
                 thread.focus.session_id.as_deref(),
                 Some(session_id.as_str())
             );
-            assert_eq!(thread.timeline.events.len(), 0);
+            assert_eq!(thread.timeline.events.len(), 2);
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -115,7 +134,7 @@ async fn list_child_runs_returns_empty_for_leaf_runs() {
     let runtime_tool_registry = OnceLock::new();
 
     let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     let response = IpcServer::process(
         &core,
@@ -143,7 +162,7 @@ async fn get_execution_run_auxiliary_requests_return_empty_payloads() {
     let runtime_tool_registry = OnceLock::new();
 
     let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     let timeline_response = IpcServer::process(
         &core,
@@ -195,16 +214,11 @@ async fn load_chat_max_session_history_from_core_uses_runtime_config() {
 async fn persist_ipc_user_message_if_needed_adds_missing_user_turn() {
     let (core, _temp) = create_test_core().await;
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     persist_ipc_user_message_if_needed(&core, &mut session, Some("hello"), "hello").unwrap();
 
-    let stored = core
-        .storage
-        .chat_sessions
-        .get(&session.id)
-        .unwrap()
-        .expect("session");
+    let stored = load_chat_session(&core, &session.id);
     assert_eq!(stored.messages.len(), 1);
     assert_eq!(stored.messages[0].role, ChatRole::User);
     assert_eq!(stored.messages[0].content, "hello");
@@ -215,16 +229,11 @@ async fn persist_ipc_user_message_if_needed_deduplicates_latest_user_turn() {
     let (core, _temp) = create_test_core().await;
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     session.add_message(ChatMessage::user("hello"));
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     persist_ipc_user_message_if_needed(&core, &mut session, Some("hello"), "hello").unwrap();
 
-    let stored = core
-        .storage
-        .chat_sessions
-        .get(&session.id)
-        .unwrap()
-        .expect("session");
+    let stored = load_chat_session(&core, &session.id);
     assert_eq!(stored.messages.len(), 1);
 }
 
@@ -232,7 +241,7 @@ async fn persist_ipc_user_message_if_needed_deduplicates_latest_user_turn() {
 async fn record_turn_event_in_session_store_persists_tool_events() {
     let (core, _temp) = create_test_core().await;
     let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     record_turn_event_in_session_store(
         &core,
@@ -246,12 +255,7 @@ async fn record_turn_event_in_session_store_persists_tool_events() {
     )
     .unwrap();
 
-    let stored = core
-        .storage
-        .chat_sessions
-        .get(&session.id)
-        .unwrap()
-        .expect("session");
+    let stored = load_chat_session(&core, &session.id);
     assert_eq!(stored.turns.len(), 1);
     assert_eq!(stored.turns[0].events.len(), 1);
     assert!(matches!(
@@ -264,7 +268,7 @@ async fn record_turn_event_in_session_store_persists_tool_events() {
 async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
     let (core, _temp) = create_test_core().await;
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     persist_ipc_user_message_if_needed(
         &core,
@@ -274,12 +278,7 @@ async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
     )
     .unwrap();
 
-    let stored = core
-        .storage
-        .chat_sessions
-        .get(&session.id)
-        .unwrap()
-        .expect("session");
+    let stored = load_chat_session(&core, &session.id);
     assert_eq!(stored.name, "hello from ipc");
 }
 
@@ -287,7 +286,7 @@ async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
 async fn persist_ipc_user_message_if_needed_hydrates_voice_metadata() {
     let (core, _temp) = create_test_core().await;
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     persist_ipc_user_message_if_needed(
         &core,
@@ -297,12 +296,7 @@ async fn persist_ipc_user_message_if_needed_hydrates_voice_metadata() {
     )
     .unwrap();
 
-    let stored = core
-        .storage
-        .chat_sessions
-        .get(&session.id)
-        .unwrap()
-        .expect("session");
+    let stored = load_chat_session(&core, &session.id);
     let user = stored.messages.last().expect("voice message");
     assert_eq!(user.role, ChatRole::User);
     assert_eq!(
@@ -350,7 +344,7 @@ async fn delete_session_rejects_background_bound_workspace_session() {
     let runtime_tool_registry = OnceLock::new();
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     session.source_channel = Some(ChatSessionSource::Workspace);
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     core.storage
         .tasks
@@ -396,12 +390,12 @@ async fn search_sessions_applies_agent_filter_and_limit() {
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         session.rename(format!("match agent one {index}"));
         session.add_message(ChatMessage::user("needle"));
-        core.storage.chat_sessions.create(&session).unwrap();
+        save_chat_session(&core, &session);
     }
     let mut other_agent = ChatSession::new("agent-2".to_string(), "gpt-5".to_string());
     other_agent.rename("match agent two");
     other_agent.add_message(ChatMessage::user("needle"));
-    core.storage.chat_sessions.create(&other_agent).unwrap();
+    save_chat_session(&core, &other_agent);
 
     let response = IpcServer::process(
         &core,
@@ -431,7 +425,7 @@ async fn switch_session_model_rejects_background_bound_workspace_session() {
     let runtime_tool_registry = OnceLock::new();
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     session.source_channel = Some(ChatSessionSource::Workspace);
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     core.storage
         .tasks
@@ -479,7 +473,7 @@ async fn archive_session_rejects_background_bound_workspace_session() {
     let runtime_tool_registry = OnceLock::new();
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     session.source_channel = Some(ChatSessionSource::Workspace);
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
 
     core.storage
         .tasks
@@ -534,7 +528,7 @@ async fn steer_chat_stream_delivers_message_to_registered_stream() {
     let session_service = SessionService::from_storage(&core.storage);
     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     session.add_message(ChatMessage::user("start"));
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
     let session_id = session.id.clone();
     let stream_id = format!("stream-{}", Uuid::new_v4());
     let turn_id = stream_id.clone();
@@ -663,7 +657,7 @@ async fn ipc_stream_emitter_persists_assistant_segments_before_tools() {
     let mut session = ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
     let turn_id = "turn-stream-segments".to_string();
     session.record_turn_user_message(&turn_id, "run tools");
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
     let (tx, _rx) = mpsc::unbounded_channel::<StreamFrame>();
     let mut emitter = IpcStreamEmitter::new(
         core.clone(),
@@ -709,7 +703,7 @@ async fn ipc_stream_emitter_persists_partial_assistant_segment_on_drop() {
     let mut session = ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
     let turn_id = "turn-stream-cancel".to_string();
     session.record_turn_user_message(&turn_id, "cancel stream");
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
     let (tx, _rx) = mpsc::unbounded_channel::<StreamFrame>();
     let mut emitter = IpcStreamEmitter::new(
         core.clone(),
@@ -743,7 +737,7 @@ async fn cancel_chat_stream_persists_partial_assistant_before_canceled_event() {
     let mut session = ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
     let turn_id = "turn-stream-cancel-order".to_string();
     session.record_turn_user_message(&turn_id, "cancel stream");
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(&core, &session);
     let session_id = session.id.clone();
     let (tx, _rx) = mpsc::unbounded_channel::<StreamFrame>();
     let (emitted_tx, emitted_rx) = tokio::sync::oneshot::channel::<()>();

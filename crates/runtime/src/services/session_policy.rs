@@ -1,5 +1,6 @@
 use crate::models::{ChatSession, ChatSessionSource, Task};
-use crate::storage::{ChatSessionStorage, Storage, TaskStorage};
+use crate::session_log::{FileSession, FileSessionStore};
+use crate::storage::{Storage, TaskStorage};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -75,17 +76,22 @@ pub struct EffectiveSessionSource {
 
 #[derive(Clone)]
 pub struct SessionPolicy {
-    sessions: ChatSessionStorage,
+    sessions: FileSessionStore,
     tasks: TaskStorage,
 }
 
 impl SessionPolicy {
-    pub fn new(sessions: ChatSessionStorage, tasks: TaskStorage) -> Self {
+    pub fn new(sessions: FileSessionStore, tasks: TaskStorage) -> Self {
         Self { sessions, tasks }
     }
 
     pub fn from_storage(storage: &Storage) -> Self {
-        Self::new(storage.chat_sessions.clone(), storage.tasks.clone())
+        Self::new(storage.file_sessions.clone(), storage.tasks.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tasks(&self) -> &TaskStorage {
+        &self.tasks
     }
 
     fn normalize_session_id(session_id: &str) -> Option<String> {
@@ -173,16 +179,30 @@ impl SessionPolicy {
     }
 
     pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
-        let Some(session) = self.sessions.get(session_id)? else {
+        let Some(session) = self
+            .sessions
+            .get(session_id)?
+            .map(|session| session.to_chat_session())
+        else {
             return Ok(false);
         };
 
         self.ensure_workspace_operation_allowed(&session, "archived")?;
-        self.sessions.archive(session_id)
+        if session.is_archived() {
+            return Ok(false);
+        }
+        let mut session = session;
+        session.archive();
+        self.write_session(&session)?;
+        Ok(true)
     }
 
     pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
-        let Some(session) = self.sessions.get(session_id)? else {
+        let Some(session) = self
+            .sessions
+            .get(session_id)?
+            .map(|session| session.to_chat_session())
+        else {
             return Ok(false);
         };
 
@@ -194,7 +214,7 @@ impl SessionPolicy {
         &self,
         older_than_ms: i64,
     ) -> Result<SessionPolicyCleanupStats> {
-        let sessions = self.sessions.list_all()?;
+        let sessions = self.list_sessions()?;
         let task_map = self.task_by_session_map()?;
         let mut stats = SessionPolicyCleanupStats {
             scanned: sessions.len(),
@@ -233,7 +253,7 @@ impl SessionPolicy {
         &self,
         now_ms: i64,
     ) -> Result<SessionPolicyCleanupStats> {
-        let sessions = self.sessions.list_all()?;
+        let sessions = self.list_sessions()?;
         let task_map = self.task_by_session_map()?;
         let mut stats = SessionPolicyCleanupStats {
             scanned: sessions.len(),
@@ -278,6 +298,21 @@ impl SessionPolicy {
 
         Ok(stats)
     }
+
+    fn list_sessions(&self) -> Result<Vec<ChatSession>> {
+        self.sessions
+            .list()?
+            .into_iter()
+            .map(|session| Ok(session.to_chat_session()))
+            .collect()
+    }
+
+    fn write_session(&self, session: &ChatSession) -> Result<()> {
+        let existing = self.sessions.get(&session.id)?;
+        let file_session = FileSession::merge_chat_session(existing.as_ref(), session);
+        self.sessions.write_session(&file_session, true)?;
+        Ok(())
+    }
 }
 
 fn parse_retention_to_ms(retention: &str) -> Option<i64> {
@@ -295,13 +330,15 @@ fn parse_retention_to_ms(retention: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use crate::models::{ChatSessionSource, TaskSpec};
-    use crate::storage::{ChatSessionStorage, Storage, TaskStorage};
+    use crate::session_log::FileSessionStore;
+    use crate::storage::Storage;
     use tempfile::tempdir;
 
-    fn create_workspace_session(chat_sessions: &ChatSessionStorage, agent_id: &str) -> ChatSession {
+    fn create_workspace_session(file_sessions: &FileSessionStore, agent_id: &str) -> ChatSession {
         let mut session = ChatSession::new(agent_id.to_string(), "gpt-5".to_string());
         session.source_channel = Some(ChatSessionSource::Workspace);
-        chat_sessions.create(&session).unwrap();
+        let file_session = FileSession::from_chat_session(&session);
+        file_sessions.write_session(&file_session, true).unwrap();
         session
     }
 
@@ -329,7 +366,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("session-policy-bound.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-        let session = create_workspace_session(&storage.chat_sessions, "agent-1");
+        let session = create_workspace_session(&storage.file_sessions, "agent-1");
         create_task(&storage.tasks, "bound-task", &session.id);
 
         let policy = SessionPolicy::from_storage(&storage);
@@ -346,13 +383,19 @@ mod tests {
         let db_path = dir.path().join("session-policy-cleanup.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
 
-        let mut old_workspace = create_workspace_session(&storage.chat_sessions, "agent-1");
+        let mut old_workspace = create_workspace_session(&storage.file_sessions, "agent-1");
         old_workspace.updated_at = 1;
-        storage.chat_sessions.update(&old_workspace).unwrap();
+        storage
+            .file_sessions
+            .write_session(&FileSession::from_chat_session(&old_workspace), true)
+            .unwrap();
 
-        let mut bound_workspace = create_workspace_session(&storage.chat_sessions, "agent-1");
+        let mut bound_workspace = create_workspace_session(&storage.file_sessions, "agent-1");
         bound_workspace.updated_at = 1;
-        storage.chat_sessions.update(&bound_workspace).unwrap();
+        storage
+            .file_sessions
+            .write_session(&FileSession::from_chat_session(&bound_workspace), true)
+            .unwrap();
         create_task(&storage.tasks, "bound-task", &bound_workspace.id);
 
         let policy = SessionPolicy::from_storage(&storage);
@@ -363,14 +406,14 @@ mod tests {
         assert_eq!(stats.skipped_bound_task, 1);
         assert!(
             storage
-                .chat_sessions
+                .file_sessions
                 .get(&old_workspace.id)
                 .unwrap()
                 .is_none()
         );
         assert!(
             storage
-                .chat_sessions
+                .file_sessions
                 .get(&bound_workspace.id)
                 .unwrap()
                 .is_some()

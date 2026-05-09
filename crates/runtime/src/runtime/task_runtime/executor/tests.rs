@@ -130,18 +130,16 @@ fn load_chat_session_reads_file_session_without_materializing_to_redb() {
         .write_session(&FileSession::from_chat_session(&session), false)
         .unwrap();
     let session_service = SessionService::new(
-        storage.chat_sessions.clone(),
+        file_store,
         Some(storage.agents.clone()),
         storage.tasks.clone(),
-    )
-    .with_file_sessions(file_store);
+    );
     let executor = create_test_executor(storage.clone()).with_session_service(session_service);
 
     let loaded = executor.load_chat_session(&session.id).unwrap();
 
     assert_eq!(loaded.id, session.id);
     assert_eq!(loaded.messages.len(), 1);
-    assert!(storage.chat_sessions.get(&session.id).unwrap().is_none());
 }
 
 #[test]

@@ -76,13 +76,12 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
 
 // Store traits
 pub use store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
-    AuthProfileTestRequest, ConfigStore, CredentialInput, MarketplaceStore, OpsProvider,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, ConfigStore, MarketplaceStore, OpsProvider,
     ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore,
     SecurityQueryProvider, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
     SessionStore, TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest,
     TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskUpdateRequest, TerminalStore,
+    TaskProgressRequest, TaskStore, TaskUpdateRequest,
 };
 
 // Shared orchestration contracts

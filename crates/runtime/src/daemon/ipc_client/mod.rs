@@ -2,12 +2,10 @@ use super::ipc_protocol::{
     IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent, MAX_MESSAGE_SIZE, StreamFrame,
     ToolDefinition, ToolExecutionResult,
 };
-use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::daemon::session_events::ChatSessionEvent;
 use crate::models::{
     AgentNode, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
     RunListQuery, RunSummary, Skill, Task, TaskControlAction, TaskEvent, TaskPatch, TaskSpec,
-    TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
@@ -20,12 +18,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
-mod auth;
 mod sessions;
 mod skills;
 mod streams;
 mod tasks;
-mod terminal;
 mod tools;
 mod transport;
 #[cfg(not(unix))]

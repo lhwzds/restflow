@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
@@ -50,18 +51,29 @@ struct AgentFileFrontmatter {
 /// Typed agent storage wrapper around process-local agent bytes.
 #[derive(Clone)]
 pub struct AgentStorage {
+    agents_dir: PathBuf,
     delete_lock: Arc<Mutex<()>>,
 }
 
 impl AgentStorage {
     pub fn new(_db: Arc<redb::Database>) -> Result<Self> {
-        Ok(Self {
-            delete_lock: Arc::new(Mutex::new(())),
-        })
+        Self::new_file_backed()
     }
 
-    pub fn new_namespace(_namespace: usize) -> Result<Self> {
+    pub fn new_file_backed() -> Result<Self> {
+        Self::new_file_backed_path(prompt_files::ensure_agents_dir()?)
+    }
+
+    pub fn new_file_backed_path(agents_dir: impl Into<PathBuf>) -> Result<Self> {
+        let agents_dir = agents_dir.into();
+        fs::create_dir_all(&agents_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to create agents directory {}: {error}",
+                agents_dir.display()
+            )
+        })?;
         Ok(Self {
+            agents_dir,
             delete_lock: Arc::new(Mutex::new(())),
         })
     }
@@ -73,19 +85,10 @@ impl AgentStorage {
 
         // Prompt content is file-backed under ~/.restflow/agents/{agent-name}.md, not stored in DB.
         let prompt_override = agent.prompt.take();
-        let prompt_file = if agent_file_catalog_enabled() {
-            let prompt_path = prompt_files::ensure_agent_prompt_file(
-                &id,
-                &name,
-                None,
-                prompt_override.as_deref(),
-            )?;
-            agent.prompt = read_agent_prompt_body(&prompt_path)?;
-            Some(path_file_name(&prompt_path)?)
-        } else {
-            agent.prompt = prompt_override;
-            None
-        };
+        let prompt_path =
+            self.ensure_agent_prompt_file(&id, &name, None, prompt_override.as_deref())?;
+        agent.prompt = read_agent_prompt_body(&prompt_path)?;
+        let prompt_file = Some(path_file_name(&prompt_path)?);
 
         let stored_agent = StoredAgent {
             id,
@@ -172,21 +175,17 @@ impl AgentStorage {
             existing_agent.agent = new_agent;
         }
 
-        if agent_file_catalog_enabled() {
-            prompt_files::ensure_agent_prompt_file(
-                &existing_agent.id,
-                &existing_agent.name,
-                existing_agent.prompt_file.as_deref(),
-                prompt_override.as_deref(),
-            )
-            .and_then(|path| {
-                existing_agent.agent.prompt = read_agent_prompt_body(&path)?;
-                path_file_name(&path)
-            })
-            .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
-        } else if let Some(prompt) = prompt_override {
-            existing_agent.agent.prompt = Some(prompt);
-        }
+        self.ensure_agent_prompt_file(
+            &existing_agent.id,
+            &existing_agent.name,
+            existing_agent.prompt_file.as_deref(),
+            prompt_override.as_deref(),
+        )
+        .and_then(|path| {
+            existing_agent.agent.prompt = read_agent_prompt_body(&path)?;
+            path_file_name(&path)
+        })
+        .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
 
         let now = time_utils::now_ms();
         existing_agent.updated_at = Some(now);
@@ -211,7 +210,7 @@ impl AgentStorage {
             .map_err(|_| anyhow::anyhow!("Agent delete lock poisoned"))?;
         if let Some(existing) = self.get_file_agent(&id)? {
             if let Some(prompt_file) = existing.prompt_file.as_deref() {
-                let path = prompt_files::ensure_agents_dir()?.join(prompt_file);
+                let path = self.resolve_prompt_path_from_file_name(prompt_file)?;
                 match fs::remove_file(&path) {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -250,7 +249,7 @@ impl AgentStorage {
     pub fn reconcile_prompt_file_names(&self) -> Result<()> {
         let agents = self.list_agents()?;
         for mut agent in agents {
-            let prompt_path = prompt_files::ensure_agent_prompt_file(
+            let prompt_path = self.ensure_agent_prompt_file(
                 &agent.id,
                 &agent.name,
                 agent.prompt_file.as_deref(),
@@ -266,9 +265,7 @@ impl AgentStorage {
     }
 
     fn persist_without_prompt(&self, stored: &StoredAgent) -> Result<()> {
-        if agent_file_catalog_enabled() {
-            self.write_agent_file(stored)?;
-        }
+        self.write_agent_file(stored)?;
         Ok(())
     }
 
@@ -306,10 +303,7 @@ impl AgentStorage {
     }
 
     fn list_file_agents(&self) -> Result<Vec<StoredAgent>> {
-        if !agent_file_catalog_enabled() {
-            return Ok(Vec::new());
-        }
-        let agents_dir = prompt_files::ensure_agents_dir()?;
+        let agents_dir = self.ensure_agents_dir()?;
         let mut agents = Vec::new();
         for entry in fs::read_dir(&agents_dir).map_err(|error| {
             anyhow::anyhow!(
@@ -349,7 +343,7 @@ impl AgentStorage {
                 prompt_files::sanitize_agent_file_stem(&stored.name)
             )
         });
-        let path = prompt_files::ensure_agents_dir()?.join(file_name);
+        let path = self.ensure_agents_dir()?.join(file_name);
         let content = render_agent_file(stored, &prompt)?;
         fs::write(&path, content).map_err(|error| {
             anyhow::anyhow!("Failed to write agent file {}: {error}", path.display())
@@ -362,47 +356,173 @@ impl AgentStorage {
             return Ok(None);
         }
 
-        if agent_file_catalog_enabled() {
-            let matches: Vec<String> = self
-                .list_file_agents()?
-                .into_iter()
-                .map(|agent| agent.id)
-                .filter(|id| id.starts_with(prefix))
-                .collect();
-            match matches.len() {
-                0 => {}
-                1 => return Ok(matches.into_iter().next()),
-                _ => {
-                    let preview = matches
-                        .iter()
-                        .take(5)
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    anyhow::bail!(
-                        "Agent ID prefix '{}' is ambiguous ({} matches: {})",
-                        prefix,
-                        matches.len(),
-                        preview
-                    );
-                }
+        let matches: Vec<String> = self
+            .list_file_agents()?
+            .into_iter()
+            .map(|agent| agent.id)
+            .filter(|id| id.starts_with(prefix))
+            .collect();
+        match matches.len() {
+            0 => {}
+            1 => return Ok(matches.into_iter().next()),
+            _ => {
+                let preview = matches
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "Agent ID prefix '{}' is ambiguous ({} matches: {})",
+                    prefix,
+                    matches.len(),
+                    preview
+                );
             }
         }
 
         Ok(None)
     }
+
+    fn ensure_agents_dir(&self) -> Result<PathBuf> {
+        fs::create_dir_all(&self.agents_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to create agents directory {}: {error}",
+                self.agents_dir.display()
+            )
+        })?;
+        Ok(self.agents_dir.clone())
+    }
+
+    fn ensure_agent_prompt_file(
+        &self,
+        agent_id: &str,
+        agent_name: &str,
+        current_prompt_file: Option<&str>,
+        prompt_override: Option<&str>,
+    ) -> Result<PathBuf> {
+        validate_agent_file_id(agent_id)?;
+        let path = self.resolve_prompt_path_for_write(agent_name, current_prompt_file)?;
+
+        if let Some(prompt) = prompt_override {
+            fs::write(&path, prompt).map_err(|error| {
+                anyhow::anyhow!("Failed to write agent prompt {}: {error}", path.display())
+            })?;
+            return Ok(path);
+        }
+
+        if path.exists() {
+            return Ok(path);
+        }
+
+        let default_prompt = prompt_files::load_default_main_agent_prompt()?;
+        fs::write(&path, default_prompt).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to initialize agent prompt {}: {error}",
+                path.display()
+            )
+        })?;
+        Ok(path)
+    }
+
+    fn resolve_prompt_path_for_write(
+        &self,
+        agent_name: &str,
+        prompt_file: Option<&str>,
+    ) -> Result<PathBuf> {
+        let agents_dir = self.ensure_agents_dir()?;
+        let desired = agents_dir.join(format!(
+            "{}.md",
+            prompt_files::sanitize_agent_file_stem(agent_name)
+        ));
+        let current = if let Some(prompt_file) = prompt_file {
+            let path = self.resolve_prompt_path_from_file_name(prompt_file)?;
+            if path.exists() { Some(path) } else { None }
+        } else {
+            None
+        };
+
+        if let Some(current_path) = current {
+            if current_path == desired {
+                return Ok(current_path);
+            }
+            if !desired.exists() {
+                fs::rename(&current_path, &desired).map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to rename agent prompt file from {} to {}: {error}",
+                        current_path.display(),
+                        desired.display()
+                    )
+                })?;
+                return Ok(desired);
+            }
+            let fallback = unique_prompt_path(&agents_dir, agent_name)?;
+            if current_path != fallback {
+                fs::rename(&current_path, &fallback).map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to rename agent prompt file from {} to {}: {error}",
+                        current_path.display(),
+                        fallback.display()
+                    )
+                })?;
+            }
+            return Ok(fallback);
+        }
+
+        if !desired.exists() || prompt_file.is_none() {
+            return Ok(desired);
+        }
+
+        unique_prompt_path(&agents_dir, agent_name)
+    }
+
+    fn resolve_prompt_path_from_file_name(&self, prompt_file: &str) -> Result<PathBuf> {
+        validate_prompt_file_name(prompt_file)?;
+        Ok(self.ensure_agents_dir()?.join(prompt_file.trim()))
+    }
 }
 
-fn agent_file_catalog_enabled() -> bool {
-    #[cfg(test)]
-    {
-        std::env::var_os(prompt_files::AGENTS_DIR_ENV).is_some()
-            || std::env::var_os("RESTFLOW_DIR").is_some()
+fn validate_agent_file_id(agent_id: &str) -> Result<&str> {
+    let id = agent_id.trim();
+    if id.is_empty() {
+        anyhow::bail!("Agent ID is empty; cannot resolve prompt file path");
     }
-    #[cfg(not(test))]
-    {
-        true
+    if id.contains('/') || id.contains('\\') || id.contains("..") || id.contains('\0') {
+        anyhow::bail!(
+            "Agent ID '{}' contains invalid characters (path separators or '..' sequences)",
+            id
+        );
     }
+    Ok(id)
+}
+
+fn validate_prompt_file_name(prompt_file: &str) -> Result<&str> {
+    let trimmed = prompt_file.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("Prompt file name is empty");
+    }
+    if trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains("..")
+        || trimmed.contains('\0')
+    {
+        anyhow::bail!("Prompt file name contains invalid characters: {}", trimmed);
+    }
+    Ok(trimmed)
+}
+
+fn unique_prompt_path(agents_dir: &Path, agent_name: &str) -> Result<PathBuf> {
+    let stem = prompt_files::sanitize_agent_file_stem(agent_name);
+    for index in 2..1000u16 {
+        let candidate = agents_dir.join(format!("{stem}-{index}.md"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    anyhow::bail!(
+        "Failed to allocate unique prompt file path for stem '{}'",
+        stem
+    );
 }
 
 fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {

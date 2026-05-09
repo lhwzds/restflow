@@ -332,13 +332,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     );
                 }
             }
-            "manage_terminal" => {
-                with_storage!(storage, "manage_terminal", builder, |s| {
-                    builder.with_terminal(Arc::new(TerminalStoreAdapter::new(
-                        s.terminal_sessions.clone(),
-                    )))
-                });
-            }
             "manage_ops" => {
                 with_storage!(storage, "manage_ops", builder, |s| {
                     builder.with_ops(Arc::new(OpsProviderAdapter::new(s.tasks.clone())))
@@ -374,16 +367,9 @@ pub fn registry_from_allowlist_with_security_gate(
             "manage_sessions" | "sessions" => {
                 with_storage!(storage, "manage_sessions", builder, |s| {
                     builder.with_session(Arc::new(SessionStorageAdapter::new(
-                        s.chat_sessions.clone(),
+                        s.file_sessions.clone(),
                         s.agents.clone(),
                         s.tasks.clone(),
-                    )))
-                });
-            }
-            "manage_auth_profiles" | "auth_profiles" => {
-                with_storage!(storage, "manage_auth_profiles", builder, |s| {
-                    builder.with_auth_profile(Arc::new(AuthProfileStorageAdapter::new(
-                        s.secrets.clone(),
                     )))
                 });
             }
@@ -577,7 +563,6 @@ mod tests {
         assert!(!names.contains(&"manage_triggers".to_string()));
         assert!(!names.contains(&"manage_ops".to_string()));
         assert!(!names.contains(&"manage_memory".to_string()));
-        assert!(!names.contains(&"manage_auth_profiles".to_string()));
         assert!(!names.contains(&"manage_config".to_string()));
         assert!(!names.contains(&"manage_secrets".to_string()));
         assert!(!names.contains(&"task_list".to_string()));
@@ -664,7 +649,6 @@ mod tests {
             .expect("storage should be created");
         let names = vec![
             "manage_marketplace".to_string(),
-            "manage_terminal".to_string(),
             "manage_ops".to_string(),
             "security_query".to_string(),
         ];
@@ -673,7 +657,6 @@ mod tests {
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
                 .unwrap();
         assert!(registry.has("manage_marketplace"));
-        assert!(registry.has("manage_terminal"));
         assert!(registry.has("manage_ops"));
         assert!(registry.has("security_query"));
     }
@@ -688,7 +671,6 @@ mod tests {
         assert!(!tools.iter().any(|name| name == "transcribe"));
         assert!(!tools.iter().any(|name| name == "vision"));
         assert!(!tools.iter().any(|name| name == "switch_model"));
-        assert!(!tools.iter().any(|name| name == "manage_terminal"));
         assert!(!tools.iter().any(|name| name == "security_query"));
     }
 

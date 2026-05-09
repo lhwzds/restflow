@@ -15,9 +15,7 @@ use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDef
 use crate::services::session::SessionService;
 use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
-use crate::storage::{
-    AgentStorage, AuthProfileStorage, ConfigStorage, SecretStorage, Storage, TaskStorage,
-};
+use crate::storage::{AgentStorage, ConfigStorage, SecretStorage, Storage, TaskStorage};
 use tools::ToolError;
 use types::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
@@ -37,7 +35,6 @@ pub struct OperationAssessorAdapter {
 
 #[derive(Clone)]
 struct AssessmentContext {
-    namespace: usize,
     secrets: SecretStorage,
     session_service: SessionService,
     config: ConfigStorage,
@@ -52,7 +49,6 @@ impl AssessmentContext {
 
     fn from_storage(storage: &Storage) -> Self {
         Self {
-            namespace: storage.namespace(),
             secrets: storage.secrets.clone(),
             session_service: SessionService::from_storage(storage),
             config: storage.config.clone(),
@@ -254,12 +250,7 @@ fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessme
 
 async fn build_auth(context: &AssessmentContext) -> Result<AuthProfileManager> {
     let secrets = Arc::new(context.secrets.clone());
-    let profile_storage = AuthProfileStorage::new_namespace(context.namespace)?;
-    let manager = AuthProfileManager::with_storage(
-        AuthManagerConfig::default(),
-        secrets,
-        Some(profile_storage),
-    );
+    let manager = AuthProfileManager::with_config(AuthManagerConfig::default(), secrets);
     manager.initialize().await?;
     Ok(manager)
 }
@@ -1018,6 +1009,16 @@ mod tests {
         }
     }
 
+    fn save_chat_session(core: &AppCore, session: &crate::models::ChatSession) {
+        core.storage
+            .file_sessions
+            .write_session(
+                &crate::session_log::FileSession::from_chat_session(session),
+                true,
+            )
+            .expect("session");
+    }
+
     #[allow(clippy::await_holding_lock)]
     async fn create_test_core_isolated() -> (
         Arc<AppCore>,
@@ -1314,10 +1315,7 @@ mod tests {
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
         session.add_message(ChatMessage::user("Summarize this thread"));
-        core.storage
-            .chat_sessions
-            .create(&session)
-            .expect("session");
+        save_chat_session(&core, &session);
 
         let assessment = assess_task_convert_session(
             &core,
@@ -1354,10 +1352,7 @@ mod tests {
             created.id.clone(),
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
-        core.storage
-            .chat_sessions
-            .create(&session)
-            .expect("session");
+        save_chat_session(&core, &session);
 
         let assessment = assess_task_convert_session(
             &core,
@@ -1401,20 +1396,14 @@ mod tests {
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
         first_session.add_message(ChatMessage::user("Summarize this session"));
-        core.storage
-            .chat_sessions
-            .create(&first_session)
-            .expect("first session");
+        save_chat_session(&core, &first_session);
 
         let mut second_session = crate::models::ChatSession::new(
             created.id.clone(),
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
         second_session.add_message(ChatMessage::user("Summarize this session"));
-        core.storage
-            .chat_sessions
-            .create(&second_session)
-            .expect("second session");
+        save_chat_session(&core, &second_session);
 
         let first_assessment = assess_task_convert_session(
             &core,
@@ -1474,10 +1463,7 @@ mod tests {
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
         session.add_message(ChatMessage::user("Summarize this session"));
-        core.storage
-            .chat_sessions
-            .create(&session)
-            .expect("session");
+        save_chat_session(&core, &session);
 
         let request = TaskConvertSessionRequest {
             session_id: session.id.clone(),
@@ -1566,10 +1552,7 @@ mod tests {
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
         session.add_message(ChatMessage::user("Summarize this task"));
-        core.storage
-            .chat_sessions
-            .create(&session)
-            .expect("session");
+        save_chat_session(&core, &session);
 
         let assessor = OperationAssessorAdapter::from_storage(core.storage.as_ref());
         let assessment = assessor

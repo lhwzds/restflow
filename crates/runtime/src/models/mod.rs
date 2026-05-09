@@ -14,7 +14,6 @@ pub mod skill_meta;
 pub mod steer;
 pub mod storage_mode;
 pub mod task_runtime;
-pub mod terminal_session;
 pub mod validation;
 
 #[cfg(test)]
@@ -65,6 +64,5 @@ pub use skill_marketplace::{
 };
 pub use skill_meta::SkillMeta;
 pub use storage_mode::StorageMode;
-pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use types::skill::SkillSource;
 pub use validation::{ValidationError, ValidationErrorResponse, encode_validation_error};

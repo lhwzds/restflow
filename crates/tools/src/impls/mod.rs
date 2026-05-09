@@ -15,7 +15,6 @@ pub mod multiedit;
 
 // Migrated from ai
 pub mod agent_crud;
-pub mod auth_profile;
 pub mod config;
 pub mod file_tracker;
 pub mod patch;
@@ -31,7 +30,6 @@ pub mod task;
 pub mod manage_ops;
 pub mod marketplace;
 pub mod security_query;
-pub mod terminal;
 
 // Search tools
 pub mod glob_tool;
@@ -60,7 +58,6 @@ pub use skrun::RunSkillTool;
 
 // Re-export migrated tools
 pub use agent_crud::AgentCrudTool;
-pub use auth_profile::AuthProfileTool;
 pub use config::ConfigTool;
 pub use patch::PatchTool;
 pub use process::ProcessTool;
@@ -75,7 +72,6 @@ pub use task::TaskTool;
 pub use manage_ops::ManageOpsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
-pub use terminal::TerminalTool;
 
 // Re-export search tools
 pub use glob_tool::GlobTool;

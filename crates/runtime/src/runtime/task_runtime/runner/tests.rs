@@ -6,7 +6,6 @@ use crate::models::{
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use crate::services::session::SessionService;
 use crate::session_log::FileSessionStore;
-use crate::storage::ChatSessionStorage;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 use tempfile::tempdir;
@@ -172,11 +171,10 @@ fn persist_to_chat_session_uses_session_service_when_available() {
     let db_path = temp_dir.path().join("test.db");
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
-    let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let session_storage = chat_storage.clone();
     let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
-    let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
-        .with_file_sessions(file_store.clone());
+    let session_service =
+        SessionService::new(file_store.clone(), None, task_storage.as_ref().clone())
+            .with_file_sessions(file_store.clone());
 
     let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
     let session = session_service
@@ -211,7 +209,6 @@ fn persist_to_chat_session_uses_session_service_when_available() {
     assert_eq!(file_session.messages[1].content, "output");
     assert_eq!(file_session.turns.len(), 1);
     assert_eq!(file_session.turns[0].status, ChatTurnStatus::Completed);
-    assert!(chat_storage.get(&session.id).unwrap().is_none());
 }
 
 #[tokio::test]
@@ -220,11 +217,10 @@ async fn running_task_persists_user_input_before_agent_completes() {
     let db_path = temp_dir.path().join("test.db");
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
-    let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let session_storage = chat_storage;
     let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
-    let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
-        .with_file_sessions(file_store.clone());
+    let session_service =
+        SessionService::new(file_store.clone(), None, task_storage.as_ref().clone())
+            .with_file_sessions(file_store.clone());
 
     let session = session_service
         .create_external_session(ChatSession::new(

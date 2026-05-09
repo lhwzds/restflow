@@ -47,9 +47,8 @@ pub use models::{
     SkillScript, SkillSource, SkillStatus, SkillVersion, SteerMessage, SteerSource, StorageMode,
     Task, TaskControlAction, TaskConversionResult, TaskEvent, TaskEventType, TaskMessage,
     TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics,
-    TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus, TerminalSession, TerminalStatus, ToolAction,
-    ToolCallInfo, ToolRule, ValidationError, ValidationErrorResponse, VersionRequirement,
-    encode_validation_error,
+    TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus, ToolAction, ToolCallInfo, ToolRule,
+    ValidationError, ValidationErrorResponse, VersionRequirement, encode_validation_error,
 };
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use steer::SteerRegistry;

@@ -1,21 +1,22 @@
 //! SessionStore adapter backed by the canonical SessionService boundary.
 
 use crate::services::session::SessionService;
-use crate::storage::{AgentStorage, ChatSessionStorage, TaskStorage};
+use crate::session_log::FileSessionStore;
+use crate::storage::{AgentStorage, TaskStorage};
 use serde_json::{Value, json};
 use tools::ToolError;
 use types::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
 
 #[derive(Clone)]
 pub struct SessionStorageAdapter {
-    sessions: ChatSessionStorage,
+    sessions: FileSessionStore,
     agent_storage: AgentStorage,
     task_storage: TaskStorage,
 }
 
 impl SessionStorageAdapter {
     pub fn new(
-        sessions: ChatSessionStorage,
+        sessions: FileSessionStore,
         agent_storage: AgentStorage,
         task_storage: TaskStorage,
     ) -> Self {
@@ -32,7 +33,6 @@ impl SessionStorageAdapter {
             Some(self.agent_storage.clone()),
             self.task_storage.clone(),
         )
-        .with_default_file_sessions()
     }
 }
 
@@ -122,16 +122,14 @@ impl SessionStore for SessionStorageAdapter {
 mod tests {
     use super::*;
     use crate::test_support::RestflowTestEnv;
-    use std::sync::Arc;
     use types::store::SessionStore;
 
     fn setup() -> (SessionStorageAdapter, RestflowTestEnv) {
         let env = RestflowTestEnv::new();
-        let db_path = env.db_path("test.db");
-        let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let session_storage = ChatSessionStorage::new(db.clone()).unwrap();
-        let agent_storage = AgentStorage::new(db.clone()).unwrap();
-        let task_storage = TaskStorage::new(db.clone()).unwrap();
+        let session_storage = FileSessionStore::new(env.root().join("sessions")).unwrap();
+        let agent_storage = AgentStorage::new_file_backed().unwrap();
+        let task_storage =
+            TaskStorage::new_file_backed_path(env.root().join("restflow.tasks.json")).unwrap();
         (
             SessionStorageAdapter::new(session_storage, agent_storage, task_storage),
             env,

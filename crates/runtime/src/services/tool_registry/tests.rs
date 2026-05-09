@@ -180,13 +180,12 @@ fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
 
 #[allow(clippy::type_complexity)]
 fn setup_storage() -> (
-    ChatSessionStorage,
+    FileSessionStore,
     (),
     SecretStorage,
     ConfigStorage,
     AgentStorage,
     TaskStorage,
-    TerminalSessionStorage,
     tempfile::TempDir,
 ) {
     let temp_dir = tempdir().unwrap();
@@ -200,25 +199,23 @@ fn setup_storage() -> (
         std::env::set_var("RESTFLOW_DIR", &state_dir);
     }
 
-    let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
+    let session_storage = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
     let test_master_key = std::array::from_fn(|index| (index as u8).wrapping_add(1));
     let secret_storage = SecretStorage::with_master_key(db.clone(), test_master_key).unwrap();
     let config_storage = ConfigStorage::new(db.clone()).unwrap();
     let agent_storage = AgentStorage::new(db.clone()).unwrap();
     let task_storage = TaskStorage::new(db.clone()).unwrap();
-    let terminal_storage = TerminalSessionStorage::new(db.clone()).unwrap();
 
     unsafe {
         std::env::remove_var("RESTFLOW_DIR");
     }
     (
-        chat_storage,
+        session_storage,
         (),
         secret_storage,
         config_storage,
         agent_storage,
         task_storage,
-        terminal_storage,
         temp_dir,
     )
 }
@@ -311,13 +308,12 @@ impl LlmClientFactory for TestLlmFactory {
 #[test]
 fn test_create_tool_registry() {
     let (
-        _chat_storage,
+        _session_storage,
         _unused_storage_slot,
         _secret_storage,
         config_storage,
         _agent_storage,
         _task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(config_storage, None, None).unwrap();
@@ -360,23 +356,20 @@ fn test_create_tool_registry() {
     assert!(!registry.has("manage_agents"));
     assert!(!registry.has("manage_tasks"));
     assert!(!registry.has("manage_marketplace"));
-    assert!(!registry.has("manage_terminal"));
     assert!(!registry.has("security_query"));
     assert!(!registry.has("manage_sessions"));
-    assert!(!registry.has("manage_auth_profiles"));
     assert!(!registry.has("save_artifact"));
 }
 
 #[test]
 fn test_create_tool_registry_excludes_subagent_tools_by_default() {
     let (
-        _chat_storage,
+        _session_storage,
         _unused_storage_slot,
         _secret_storage,
         config_storage,
         _agent_storage,
         _task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(config_storage, None, None).unwrap();
@@ -544,7 +537,6 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
     let allowlist = vec![
         "manage_agents".to_string(),
         "manage_tasks".to_string(),
-        "manage_terminal".to_string(),
         "security_query".to_string(),
     ];
     let registry = crate::runtime::agent::tools::registry_from_allowlist(
@@ -603,13 +595,12 @@ fn test_agent_store_adapter_crud_flow() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _chat_storage,
+        _session_storage,
         _unused_storage_slot,
         secret_storage,
         _config_storage,
         agent_storage,
         task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -713,13 +704,12 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _chat_storage,
+        _session_storage,
         _unused_storage_slot,
         secret_storage,
         _config_storage,
         agent_storage,
         task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -759,13 +749,12 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        _chat_storage,
+        _session_storage,
         _unused_storage_slot,
         secret_storage,
         _config_storage,
         agent_storage,
         task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -830,13 +819,12 @@ fn test_task_store_adapter_task_flow() {
     unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
     let (
-        chat_storage,
+        session_storage,
         _execution_context,
         _secret_storage,
         _config_storage,
         agent_storage,
         task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -849,7 +837,7 @@ fn test_task_store_adapter_task_flow() {
     let adapter = TaskStoreAdapter::new(
         task_storage.clone(),
         agent_storage.clone(),
-        SessionService::new(chat_storage, Some(agent_storage), task_storage),
+        SessionService::new(session_storage, Some(agent_storage), task_storage),
     )
     .with_assessor(Arc::new(BackgroundMutationAssessor));
 
@@ -1039,80 +1027,6 @@ async fn test_marketplace_tool_list_and_uninstall() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_terminal_tool_create_send_read_close() {
-    let dir = tempdir().expect("temp dir should be created");
-    let db_path = dir.path().join("terminal-tool.db");
-    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
-        .expect("storage should be created");
-    let allowlist = vec!["manage_terminal".to_string()];
-    let registry = crate::runtime::agent::tools::registry_from_allowlist(
-        Some(&allowlist),
-        None,
-        None,
-        Some(&storage),
-        None,
-        None,
-        Some(dir.path()),
-    )
-    .unwrap();
-
-    let created = registry
-        .execute_safe(
-            "manage_terminal",
-            json!({
-                "operation": "create",
-                "name": "Agent Session",
-                "working_directory": "/tmp"
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(created.success);
-
-    let sent = registry
-        .execute_safe(
-            "manage_terminal",
-            json!({
-                "operation": "send_input",
-                "session_id": created.result["id"].as_str().unwrap(),
-                "data": "echo hello"
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(sent.success);
-    let read = registry
-        .execute_safe(
-            "manage_terminal",
-            json!({
-                "operation": "read_output",
-                "session_id": sent.result["session_id"].as_str().unwrap()
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(read.success);
-    assert!(
-        read.result["output"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("echo hello")
-    );
-
-    let closed = registry
-        .execute_safe(
-            "manage_terminal",
-            json!({
-                "operation": "close",
-                "session_id": sent.result["session_id"].as_str().unwrap()
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(closed.success);
-}
-
-#[tokio::test(flavor = "current_thread")]
 async fn test_security_query_tool_show_policy_and_check_permission() {
     let dir = tempdir().expect("temp dir should be created");
     let db_path = dir.path().join("security-query.db");
@@ -1157,13 +1071,12 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     let (
-        _chat_storage,
+        _session_storage,
         _unused_storage_slot,
         _secret_storage,
         config_storage,
         _agent_storage,
         _task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1309,13 +1222,12 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
 #[tokio::test]
 async fn test_service_subagent_manager_supports_temporary_model_provider_only() {
     let (
-        _chat_storage,
+        _session_storage,
         _execution_context,
         _secret_storage,
         config_storage,
         agent_storage,
         _task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1368,13 +1280,12 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
 #[test]
 fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     let (
-        _chat_storage,
+        _session_storage,
         _execution_context,
         secret_storage,
         config_storage,
         agent_storage,
         _task_storage,
-        _terminal_storage,
         _temp_dir,
     ) = setup_storage();
 

@@ -89,18 +89,6 @@ pub enum Commands {
         command: SecretCommands,
     },
 
-    /// API key management (simplified interface)
-    Key {
-        #[command(subcommand)]
-        command: KeyCommands,
-    },
-
-    /// Authentication management
-    Auth {
-        #[command(subcommand)]
-        command: AuthCommands,
-    },
-
     /// Security management
     Security {
         #[command(subcommand)]
@@ -469,80 +457,6 @@ pub enum SecretCommands {
 
     /// Check if secret exists
     Has { key: String },
-}
-
-#[derive(Subcommand)]
-pub enum KeyCommands {
-    /// Add a new API key
-    Add {
-        /// Provider (anthropic, openai, deepseek)
-        provider: String,
-
-        /// The API key value
-        key: String,
-
-        /// Optional display name
-        #[arg(short, long)]
-        name: Option<String>,
-    },
-
-    /// List all keys
-    List {
-        /// Filter by provider
-        #[arg(short, long)]
-        provider: Option<String>,
-    },
-
-    /// Show key details
-    Show {
-        /// Key ID (first 8 chars of profile ID)
-        id: String,
-    },
-
-    /// Set key as default (highest priority)
-    Use {
-        /// Key ID
-        id: String,
-    },
-
-    /// Remove a key
-    Remove {
-        /// Key ID
-        id: String,
-    },
-
-    /// Test if a key works
-    Test {
-        /// Key ID
-        id: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum AuthCommands {
-    /// Show authentication status
-    Status,
-
-    /// List all credential profiles
-    List,
-
-    /// Show profile details
-    Show { id: String },
-
-    /// Add manual API key
-    Add {
-        #[arg(long)]
-        provider: String,
-
-        #[arg(long)]
-        key: String,
-
-        #[arg(long)]
-        name: Option<String>,
-    },
-
-    /// Remove a profile
-    Remove { id: String },
 }
 
 #[derive(Subcommand)]

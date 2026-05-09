@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::impls::TaskTool;
 use crate::impls::agent_crud::AgentCrudTool;
-use crate::impls::auth_profile::AuthProfileTool;
 use crate::impls::config::ConfigTool;
 use crate::impls::manage_ops::ManageOpsTool;
 use crate::impls::marketplace::MarketplaceTool;
@@ -10,13 +9,12 @@ use crate::impls::secrets::SecretsTool;
 use crate::impls::security_query::SecurityQueryTool;
 use crate::impls::session::SessionTool;
 use crate::impls::skill::SkillTool;
-use crate::impls::terminal::TerminalTool;
 use crate::security::SecurityGate;
 use types::AgentOperationAssessor;
 use types::skill::SkillProvider;
 use types::store::{
-    AgentStore, AuthProfileStore, ConfigStore, MarketplaceStore, OpsProvider, SecretStore,
-    SecurityQueryProvider, SessionStore, TaskStore, TerminalStore,
+    AgentStore, ConfigStore, MarketplaceStore, OpsProvider, SecretStore, SecurityQueryProvider,
+    SessionStore, TaskStore,
 };
 
 use super::ToolRegistryBuilder;
@@ -59,12 +57,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_ops(mut self, provider: Arc<dyn OpsProvider>) -> Self {
         self.registry.register(ManageOpsTool::new(provider));
-        self
-    }
-
-    pub fn with_auth_profile(mut self, store: Arc<dyn AuthProfileStore>) -> Self {
-        self.registry
-            .register(AuthProfileTool::new(store).with_write(true));
         self
     }
 
@@ -127,11 +119,6 @@ impl ToolRegistryBuilder {
 
     pub fn with_marketplace(mut self, store: Arc<dyn MarketplaceStore>) -> Self {
         self.registry.register(MarketplaceTool::new(store));
-        self
-    }
-
-    pub fn with_terminal(mut self, store: Arc<dyn TerminalStore>) -> Self {
-        self.registry.register(TerminalTool::new(store));
         self
     }
 

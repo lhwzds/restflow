@@ -213,7 +213,7 @@ mod tests {
     use super::*;
     use crate::prompt_files;
     use crate::services::session::SessionService;
-    use crate::storage::ChatSessionStorage;
+    use crate::session_log::FileSessionStore;
     use async_trait::async_trait;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -487,8 +487,7 @@ mod tests {
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let bg_storage = TaskStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
-        let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-        let session_storage = chat_storage;
+        let session_storage = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
         let session_service = SessionService::new(
             session_storage,
             Some(agent_storage.clone()),

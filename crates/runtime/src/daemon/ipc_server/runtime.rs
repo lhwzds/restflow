@@ -1,6 +1,5 @@
 use super::*;
 use crate::services::operation_assessment::OperationAssessorAdapter;
-use crate::storage::AuthProfileStorage;
 use ai::StreamDisplayMode;
 use thiserror::Error;
 
@@ -603,8 +602,7 @@ pub(super) fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) ->
 pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
     let config = AuthManagerConfig::default();
     let secrets = Arc::new(core.storage.secrets.clone());
-    let profile_storage = AuthProfileStorage::new_namespace(core.storage.namespace())?;
-    let manager = AuthProfileManager::with_storage(config, secrets, Some(profile_storage));
+    let manager = AuthProfileManager::with_config(config, secrets);
     manager.initialize().await?;
     Ok(manager)
 }

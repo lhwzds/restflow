@@ -1,7 +1,5 @@
 #[path = "dispatch/agents.rs"]
 mod agents;
-#[path = "dispatch/auth.rs"]
-mod auth;
 #[path = "dispatch/config.rs"]
 mod config;
 #[path = "dispatch/execution.rs"]
@@ -20,8 +18,6 @@ mod skills;
 mod system;
 #[path = "dispatch/tasks.rs"]
 mod tasks;
-#[path = "dispatch/terminals.rs"]
-mod terminals;
 
 use super::*;
 use crate::boundary::task::{
@@ -173,85 +169,6 @@ impl IpcServer {
             IpcRequest::GetExecutionRunTimeline { run_id } => {
                 Self::handle_get_execution_run_timeline(core, run_id).await
             }
-            IpcRequest::ListTerminalSessions => Self::handle_list_terminal_sessions(core).await,
-            IpcRequest::GetTerminalSession { id } => {
-                Self::handle_get_terminal_session(core, id).await
-            }
-            IpcRequest::CreateTerminalSession => Self::handle_create_terminal_session(core).await,
-            IpcRequest::RenameTerminalSession { id, name } => {
-                Self::handle_rename_terminal_session(core, id, name).await
-            }
-            IpcRequest::UpdateTerminalSession {
-                id,
-                name,
-                working_directory,
-                startup_command,
-            } => {
-                Self::handle_update_terminal_session(
-                    core,
-                    id,
-                    name,
-                    working_directory,
-                    startup_command,
-                )
-                .await
-            }
-            IpcRequest::SaveTerminalSession { session } => match from_contract(session) {
-                Ok(session) => Self::handle_save_terminal_session(core, session).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::DeleteTerminalSession { id } => {
-                Self::handle_delete_terminal_session(core, id).await
-            }
-            IpcRequest::MarkAllTerminalSessionsStopped => {
-                Self::handle_mark_all_terminal_sessions_stopped(core).await
-            }
-            IpcRequest::ListAuthProfiles => Self::handle_list_auth_profiles(core).await,
-            IpcRequest::GetAuthProfile { id } => Self::handle_get_auth_profile(core, id).await,
-            IpcRequest::AddAuthProfile {
-                name,
-                credential,
-                source,
-                provider,
-            } => {
-                let credential = match from_contract(credential) {
-                    Ok(credential) => credential,
-                    Err(err) => return invalid_request_response(err),
-                };
-                let source = match from_contract(source) {
-                    Ok(source) => source,
-                    Err(err) => return invalid_request_response(err),
-                };
-                let provider = match from_contract(provider) {
-                    Ok(provider) => provider,
-                    Err(err) => return invalid_request_response(err),
-                };
-                Self::handle_add_auth_profile(core, name, credential, source, provider).await
-            }
-            IpcRequest::RemoveAuthProfile { id } => {
-                Self::handle_remove_auth_profile(core, id).await
-            }
-            IpcRequest::UpdateAuthProfile { id, updates } => match from_contract(updates) {
-                Ok(updates) => Self::handle_update_auth_profile(core, id, updates).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::EnableAuthProfile { id } => {
-                Self::handle_enable_auth_profile(core, id).await
-            }
-            IpcRequest::DisableAuthProfile { id, reason } => {
-                Self::handle_disable_auth_profile(core, id, reason).await
-            }
-            IpcRequest::GetApiKey { provider } => match from_contract(provider) {
-                Ok(provider) => Self::handle_get_api_key(core, provider).await,
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::GetApiKeyForProfile { id } => {
-                Self::handle_get_api_key_for_profile(core, id).await
-            }
-            IpcRequest::TestAuthProfile { id } => Self::handle_test_auth_profile(core, id).await,
-            IpcRequest::MarkAuthSuccess { id } => Self::handle_mark_auth_success(core, id).await,
-            IpcRequest::MarkAuthFailure { id } => Self::handle_mark_auth_failure(core, id).await,
-            IpcRequest::ClearAuthProfiles => Self::handle_clear_auth_profiles(core).await,
             IpcRequest::GetTaskHistory { id } => Self::handle_get_task_history(core, id).await,
             IpcRequest::CreateTask { spec } => match contract_spec_to_core(spec) {
                 Ok(spec) => Self::handle_create_task(core, spec).await,

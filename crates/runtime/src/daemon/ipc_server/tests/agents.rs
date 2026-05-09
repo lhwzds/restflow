@@ -75,8 +75,18 @@ fn configure_default_agent(core: &Arc<AppCore>) -> String {
     default_id
 }
 
-fn raw_task_storage(core: &Arc<AppCore>) -> crate::storage::task_runtime::raw::TaskStorage {
-    crate::storage::task_runtime::raw::TaskStorage::new(core.storage.get_db()).unwrap()
+fn raw_task_storage(core: &Arc<AppCore>) -> crate::storage::task::raw::TaskStorage {
+    crate::storage::task::raw::TaskStorage::new(core.storage.get_db()).unwrap()
+}
+
+fn save_chat_session(core: &Arc<AppCore>, session: &crate::models::ChatSession) {
+    core.storage
+        .file_sessions
+        .write_session(
+            &crate::session_log::FileSession::from_chat_session(session),
+            true,
+        )
+        .unwrap();
 }
 
 fn insert_task_with_id(core: &Arc<AppCore>, id: &str) -> crate::models::Task {
@@ -91,7 +101,7 @@ fn insert_task_with_id(core: &Arc<AppCore>, id: &str) -> crate::models::Task {
     task.chat_session_id = format!("session-{id}");
     let mut session = crate::models::ChatSession::new(task.agent_id.clone(), "gpt-5".to_string());
     session.id = task.chat_session_id.clone();
-    core.storage.chat_sessions.create(&session).unwrap();
+    save_chat_session(core, &session);
     core.storage.tasks.save_task(&task).unwrap();
     task
 }
@@ -236,10 +246,7 @@ async fn process_convert_session_task_returns_direct_result() {
 
     let mut session = crate::models::ChatSession::new(agent.id.clone(), "gpt-5".to_string());
     session.add_message(crate::models::ChatMessage::user("continue this task"));
-    core.storage
-        .chat_sessions
-        .create(&session)
-        .expect("create session");
+    save_chat_session(&core, &session);
 
     let response = IpcServer::process(
         &core,
@@ -575,46 +582,6 @@ async fn process_control_task_resolves_unique_prefix() {
             let updated: crate::models::Task = serde_json::from_value(value).expect("task");
             assert_eq!(updated.id, task.id);
             assert_eq!(updated.status, crate::models::TaskStatus::Paused);
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-#[tokio::test]
-async fn process_list_auth_profiles_returns_empty_by_default() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response =
-        IpcServer::process(&core, &runtime_tool_registry, IpcRequest::ListAuthProfiles).await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let profiles: Vec<crate::auth::AuthProfile> =
-                serde_json::from_value(value).expect("auth profiles");
-            assert!(profiles.is_empty());
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn process_create_terminal_session_returns_session() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::CreateTerminalSession,
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let session: crate::models::TerminalSession =
-                serde_json::from_value(value).expect("terminal session");
-            assert!(session.id.starts_with("terminal-"));
-            assert!(!session.name.is_empty());
         }
         other => panic!("expected success response, got {other:?}"),
     }

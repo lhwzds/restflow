@@ -4,11 +4,8 @@
 //! lower-level persistence APIs with Rust types from our models.
 
 pub mod agent;
-pub mod chat_session;
 pub mod redb_lease;
-pub mod simple_storage;
-pub mod task_runtime;
-pub mod terminal_session;
+pub mod task;
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -21,11 +18,10 @@ pub use crate::{
 };
 
 pub use agent::AgentStorage;
-pub use chat_session::ChatSessionStorage;
 pub use redb_lease::RedbLeaseProvider;
-pub use simple_storage::{AuthProfileRawStorage as AuthProfileStorage, SimpleStorage};
-pub use task_runtime::TaskStorage;
-pub use terminal_session::TerminalSessionStorage;
+pub use task::{ResolveTaskIdError, TaskSessionBinding, TaskStorage};
+
+use crate::session_log::FileSessionStore;
 
 /// Central storage manager that initializes all storage subsystems.
 ///
@@ -34,13 +30,11 @@ pub use terminal_session::TerminalSessionStorage;
 pub struct Storage {
     #[cfg(test)]
     db_path: PathBuf,
-    namespace: usize,
     pub config: ConfigStorage,
     pub agents: AgentStorage,
     pub tasks: TaskStorage,
     pub secrets: SecretStorage,
-    pub terminal_sessions: TerminalSessionStorage,
-    pub chat_sessions: ChatSessionStorage,
+    pub file_sessions: FileSessionStore,
 }
 
 impl Storage {
@@ -53,30 +47,22 @@ impl Storage {
     /// Create a new storage instance with custom secret storage configuration.
     pub fn with_secret_config(path: &str, secret_config: SecretStorageConfig) -> Result<Self> {
         let db_path = PathBuf::from(path);
-        let namespace = simple_storage::namespace_for_path(&db_path);
 
         let config = ConfigStorage;
-        let agents = AgentStorage::new_namespace(namespace)?;
-        let tasks = TaskStorage::new_file_backed_namespace(namespace, task_store_path(path))?;
+        let agents = AgentStorage::new_file_backed()?;
+        let tasks = TaskStorage::new_file_backed_path(task_store_path(path))?;
         let secrets = SecretStorage::with_config_path(db_path.clone(), secret_config)?;
-        let terminal_sessions = TerminalSessionStorage::new_namespace(namespace)?;
-        let chat_sessions = ChatSessionStorage::new_namespace(namespace)?;
+        let file_sessions = FileSessionStore::new(session_store_path(path))?;
 
         Ok(Self {
             #[cfg(test)]
             db_path,
-            namespace,
             config,
             agents,
             tasks,
             secrets,
-            terminal_sessions,
-            chat_sessions,
+            file_sessions,
         })
-    }
-
-    pub fn namespace(&self) -> usize {
-        self.namespace
     }
 
     #[cfg(test)]
@@ -87,6 +73,10 @@ impl Storage {
 
 fn task_store_path(db_path: &str) -> PathBuf {
     Path::new(db_path).with_file_name("restflow.tasks.json")
+}
+
+fn session_store_path(db_path: &str) -> PathBuf {
+    Path::new(db_path).with_file_name("sessions")
 }
 
 #[cfg(test)]

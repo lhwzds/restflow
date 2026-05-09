@@ -11,7 +11,6 @@ use crate::contracts::request::{
     ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -438,79 +437,6 @@ pub trait SessionStore: Send + Sync {
     fn cleanup_sessions(&self) -> Result<Value>;
 }
 
-// ── AuthProfileStore ─────────────────────────────────────────────────
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CredentialInput {
-    ApiKey {
-        key: String,
-        #[serde(default)]
-        email: Option<String>,
-    },
-    Token {
-        token: String,
-        #[serde(default)]
-        expires_at: Option<String>,
-        #[serde(default)]
-        email: Option<String>,
-    },
-    OAuth {
-        access_token: String,
-        #[serde(default)]
-        refresh_token: Option<String>,
-        #[serde(default)]
-        expires_at: Option<String>,
-        #[serde(default)]
-        email: Option<String>,
-    },
-}
-
-impl CredentialInput {
-    pub fn expires_at(&self) -> Result<Option<DateTime<Utc>>> {
-        match self {
-            CredentialInput::Token { expires_at, .. }
-            | CredentialInput::OAuth { expires_at, .. } => {
-                if let Some(value) = expires_at {
-                    let dt = DateTime::parse_from_rfc3339(value)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .map_err(|e| {
-                            crate::error::ToolError::Tool(format!("Invalid timestamp: {}", e))
-                        })?;
-                    Ok(Some(dt))
-                } else {
-                    Ok(None)
-                }
-            }
-            _ => Ok(None),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct AuthProfileCreateRequest {
-    pub name: String,
-    pub provider: String,
-    #[serde(default)]
-    pub source: Option<String>,
-    pub credential: CredentialInput,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct AuthProfileTestRequest {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub provider: Option<String>,
-}
-
-pub trait AuthProfileStore: Send + Sync {
-    fn list_profiles(&self) -> Result<Value>;
-    fn add_profile(&self, request: AuthProfileCreateRequest) -> Result<Value>;
-    fn remove_profile(&self, id: &str) -> Result<Value>;
-    fn test_profile(&self, request: AuthProfileTestRequest) -> Result<Value>;
-}
-
 // ── ProcessManager ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -568,21 +494,6 @@ pub trait SecurityQueryProvider: Send + Sync {
         target: Option<&str>,
         summary: Option<&str>,
     ) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
-}
-
-// ── TerminalStore ───────────────────────────────────────────────────
-
-pub trait TerminalStore: Send + Sync {
-    fn create_session(
-        &self,
-        name: Option<&str>,
-        working_dir: Option<&str>,
-        startup_cmd: Option<&str>,
-    ) -> Result<Value>;
-    fn list_sessions(&self) -> Result<Value>;
-    fn send_input(&self, session_id: &str, data: &str) -> Result<Value>;
-    fn read_output(&self, session_id: &str) -> Result<Value>;
-    fn close_session(&self, session_id: &str) -> Result<Value>;
 }
 
 // ── MarketplaceStore ────────────────────────────────────────────────

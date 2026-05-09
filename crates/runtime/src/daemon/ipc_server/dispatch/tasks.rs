@@ -5,7 +5,7 @@ use crate::daemon::request_mapper::to_contract;
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::operation_assessment::assessment_summary;
 use crate::services::task_command::{TaskCommandError, TaskCommandService, TaskExecutionMode};
-use crate::storage::task_runtime::ResolveTaskIdError;
+use crate::storage::ResolveTaskIdError;
 use serde::Serialize;
 use serde_json::json;
 use types::ApprovalHandledResponse;

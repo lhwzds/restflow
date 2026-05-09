@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::Provider;
-use crate::storage::{AuthProfileStorage, SecretStorage, SimpleStorage};
+use crate::storage::SecretStorage;
 
 /// Configuration for the auth profile manager
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,8 +62,6 @@ pub struct AuthProfileManager {
     resolver: CredentialResolver,
     /// Writer for storing secrets
     writer: CredentialWriter,
-    /// Optional database storage for manual profiles
-    storage: Option<AuthProfileStorage>,
 }
 
 impl AuthProfileManager {
@@ -74,15 +72,10 @@ impl AuthProfileManager {
 
     /// Create a new auth profile manager with custom config and secret storage
     pub fn with_config(config: AuthManagerConfig, secrets: Arc<SecretStorage>) -> Self {
-        Self::with_storage(config, secrets, None)
+        Self::build(config, secrets)
     }
 
-    /// Create a new auth profile manager with custom config, secret storage, and profile storage
-    pub fn with_storage(
-        config: AuthManagerConfig,
-        secrets: Arc<SecretStorage>,
-        storage: Option<AuthProfileStorage>,
-    ) -> Self {
+    fn build(config: AuthManagerConfig, secrets: Arc<SecretStorage>) -> Self {
         let mut refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>> = HashMap::new();
         // ClaudeCode OAuth tokens can be refreshed using Anthropic's OAuth endpoint
         refreshers.insert(
@@ -99,16 +92,11 @@ impl AuthProfileManager {
             refreshers,
             resolver,
             writer,
-            storage,
         }
     }
 
-    /// Initialize the manager by loading explicitly configured profiles.
+    /// Initialize the manager. Profiles are process-local; secrets remain in SecretStorage.
     pub async fn initialize(&self) -> Result<()> {
-        if let Err(e) = self.load_profiles_from_storage().await {
-            warn!(error = %e, "Failed to load manual profiles from storage");
-        }
-
         Ok(())
     }
 
@@ -429,10 +417,6 @@ impl AuthProfileManager {
 
         info!(profile_id = %profile_id, "Manual profile added");
 
-        if let Err(e) = self.save_profile_to_storage(&profile) {
-            warn!(error = %e, "Failed to save manual profile to storage");
-        }
-
         Ok(profile_id)
     }
 
@@ -459,12 +443,6 @@ impl AuthProfileManager {
 
         info!(profile_id = %id, "Profile added");
 
-        if let Some(stored) = profiles.get(&id)
-            && let Err(e) = self.save_profile_to_storage(stored)
-        {
-            warn!(error = %e, "Failed to save manual profile to storage");
-        }
-
         Ok(id)
     }
 
@@ -481,10 +459,6 @@ impl AuthProfileManager {
         }
 
         info!(profile_id, name = %profile.name, "Profile removed");
-
-        if let Err(e) = self.delete_profile_from_storage(profile_id) {
-            warn!(error = %e, "Failed to delete manual profile from storage");
-        }
 
         Ok(profile)
     }
@@ -514,10 +488,6 @@ impl AuthProfileManager {
 
         info!(profile_id, name = %updated.name, "Profile updated");
 
-        if let Err(e) = self.save_profile_to_storage(&updated) {
-            warn!(error = %e, "Failed to persist manual profile update");
-        }
-
         Ok(updated)
     }
 
@@ -533,12 +503,7 @@ impl AuthProfileManager {
         profile.failure_count = 0;
         profile.cooldown_until = None;
 
-        let updated = profile.clone();
         info!(profile_id, "Profile enabled");
-
-        if let Err(e) = self.save_profile_to_storage(&updated) {
-            warn!(error = %e, "Failed to persist manual profile enable");
-        }
 
         Ok(())
     }
@@ -551,11 +516,6 @@ impl AuthProfileManager {
             .ok_or_else(|| anyhow!("Profile not found: {}", profile_id))?;
 
         profile.disable(reason);
-
-        let updated = profile.clone();
-        if let Err(e) = self.save_profile_to_storage(&updated) {
-            warn!(error = %e, "Failed to persist manual profile disable");
-        }
 
         Ok(())
     }
@@ -606,14 +566,6 @@ impl AuthProfileManager {
             }
         }
 
-        if let Some(storage) = &self.storage {
-            for profile in profiles.values() {
-                if let Err(e) = storage.delete(profile.id.as_str()) {
-                    warn!(error = %e, profile_id = %profile.id, "Failed to delete manual profile from storage");
-                }
-            }
-        }
-
         profiles.clear();
         info!("All profiles cleared");
     }
@@ -621,42 +573,6 @@ impl AuthProfileManager {
     /// Get the credential resolver for external use
     pub fn resolver(&self) -> &CredentialResolver {
         &self.resolver
-    }
-
-    fn save_profile_to_storage(&self, profile: &AuthProfile) -> Result<()> {
-        let Some(storage) = &self.storage else {
-            return Ok(());
-        };
-        let data = serde_json::to_vec(profile)?;
-        storage.put_raw(profile.id.as_str(), &data)?;
-        Ok(())
-    }
-
-    fn delete_profile_from_storage(&self, profile_id: &str) -> Result<()> {
-        let Some(storage) = &self.storage else {
-            return Ok(());
-        };
-        storage.delete(profile_id)?;
-        Ok(())
-    }
-
-    async fn load_profiles_from_storage(&self) -> Result<()> {
-        let Some(storage) = &self.storage else {
-            return Ok(());
-        };
-        let entries = storage.list_raw()?;
-        let mut profiles = self.profiles.write().await;
-        for (_, bytes) in entries {
-            let profile: AuthProfile = match serde_json::from_slice(&bytes) {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!(error = %e, "Skipping corrupt auth profile entry");
-                    continue;
-                }
-            };
-            profiles.insert(profile.id.clone(), profile);
-        }
-        Ok(())
     }
 }
 
@@ -939,84 +855,6 @@ mod tests {
         let profile = manager.get_profile(&id).await.unwrap();
         assert!(profile.enabled);
         assert_eq!(profile.health, ProfileHealth::Unknown);
-    }
-
-    #[tokio::test]
-    async fn test_manager_enable_disable_persists_to_storage() {
-        use redb::Database;
-
-        let dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
-        let secrets = Arc::new(SecretStorage::new(db.clone()).unwrap());
-        let storage = AuthProfileStorage::new(db).unwrap();
-
-        // Create manager with storage
-        let manager = AuthProfileManager::with_storage(
-            AuthManagerConfig::default(),
-            secrets.clone(),
-            Some(storage.clone()),
-        );
-        manager.initialize().await.unwrap();
-
-        // Add a manual profile
-        let credential = Credential::ApiKey {
-            key: "test-key-persist".to_string(),
-            email: None,
-        };
-        let id = manager
-            .add_profile_from_credential(
-                "Test Persist",
-                credential,
-                CredentialSource::Manual,
-                AuthProvider::Anthropic,
-            )
-            .await
-            .unwrap();
-
-        // Disable the profile
-        manager
-            .disable_profile(&id, "Testing disable persistence")
-            .await
-            .unwrap();
-        let profile = manager.get_profile(&id).await.unwrap();
-        assert!(!profile.enabled);
-
-        // Create a new manager instance (simulates IPC request creating fresh manager)
-        let manager2 = AuthProfileManager::with_storage(
-            AuthManagerConfig::default(),
-            secrets.clone(),
-            Some(storage.clone()),
-        );
-        manager2.initialize().await.unwrap();
-
-        // Verify disabled state persisted
-        let profile_reloaded = manager2.get_profile(&id).await.unwrap();
-        assert!(
-            !profile_reloaded.enabled,
-            "Disabled state should persist across manager re-instantiation"
-        );
-        assert_eq!(profile_reloaded.health, ProfileHealth::Disabled);
-
-        // Enable the profile
-        manager2.enable_profile(&id).await.unwrap();
-        let profile = manager2.get_profile(&id).await.unwrap();
-        assert!(profile.enabled);
-
-        // Create another new manager instance
-        let manager3 = AuthProfileManager::with_storage(
-            AuthManagerConfig::default(),
-            secrets.clone(),
-            Some(storage),
-        );
-        manager3.initialize().await.unwrap();
-
-        // Verify enabled state persisted
-        let profile_reloaded2 = manager3.get_profile(&id).await.unwrap();
-        assert!(
-            profile_reloaded2.enabled,
-            "Enabled state should persist across manager re-instantiation"
-        );
-        assert_eq!(profile_reloaded2.health, ProfileHealth::Unknown);
     }
 
     #[tokio::test]

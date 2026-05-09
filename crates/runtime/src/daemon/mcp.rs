@@ -928,8 +928,11 @@ mod tests {
         .with_name("HTTP Convert Session");
         session.add_message(ChatMessage::user("Continue this job in background"));
         core.storage
-            .chat_sessions
-            .create(&session)
+            .file_sessions
+            .write_session(
+                &crate::session_log::FileSession::from_chat_session(&session),
+                true,
+            )
             .expect("create session");
 
         let app = build_http_router(core, CancellationToken::new());

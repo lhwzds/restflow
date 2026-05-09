@@ -41,12 +41,12 @@ pub use impls::{EditTool, MultiEditTool};
 
 // Re-export migrated tool implementations
 pub use impls::{
-    AgentCrudTool, AuthProfileTool, ConfigTool, PatchTool, ProcessTool, ReplyTool, SecretGetPolicy,
-    SecretsTool, SessionTool, SkillTool, SwitchModelTool, TaskTool,
+    AgentCrudTool, ConfigTool, PatchTool, ProcessTool, ReplyTool, SecretGetPolicy, SecretsTool,
+    SessionTool, SkillTool, SwitchModelTool, TaskTool,
 };
 
 // Re-export tool_registry inline migrated tools
-pub use impls::{ManageOpsTool, MarketplaceTool, SecurityQueryTool, TerminalTool};
+pub use impls::{ManageOpsTool, MarketplaceTool, SecurityQueryTool};
 
 // Re-export search tools
 pub use impls::{GlobTool, GrepTool};

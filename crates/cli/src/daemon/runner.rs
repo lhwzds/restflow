@@ -13,7 +13,7 @@ use runtime::runtime::{
 use runtime::runtime::{TaskEventEmitter, TaskStreamEvent};
 use runtime::services::session::SessionService;
 use runtime::steer::SteerRegistry;
-use runtime::storage::{AgentDefaults, AuthProfileStorage, SecretStorage, SystemConfig};
+use runtime::storage::{AgentDefaults, SecretStorage, SystemConfig};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -33,16 +33,9 @@ pub struct CliTaskRunner {
     runner: Arc<RwLock<Option<Arc<TaskRunner>>>>,
 }
 
-fn create_auth_manager(
-    secrets: Arc<SecretStorage>,
-    profile_storage: AuthProfileStorage,
-) -> Result<AuthProfileManager> {
+fn create_auth_manager(secrets: Arc<SecretStorage>) -> AuthProfileManager {
     let config = AuthManagerConfig::default();
-    Ok(AuthProfileManager::with_storage(
-        config,
-        secrets,
-        Some(profile_storage),
-    ))
+    AuthProfileManager::with_config(config, secrets)
 }
 
 impl CliTaskRunner {
@@ -66,10 +59,7 @@ impl CliTaskRunner {
             ProcessRegistry::new().with_ttl_seconds(system_config.agent.process_session_ttl_secs),
         );
 
-        let auth_manager = Arc::new(create_auth_manager(
-            secrets.clone(),
-            AuthProfileStorage::new_namespace(storage.namespace())?,
-        )?);
+        let auth_manager = Arc::new(create_auth_manager(secrets.clone()));
         auth_manager.initialize().await?;
 
         // Create task runtime components

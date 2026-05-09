@@ -35,7 +35,7 @@ impl ExecutionConsoleService {
     }
 
     pub fn list_execution_containers(&self) -> Result<Vec<ExecutionContainerSummary>> {
-        let sessions = self.storage.chat_sessions.list_all()?;
+        let sessions = self.list_sessions()?;
         let tasks = self.storage.tasks.list_tasks()?;
         let mut containers = Vec::new();
 
@@ -91,7 +91,7 @@ impl ExecutionConsoleService {
     pub fn list_runs(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
         match query.container.kind {
             ExecutionContainerKind::Workspace => {
-                let sessions = self.storage.chat_sessions.list_all()?;
+                let sessions = self.list_sessions()?;
                 let mut runs = Vec::new();
                 for session in sessions.into_iter().filter(|session| {
                     session.id == query.container.id
@@ -153,7 +153,7 @@ impl ExecutionConsoleService {
             return Err(ExecutionThreadError::InvalidQuery);
         }
 
-        for session in self.storage.chat_sessions.list_all()? {
+        for session in self.list_sessions()? {
             if let Some(turn) = session.turns.iter().find(|turn| turn.id == run_id) {
                 return Ok(workspace_run_summary(&session, turn));
             }
@@ -183,7 +183,7 @@ impl ExecutionConsoleService {
             return Err(ExecutionThreadError::InvalidQuery);
         }
 
-        for session in self.storage.chat_sessions.list_all()? {
+        for session in self.list_sessions()? {
             if let Some(turn) = session.turns.iter().find(|turn| turn.id == run_id) {
                 return Ok(RunTimeline {
                     events: turn.events.clone(),
@@ -199,7 +199,12 @@ impl ExecutionConsoleService {
                 .into_iter()
                 .any(|run| run.run_id == run_id)
             {
-                let Some(session) = self.storage.chat_sessions.get(&task.chat_session_id)? else {
+                let Some(session) = self
+                    .storage
+                    .file_sessions
+                    .get(&task.chat_session_id)?
+                    .map(|session| session.to_chat_session())
+                else {
                     return Ok(RunTimeline::default());
                 };
                 let events = session
@@ -213,6 +218,16 @@ impl ExecutionConsoleService {
         }
 
         Err(ExecutionThreadError::RunNotFound(run_id.to_string()))
+    }
+
+    fn list_sessions(&self) -> Result<Vec<ChatSession>> {
+        Ok(self
+            .storage
+            .file_sessions
+            .list()?
+            .into_iter()
+            .map(|session| session.to_chat_session())
+            .collect())
     }
 }
 

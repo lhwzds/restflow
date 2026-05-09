@@ -167,70 +167,6 @@ pub enum IpcRequest {
     GetExecutionRunTimeline {
         run_id: String,
     },
-    ListTerminalSessions,
-    GetTerminalSession {
-        id: String,
-    },
-    CreateTerminalSession,
-    RenameTerminalSession {
-        id: String,
-        name: String,
-    },
-    UpdateTerminalSession {
-        id: String,
-        name: Option<String>,
-        working_directory: Option<String>,
-        startup_command: Option<String>,
-    },
-    SaveTerminalSession {
-        session: TerminalSession,
-    },
-    DeleteTerminalSession {
-        id: String,
-    },
-    MarkAllTerminalSessionsStopped,
-
-    ListAuthProfiles,
-    GetAuthProfile {
-        id: String,
-    },
-    AddAuthProfile {
-        name: String,
-        credential: Credential,
-        source: String,
-        provider: String,
-    },
-    RemoveAuthProfile {
-        id: String,
-    },
-    UpdateAuthProfile {
-        id: String,
-        updates: ProfileUpdate,
-    },
-    EnableAuthProfile {
-        id: String,
-    },
-    DisableAuthProfile {
-        id: String,
-        reason: String,
-    },
-    GetApiKey {
-        provider: String,
-    },
-    GetApiKeyForProfile {
-        id: String,
-    },
-    TestAuthProfile {
-        id: String,
-    },
-    MarkAuthSuccess {
-        id: String,
-    },
-    MarkAuthFailure {
-        id: String,
-    },
-    ClearAuthProfiles,
-
     GetTaskHistory {
         id: String,
     },
@@ -803,31 +739,6 @@ pub struct ChildRunListQuery {
     pub parent_run_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum TerminalStatus {
-    Running,
-    #[default]
-    Stopped,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct TerminalSession {
-    pub id: String,
-    pub name: String,
-    pub created_at: i64,
-    #[serde(default)]
-    pub status: TerminalStatus,
-    #[serde(default)]
-    pub history: Option<String>,
-    #[serde(default)]
-    pub stopped_at: Option<i64>,
-    #[serde(default)]
-    pub working_directory: Option<String>,
-    #[serde(default)]
-    pub startup_command: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AgentSettings {
     pub tool_timeout_secs: u64,
@@ -1146,36 +1057,6 @@ mod tests {
                     model: Some("whisper-1".to_string()),
                     updated_at: Some(1),
                 }),
-            },
-        };
-        assert_roundtrip(&request);
-    }
-
-    #[test]
-    fn ipc_request_auth_round_trips() {
-        let request = IpcRequest::UpdateAuthProfile {
-            id: "profile-1".to_string(),
-            updates: ProfileUpdate {
-                name: Some("Main".to_string()),
-                enabled: Some(true),
-                priority: Some(1),
-            },
-        };
-        assert_roundtrip(&request);
-    }
-
-    #[test]
-    fn ipc_request_terminal_round_trips() {
-        let request = IpcRequest::SaveTerminalSession {
-            session: TerminalSession {
-                id: "terminal-1".to_string(),
-                name: "Main".to_string(),
-                created_at: 1,
-                status: TerminalStatus::Running,
-                history: Some("ls".to_string()),
-                stopped_at: None,
-                working_directory: Some("/tmp".to_string()),
-                startup_command: Some("pwd".to_string()),
             },
         };
         assert_roundtrip(&request);

@@ -483,22 +483,33 @@ mod tests {
         )
         .with_name("Workspace Session");
         session.source_channel = Some(ChatSessionSource::Workspace);
-        core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .file_sessions
+            .write_session(
+                &crate::session_log::FileSession::from_chat_session(&session),
+                true,
+            )
+            .unwrap();
 
         delete_agent(&core, &created.id).await.unwrap();
 
         let active_sessions = core
             .storage
-            .chat_sessions
-            .list_by_agent(&created.id)
-            .unwrap();
+            .file_sessions
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|session| session.to_chat_session())
+            .filter(|session| session.agent_id == created.id && !session.is_archived())
+            .collect::<Vec<_>>();
         assert!(active_sessions.is_empty());
 
         let archived_session = core
             .storage
-            .chat_sessions
+            .file_sessions
             .get(&session.id)
             .unwrap()
+            .map(|session| session.to_chat_session())
             .expect("session should remain after archiving");
         assert!(archived_session.is_archived());
     }
@@ -519,15 +530,22 @@ mod tests {
         .with_name("Orphan Background Session")
         .with_source(ChatSessionSource::Background, "deleted-task".to_string());
         session.updated_at = time_utils::now_ms();
-        core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .file_sessions
+            .write_session(
+                &crate::session_log::FileSession::from_chat_session(&session),
+                true,
+            )
+            .unwrap();
 
         delete_agent(&core, &created.id).await.unwrap();
 
         let archived_session = core
             .storage
-            .chat_sessions
+            .file_sessions
             .get(&session.id)
             .unwrap()
+            .map(|session| session.to_chat_session())
             .expect("background session should remain archived");
         assert!(archived_session.is_archived());
 

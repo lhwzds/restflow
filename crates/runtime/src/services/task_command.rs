@@ -13,7 +13,7 @@ use crate::services::operation_assessment::{
 };
 use crate::services::session::SessionService;
 use crate::services::task_conversion::{ConvertSessionSpecOptions, build_convert_session_spec};
-use crate::storage::task_runtime::TaskSessionBinding;
+use crate::storage::TaskSessionBinding;
 use crate::storage::{AgentStorage, Storage, TaskStorage};
 use std::sync::Arc;
 use tools::ToolError;
@@ -899,10 +899,9 @@ mod tests {
     use crate::models::{
         AgentNode, ChatMessage, ChatSession, ChatTurnEventKind, ModelId, TaskSpec,
     };
-    use crate::prompt_files;
     use crate::services::session::SessionService;
     use crate::session_log::FileSessionStore;
-    use crate::storage::{AgentStorage, ChatSessionStorage, TaskStorage};
+    use crate::storage::{AgentStorage, TaskStorage};
     use async_trait::async_trait;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -1313,23 +1312,21 @@ mod tests {
     fn setup_with_assessor(
         assessor: Arc<dyn AgentOperationAssessor>,
     ) -> (TaskCommandService, ChatSession, tempfile::TempDir) {
-        let _guard = prompt_files::agents_dir_env_lock();
         let temp_dir = tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("background-command.db");
         let db = Arc::new(redb::Database::create(&db_path).expect("create db"));
 
         let task_storage = TaskStorage::new(db.clone()).expect("task storage");
-        let agent_storage = AgentStorage::new(db.clone()).expect("agent storage");
-        let chat_storage = ChatSessionStorage::new(db.clone()).expect("chat storage");
-        let session_storage = chat_storage.clone();
+        let agent_storage = AgentStorage::new_file_backed_path(temp_dir.path().join("agents"))
+            .expect("agent storage");
+        let session_storage =
+            FileSessionStore::new(temp_dir.path().join("sessions")).expect("session storage");
         let session_service = SessionService::new(
-            session_storage,
+            session_storage.clone(),
             Some(agent_storage.clone()),
             task_storage.clone(),
         );
 
-        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_dir.path().join("agents")) };
         agent_storage
             .create_agent("svc-agent".to_string(), AgentNode::default())
             .expect("create agent");
@@ -1341,16 +1338,15 @@ mod tests {
             .next()
             .expect("agent present")
             .id;
-        unsafe {
-            match prev_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-            }
-        }
         let mut session = ChatSession::new(agent_id, ModelId::Gpt5.as_serialized_str().to_string())
             .with_name("Convert Me");
         session.add_message(ChatMessage::user("continue this task"));
-        chat_storage.create(&session).expect("create session");
+        session_storage
+            .write_session(
+                &crate::session_log::FileSession::from_chat_session(&session),
+                true,
+            )
+            .expect("create session");
 
         (
             TaskCommandService::new(task_storage, agent_storage, session_service, Some(assessor)),
@@ -1361,21 +1357,13 @@ mod tests {
 
     fn create_agent_for_test(
         service: &TaskCommandService,
-        temp_dir: &tempfile::TempDir,
+        _temp_dir: &tempfile::TempDir,
         name: &str,
     ) -> String {
-        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_dir.path().join("agents")) };
         let agent = service
             .agents
             .create_agent(name.to_string(), AgentNode::default())
             .expect("create agent");
-        unsafe {
-            match prev_agents_dir {
-                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-            }
-        }
         agent.id
     }
 
@@ -2011,6 +1999,7 @@ mod tests {
             .session_service
             .clone()
             .with_file_sessions(file_store.clone());
+        let session_count = file_store.list().unwrap().len();
 
         let result = service
             .create_from_request(
@@ -2032,7 +2021,7 @@ mod tests {
             .and_then(TaskCommandService::into_direct_result);
 
         assert!(result.is_err());
-        assert!(file_store.list().unwrap().is_empty());
+        assert_eq!(file_store.list().unwrap().len(), session_count);
     }
 
     #[tokio::test]

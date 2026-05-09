@@ -10,7 +10,6 @@ use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::models::{
     AgentNode, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
     ChatTurnEventKind, MessageExecution, ModelId, SteerMessage, SteerSource, TaskStatus,
-    TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};

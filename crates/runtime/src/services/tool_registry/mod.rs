@@ -15,11 +15,11 @@ use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
 #[cfg(test)]
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
+#[cfg(test)]
+use crate::session_log::FileSessionStore;
 use crate::storage::ConfigStorage;
 #[cfg(test)]
-use crate::storage::{
-    AgentStorage, ChatSessionStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
-};
+use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
 use crate::{AgentDefaults, SystemConfig};
 #[cfg(test)]
 use ai::AgentState;

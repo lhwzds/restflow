@@ -5,7 +5,6 @@
 //! to tool implementations in tools.
 
 pub mod agent;
-pub mod auth_profile;
 pub mod config;
 pub mod marketplace;
 pub mod ops;
@@ -14,10 +13,8 @@ pub mod security_query;
 pub mod session;
 pub mod skill_provider;
 pub mod task_store;
-pub mod terminal;
 
 pub use agent::AgentStoreAdapter;
-pub use auth_profile::AuthProfileStorageAdapter;
 pub use config::ConfigStoreAdapter;
 pub use marketplace::MarketplaceStoreAdapter;
 pub use ops::OpsProviderAdapter;
@@ -26,4 +23,3 @@ pub use security_query::SecurityQueryProviderAdapter;
 pub use session::SessionStorageAdapter;
 pub use skill_provider::SkrunSkillProvider;
 pub use task_store::TaskStoreAdapter;
-pub use terminal::TerminalStoreAdapter;
