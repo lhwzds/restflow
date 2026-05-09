@@ -92,14 +92,6 @@ pub(super) fn parameters_schema() -> Value {
                 "type": "string",
                 "description": "Optional parent run ID for context propagation (runtime-injected)."
             },
-            "trace_session_id": {
-                "type": "string",
-                "description": "Optional trace session ID for context propagation (runtime-injected)."
-            },
-            "trace_scope_id": {
-                "type": "string",
-                "description": "Optional trace scope ID for context propagation (runtime-injected)."
-            },
             "preview": {
                 "type": "boolean",
                 "description": "If true, validate capability warnings/blockers without executing."

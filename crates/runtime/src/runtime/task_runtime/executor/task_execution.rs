@@ -11,7 +11,6 @@ impl AgentExecutor for AgentRuntimeExecutor {
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let task_id = task_id.ok_or_else(|| anyhow!("task session execution requires task_id"))?;
         let Some(input) = input else {
@@ -52,7 +51,6 @@ impl AgentExecutor for AgentRuntimeExecutor {
                 emitter,
                 SessionTurnRuntimeOptions {
                     steer_rx,
-                    telemetry_context,
                     stream_display_mode: ai::StreamDisplayMode::Buffered,
                     workspace_root: None,
                 },

@@ -55,7 +55,7 @@ impl TaskTool {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_artifacts, list_traces, read_trace. To modify tasks, the user must grant write permissions.".to_string(),
+                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_artifacts. To modify tasks, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -279,13 +279,6 @@ impl Tool for TaskTool {
                 handlers_read::execute_list_messages(self, id, limit)
             }
             TaskAction::ListArtifacts { id } => handlers_read::execute_list_artifacts(self, id),
-            TaskAction::ListTraces { id, limit } => {
-                handlers_read::execute_list_traces(self, id, limit)
-            }
-            TaskAction::ReadTrace {
-                trace_id,
-                line_limit,
-            } => handlers_read::execute_read_trace(self, trace_id, line_limit),
         }
     }
 }

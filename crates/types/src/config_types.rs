@@ -160,8 +160,6 @@ pub struct ApiDefaults {
     pub session_list_limit: u32,
     pub task_progress_event_limit: usize,
     pub task_message_list_limit: usize,
-    pub task_trace_list_limit: usize,
-    pub task_trace_line_limit: usize,
     pub web_search_num_results: usize,
     pub diagnostics_timeout_ms: u64,
 }
@@ -174,8 +172,6 @@ impl Default for ApiDefaults {
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
             task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
             task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
-            task_trace_list_limit: DEFAULT_TASK_TRACE_LIST_LIMIT,
-            task_trace_line_limit: DEFAULT_TASK_TRACE_LINE_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
             diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }

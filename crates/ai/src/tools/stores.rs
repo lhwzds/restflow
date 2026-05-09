@@ -7,6 +7,5 @@ pub use types::store::{
     SecurityQueryProvider, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
     SessionStore, TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest,
     TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
-    TerminalStore,
+    TaskProgressRequest, TaskStore, TaskUpdateRequest, TerminalStore,
 };

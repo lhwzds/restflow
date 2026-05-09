@@ -219,42 +219,6 @@ impl McpBackend for CoreBackend {
         .map_err(|e| e.to_string())
     }
 
-    async fn query_execution_traces(
-        &self,
-        query: crate::models::ExecutionTraceQuery,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        self.core
-            .storage
-            .execution_traces
-            .query(&query)
-            .map_err(|e| e.to_string())
-    }
-
-    async fn query_execution_run_traces(
-        &self,
-        run_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        self.core
-            .storage
-            .execution_traces
-            .query(&crate::models::ExecutionTraceQuery {
-                task_id: None,
-                run_id: Some(run_id.to_string()),
-                parent_run_id: None,
-                session_id: None,
-                turn_id: None,
-                agent_id: None,
-                category: None,
-                source: None,
-                from_timestamp: None,
-                to_timestamp: None,
-                limit: Some(limit),
-                offset: Some(0),
-            })
-            .map_err(|e| e.to_string())
-    }
-
     async fn get_task(&self, id: &str) -> Result<Task, String> {
         let resolved_id = resolve_task_id(&self.core.storage.tasks, id)?;
         self.core
@@ -481,39 +445,6 @@ impl McpBackend for IpcBackend {
     async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String> {
         let query = to_contract(query).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::ListRuns { query }).await
-    }
-
-    async fn query_execution_traces(
-        &self,
-        query: crate::models::ExecutionTraceQuery,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        let query = to_contract(query).map_err(|e| e.to_string())?;
-        self.request_typed(IpcRequest::QueryExecutionTraces { query })
-            .await
-    }
-
-    async fn query_execution_run_traces(
-        &self,
-        run_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        let query = to_contract(crate::models::ExecutionTraceQuery {
-            task_id: None,
-            run_id: Some(run_id.to_string()),
-            parent_run_id: None,
-            session_id: None,
-            turn_id: None,
-            agent_id: None,
-            category: None,
-            source: None,
-            from_timestamp: None,
-            to_timestamp: None,
-            limit: Some(limit),
-            offset: Some(0),
-        })
-        .map_err(|e| e.to_string())?;
-        self.request_typed(IpcRequest::QueryExecutionTraces { query })
-            .await
     }
 
     async fn get_task(&self, id: &str) -> Result<Task, String> {

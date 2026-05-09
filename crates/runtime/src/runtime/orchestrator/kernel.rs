@@ -106,7 +106,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        AgentExecutor::execute(self, agent_id, task_id, input, steer_rx, emitter, None).await
+        AgentExecutor::execute(self, agent_id, task_id, input, steer_rx, emitter).await
     }
 
     async fn execute_task_from_state(

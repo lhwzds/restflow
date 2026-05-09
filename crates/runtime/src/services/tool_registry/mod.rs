@@ -18,8 +18,7 @@ use crate::services::adapters::*;
 use crate::storage::ConfigStorage;
 #[cfg(test)]
 use crate::storage::{
-    AgentStorage, ChatSessionStorage, ExecutionTraceStorage, SecretStorage, TaskStorage,
-    TerminalSessionStorage,
+    AgentStorage, ChatSessionStorage, SecretStorage, TaskStorage, TerminalSessionStorage,
 };
 use crate::{AgentDefaults, SystemConfig};
 #[cfg(test)]

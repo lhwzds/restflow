@@ -204,6 +204,7 @@ mod tests {
                 tool_calls: vec![],
                 finish_reason: FinishReason::Stop,
                 usage: Some(TokenUsage::default()),
+                reasoning_content: None,
             })
         }
 

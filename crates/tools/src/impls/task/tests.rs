@@ -4,8 +4,7 @@ use ::types::assessment::{AgentOperationAssessor, OperationAssessment, Operation
 use ::types::store::{
     MANAGE_TASK_OPERATIONS_CSV, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
-    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskUpdateRequest,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -307,25 +306,6 @@ impl TaskStore for MockStore {
             "type": "report"
         }]))
     }
-
-    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
-        Ok(json!([{
-            "id": request.id,
-            "trace_id": "trace-001",
-            "event_type": "tool_call_completed",
-        }]))
-    }
-
-    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
-        Ok(json!({
-            "trace_id": request.trace_id,
-            "line_limit": request.line_limit.unwrap_or(200),
-            "events": [
-                {"event_type": "turn_started"},
-                {"event_type": "turn_completed"}
-            ]
-        }))
-    }
 }
 
 impl TaskStore for ConfirmationCreateStore {
@@ -392,14 +372,6 @@ impl TaskStore for ConfirmationCreateStore {
     }
 
     fn list_task_artifacts(&self, _request: TaskArtifactListRequest) -> Result<Value> {
-        panic!("not expected")
-    }
-
-    fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
-        panic!("not expected")
-    }
-
-    fn read_task_trace(&self, _request: TaskTraceReadRequest) -> Result<Value> {
         panic!("not expected")
     }
 }
@@ -482,18 +454,6 @@ impl TaskStore for FailingListStore {
             "task_id": request.id,
             "type": "report"
         }]))
-    }
-
-    fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
-        Ok(json!([]))
-    }
-
-    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
-        Ok(json!({
-            "trace_id": request.trace_id,
-            "line_limit": request.line_limit.unwrap_or(200),
-            "events": []
-        }))
     }
 }
 
@@ -772,42 +732,6 @@ async fn test_list_artifacts_operation() {
         .await
         .unwrap();
     assert!(output.success);
-}
-
-#[tokio::test]
-async fn test_list_traces_operation() {
-    let tool = TaskTool::new(Arc::new(MockStore));
-    let output = tool
-        .execute(json!({
-            "operation": "list_traces",
-            "id": "task-1",
-            "limit": 5
-        }))
-        .await
-        .unwrap();
-    assert!(output.success);
-    assert_eq!(output.result.as_array().map(|items| items.len()), Some(1));
-}
-
-#[tokio::test]
-async fn test_read_trace_operation() {
-    let tool = TaskTool::new(Arc::new(MockStore));
-    let output = tool
-        .execute(json!({
-            "operation": "read_trace",
-            "trace_id": "trace-task-1-20260214-000000",
-            "line_limit": 2
-        }))
-        .await
-        .unwrap();
-    assert!(output.success);
-    assert_eq!(
-        output
-            .result
-            .get("trace_id")
-            .and_then(|value| value.as_str()),
-        Some("trace-task-1-20260214-000000")
-    );
 }
 
 #[tokio::test]

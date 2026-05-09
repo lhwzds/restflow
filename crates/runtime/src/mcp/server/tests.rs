@@ -815,33 +815,6 @@ impl McpBackend for MockBackend {
         }])
     }
 
-    async fn query_execution_traces(
-        &self,
-        _query: crate::models::ExecutionTraceQuery,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        Ok(Vec::new())
-    }
-
-    async fn query_execution_run_traces(
-        &self,
-        run_id: &str,
-        _limit: usize,
-    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        let mut event = crate::models::execution_trace_builders::message(
-            "task-1".to_string(),
-            "agent-1".to_string(),
-            crate::models::MessageTrace {
-                role: "assistant".to_string(),
-                content_preview: Some(format!("trace for {run_id}")),
-                tool_call_count: Some(0),
-            },
-        );
-        event.run_id = Some(run_id.to_string());
-        event.session_id = Some("session-1".to_string());
-        event.turn_id = Some(format!("run-{run_id}"));
-        Ok(vec![event])
-    }
-
     async fn get_task(&self, id: &str) -> Result<Task, String> {
         let mut task = Task::new(
             id.to_string(),
@@ -1026,12 +999,6 @@ async fn test_manage_tasks_list_operation() {
         source: None,
         limit: None,
         offset: None,
-        category: None,
-        from_time_ms: None,
-        to_time_ms: None,
-        include_stats: None,
-        trace_id: None,
-        line_limit: None,
         run_now: None,
         preview: None,
         approval_id: None,
@@ -1428,84 +1395,6 @@ async fn test_mcp_manage_tasks_list_artifacts_accepts_prefix() {
     let value: serde_json::Value =
         serde_json::from_str(call_tool_text(&list)).expect("artifacts response json");
     assert!(value.is_array());
-}
-
-#[test]
-fn test_parse_trace_category_rejects_unknown_value() {
-    let err = RestFlowMcpServer::parse_trace_category(Some("unknown".to_string())).unwrap_err();
-    assert!(err.contains("Unknown trace category"));
-}
-
-#[tokio::test]
-async fn test_manage_tasks_list_traces_returns_canonical_object_shape() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_tasks_params("list_traces");
-    params.id = Some("task-1".to_string());
-
-    let json = server
-        .handle_manage_tasks(params)
-        .await
-        .expect("list_traces should succeed");
-    let value: serde_json::Value =
-        serde_json::from_str(&json).expect("list_traces response should be valid json");
-    assert!(value["events"].is_array());
-    assert!(value["query"].is_object());
-    assert!(value.get("stats").is_none());
-}
-
-#[tokio::test]
-async fn test_manage_tasks_list_traces_supports_stats_payload() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_tasks_params("list_traces");
-    params.id = Some("task-1".to_string());
-    params.include_stats = Some(true);
-    params.category = Some("tool".to_string());
-    params.offset = Some(0);
-    params.limit = Some(5);
-
-    let json = server
-        .handle_manage_tasks(params)
-        .await
-        .expect("list_traces with stats should succeed");
-    let value: serde_json::Value =
-        serde_json::from_str(&json).expect("list_traces stats response should be valid json");
-    assert!(value["events"].is_array());
-    assert!(value["stats"].is_object());
-    assert_eq!(value["stats"]["limit"], 5);
-}
-
-#[tokio::test]
-async fn test_manage_tasks_list_traces_validates_time_range() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_tasks_params("list_traces");
-    params.id = Some("task-1".to_string());
-    params.from_time_ms = Some(200);
-    params.to_time_ms = Some(100);
-
-    let err = server
-        .handle_manage_tasks(params)
-        .await
-        .expect_err("invalid time range should fail");
-    assert!(err.contains("Invalid time range"));
-}
-
-#[tokio::test]
-async fn test_manage_tasks_read_trace_prefers_run_scoped_backend_for_run_ids() {
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-    let mut params = base_manage_tasks_params("read_trace");
-    params.trace_id = Some("run-123".to_string());
-    params.line_limit = Some(5);
-
-    let json = server
-        .handle_manage_tasks(params)
-        .await
-        .expect("read_trace should succeed");
-    let value: serde_json::Value =
-        serde_json::from_str(&json).expect("read_trace response should be valid json");
-
-    assert_eq!(value["trace_id"], "run-123");
-    assert_eq!(value["total"], 1);
-    assert_eq!(value["events"][0]["run_id"], "run-123");
 }
 
 #[tokio::test]
@@ -1907,12 +1796,6 @@ fn base_manage_tasks_params(operation: &str) -> ManageTasksParams {
         source: None,
         limit: None,
         offset: None,
-        category: None,
-        from_time_ms: None,
-        to_time_ms: None,
-        include_stats: None,
-        trace_id: None,
-        line_limit: None,
         run_now: None,
         preview: None,
         approval_id: None,

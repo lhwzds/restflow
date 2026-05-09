@@ -21,7 +21,6 @@ pub mod session_import;
 pub mod session_log;
 pub mod steer;
 pub mod storage;
-pub mod telemetry;
 mod template;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -40,22 +39,17 @@ pub use models::{
     ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, ChildRunListQuery,
     CodexCliExecutionMode, CommandPattern, ContinuationConfig, EnvVarRequirement,
     ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionDetails,
-    ExecutionLogField, ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery,
-    ExecutionMetricsResponse, ExecutionMode, ExecutionStep, ExecutionStepInfo, ExecutionThread,
-    ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
-    ExecutionTraceSource, ExecutionTraceStats, ExecutionTraceTimeRange, GatingCheckResult,
-    GatingRequirements, InstallStatus, InstalledSkill, LifecycleTrace, LlmCallTrace,
-    LogRecordTrace, MessageExecution, MessageTrace, MetricDimension, MetricSampleTrace, ModelId,
-    ModelMetadataDTO, ModelRoutingConfig, ModelSwitchTrace, OsType, PendingApproval, Provider,
-    ProviderHealthQuery, ProviderHealthResponse, ProviderHealthTrace, ResourceLimits, RunArtifact,
-    RunArtifactKind, RunKind, RunListQuery, RunSummary, SecurityAction, SecurityCheckResult,
-    SecurityMode, SecurityPolicy, Skill, SkillAuthor, SkillDependency, SkillGating, SkillManifest,
-    SkillMeta, SkillPermission, SkillPermissions, SkillReference, SkillScript, SkillSource,
-    SkillStatus, SkillVersion, SteerMessage, SteerSource, StorageMode, Task, TaskControlAction,
-    TaskConversionResult, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
-    TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus,
-    TaskSchedule, TaskSpec, TaskStatus, TerminalSession, TerminalStatus, ToolAction, ToolCallInfo,
-    ToolCallPhase, ToolRule, ValidationError, ValidationErrorResponse, VersionRequirement,
+    ExecutionMode, ExecutionStep, ExecutionStepInfo, ExecutionThread, GatingCheckResult,
+    GatingRequirements, InstallStatus, InstalledSkill, MessageExecution, ModelId, ModelMetadataDTO,
+    ModelRoutingConfig, OsType, PendingApproval, Provider, ResourceLimits, RunArtifact,
+    RunArtifactKind, RunKind, RunListQuery, RunSummary, RunTimeline, SecurityAction,
+    SecurityCheckResult, SecurityMode, SecurityPolicy, Skill, SkillAuthor, SkillDependency,
+    SkillGating, SkillManifest, SkillMeta, SkillPermission, SkillPermissions, SkillReference,
+    SkillScript, SkillSource, SkillStatus, SkillVersion, SteerMessage, SteerSource, StorageMode,
+    Task, TaskControlAction, TaskConversionResult, TaskEvent, TaskEventType, TaskMessage,
+    TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics,
+    TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus, TerminalSession, TerminalStatus, ToolAction,
+    ToolCallInfo, ToolRule, ValidationError, ValidationErrorResponse, VersionRequirement,
     encode_validation_error,
 };
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};

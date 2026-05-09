@@ -182,8 +182,6 @@ pub fn spawn_request_from_contract(
         model,
         model_provider,
         parent_run_id: None,
-        trace_session_id: request.trace_session_id,
-        trace_scope_id: request.trace_scope_id,
         run_id: None,
     };
     spawn_request.set_parent_run_id(request.parent_run_id);

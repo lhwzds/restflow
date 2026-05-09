@@ -51,12 +51,6 @@ pub struct ExecutionPlan {
     /// Optional parent run ID.
     #[serde(default)]
     pub parent_run_id: Option<String>,
-    /// Optional trace session ID.
-    #[serde(default)]
-    pub trace_session_id: Option<String>,
-    /// Optional trace scope ID.
-    #[serde(default)]
-    pub trace_scope_id: Option<String>,
     /// Optional authoritative run ID.
     ///
     /// For sub-agent executions this identifies the canonical child run. When

@@ -54,7 +54,6 @@ impl AgentExecutor for DeterministicMockExecutor {
         _input: Option<&str>,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         _emitter: Option<Box<dyn ai::agent::StreamEmitter>>,
-        _telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         let call_index = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
 

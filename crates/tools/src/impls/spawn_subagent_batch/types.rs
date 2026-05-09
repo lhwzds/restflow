@@ -107,14 +107,6 @@ pub struct SpawnSubagentBatchParams {
     #[serde(default)]
     pub parent_run_id: Option<String>,
 
-    /// Optional trace session ID for context propagation (runtime-injected).
-    #[serde(default)]
-    pub trace_session_id: Option<String>,
-
-    /// Optional trace scope ID for context propagation (runtime-injected).
-    #[serde(default)]
-    pub trace_scope_id: Option<String>,
-
     /// If true, validate and preview capability warnings/blockers without executing.
     #[serde(default)]
     pub preview: bool,

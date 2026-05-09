@@ -146,7 +146,6 @@ pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> 
                     "Failed to persist canceled chat turn"
                 );
             }
-            emit_canceled_run_trace(core, &session_id, stream_id).await;
         }
         true
     } else {
@@ -377,7 +376,6 @@ pub(super) async fn execute_chat_session(
             max_history: chat_max_session_history,
             input_mode: SessionInputMode::PersistedInSession,
             run_id: turn_id.clone(),
-            execution_trace_storage: core.storage.execution_traces.clone(),
             timeout_secs: None,
             emitter,
             steer_rx,
@@ -393,15 +391,11 @@ pub(super) async fn execute_chat_session(
             return Err(anyhow::Error::new(error).into());
         }
     };
-    let trace = traced_execution.trace;
     let duration_ms = traced_execution.duration_ms;
     let exec_result = traced_execution.execution;
 
     let original_persisted_input = persisted_input.clone();
     let (execution, final_persisted_input) = build_turn_persistence_payload(
-        &core.storage.execution_traces,
-        &session.id,
-        &trace.turn_id,
         &original_persisted_input,
         duration_ms,
         exec_result.iterations,
@@ -548,12 +542,6 @@ fn cancel_turn_in_session_store(
     session.cancel_turn(turn_id);
     session_service.save_existing_session(&session, "ipc")?;
     Ok(())
-}
-
-async fn emit_canceled_run_trace(core: &Arc<AppCore>, session_id: &str, turn_id: &str) {
-    let sink = crate::telemetry::build_core_telemetry_sink(core.storage.as_ref());
-    let trace = resolve_chat_stream_trace(core, session_id, turn_id);
-    crate::telemetry::emit_run_interrupted(&sink, trace, "canceled by user", None).await;
 }
 
 fn load_chat_session_for_execution(

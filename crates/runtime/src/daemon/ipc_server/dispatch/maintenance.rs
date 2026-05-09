@@ -8,7 +8,6 @@ impl IpcServer {
                 chat_sessions: report.chat_sessions,
                 tasks: report.tasks,
                 audit_events: report.audit_events,
-                telemetry_metric_samples: 0,
                 daemon_log_files: report.daemon_log_files,
             }),
             Err(err) => IpcResponse::error(500, err.to_string()),

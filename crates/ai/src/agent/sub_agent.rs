@@ -5,7 +5,6 @@ mod model_resolution;
 mod spawn;
 mod tracker;
 
-pub use crate::telemetry::RunTraceContext;
 pub use manager::{SubagentDeps, SubagentManagerImpl};
 pub use spawn::{SubagentExecutionBridge, execute_subagent_plan};
 pub use tracker::SubagentTracker;

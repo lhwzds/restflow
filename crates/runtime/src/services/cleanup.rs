@@ -37,12 +37,7 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         0
     };
 
-    let audit_events =
-        if let Some(cutoff) = retention_cutoff(now_ms, config.audit_event_retention_days) {
-            core.storage.execution_traces.cleanup_older_than(cutoff)?
-        } else {
-            0
-        };
+    let audit_events = 0;
 
     // L1: Clean up old log files (blocking I/O, offload to spawn_blocking)
     let retention_days = config.log_file_retention_days;

@@ -5,7 +5,7 @@ use crate::models::{
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use crate::services::session::SessionService;
 use crate::session_log::FileSessionStore;
-use crate::storage::{ChatSessionStorage, ExecutionTraceStorage, SessionStorage};
+use crate::storage::{ChatSessionStorage, SessionStorage};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 use tempfile::tempdir;
@@ -78,7 +78,6 @@ impl AgentExecutor for MockExecutor {
         input: Option<&str>,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        _telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         if emitter.is_some() {
@@ -108,7 +107,6 @@ impl AgentExecutor for FailsOnceExecutor {
         input: Option<&str>,
         _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        _telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
         if emitter.is_some() {
             self.saw_emitter.store(true, Ordering::SeqCst);
@@ -174,10 +172,7 @@ fn persist_to_chat_session_uses_session_service_when_available() {
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let session_storage = SessionStorage::new(
-        chat_storage.clone(),
-        ExecutionTraceStorage::new(db.clone()).unwrap(),
-    );
+    let session_storage = SessionStorage::new(chat_storage.clone());
     let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
     let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
         .with_file_sessions(file_store.clone());

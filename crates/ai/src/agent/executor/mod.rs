@@ -10,7 +10,6 @@
 //! ├── builder.rs          # new(), with_workspace_root(), with_steer_channel(), with_subagent_tracker()
 //! ├── llm.rs              # execute_llm_completion(), build_system_prompt(), workspace instructions
 //! ├── loop.rs             # execute_with_mode() — the ~450 line main ReAct loop
-//! ├── telemetry.rs        # emit_execution_event(), resolve_telemetry_model()
 //! ├── tool_output.rs      # save_tool_output(), truncate_tool_output(), sanitize_tool_call_history()
 //! ├── config.rs           # already split ✓
 //! ├── prompt.rs           # already split ✓
@@ -56,15 +55,12 @@ use steer::DeferredExecutionOptions;
 use tool_exec::{ToolExecutionOptions, ToolInvocationContext};
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::telemetry::{
-    ExecutionEvent, ExecutionEventEnvelope, LlmCallPayload, TelemetryContext, TelemetrySink,
-};
 use serde_json::Value;
 
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
@@ -117,43 +113,6 @@ fn save_tool_output(
     match fs::write(&path, content) {
         Ok(()) => Some(path),
         Err(_) => None,
-    }
-}
-
-impl AgentExecutor {
-    async fn emit_execution_event(
-        telemetry_sink: Option<&Arc<dyn TelemetrySink>>,
-        telemetry_context: Option<&TelemetryContext>,
-        event: ExecutionEvent,
-        effective_model: Option<&str>,
-    ) {
-        let (Some(telemetry_sink), Some(telemetry_context)) = (telemetry_sink, telemetry_context)
-        else {
-            return;
-        };
-        let mut envelope = ExecutionEventEnvelope::from_telemetry_context(telemetry_context, event);
-        if let Some(effective_model) = effective_model {
-            envelope = envelope.with_effective_model(effective_model.to_string());
-        }
-        telemetry_sink.emit(envelope).await;
-    }
-
-    fn resolve_telemetry_model(
-        current_model: String,
-        telemetry_context: Option<&TelemetryContext>,
-    ) -> String {
-        let normalized = current_model.trim();
-        if (normalized.is_empty() || normalized == "dynamic")
-            && let Some(context) = telemetry_context
-        {
-            if let Some(effective_model) = context.effective_model.as_ref() {
-                return effective_model.clone();
-            }
-            if let Some(requested_model) = context.requested_model.as_ref() {
-                return requested_model.clone();
-            }
-        }
-        current_model
     }
 }
 
@@ -520,18 +479,6 @@ impl AgentExecutor {
                             tier = ?tier,
                             "Switched model via router"
                         );
-                        Self::emit_execution_event(
-                            config.telemetry_sink.as_ref(),
-                            config.telemetry_context.as_ref(),
-                            ExecutionEvent::ModelSwitch {
-                                from_model: current_model.clone(),
-                                to_model: target_model.clone(),
-                                reason: Some("routing".to_string()),
-                                success: true,
-                            },
-                            Some(&target_model),
-                        )
-                        .await;
                     }
                 }
             }
@@ -588,7 +535,6 @@ impl AgentExecutor {
                 request = request.with_max_tokens(max_tokens);
             }
 
-            let llm_started_at = Instant::now();
             let response = self
                 .execute_llm_completion(
                     request,
@@ -600,8 +546,6 @@ impl AgentExecutor {
                     config.llm_timeout,
                 )
                 .await?;
-            let llm_duration_ms = llm_started_at.elapsed().as_millis() as u64;
-            let request_message_count = state.messages.len().min(u32::MAX as usize) as u32;
             let current_model = config
                 .model_switcher
                 .as_ref()
@@ -612,26 +556,6 @@ impl AgentExecutor {
                 .as_ref()
                 .map(|switcher| switcher.current_provider())
                 .unwrap_or_else(|| self.llm.provider().to_string());
-            let emitted_model =
-                Self::resolve_telemetry_model(current_model, config.telemetry_context.as_ref());
-            let usage = response.usage.as_ref();
-            Self::emit_execution_event(
-                config.telemetry_sink.as_ref(),
-                config.telemetry_context.as_ref(),
-                ExecutionEvent::LlmCall(LlmCallPayload {
-                    model: emitted_model.clone(),
-                    input_tokens: usage.map(|value| value.prompt_tokens),
-                    output_tokens: usage.map(|value| value.completion_tokens),
-                    total_tokens: usage.map(|value| value.total_tokens),
-                    cost_usd: usage.and_then(|value| value.cost_usd),
-                    duration_ms: Some(llm_duration_ms),
-                    is_reasoning: None,
-                    message_count: Some(request_message_count),
-                }),
-                Some(&emitted_model),
-            )
-            .await;
-
             // Track token usage
             if let Some(usage) = &response.usage {
                 total_tokens += usage.total_tokens;
@@ -698,39 +622,7 @@ impl AgentExecutor {
 
             // 3. Execute tools with timeout and optional stream events.
             let chat_session_id = state.context.get("chat_session_id").and_then(Value::as_str);
-            let task_id = state.context.get("task_id").and_then(Value::as_str);
-            let trace_session_id = state
-                .context
-                .get("trace_session_id")
-                .and_then(Value::as_str)
-                .or(chat_session_id)
-                .or(task_id);
-            let trace_scope_id = state
-                .context
-                .get("trace_scope_id")
-                .and_then(Value::as_str)
-                .or(task_id)
-                .or(chat_session_id);
-            let parent_run_id = config
-                .telemetry_context
-                .as_ref()
-                .map(|context| context.trace.run_id.as_str())
-                .unwrap_or(state.execution_id.as_str());
-            let invocation_model = config
-                .telemetry_context
-                .as_ref()
-                .and_then(|context| {
-                    context
-                        .effective_model
-                        .as_deref()
-                        .or(context.requested_model.as_deref())
-                })
-                .or(Some(emitted_model.as_str()));
-            let invocation_provider = config
-                .telemetry_context
-                .as_ref()
-                .and_then(|context| context.provider.as_deref())
-                .or(Some(current_provider.as_str()));
+            let parent_run_id = state.execution_id.as_str();
             let results = self
                 .execute_tools_with_events(
                     &response.tool_calls,
@@ -739,15 +631,11 @@ impl AgentExecutor {
                         tool_timeout: config.tool_timeout,
                         yolo_mode: config.yolo_mode,
                         max_concurrency: config.max_tool_concurrency,
-                        telemetry_sink: config.telemetry_sink.as_ref(),
-                        telemetry_context: config.telemetry_context.as_ref(),
                         invocation: ToolInvocationContext {
                             parent_run_id: Some(parent_run_id),
                             chat_session_id,
-                            trace_session_id,
-                            trace_scope_id,
-                            model: invocation_model,
-                            provider: invocation_provider,
+                            model: Some(current_model.as_str()),
+                            provider: Some(current_provider.as_str()),
                         },
                         reviewer: config.tool_call_reviewer.as_ref(),
                         review_messages: &state.messages,

@@ -486,7 +486,7 @@ async fn test_executor_agent_not_found() {
     let executor = create_test_executor(storage);
 
     let result = executor
-        .execute("nonexistent-agent", None, None, None, None, None)
+        .execute("nonexistent-agent", None, None, None, None)
         .await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("requires task_id"));

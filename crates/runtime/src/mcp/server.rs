@@ -8,10 +8,9 @@ use crate::AppCore;
 use crate::auth::provider_access::build_runtime_api_keys;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
-    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
-    ModelId, RunArtifact, RunListQuery, RunSummary, Skill, SkillStatus, Task, TaskControlAction,
-    TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec, TaskStatus, ValidationError,
+    ChatSession, ChatSessionSummary, ModelId, RunArtifact, RunListQuery, RunSummary, Skill,
+    SkillStatus, Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress,
+    TaskSpec, TaskStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -39,7 +38,7 @@ use rmcp::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
 use tokio::sync::Mutex;
@@ -118,16 +117,6 @@ pub trait McpBackend: Send + Sync {
     async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String>;
     async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String>;
     async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>, String>;
-
-    async fn query_execution_traces(
-        &self,
-        query: ExecutionTraceQuery,
-    ) -> Result<Vec<ExecutionTraceEvent>, String>;
-    async fn query_execution_run_traces(
-        &self,
-        run_id: &str,
-        limit: usize,
-    ) -> Result<Vec<ExecutionTraceEvent>, String>;
     async fn get_task(&self, id: &str) -> Result<Task, String>;
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String>;
@@ -226,279 +215,6 @@ fn stdio() -> (tokio::io::Stdin, tokio::io::Stdout) {
 }
 
 impl RestFlowMcpServer {
-    fn execution_trace_event_name(event: &ExecutionTraceEvent) -> &'static str {
-        match event.category {
-            ExecutionTraceCategory::Lifecycle => match event
-                .lifecycle
-                .as_ref()
-                .map(|lifecycle| lifecycle.status.as_str())
-            {
-                Some("started") => "turn_started",
-                Some("completed") => "turn_completed",
-                Some("failed") => "turn_failed",
-                Some("interrupted") => "turn_interrupted",
-                _ => "lifecycle",
-            },
-            ExecutionTraceCategory::ToolCall => match event.tool_call.as_ref().map(|t| t.phase) {
-                Some(crate::models::ToolCallPhase::Started) => "tool_call_started",
-                Some(crate::models::ToolCallPhase::Completed) => "tool_call_completed",
-                None => "tool_call",
-            },
-            ExecutionTraceCategory::LlmCall => "llm_call",
-            ExecutionTraceCategory::ModelSwitch => "model_switch",
-            ExecutionTraceCategory::Message => "message",
-            ExecutionTraceCategory::MetricSample => "metric_sample",
-            ExecutionTraceCategory::ProviderHealth => "provider_health",
-            ExecutionTraceCategory::LogRecord => "log_record",
-        }
-    }
-
-    fn execution_trace_category_name(event: &ExecutionTraceEvent) -> &'static str {
-        match event.category {
-            ExecutionTraceCategory::ToolCall => "tool",
-            ExecutionTraceCategory::Lifecycle => "turn",
-            ExecutionTraceCategory::LlmCall => "llm",
-            ExecutionTraceCategory::ModelSwitch => "model",
-            ExecutionTraceCategory::Message => "message",
-            ExecutionTraceCategory::MetricSample => "metric",
-            ExecutionTraceCategory::ProviderHealth => "provider_health",
-            ExecutionTraceCategory::LogRecord => "log",
-        }
-    }
-
-    fn parse_trace_category(value: Option<String>) -> Result<Option<String>, String> {
-        match value.map(|s| s.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(s) if s.is_empty() => Ok(None),
-            Some(s)
-                if matches!(
-                    s.as_str(),
-                    "turn"
-                        | "tool"
-                        | "llm"
-                        | "model"
-                        | "message"
-                        | "metric"
-                        | "provider_health"
-                        | "log"
-                        | "turn_started"
-                        | "tool_call_started"
-                        | "tool_call_completed"
-                        | "turn_completed"
-                        | "turn_failed"
-                        | "turn_interrupted"
-                        | "llm_call"
-                        | "model_switch"
-                        | "metric_sample"
-                        | "log_record"
-                ) =>
-            {
-                Ok(Some(s))
-            }
-            Some(s) => Err(format!(
-                "Unknown trace category: {}. Supported: turn, tool, llm, model, message, metric, provider_health, log, turn_started, tool_call_started, tool_call_completed, turn_completed, turn_failed, turn_interrupted, llm_call, model_switch, metric_sample, log_record",
-                s
-            )),
-        }
-    }
-
-    fn normalize_optional_filter(value: Option<String>) -> Option<String> {
-        value
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-    }
-
-    fn validate_trace_time_range(
-        from_time_ms: Option<i64>,
-        to_time_ms: Option<i64>,
-    ) -> Result<(), String> {
-        if let (Some(from), Some(to)) = (from_time_ms, to_time_ms)
-            && from > to
-        {
-            return Err(
-                "Invalid time range: from_time_ms must be less than or equal to to_time_ms"
-                    .to_string(),
-            );
-        }
-        Ok(())
-    }
-
-    fn trace_matches_category(trace: &ExecutionTraceEvent, category: Option<&str>) -> bool {
-        let Some(category) = category else {
-            return true;
-        };
-
-        match category {
-            "turn" => Self::execution_trace_category_name(trace) == "turn",
-            "tool" => Self::execution_trace_category_name(trace) == "tool",
-            "llm" => Self::execution_trace_category_name(trace) == "llm",
-            "model" => Self::execution_trace_category_name(trace) == "model",
-            "message" => Self::execution_trace_category_name(trace) == "message",
-            "metric" => Self::execution_trace_category_name(trace) == "metric",
-            "provider_health" => Self::execution_trace_category_name(trace) == "provider_health",
-            "log" => Self::execution_trace_category_name(trace) == "log",
-            event_type => Self::execution_trace_event_name(trace) == event_type,
-        }
-    }
-
-    fn trace_matches_source(trace: &ExecutionTraceEvent, source: Option<&str>) -> bool {
-        let Some(source) = source else {
-            return true;
-        };
-
-        match source {
-            "agent_executor" => trace.source == ExecutionTraceSource::AgentExecutor,
-            "runtime" => trace.source == ExecutionTraceSource::Runtime,
-            "mcp_server" => trace.source == ExecutionTraceSource::McpServer,
-            "cli" => trace.source == ExecutionTraceSource::Cli,
-            "telemetry" => trace.source == ExecutionTraceSource::Telemetry,
-            other => trace
-                .tool_call
-                .as_ref()
-                .map(|tool_call| tool_call.tool_name.trim().eq_ignore_ascii_case(other))
-                .unwrap_or(false),
-        }
-    }
-
-    fn trace_matches_time_range(
-        trace: &ExecutionTraceEvent,
-        from_time_ms: Option<i64>,
-        to_time_ms: Option<i64>,
-    ) -> bool {
-        if let Some(from) = from_time_ms
-            && trace.timestamp < from
-        {
-            return false;
-        }
-        if let Some(to) = to_time_ms
-            && trace.timestamp > to
-        {
-            return false;
-        }
-        true
-    }
-
-    fn build_trace_stats(
-        traces: &[ExecutionTraceEvent],
-        limit: usize,
-        offset: usize,
-        tasks_scanned: usize,
-        sessions_scanned: usize,
-        from_time_ms: Option<i64>,
-        to_time_ms: Option<i64>,
-    ) -> Value {
-        let mut by_event_type: BTreeMap<String, u64> = BTreeMap::new();
-        let mut by_category: BTreeMap<String, u64> = BTreeMap::new();
-        let mut by_tool: BTreeMap<String, u64> = BTreeMap::new();
-        let mut success_true = 0u64;
-        let mut success_false = 0u64;
-        let mut success_unknown = 0u64;
-        let mut duration_total = 0u64;
-        let mut duration_count = 0u64;
-        let mut duration_min: Option<u64> = None;
-        let mut duration_max: Option<u64> = None;
-        let mut created_at_min: Option<i64> = None;
-        let mut created_at_max: Option<i64> = None;
-
-        for trace in traces {
-            let event_name = Self::execution_trace_event_name(trace).to_string();
-            *by_event_type.entry(event_name).or_insert(0) += 1;
-
-            let category_name = Self::execution_trace_category_name(trace).to_string();
-            *by_category.entry(category_name).or_insert(0) += 1;
-
-            if let Some(tool_name) = trace
-                .tool_call
-                .as_ref()
-                .map(|tool_call| tool_call.tool_name.trim())
-                .filter(|name| !name.is_empty())
-            {
-                *by_tool.entry(tool_name.to_string()).or_insert(0) += 1;
-            }
-
-            match trace
-                .tool_call
-                .as_ref()
-                .and_then(|tool_call| tool_call.success)
-            {
-                Some(true) => success_true += 1,
-                Some(false) => success_false += 1,
-                None => success_unknown += 1,
-            }
-
-            let duration_ms = trace
-                .tool_call
-                .as_ref()
-                .and_then(|tool_call| tool_call.duration_ms)
-                .or_else(|| {
-                    trace
-                        .llm_call
-                        .as_ref()
-                        .and_then(|llm_call| llm_call.duration_ms)
-                })
-                .and_then(|value| u64::try_from(value).ok());
-            if let Some(duration_ms) = duration_ms {
-                duration_total = duration_total.saturating_add(duration_ms);
-                duration_count += 1;
-                duration_min = Some(duration_min.map_or(duration_ms, |v| v.min(duration_ms)));
-                duration_max = Some(duration_max.map_or(duration_ms, |v| v.max(duration_ms)));
-            }
-
-            created_at_min =
-                Some(created_at_min.map_or(trace.timestamp, |v| v.min(trace.timestamp)));
-            created_at_max =
-                Some(created_at_max.map_or(trace.timestamp, |v| v.max(trace.timestamp)));
-        }
-
-        let duration_avg = if duration_count > 0 {
-            Some(duration_total as f64 / duration_count as f64)
-        } else {
-            None
-        };
-
-        serde_json::json!({
-            "total": traces.len(),
-            "limit": limit,
-            "offset": offset,
-            "tasks_scanned": tasks_scanned,
-            "sessions_scanned": sessions_scanned,
-            "time_range": {
-                "from_time_ms": from_time_ms,
-                "to_time_ms": to_time_ms,
-                "matched_min_created_at": created_at_min,
-                "matched_max_created_at": created_at_max,
-            },
-            "by_event_type": by_event_type,
-            "by_category": by_category,
-            "by_tool": by_tool,
-            "success": {
-                "true": success_true,
-                "false": success_false,
-                "unknown": success_unknown,
-            },
-            "duration_ms": {
-                "count": duration_count,
-                "min": duration_min,
-                "max": duration_max,
-                "avg": duration_avg,
-            }
-        })
-    }
-
-    fn parse_task_status(value: Option<String>) -> Result<Option<TaskStatus>, String> {
-        match value.map(|s| s.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(s) if s.is_empty() => Ok(None),
-            Some(s) if s == "active" => Ok(Some(TaskStatus::Active)),
-            Some(s) if s == "paused" => Ok(Some(TaskStatus::Paused)),
-            Some(s) if s == "running" => Ok(Some(TaskStatus::Running)),
-            Some(s) if s == "completed" => Ok(Some(TaskStatus::Completed)),
-            Some(s) if s == "failed" => Ok(Some(TaskStatus::Failed)),
-            Some(s) if s == "interrupted" => Ok(Some(TaskStatus::Interrupted)),
-            Some(s) => Err(format!("Unknown status: {}", s)),
-        }
-    }
-
     fn parse_skill_status(value: Option<String>) -> Result<Option<SkillStatus>, String> {
         match value.map(|s| s.trim().to_lowercase()) {
             None => Ok(None),

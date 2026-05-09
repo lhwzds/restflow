@@ -206,9 +206,6 @@ impl AgentRuntimeExecutor {
             SubagentExecutionBridge {
                 llm_client_factory: Some(factory),
                 orchestrator: None,
-                telemetry_sink: Some(crate::telemetry::build_core_telemetry_sink(
-                    self.storage.as_ref(),
-                )),
             },
         )
         .await
@@ -245,9 +242,6 @@ impl AgentRuntimeExecutor {
         subagent_definitions: Arc<dyn SubagentDefLookup>,
         subagent_config: SubagentConfig,
     ) -> Self {
-        subagent_tracker.set_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
-            storage.as_ref(),
-        ));
         let session_service = SessionService::from_storage(storage.as_ref());
         Self {
             storage,

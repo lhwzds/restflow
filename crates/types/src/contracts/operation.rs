@@ -68,10 +68,6 @@ pub struct CleanupReportResponse {
     pub chat_sessions: usize,
     pub tasks: usize,
     pub audit_events: usize,
-    /// Deprecated compatibility field. Telemetry metric samples are no longer a
-    /// separate projection table; this remains zero for one release cycle.
-    #[serde(default)]
-    pub telemetry_metric_samples: usize,
     pub daemon_log_files: usize,
 }
 
@@ -201,7 +197,6 @@ mod tests {
             chat_sessions: 1,
             tasks: 2,
             audit_events: 3,
-            telemetry_metric_samples: 0,
             daemon_log_files: 4,
         };
         assert_roundtrip(&response);

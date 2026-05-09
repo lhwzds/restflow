@@ -75,9 +75,6 @@ impl CliTaskRunner {
         // Create task runtime components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-        subagent_tracker.set_telemetry_sink(runtime::telemetry::build_core_telemetry_sink(
-            storage.as_ref(),
-        ));
         let subagent_definitions =
             Arc::new(StorageBackedSubagentLookup::new(storage.agents.clone()));
         let task_config = build_task_config(&system_config.agent);

@@ -1,7 +1,6 @@
 use super::super::runtime::{cancel_chat_stream, resolve_agent_id, steer_chat_stream};
 use super::super::*;
 use crate::services::execution_console::{ExecutionConsoleService, ExecutionThreadError};
-use crate::telemetry::{get_execution_metrics, get_provider_health, query_execution_logs};
 use types::{ArchiveResponse, CancelResponse, DeleteResponse, ExecutionScope, SteerResponse};
 
 impl IpcServer {
@@ -307,16 +306,6 @@ impl IpcServer {
         IpcResponse::success(messages)
     }
 
-    pub(super) async fn handle_query_execution_traces(
-        core: &Arc<AppCore>,
-        query: crate::models::ExecutionTraceQuery,
-    ) -> IpcResponse {
-        match core.storage.execution_traces.query(&query) {
-            Ok(events) => IpcResponse::success(events),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
     pub(super) async fn handle_get_execution_run_timeline(
         core: &Arc<AppCore>,
         run_id: String,
@@ -328,101 +317,6 @@ impl IpcServer {
         let service = ExecutionConsoleService::from_storage(&core.storage);
         match service.get_execution_run_timeline(run_id) {
             Ok(timeline) => IpcResponse::success(timeline),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_get_execution_run_metrics(
-        core: &Arc<AppCore>,
-        run_id: String,
-    ) -> IpcResponse {
-        let run_id = run_id.trim();
-        if run_id.is_empty() {
-            return IpcResponse::error(400, "run_id is required");
-        }
-        match get_execution_metrics(
-            &core.storage.execution_traces,
-            &crate::models::ExecutionMetricQuery {
-                task_id: None,
-                run_id: Some(run_id.to_string()),
-                session_id: None,
-                agent_id: None,
-                metric_name: None,
-                limit: Some(100),
-            },
-        ) {
-            Ok(response) => IpcResponse::success(response),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_get_provider_health(
-        core: &Arc<AppCore>,
-        query: crate::models::ProviderHealthQuery,
-    ) -> IpcResponse {
-        match get_provider_health(&core.storage.execution_traces, &query) {
-            Ok(response) => IpcResponse::success(response),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_query_execution_run_logs(
-        core: &Arc<AppCore>,
-        run_id: String,
-    ) -> IpcResponse {
-        let run_id = run_id.trim();
-        if run_id.is_empty() {
-            return IpcResponse::error(400, "run_id is required");
-        }
-        match query_execution_logs(
-            &core.storage.execution_traces,
-            &crate::models::ExecutionLogQuery {
-                task_id: None,
-                run_id: Some(run_id.to_string()),
-                session_id: None,
-                agent_id: None,
-                level: None,
-                limit: Some(100),
-            },
-        ) {
-            Ok(response) => IpcResponse::success(response),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_get_execution_trace_stats(
-        core: &Arc<AppCore>,
-        run_id: Option<String>,
-    ) -> IpcResponse {
-        let run_id_provided = run_id.is_some();
-        let normalized_run_id = run_id.and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
-        if run_id_provided && normalized_run_id.is_none() {
-            return IpcResponse::error(400, "run_id is required");
-        }
-        match core
-            .storage
-            .execution_traces
-            .stats(normalized_run_id.as_deref())
-        {
-            Ok(stats) => IpcResponse::success(stats),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_get_execution_trace_by_id(
-        core: &Arc<AppCore>,
-        id: String,
-    ) -> IpcResponse {
-        match core.storage.execution_traces.get_by_id(&id) {
-            Ok(Some(event)) => IpcResponse::success(event),
-            Ok(None) => IpcResponse::not_found("Execution trace"),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

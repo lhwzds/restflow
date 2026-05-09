@@ -124,13 +124,7 @@ impl IpcClient {
         fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<types::ExecutionScope>) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
         fn list_runs(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
-        fn query_execution_traces(&mut self, _query: ExecutionTraceQuery) -> Vec<ExecutionTraceEvent>;
-        fn get_execution_trace_stats(&mut self, _run_id: Option<String>) -> ExecutionTraceStats;
-        fn get_execution_run_timeline(&mut self, _run_id: String) -> types::request::ExecutionTimeline;
-        fn get_execution_run_metrics(&mut self, _run_id: String) -> types::request::ExecutionMetricsResponse;
-        fn get_provider_health(&mut self, _query: crate::models::ProviderHealthQuery) -> crate::models::ProviderHealthResponse;
-        fn query_execution_run_logs(&mut self, _run_id: String) -> types::request::ExecutionLogResponse;
-        fn get_execution_trace_by_id(&mut self, _id: String) -> Option<ExecutionTraceEvent>;
+        fn get_execution_run_timeline(&mut self, _run_id: String) -> crate::RunTimeline;
         fn list_terminal_sessions(&mut self) -> Vec<TerminalSession>;
         fn get_terminal_session(&mut self, _id: String) -> TerminalSession;
         fn create_terminal_session(&mut self) -> TerminalSession;

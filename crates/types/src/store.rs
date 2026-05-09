@@ -33,8 +33,6 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "send_message",
     "list_messages",
     "list_artifacts",
-    "list_traces",
-    "read_trace",
     "pause",
     "start",
     "resume",
@@ -42,9 +40,9 @@ pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "run",
 ];
 
-pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, update, delete, list, control, progress, send_message, list_messages, list_artifacts, list_traces, read_trace, pause, start, resume, stop, run";
+pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, update, delete, list, control, progress, send_message, list_messages, list_artifacts, pause, start, resume, stop, run";
 
-pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from explicit workers and optionally trigger run_now), run (trigger now), pause/start/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (legacy compatibility operation; returns an empty list), list_traces/read_trace (diagnose execution traces).";
+pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from explicit workers and optionally trigger run_now), run (trigger now), pause/start/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_artifacts (legacy compatibility operation; returns an empty list).";
 
 pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
 
@@ -328,14 +326,6 @@ mod tests {
         fn list_task_artifacts(&self, _request: TaskArtifactListRequest) -> Result<Value> {
             panic!("not expected")
         }
-
-        fn list_task_traces(&self, _request: TaskTraceListRequest) -> Result<Value> {
-            panic!("not expected")
-        }
-
-        fn read_task_trace(&self, _request: TaskTraceReadRequest) -> Result<Value> {
-            panic!("not expected")
-        }
     }
 
     #[test]
@@ -386,21 +376,6 @@ pub struct TaskArtifactListRequest {
     pub id: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskTraceListRequest {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskTraceReadRequest {
-    pub trace_id: String,
-    #[serde(default)]
-    pub line_limit: Option<usize>,
-}
-
 pub trait TaskStore: Send + Sync {
     fn create_task(&self, request: TaskCreateRequest) -> Result<Value>;
     fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value>;
@@ -412,8 +387,6 @@ pub trait TaskStore: Send + Sync {
     fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value>;
     fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value>;
     fn list_task_artifacts(&self, request: TaskArtifactListRequest) -> Result<Value>;
-    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value>;
-    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value>;
 }
 
 // ── SessionStore ─────────────────────────────────────────────────────

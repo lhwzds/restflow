@@ -7,7 +7,6 @@ pub(super) struct ServiceSubagentRuntimeBundle {
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
     pub llm_client_factory: Arc<dyn LlmClientFactory>,
-    pub telemetry_sink: Option<Arc<dyn ai::telemetry::TelemetrySink>>,
 }
 
 pub(super) fn build_service_subagent_tool_registry(source: &ToolRegistry) -> ToolRegistry {
@@ -26,7 +25,6 @@ struct ToolRegistrySubagentBackend {
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     llm_client_factory: Arc<dyn LlmClientFactory>,
-    telemetry_sink: Option<Arc<dyn ai::telemetry::TelemetrySink>>,
 }
 
 #[async_trait::async_trait]
@@ -81,7 +79,6 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
             SubagentExecutionBridge {
                 llm_client_factory: Some(self.llm_client_factory.clone()),
                 orchestrator: None,
-                telemetry_sink: self.telemetry_sink.clone(),
             },
         )
         .await
@@ -94,16 +91,9 @@ pub(super) fn build_service_subagent_runtime_bundle(
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
-    execution_trace_storage: ExecutionTraceStorage,
 ) -> ServiceSubagentRuntimeBundle {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-    let telemetry_sink = Some(Arc::new(crate::telemetry::CoreTelemetrySink::new(
-        execution_trace_storage.clone(),
-    )) as Arc<dyn ai::telemetry::TelemetrySink>);
-    if let Some(sink) = telemetry_sink.clone() {
-        tracker.set_telemetry_sink(sink);
-    }
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
@@ -115,7 +105,6 @@ pub(super) fn build_service_subagent_runtime_bundle(
         tool_registry,
         config: subagent_config,
         llm_client_factory,
-        telemetry_sink,
     }
 }
 
@@ -129,7 +118,6 @@ pub(super) fn build_service_subagent_manager(
             tool_registry: bundle.tool_registry.clone(),
             config: bundle.config.clone(),
             llm_client_factory: bundle.llm_client_factory.clone(),
-            telemetry_sink: bundle.telemetry_sink.clone(),
         },
     )));
     SubagentManagerImpl::new(
@@ -149,14 +137,12 @@ pub(super) fn create_subagent_manager(
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
-    execution_trace_storage: ExecutionTraceStorage,
 ) -> Arc<dyn types::SubagentManager> {
     let bundle = build_service_subagent_runtime_bundle(
         agent_storage,
         base_registry,
         llm_client_factory,
         config_storage,
-        execution_trace_storage,
     );
     Arc::new(build_service_subagent_manager(&bundle))
 }

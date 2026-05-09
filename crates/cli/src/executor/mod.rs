@@ -2,9 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use runtime::daemon::is_daemon_available;
 use runtime::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, RunListQuery, RunSummary,
-    Secret, Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress,
-    TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, RunListQuery, RunSummary, RunTimeline, Secret,
+    Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use runtime::paths;
 use runtime::storage::SystemConfig;
@@ -99,7 +98,7 @@ pub trait CommandExecutor: Send + Sync {
     -> Result<TaskProgress>;
     async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;
     async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
-    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
+    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline>;
 }
 
 pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {

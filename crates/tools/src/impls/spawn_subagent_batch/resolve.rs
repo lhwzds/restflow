@@ -34,8 +34,6 @@ pub(super) fn preview_request_from_spec(spec: &BatchSubagentSpec) -> ContractRun
         model: spec.model.clone(),
         model_provider: spec.provider.clone(),
         parent_run_id: None,
-        trace_session_id: None,
-        trace_scope_id: None,
     }
 }
 
@@ -54,7 +52,5 @@ pub(super) fn spawn_request_from_spec(
         model: spec.model.clone(),
         model_provider: spec.provider.clone(),
         parent_run_id: params.parent_run_id.clone(),
-        trace_session_id: params.trace_session_id.clone(),
-        trace_scope_id: params.trace_scope_id.clone(),
     }
 }

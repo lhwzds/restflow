@@ -281,8 +281,6 @@ fn test_params_serialize_canonical_parent_run_id() {
         model: None,
         provider: None,
         parent_run_id: Some("run-456".to_string()),
-        trace_session_id: None,
-        trace_scope_id: None,
         inline_name: None,
         inline_system_prompt: None,
         inline_allowed_tools: None,

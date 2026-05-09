@@ -19,12 +19,6 @@ pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> 
         "task_message_list_limit" => {
             config.api.task_message_list_limit = parse_usize(value, "api.task_message_list_limit")?;
         }
-        "task_trace_list_limit" => {
-            config.api.task_trace_list_limit = parse_usize(value, "api.task_trace_list_limit")?;
-        }
-        "task_trace_line_limit" => {
-            config.api.task_trace_line_limit = parse_usize(value, "api.task_trace_line_limit")?;
-        }
         "diagnostics_timeout_ms" => {
             config.api.diagnostics_timeout_ms = parse_u64(value, "api.diagnostics_timeout_ms")?;
         }

@@ -72,12 +72,6 @@ pub const DEFAULT_TASK_PROGRESS_EVENT_LIMIT: usize = 10;
 /// Default message list limit for tasks.
 pub const DEFAULT_TASK_MESSAGE_LIST_LIMIT: usize = 50;
 
-/// Default trace list limit for tasks.
-pub const DEFAULT_TASK_TRACE_LIST_LIMIT: usize = 50;
-
-/// Default trailing line limit for task trace reads.
-pub const DEFAULT_TASK_TRACE_LINE_LIMIT: usize = 200;
-
 /// Default task runner poll interval in milliseconds.
 pub const DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS: u64 = 30_000;
 

@@ -25,8 +25,7 @@ use types::{
     DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH,
     DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
     DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
-    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_TASK_TRACE_LINE_LIMIT,
-    DEFAULT_TASK_TRACE_LIST_LIMIT, MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, MAX_API_WEB_SEARCH_RESULTS,
 };
 
 const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
@@ -396,10 +395,6 @@ pub struct ApiDefaults {
     pub task_progress_event_limit: usize,
     /// Default message list limit for tasks.
     pub task_message_list_limit: usize,
-    /// Default trace list limit for tasks.
-    pub task_trace_list_limit: usize,
-    /// Default trailing line limit when reading trace output.
-    pub task_trace_line_limit: usize,
     /// Default result count for `web_search`.
     pub web_search_num_results: usize,
     /// Default diagnostics wait timeout in milliseconds.
@@ -415,8 +410,6 @@ impl Default for ApiDefaults {
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
             task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
             task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
-            task_trace_list_limit: DEFAULT_TASK_TRACE_LIST_LIMIT,
-            task_trace_line_limit: DEFAULT_TASK_TRACE_LINE_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
             diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }
@@ -436,16 +429,6 @@ impl ApiDefaults {
         if self.task_message_list_limit == 0 {
             return Err(anyhow::anyhow!(
                 "api.task_message_list_limit must be at least 1"
-            ));
-        }
-        if self.task_trace_list_limit == 0 {
-            return Err(anyhow::anyhow!(
-                "api.task_trace_list_limit must be at least 1"
-            ));
-        }
-        if self.task_trace_line_limit == 0 {
-            return Err(anyhow::anyhow!(
-                "api.task_trace_line_limit must be at least 1"
             ));
         }
         if self.web_search_num_results == 0 {
@@ -936,12 +919,8 @@ struct ApiDefaultsOverride {
     pub session_list_limit: Option<u32>,
     pub task_progress_event_limit: Option<usize>,
     pub task_message_list_limit: Option<usize>,
-    pub task_trace_list_limit: Option<usize>,
-    pub task_trace_line_limit: Option<usize>,
     pub background_progress_event_limit: Option<usize>,
     pub background_message_list_limit: Option<usize>,
-    pub background_trace_list_limit: Option<usize>,
-    pub background_trace_line_limit: Option<usize>,
     pub web_search_num_results: Option<usize>,
     pub diagnostics_timeout_ms: Option<u64>,
 }
@@ -957,23 +936,11 @@ impl ApiDefaultsOverride {
         if let Some(value) = self.background_message_list_limit {
             api_defaults.task_message_list_limit = value;
         }
-        if let Some(value) = self.background_trace_list_limit {
-            api_defaults.task_trace_list_limit = value;
-        }
-        if let Some(value) = self.background_trace_line_limit {
-            api_defaults.task_trace_line_limit = value;
-        }
         if let Some(value) = self.task_progress_event_limit {
             api_defaults.task_progress_event_limit = value;
         }
         if let Some(value) = self.task_message_list_limit {
             api_defaults.task_message_list_limit = value;
-        }
-        if let Some(value) = self.task_trace_list_limit {
-            api_defaults.task_trace_list_limit = value;
-        }
-        if let Some(value) = self.task_trace_line_limit {
-            api_defaults.task_trace_line_limit = value;
         }
         if let Some(value) = self.web_search_num_results {
             api_defaults.web_search_num_results = value;
@@ -2049,8 +2016,6 @@ background_task_retention_days = 14
 [api]
 background_progress_event_limit = 10
 background_message_list_limit = 50
-background_trace_list_limit = 60
-background_trace_line_limit = 300
 
 [runtime]
 background_runner_poll_interval_ms = 15000
@@ -2076,8 +2041,6 @@ max_output_bytes = 1048576
         assert_eq!(effective.task_retention_days, 14);
         assert_eq!(effective.api_defaults.task_progress_event_limit, 10);
         assert_eq!(effective.api_defaults.task_message_list_limit, 50);
-        assert_eq!(effective.api_defaults.task_trace_list_limit, 60);
-        assert_eq!(effective.api_defaults.task_trace_line_limit, 300);
         assert_eq!(
             effective.runtime_defaults.task_runner_poll_interval_ms,
             15000
@@ -2338,17 +2301,13 @@ session_list_limit = 33
         let mut config = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(config.api_defaults.task_progress_event_limit, 10);
         assert_eq!(config.api_defaults.task_message_list_limit, 50);
-        assert_eq!(config.api_defaults.task_trace_line_limit, 200);
-
         config.api_defaults.task_progress_event_limit = 12;
         config.api_defaults.task_message_list_limit = 60;
-        config.api_defaults.task_trace_line_limit = 300;
         ctx.storage.update_config(config).unwrap();
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.api_defaults.task_progress_event_limit, 12);
         assert_eq!(retrieved.api_defaults.task_message_list_limit, 60);
-        assert_eq!(retrieved.api_defaults.task_trace_line_limit, 300);
     }
 
     #[test]
@@ -2399,14 +2358,12 @@ session_list_limit = 33
         let file = write_override_file(
             r#"[api]
 session_list_limit = 33
-task_trace_line_limit = 444
 "#,
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.api_defaults.session_list_limit, 33);
-        assert_eq!(effective.api_defaults.task_trace_line_limit, 444);
     }
 
     #[test]

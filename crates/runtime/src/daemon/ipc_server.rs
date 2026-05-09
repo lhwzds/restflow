@@ -26,10 +26,8 @@ use crate::services::{
     session_policy::SessionPolicyError,
     skills as skills_service,
 };
-use crate::telemetry::{build_execution_trace_sink, emit_run_interrupted};
 use ai::agent::StreamEmitter;
 use ai::agent::{SubagentConfig, SubagentTracker};
-use ai::telemetry::RestflowTrace;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -143,47 +141,6 @@ pub async fn cancel_foreground_chat_stream(core: &Arc<AppCore>, stream_id: &str)
 fn daemon_started_at_ms() -> i64 {
     static STARTED_AT_MS: OnceLock<i64> = OnceLock::new();
     *STARTED_AT_MS.get_or_init(|| Utc::now().timestamp_millis())
-}
-
-const UNKNOWN_TRACE_ACTOR_ID: &str = "unknown";
-
-fn build_chat_stream_trace(
-    session_id: &str,
-    stream_id: &str,
-    actor_id: impl Into<String>,
-) -> RestflowTrace {
-    RestflowTrace::new(
-        stream_id.to_string(),
-        session_id.to_string(),
-        session_id.to_string(),
-        actor_id,
-    )
-}
-
-fn resolve_chat_stream_trace(core: &AppCore, session_id: &str, stream_id: &str) -> RestflowTrace {
-    let session_service = SessionService::from_storage(&core.storage);
-    let actor_id = match session_service.get_session_view(session_id) {
-        Ok(Some(session)) => session.agent_id,
-        Ok(None) => {
-            warn!(
-                session_id = %session_id,
-                stream_id = %stream_id,
-                "Chat session missing while building stream trace; using fallback actor"
-            );
-            UNKNOWN_TRACE_ACTOR_ID.to_string()
-        }
-        Err(error) => {
-            warn!(
-                session_id = %session_id,
-                stream_id = %stream_id,
-                error = %error,
-                "Failed to load chat session while building stream trace; using fallback actor"
-            );
-            UNKNOWN_TRACE_ACTOR_ID.to_string()
-        }
-    };
-
-    build_chat_stream_trace(session_id, stream_id, actor_id)
 }
 
 pub(crate) fn build_daemon_status() -> IpcDaemonStatus {
@@ -563,17 +520,8 @@ impl IpcServer {
         };
 
         // Abort an existing stream with the same ID to avoid duplicate workers.
-        let telemetry_sink = build_execution_trace_sink(&core.storage.execution_traces);
         if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
             existing.abort();
-            let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
-            emit_run_interrupted(
-                &telemetry_sink,
-                trace,
-                "replaced by a newer stream with the same stream_id",
-                None,
-            )
-            .await;
         }
         active_chat_stream_steers().lock().await.remove(&stream_id);
 
@@ -608,15 +556,6 @@ impl IpcServer {
                 .remove(&previous_binding.stream_id)
             {
                 previous.abort();
-                let trace =
-                    resolve_chat_stream_trace(&core, &session_id, &previous_binding.stream_id);
-                emit_run_interrupted(
-                    &telemetry_sink,
-                    trace,
-                    "replaced by a newer stream for the same session owner",
-                    None,
-                )
-                .await;
             }
             active_chat_stream_steers()
                 .lock()

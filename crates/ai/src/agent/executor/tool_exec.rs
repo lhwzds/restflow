@@ -1,10 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::telemetry::{
-    ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink,
-    ToolCallCompletedPayload, ToolCallStartedPayload,
-};
 use futures::StreamExt;
 use futures::stream::FuturesOrdered;
 use serde_json::Value;
@@ -84,8 +80,6 @@ fn serialize_tool_output_for_emitter(output: &ToolOutput) -> String {
 pub(crate) struct ToolInvocationContext<'a> {
     pub parent_run_id: Option<&'a str>,
     pub chat_session_id: Option<&'a str>,
-    pub trace_session_id: Option<&'a str>,
-    pub trace_scope_id: Option<&'a str>,
     pub model: Option<&'a str>,
     pub provider: Option<&'a str>,
 }
@@ -101,8 +95,6 @@ pub(crate) struct ToolExecutionOptions<'a> {
     pub tool_timeout: Duration,
     pub yolo_mode: bool,
     pub max_concurrency: usize,
-    pub telemetry_sink: Option<&'a Arc<dyn TelemetrySink>>,
-    pub telemetry_context: Option<&'a TelemetryContext>,
     pub invocation: ToolInvocationContext<'a>,
     pub reviewer: Option<&'a Arc<dyn ToolCallReviewer>>,
     pub review_messages: &'a [Message],
@@ -131,32 +123,6 @@ impl AgentExecutor {
             map.insert(
                 "parent_run_id".to_string(),
                 Value::String(parent_run_id.to_string()),
-            );
-        }
-    }
-
-    fn inject_spawn_trace_context(
-        tool_name: &str,
-        args: &mut Value,
-        trace_session_id: Option<&str>,
-        trace_scope_id: Option<&str>,
-    ) {
-        if !Self::is_subagent_spawn_tool(tool_name) {
-            return;
-        }
-        let Some(map) = args.as_object_mut() else {
-            return;
-        };
-        if let Some(trace_session_id) = trace_session_id {
-            map.insert(
-                "trace_session_id".to_string(),
-                Value::String(trace_session_id.to_string()),
-            );
-        }
-        if let Some(trace_scope_id) = trace_scope_id {
-            map.insert(
-                "trace_scope_id".to_string(),
-                Value::String(trace_scope_id.to_string()),
             );
         }
     }
@@ -434,8 +400,6 @@ impl AgentExecutor {
             tool_timeout,
             yolo_mode,
             max_concurrency,
-            telemetry_sink,
-            telemetry_context,
             invocation: context,
             reviewer,
             review_messages,
@@ -446,12 +410,6 @@ impl AgentExecutor {
         for call in tool_calls {
             let mut args = call.arguments.clone();
             Self::inject_spawn_parent_run_id(&call.name, &mut args, context.parent_run_id());
-            Self::inject_spawn_trace_context(
-                &call.name,
-                &mut args,
-                context.trace_session_id,
-                context.trace_scope_id,
-            );
             Self::inject_spawn_model_provider(
                 &call.name,
                 &mut args,
@@ -464,20 +422,6 @@ impl AgentExecutor {
             emitter
                 .emit_tool_call_start(&call.id, &call.name, &arguments)
                 .await;
-            if let (Some(telemetry_sink), Some(telemetry_context)) =
-                (telemetry_sink, telemetry_context)
-            {
-                telemetry_sink
-                    .emit(ExecutionEventEnvelope::from_telemetry_context(
-                        telemetry_context,
-                        ExecutionEvent::ToolCallStarted(ToolCallStartedPayload {
-                            tool_call_id: call.id.clone(),
-                            tool_name: call.name.clone(),
-                            input: Some(arguments.clone()),
-                        }),
-                    ))
-                    .await;
-            }
         }
 
         // 2. Spawn each tool as an independent Tokio task with semaphore-bounded concurrency
@@ -490,12 +434,6 @@ impl AgentExecutor {
             let name = call.name.clone();
             let mut args = call.arguments.clone();
             Self::inject_spawn_parent_run_id(&call.name, &mut args, context.parent_run_id());
-            Self::inject_spawn_trace_context(
-                &call.name,
-                &mut args,
-                context.trace_session_id,
-                context.trace_scope_id,
-            );
             Self::inject_spawn_model_provider(
                 &call.name,
                 &mut args,
@@ -567,30 +505,6 @@ impl AgentExecutor {
             emitter
                 .emit_tool_call_result(&id, &name, &result_str, success)
                 .await;
-            if let (Some(telemetry_sink), Some(telemetry_context)) =
-                (telemetry_sink, telemetry_context)
-            {
-                let error = if success {
-                    None
-                } else {
-                    Some(result_str.clone())
-                };
-                telemetry_sink
-                    .emit(ExecutionEventEnvelope::from_telemetry_context(
-                        telemetry_context,
-                        ExecutionEvent::ToolCallCompleted(ToolCallCompletedPayload {
-                            tool_call_id: id.clone(),
-                            tool_name: name.clone(),
-                            input_summary: None,
-                            output: Some(result_str.clone()),
-                            output_ref: None,
-                            success,
-                            duration_ms: None,
-                            error,
-                        }),
-                    ))
-                    .await;
-            }
             output.push((id, result));
 
             // Process any pending cancellation steer commands between tool completions

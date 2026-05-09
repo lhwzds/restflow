@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::models::{ChatSessionSource, ExecutionTimeline};
+use crate::models::{ChatSessionSource, ChatTurnEvent};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -99,7 +99,13 @@ pub struct ChildRunListQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ExecutionThread {
     pub focus: RunSummary,
-    pub timeline: ExecutionTimeline,
+    pub timeline: RunTimeline,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct RunTimeline {
+    #[serde(default)]
+    pub events: Vec<ChatTurnEvent>,
 }
 
 #[cfg(test)]

@@ -24,7 +24,6 @@ async fn run_cleanup(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
             "chat_sessions": report.chat_sessions,
             "tasks": report.tasks,
             "audit_events": report.audit_events,
-            "telemetry_metric_samples": report.telemetry_metric_samples,
             "daemon_log_files": report.daemon_log_files
         }));
     }
@@ -33,10 +32,6 @@ async fn run_cleanup(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     println!("  chat_sessions: {}", report.chat_sessions);
     println!("  tasks: {}", report.tasks);
     println!("  audit_events: {}", report.audit_events);
-    println!(
-        "  telemetry_metric_samples: {}",
-        report.telemetry_metric_samples
-    );
     println!("  daemon_log_files: {}", report.daemon_log_files);
     Ok(())
 }

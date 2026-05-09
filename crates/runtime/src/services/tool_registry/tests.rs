@@ -4,7 +4,6 @@ use super::subagent_backend::{
     build_service_subagent_tool_registry, create_subagent_manager,
 };
 use super::*;
-use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery};
 use crate::services::adapters::{AgentStoreAdapter, OpsProviderAdapter, TaskStoreAdapter};
 use crate::services::session::SessionService;
 use ai::llm::{
@@ -19,13 +18,12 @@ use std::sync::RwLock;
 use tempfile::tempdir;
 use types::assessment::{AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent};
 use types::request::{
-    AgentNode as ContractAgentNode, InlineAgentRunConfig as ContractInlineAgentRunConfig,
-    RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
+    AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
 };
 use types::store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, TaskControlRequest, TaskCreateRequest,
     TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest, TaskProgressRequest, TaskStore,
-    TaskTraceListRequest, TaskTraceReadRequest, TaskUpdateRequest,
+    TaskUpdateRequest,
 };
 
 struct DummyTool(&'static str);
@@ -183,7 +181,7 @@ fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
 #[allow(clippy::type_complexity)]
 fn setup_storage() -> (
     ChatSessionStorage,
-    ExecutionTraceStorage,
+    (),
     SecretStorage,
     ConfigStorage,
     AgentStorage,
@@ -203,7 +201,6 @@ fn setup_storage() -> (
     }
 
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-    let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
     let test_master_key = std::array::from_fn(|index| (index as u8).wrapping_add(1));
     let secret_storage = SecretStorage::with_master_key(db.clone(), test_master_key).unwrap();
     let config_storage = ConfigStorage::new(db.clone()).unwrap();
@@ -216,7 +213,7 @@ fn setup_storage() -> (
     }
     (
         chat_storage,
-        execution_trace_storage,
+        (),
         secret_storage,
         config_storage,
         agent_storage,
@@ -315,7 +312,7 @@ impl LlmClientFactory for TestLlmFactory {
 fn test_create_tool_registry() {
     let (
         _chat_storage,
-        _execution_trace_storage,
+        _unused_storage_slot,
         _secret_storage,
         config_storage,
         _agent_storage,
@@ -374,7 +371,7 @@ fn test_create_tool_registry() {
 fn test_create_tool_registry_excludes_subagent_tools_by_default() {
     let (
         _chat_storage,
-        _execution_trace_storage,
+        _unused_storage_slot,
         _secret_storage,
         config_storage,
         _agent_storage,
@@ -607,7 +604,7 @@ fn test_agent_store_adapter_crud_flow() {
 
     let (
         _chat_storage,
-        _execution_trace_storage,
+        _unused_storage_slot,
         secret_storage,
         _config_storage,
         agent_storage,
@@ -717,7 +714,7 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
 
     let (
         _chat_storage,
-        _execution_trace_storage,
+        _unused_storage_slot,
         secret_storage,
         _config_storage,
         agent_storage,
@@ -763,7 +760,7 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
 
     let (
         _chat_storage,
-        _execution_trace_storage,
+        _unused_storage_slot,
         secret_storage,
         _config_storage,
         agent_storage,
@@ -834,7 +831,7 @@ fn test_task_store_adapter_task_flow() {
 
     let (
         chat_storage,
-        execution_trace_storage,
+        _execution_context,
         _secret_storage,
         _config_storage,
         agent_storage,
@@ -853,7 +850,7 @@ fn test_task_store_adapter_task_flow() {
         task_storage.clone(),
         agent_storage.clone(),
         SessionService::new(
-            crate::storage::SessionStorage::new(chat_storage, execution_trace_storage),
+            crate::storage::SessionStorage::new(chat_storage),
             Some(agent_storage),
             task_storage,
         ),
@@ -978,28 +975,6 @@ fn test_task_store_adapter_task_flow() {
     )
     .unwrap();
     assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
-
-    // Test list_task_traces (DB-backed)
-    let traces = TaskStore::list_task_traces(
-        &adapter,
-        TaskTraceListRequest {
-            id: Some(task_id.clone()),
-            limit: Some(5),
-        },
-    )
-    .unwrap();
-    // Trace list is empty until execution telemetry writes canonical events
-    assert!(traces.as_array().unwrap().is_empty() || traces.as_array().is_some());
-
-    // Test read_task_trace (DB-backed)
-    let trace_result = TaskStore::read_task_trace(
-        &adapter,
-        TaskTraceReadRequest {
-            trace_id: "missing-trace-id".to_string(),
-            line_limit: Some(10),
-        },
-    );
-    assert!(trace_result.is_err());
 
     let delete_preview = TaskStore::delete_task(
         &adapter,
@@ -1187,7 +1162,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
 async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
     let (
         _chat_storage,
-        _execution_trace_storage,
+        _unused_storage_slot,
         _secret_storage,
         config_storage,
         _agent_storage,
@@ -1239,7 +1214,6 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         &service_registry,
         build_llm_factory(Some(&storage.secrets)),
         Arc::new(storage.config.clone()),
-        storage.execution_traces.clone(),
     );
 
     let allowlist = vec![
@@ -1336,141 +1310,11 @@ async fn test_runtime_allowlist_manage_agents_rejects_tool_aliases() {
     }));
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn test_create_subagent_manager_persists_execution_traces() {
-    let (
-        _chat_storage,
-        execution_trace_storage,
-        _secret_storage,
-        config_storage,
-        agent_storage,
-        _task_storage,
-        _terminal_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let execution_trace_storage =
-        ExecutionTraceStorage::new(execution_trace_storage.db()).expect("execution trace storage");
-
-    let service_registry =
-        create_tool_registry(config_storage.clone(), None, None).expect("service registry");
-
-    let mock_llm: Arc<dyn LlmClient> = Arc::new(TestLlmClient {
-        model: "mock-model".to_string(),
-        response: "done".to_string(),
-    });
-    let llm_factory: Arc<dyn LlmClientFactory> = Arc::new(TestLlmFactory::new(
-        mock_llm,
-        "mock-model",
-        LlmProvider::OpenAI,
-    ));
-
-    let subagent_manager = create_subagent_manager(
-        agent_storage,
-        &service_registry,
-        llm_factory,
-        Arc::new(config_storage),
-        execution_trace_storage.clone(),
-    );
-
-    let handle = subagent_manager
-        .spawn(ContractRunSpawnRequest {
-            agent_id: None,
-            inline: Some(ContractInlineAgentRunConfig {
-                name: Some("trace-test".to_string()),
-                system_prompt: Some("Return a short answer.".to_string()),
-                allowed_tools: Some(vec!["__no_such_tool__".to_string()]),
-                max_iterations: Some(3),
-            }),
-            task: "Say done".to_string(),
-            timeout_secs: Some(30),
-            max_iterations: None,
-            priority: None,
-            model: Some("mock-model".to_string()),
-            model_provider: Some("openai".to_string()),
-            parent_run_id: Some("parent-run-1".to_string()),
-            trace_session_id: Some("session-trace-1".to_string()),
-            trace_scope_id: Some("scope-trace-1".to_string()),
-        })
-        .expect("spawn subagent");
-
-    let running_states = subagent_manager.list_running();
-    let running_state = running_states
-        .iter()
-        .find(|state| state.id == handle.id)
-        .expect("running subagent state should be visible through public manager contract");
-    assert_eq!(running_state.parent_run_id.as_deref(), Some("parent-run-1"));
-    assert_eq!(running_state.agent_name, "trace-test");
-    assert_eq!(running_state.task, "Say done");
-
-    let result = subagent_manager
-        .wait(&handle.id)
-        .await
-        .expect("subagent result");
-    let result = result.result.expect("subagent result payload");
-    assert!(
-        result.success,
-        "unexpected subagent failure: {:?}",
-        result.error
-    );
-
-    let events = execution_trace_storage
-        .query(&ExecutionTraceQuery {
-            task_id: Some("scope-trace-1".to_string()),
-            limit: Some(20),
-            ..ExecutionTraceQuery::default()
-        })
-        .expect("query execution traces");
-    assert!(
-        !events.is_empty(),
-        "expected persisted execution traces for subagent {}",
-        handle.id
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| event.category == ExecutionTraceCategory::Lifecycle),
-        "expected lifecycle execution trace event for subagent {}",
-        handle.id
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| event.category == ExecutionTraceCategory::LlmCall),
-        "expected llm call execution trace event for subagent {}",
-        handle.id
-    );
-    let run_events = events
-        .iter()
-        .filter(|event| event.run_id.as_deref() == Some(handle.id.as_str()))
-        .collect::<Vec<_>>();
-    assert!(
-        !run_events.is_empty(),
-        "expected run-scoped execution trace events for subagent {}",
-        handle.id
-    );
-    assert!(
-        run_events
-            .iter()
-            .all(|event| event.parent_run_id.as_deref() == Some("parent-run-1"))
-    );
-    assert!(
-        run_events
-            .iter()
-            .all(|event| event.session_id.as_deref() == Some("session-trace-1"))
-    );
-    assert!(
-        run_events
-            .iter()
-            .all(|event| event.effective_model.as_deref() == Some("mock-model"))
-    );
-}
-
 #[tokio::test]
 async fn test_service_subagent_manager_supports_temporary_model_provider_only() {
     let (
         _chat_storage,
-        execution_trace_storage,
+        _execution_context,
         _secret_storage,
         config_storage,
         agent_storage,
@@ -1497,7 +1341,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         &service_registry,
         llm_factory,
         Arc::new(config_storage),
-        execution_trace_storage,
     );
 
     let handle = subagent_manager
@@ -1511,8 +1354,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
             model: Some("mock-model".to_string()),
             model_provider: Some("openai".to_string()),
             parent_run_id: None,
-            trace_session_id: None,
-            trace_scope_id: None,
         })
         .expect("spawn temporary subagent");
 
@@ -1532,7 +1373,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
 fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     let (
         _chat_storage,
-        execution_trace_storage,
+        _execution_context,
         secret_storage,
         config_storage,
         agent_storage,
@@ -1549,7 +1390,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         &service_registry,
         build_llm_factory(Some(&secret_storage)),
         Arc::new(config_storage),
-        execution_trace_storage,
     );
     let manager = build_service_subagent_manager(&bundle);
 

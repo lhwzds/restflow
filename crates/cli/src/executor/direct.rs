@@ -5,9 +5,8 @@ use std::sync::Arc;
 use crate::executor::CommandExecutor;
 use crate::setup;
 use runtime::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, ExecutionTraceQuery,
-    RunListQuery, RunSummary, Task, TaskControlAction, TaskConversionResult, TaskPatch,
-    TaskProgress, TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, RunListQuery, RunSummary, RunTimeline, Task,
+    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use runtime::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
@@ -121,7 +120,6 @@ impl CommandExecutor for DirectExecutor {
             chat_sessions: report.chat_sessions,
             tasks: report.tasks,
             audit_events: report.audit_events,
-            telemetry_metric_samples: 0,
             daemon_log_files: report.daemon_log_files,
         })
     }
@@ -227,24 +225,8 @@ impl CommandExecutor for DirectExecutor {
         ExecutionConsoleService::from_storage(&self.core.storage).list_runs(&query)
     }
 
-    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {
-        runtime::telemetry::get_execution_timeline(
-            &self.core.storage.execution_traces,
-            &ExecutionTraceQuery {
-                task_id: None,
-                run_id: Some(run_id.to_string()),
-                parent_run_id: None,
-                session_id: None,
-                turn_id: None,
-                agent_id: None,
-                category: None,
-                source: None,
-                from_timestamp: None,
-                to_timestamp: None,
-                limit: Some(200),
-                offset: Some(0),
-            },
-        )
+    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline> {
+        ExecutionConsoleService::from_storage(&self.core.storage).get_execution_run_timeline(run_id)
     }
 }
 

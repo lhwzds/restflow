@@ -1,8 +1,5 @@
 use crate::models::chat_session::{ChatMessageMedia, ChatMessageTranscript};
-use crate::models::{
-    ChatMessage, ChatRole, ChatSession, ExecutionTraceCategory, ExecutionTraceEvent,
-    ToolCallCompletion, ToolCallPhase,
-};
+use crate::models::{ChatMessage, ChatRole, ChatSession, ChatTurnEvent, ChatTurnEventKind};
 use std::collections::HashMap;
 
 const TRANSCRIBE_TOOL_NAME: &str = "transcribe";
@@ -43,7 +40,7 @@ pub(crate) fn hydrate_voice_message_metadata(message: &mut ChatMessage) -> bool 
     changed
 }
 
-/// Enrich a voice message content with transcript text extracted from execution traces.
+/// Enrich a voice message content with transcript text extracted from turn events.
 ///
 /// Returns `Some(updated_content)` only when:
 /// - the message is a voice media-context message,
@@ -51,7 +48,7 @@ pub(crate) fn hydrate_voice_message_metadata(message: &mut ChatMessage) -> bool 
 /// - transcript text can be extracted from that tool result.
 pub(crate) fn enrich_voice_message_with_transcript(
     message_content: &str,
-    events: &[ExecutionTraceEvent],
+    events: &[ChatTurnEvent],
 ) -> Option<String> {
     let voice_path = extract_voice_file_path(message_content)?;
     let transcript = find_matching_transcript(events, &voice_path)?;
@@ -175,77 +172,42 @@ fn extract_text_from_payload(payload: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-fn extract_transcript_from_completion(completion: &ToolCallCompletion) -> Option<String> {
-    if let Some(path) = completion.output_ref.as_deref()
-        && let Ok(content) = std::fs::read_to_string(path)
-        && let Some(text) = extract_text_from_payload(&content)
-    {
-        return Some(text);
-    }
-
-    completion
-        .output
-        .as_deref()
-        .and_then(extract_text_from_payload)
-}
-
-fn find_matching_transcript(events: &[ExecutionTraceEvent], voice_path: &str) -> Option<String> {
+fn find_matching_transcript(events: &[ChatTurnEvent], voice_path: &str) -> Option<String> {
     let mut call_to_file_path: HashMap<String, String> = HashMap::new();
 
     for event in events {
-        if event.category != ExecutionTraceCategory::ToolCall {
-            continue;
-        }
-        let Some(tool_call) = event.tool_call.as_ref() else {
-            continue;
-        };
-        if tool_call.tool_name != TRANSCRIBE_TOOL_NAME || tool_call.phase != ToolCallPhase::Started
+        if let ChatTurnEventKind::ToolCall {
+            call_id,
+            name,
+            arguments,
+        } = &event.kind
         {
-            continue;
-        }
-        if let Some(path) = extract_file_path_from_payload(
-            tool_call
-                .input
-                .as_deref()
-                .or(tool_call.input_summary.as_deref()),
-        ) {
-            call_to_file_path.insert(tool_call.tool_call_id.clone(), path);
+            if name != TRANSCRIBE_TOOL_NAME {
+                continue;
+            }
+            if let Some(path) = extract_file_path_from_payload(Some(arguments.as_str())) {
+                call_to_file_path.insert(call_id.clone(), path);
+            }
         }
     }
 
     for event in events {
-        if event.category != ExecutionTraceCategory::ToolCall {
-            continue;
-        }
-        let Some(tool_call) = event.tool_call.as_ref() else {
-            continue;
-        };
-        if tool_call.tool_name != TRANSCRIBE_TOOL_NAME
-            || tool_call.phase != ToolCallPhase::Completed
-            || tool_call.success != Some(true)
+        if let ChatTurnEventKind::ToolResult {
+            call_id,
+            success: true,
+            result,
+        } = &event.kind
         {
-            continue;
-        }
-
-        let completion = ToolCallCompletion {
-            output: tool_call.output.clone(),
-            output_ref: tool_call.output_ref.clone(),
-            success: tool_call.success.unwrap_or(false),
-            duration_ms: tool_call
-                .duration_ms
-                .and_then(|value| u64::try_from(value).ok()),
-            error: tool_call.error.clone(),
-        };
-        let Some(transcript) = extract_transcript_from_completion(&completion) else {
-            continue;
-        };
-
-        let path = call_to_file_path
-            .get(&tool_call.tool_call_id)
-            .cloned()
-            .or_else(|| extract_file_path_from_payload(tool_call.output.as_deref()));
-        if path.as_deref() == Some(voice_path) {
-            return Some(transcript);
+            let Some(transcript) = extract_text_from_payload(result) else {
+                continue;
+            };
+            let path = call_to_file_path
+                .get(call_id)
+                .cloned()
+                .or_else(|| extract_file_path_from_payload(Some(result.as_str())));
+            if path.as_deref() == Some(voice_path) {
+                return Some(transcript);
+            }
         }
     }
 
@@ -268,15 +230,37 @@ fn upsert_transcript_block(message_content: &str, transcript: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ToolCallTrace;
     use crate::models::chat_session::ChatMediaType;
     use serde_json::json;
-    use tempfile::tempdir;
 
     fn voice_message(path: &str) -> String {
         format!(
             "[Voice message, 6s]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering."
         )
+    }
+
+    fn tool_call_event(call_id: &str, file_path: &str) -> ChatTurnEvent {
+        ChatTurnEvent {
+            id: format!("event-{call_id}-call"),
+            timestamp: 1,
+            kind: ChatTurnEventKind::ToolCall {
+                call_id: call_id.to_string(),
+                name: TRANSCRIBE_TOOL_NAME.to_string(),
+                arguments: json!({"file_path": file_path}).to_string(),
+            },
+        }
+    }
+
+    fn tool_result_event(call_id: &str, success: bool, result: serde_json::Value) -> ChatTurnEvent {
+        ChatTurnEvent {
+            id: format!("event-{call_id}-result"),
+            timestamp: 2,
+            kind: ChatTurnEventKind::ToolResult {
+                call_id: call_id.to_string(),
+                success,
+                result: result.to_string(),
+            },
+        }
     }
 
     #[test]
@@ -313,45 +297,8 @@ mod tests {
     #[test]
     fn enriches_voice_message_with_matching_transcript() {
         let input = voice_message("/tmp/voice-a.webm");
-        let trace = ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
-        let start = crate::models::execution_trace_builders::with_trace_context(
-            crate::models::execution_trace_builders::tool_call(
-                "task-1",
-                "agent-1",
-                ToolCallTrace {
-                    phase: ToolCallPhase::Started,
-                    tool_call_id: "call-1".to_string(),
-                    tool_name: "transcribe".to_string(),
-                    input: Some(json!({"file_path": "/tmp/voice-a.webm"}).to_string()),
-                    input_summary: None,
-                    output: None,
-                    output_ref: None,
-                    success: None,
-                    error: None,
-                    duration_ms: None,
-                },
-            ),
-            &trace,
-        );
-        let done = crate::models::execution_trace_builders::with_trace_context(
-            crate::models::execution_trace_builders::tool_call(
-                "task-1",
-                "agent-1",
-                ToolCallTrace {
-                    phase: ToolCallPhase::Completed,
-                    tool_call_id: "call-1".to_string(),
-                    tool_name: "transcribe".to_string(),
-                    input: None,
-                    input_summary: None,
-                    output: Some(json!({"text": "hello from audio"}).to_string()),
-                    output_ref: None,
-                    success: Some(true),
-                    error: None,
-                    duration_ms: Some(20),
-                },
-            ),
-            &trace,
-        );
+        let start = tool_call_event("call-1", "/tmp/voice-a.webm");
+        let done = tool_result_event("call-1", true, json!({"text": "hello from audio"}));
 
         let updated =
             enrich_voice_message_with_transcript(&input, &[start, done]).expect("should enrich");
@@ -362,101 +309,22 @@ mod tests {
     #[test]
     fn does_not_enrich_when_file_path_does_not_match() {
         let input = voice_message("/tmp/voice-a.webm");
-        let trace = ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
-        let start = crate::models::execution_trace_builders::with_trace_context(
-            crate::models::execution_trace_builders::tool_call(
-                "task-1",
-                "agent-1",
-                ToolCallTrace {
-                    phase: ToolCallPhase::Started,
-                    tool_call_id: "call-1".to_string(),
-                    tool_name: "transcribe".to_string(),
-                    input: Some(json!({"file_path": "/tmp/voice-b.webm"}).to_string()),
-                    input_summary: None,
-                    output: None,
-                    output_ref: None,
-                    success: None,
-                    error: None,
-                    duration_ms: None,
-                },
-            ),
-            &trace,
-        );
-        let done = crate::models::execution_trace_builders::with_trace_context(
-            crate::models::execution_trace_builders::tool_call(
-                "task-1",
-                "agent-1",
-                ToolCallTrace {
-                    phase: ToolCallPhase::Completed,
-                    tool_call_id: "call-1".to_string(),
-                    tool_name: "transcribe".to_string(),
-                    input: None,
-                    input_summary: None,
-                    output: Some(json!({"text": "other audio"}).to_string()),
-                    output_ref: None,
-                    success: Some(true),
-                    error: None,
-                    duration_ms: Some(20),
-                },
-            ),
-            &trace,
-        );
+        let start = tool_call_event("call-1", "/tmp/voice-b.webm");
+        let done = tool_result_event("call-1", true, json!({"text": "other audio"}));
 
         let updated = enrich_voice_message_with_transcript(&input, &[start, done]);
         assert!(updated.is_none());
     }
 
     #[test]
-    fn enriches_with_output_ref_when_output_is_not_embedded() {
-        let temp_dir = tempdir().expect("tempdir");
-        let output_path = temp_dir.path().join("transcribe-output.json");
-        std::fs::write(&output_path, json!({"text": "from output ref"}).to_string())
-            .expect("write output ref");
-
+    fn enriches_with_embedded_json_result() {
         let input = voice_message("/tmp/voice-a.webm");
-        let trace = ai::telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
-        let start = crate::models::execution_trace_builders::with_trace_context(
-            crate::models::execution_trace_builders::tool_call(
-                "task-1",
-                "agent-1",
-                ToolCallTrace {
-                    phase: ToolCallPhase::Started,
-                    tool_call_id: "call-1".to_string(),
-                    tool_name: "transcribe".to_string(),
-                    input: Some(json!({"file_path": "/tmp/voice-a.webm"}).to_string()),
-                    input_summary: None,
-                    output: None,
-                    output_ref: None,
-                    success: None,
-                    error: None,
-                    duration_ms: None,
-                },
-            ),
-            &trace,
-        );
-        let done = crate::models::execution_trace_builders::with_trace_context(
-            crate::models::execution_trace_builders::tool_call(
-                "task-1",
-                "agent-1",
-                ToolCallTrace {
-                    phase: ToolCallPhase::Completed,
-                    tool_call_id: "call-1".to_string(),
-                    tool_name: "transcribe".to_string(),
-                    input: None,
-                    input_summary: None,
-                    output: None,
-                    output_ref: Some(output_path.to_string_lossy().to_string()),
-                    success: Some(true),
-                    error: None,
-                    duration_ms: Some(20),
-                },
-            ),
-            &trace,
-        );
+        let start = tool_call_event("call-1", "/tmp/voice-a.webm");
+        let done = tool_result_event("call-1", true, json!({"text": "from result"}));
 
         let updated =
             enrich_voice_message_with_transcript(&input, &[start, done]).expect("should enrich");
-        assert!(updated.contains("from output ref"));
+        assert!(updated.contains("from result"));
     }
 
     #[test]

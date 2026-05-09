@@ -548,8 +548,6 @@ async fn test_set_api_defaults() {
         ("api.session_list_limit", json!(30)),
         ("api.task_progress_event_limit", json!(12)),
         ("api.task_message_list_limit", json!(60)),
-        ("api.task_trace_list_limit", json!(80)),
-        ("api.task_trace_line_limit", json!(300)),
         ("api.diagnostics_timeout_ms", json!(9000)),
     ];
 

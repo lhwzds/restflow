@@ -76,7 +76,7 @@ pub struct ManageTasksParams {
     /// Agent ID for execution
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// Optional task ID selector for trace queries (list_traces)
+    /// Optional task ID selector for task operations.
     #[serde(default)]
     pub task_id: Option<String>,
     /// Optional bound chat session ID
@@ -124,33 +124,15 @@ pub struct ManageTasksParams {
     /// Optional message body
     #[serde(default)]
     pub message: Option<String>,
-    /// Optional message source for send_message, or trace source filter for list_traces
+    /// Optional message source for send_message
     #[serde(default)]
     pub source: Option<String>,
     /// Optional message list limit
     #[serde(default)]
     pub limit: Option<usize>,
-    /// Optional pagination offset (for list_traces)
+    /// Optional pagination offset
     #[serde(default)]
     pub offset: Option<usize>,
-    /// Optional trace category filter (turn/tool/event type) for list_traces
-    #[serde(default)]
-    pub category: Option<String>,
-    /// Optional lower bound for trace event timestamp (Unix milliseconds)
-    #[serde(default)]
-    pub from_time_ms: Option<i64>,
-    /// Optional upper bound for trace event timestamp (Unix milliseconds)
-    #[serde(default)]
-    pub to_time_ms: Option<i64>,
-    /// Whether to include trace stats payload in list_traces response
-    #[serde(default)]
-    pub include_stats: Option<bool>,
-    /// Trace ID for read_trace
-    #[serde(default)]
-    pub trace_id: Option<String>,
-    /// Optional trailing line limit for read_trace
-    #[serde(default)]
-    pub line_limit: Option<usize>,
     /// Whether to trigger immediate run after convert_session/promote_to_background (default false)
     #[serde(default)]
     pub run_now: Option<bool>,

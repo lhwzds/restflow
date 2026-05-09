@@ -19,14 +19,12 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::ExecutionTraceStorage;
 use raw::TaskStorage as RawTaskStorage;
 
 /// Typed agent task storage wrapper around process-local task bytes.
 #[derive(Clone)]
 pub struct TaskStorage {
     inner: RawTaskStorage,
-    execution_traces: ExecutionTraceStorage,
 }
 
 #[derive(Debug, Clone)]
@@ -115,27 +113,21 @@ impl TaskStorage {
 
     /// Create a new TaskStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
             inner: RawTaskStorage::new(db.clone())?,
-            execution_traces,
         })
     }
 
     pub fn new_namespace(namespace: usize) -> Result<Self> {
-        let execution_traces = ExecutionTraceStorage::new_namespace(namespace)?;
         Ok(Self {
             inner: RawTaskStorage::new_namespace(namespace)?,
-            execution_traces,
         })
     }
 
     /// Create a new TaskStorage instance backed by a JSON snapshot file.
     pub fn new_file_backed(db: Arc<Database>, file_path: impl Into<PathBuf>) -> Result<Self> {
-        let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
             inner: RawTaskStorage::new_file_backed(db.clone(), file_path)?,
-            execution_traces,
         })
     }
 
@@ -143,16 +135,9 @@ impl TaskStorage {
         namespace: usize,
         file_path: impl Into<PathBuf>,
     ) -> Result<Self> {
-        let execution_traces = ExecutionTraceStorage::new_namespace(namespace)?;
         Ok(Self {
             inner: RawTaskStorage::new_file_backed_namespace(namespace, file_path)?,
-            execution_traces,
         })
-    }
-
-    /// Access the execution trace storage.
-    pub fn execution_traces(&self) -> &ExecutionTraceStorage {
-        &self.execution_traces
     }
 
     fn event_stage_label(event_type: &TaskEventType) -> String {

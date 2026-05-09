@@ -47,14 +47,6 @@ pub struct SpawnSubagentParams {
     #[serde(default)]
     pub parent_run_id: Option<String>,
 
-    /// Optional trace session ID (runtime-injected, internal use).
-    #[serde(default)]
-    pub trace_session_id: Option<String>,
-
-    /// Optional trace scope ID (runtime-injected, internal use).
-    #[serde(default)]
-    pub trace_scope_id: Option<String>,
-
     /// Optional name for temporary sub-agent creation.
     #[serde(default)]
     pub inline_name: Option<String>,

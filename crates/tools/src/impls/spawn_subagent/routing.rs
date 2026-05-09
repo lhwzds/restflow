@@ -94,8 +94,6 @@ fn build_contract_request(params: &SpawnSubagentParams, task: String) -> Contrac
         model: params.model.clone(),
         model_provider: params.provider.clone(),
         parent_run_id: params.parent_run_id.clone(),
-        trace_session_id: params.trace_session_id.clone(),
-        trace_scope_id: params.trace_scope_id.clone(),
     }
 }
 
@@ -135,8 +133,6 @@ pub(super) async fn execute(
                 "wait": params.wait,
                 "timeout_secs": params.timeout_secs,
                 "parent_run_id": params.parent_run_id,
-                "trace_session_id": params.trace_session_id,
-                "trace_scope_id": params.trace_scope_id,
                 "preview": params.preview,
                 "approval_id": params.approval_id
             }))

@@ -1,9 +1,5 @@
 use super::*;
 use crate::models::{ChatSessionSource, ChatTurnStatus};
-use crate::storage::Storage;
-use crate::{
-    ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace, MetricSampleTrace,
-};
 use types::request::{ChildRunListQuery, WireModelRef};
 
 fn assert_execution_thread_error(
@@ -20,114 +16,11 @@ fn assert_execution_thread_error(
     }
 }
 
-fn store_run_events(
-    storage: &Arc<Storage>,
-    task_id: &str,
-    session_id: &str,
-    run_id: &str,
-    parent_run_id: Option<&str>,
-) {
-    let trace = ai::telemetry::RestflowTrace::new(
-        run_id.to_string(),
-        session_id.to_string(),
-        task_id.to_string(),
-        "agent-1".to_string(),
-    )
-    .with_parent_run_id(parent_run_id.map(|value| value.to_string()));
-    let start = crate::models::execution_trace_builders::with_provider(
-        crate::models::execution_trace_builders::with_effective_model(
-            crate::models::execution_trace_builders::with_trace_context(
-                crate::models::execution_trace_builders::lifecycle(
-                    task_id,
-                    "agent-1",
-                    LifecycleTrace {
-                        status: "running".to_string(),
-                        message: Some("started".to_string()),
-                        error: None,
-                        ai_duration_ms: None,
-                    },
-                ),
-                &trace,
-            ),
-            "openai/gpt-5",
-        ),
-        "openai",
-    );
-    let end = crate::models::execution_trace_builders::with_provider(
-        crate::models::execution_trace_builders::with_effective_model(
-            crate::models::execution_trace_builders::with_lifecycle(
-                crate::models::execution_trace_builders::with_trace_context(
-                    crate::models::execution_trace_builders::new_event(
-                        task_id,
-                        "agent-1",
-                        ExecutionTraceCategory::Lifecycle,
-                        ExecutionTraceSource::Runtime,
-                    ),
-                    &trace,
-                ),
-                LifecycleTrace {
-                    status: "completed".to_string(),
-                    message: Some("done".to_string()),
-                    error: None,
-                    ai_duration_ms: Some(1200),
-                },
-            ),
-            "openai/gpt-5",
-        ),
-        "openai",
-    );
-    storage.execution_traces.store(&start).expect("store start");
-    storage.execution_traces.store(&end).expect("store end");
-}
-
-fn store_run_telemetry(storage: &Arc<Storage>, task_id: &str, session_id: &str, run_id: &str) {
-    let trace = ai::telemetry::RestflowTrace::new(run_id, session_id, task_id, "agent-1");
-    let metric = crate::models::execution_trace_builders::with_trace_context(
-        crate::models::execution_trace_builders::metric_sample(
-            task_id,
-            "agent-1",
-            MetricSampleTrace {
-                name: "llm_total_tokens".to_string(),
-                value: 42.0,
-                unit: Some("tokens".to_string()),
-                dimensions: Vec::new(),
-            },
-        ),
-        &trace,
-    );
-    let log = crate::models::execution_trace_builders::with_trace_context(
-        crate::models::execution_trace_builders::log_record(
-            task_id,
-            "agent-1",
-            LogRecordTrace {
-                level: "warn".to_string(),
-                message: format!("log-{run_id}"),
-                fields: Vec::new(),
-            },
-        ),
-        &trace,
-    );
-    storage
-        .execution_traces
-        .store(&metric)
-        .expect("store metric");
-    storage.execution_traces.store(&log).expect("store log");
-}
-
-#[tokio::test]
-async fn resolve_chat_stream_trace_uses_session_agent_and_run_turn_id() {
-    let (core, _temp) = create_test_core().await;
-    let session = ChatSession::new("agent-trace".to_string(), "gpt-5".to_string());
-    core.storage.chat_sessions.create(&session).unwrap();
-
-    let trace = resolve_chat_stream_trace(&core, &session.id, "stream-123");
-
-    assert_eq!(trace.run_id, "stream-123");
-    assert_eq!(trace.parent_run_id, None);
-    assert_eq!(trace.turn_id, "run-stream-123");
-    assert_eq!(trace.session_id, session.id);
-    assert_eq!(trace.scope_id, session.id);
-    assert_eq!(trace.actor_id, "agent-trace");
+fn chat_session_with_completed_turn(agent_id: &str, model: &str, turn_id: &str) -> ChatSession {
+    let mut session = ChatSession::new(agent_id.to_string(), model.to_string());
+    session.record_turn_user_message(turn_id, "hello");
+    session.complete_turn_with_assistant_message(turn_id, "done");
+    session
 }
 
 #[tokio::test]
@@ -169,10 +62,9 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
     let session_id = session.id.clone();
     core.storage.chat_sessions.create(&session).unwrap();
-    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
 
     let response = IpcServer::process(
         &core,
@@ -192,7 +84,7 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
                 thread.focus.session_id.as_deref(),
                 Some(session_id.as_str())
             );
-            assert!(thread.timeline.events.len() >= 2);
+            assert_eq!(thread.timeline.events.len(), 0);
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -222,10 +114,8 @@ async fn list_child_runs_returns_empty_for_leaf_runs() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    let session_id = session.id.clone();
+    let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
     core.storage.chat_sessions.create(&session).unwrap();
-    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
 
     let response = IpcServer::process(
         &core,
@@ -248,111 +138,12 @@ async fn list_child_runs_returns_empty_for_leaf_runs() {
 }
 
 #[tokio::test]
-async fn list_child_runs_returns_direct_children_for_parent_runs() {
+async fn get_execution_run_auxiliary_requests_return_empty_payloads() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    let session_id = session.id.clone();
+    let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
     core.storage.chat_sessions.create(&session).unwrap();
-    store_run_events(&core.storage, "task-1", &session_id, "run-parent", None);
-    store_run_events(
-        &core.storage,
-        "task-1",
-        &session_id,
-        "run-child",
-        Some("run-parent"),
-    );
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ListChildRuns {
-            query: ChildRunListQuery {
-                parent_run_id: "run-parent".to_string(),
-            },
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let runs: Vec<crate::RunSummary> = serde_json::from_value(value).expect("child runs");
-            assert_eq!(runs.len(), 1);
-            assert_eq!(runs[0].run_id.as_deref(), Some("run-child"));
-            assert_eq!(runs[0].parent_run_id.as_deref(), Some("run-parent"));
-            assert_eq!(runs[0].root_run_id.as_deref(), Some("run-parent"));
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn get_execution_trace_stats_filters_by_run_id() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    let session_id = session.id.clone();
-    core.storage.chat_sessions.create(&session).unwrap();
-    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
-    store_run_events(&core.storage, "task-1", &session_id, "run-2", None);
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionTraceStats {
-            run_id: Some("run-1".to_string()),
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            let stats: crate::ExecutionTraceStats =
-                serde_json::from_value(value).expect("execution trace stats");
-            assert_eq!(stats.total_events, 2);
-            assert_eq!(stats.lifecycle_count, 2);
-        }
-        other => panic!("expected success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn get_execution_trace_stats_rejects_blank_run_id_filter() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionTraceStats {
-            run_id: Some("   ".to_string()),
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 400);
-            assert!(error.message.contains("run_id is required"));
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn get_execution_run_telemetry_requests_filter_by_run_id() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    let session_id = session.id.clone();
-    core.storage.chat_sessions.create(&session).unwrap();
-    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
-    store_run_events(&core.storage, "task-1", &session_id, "run-2", None);
-    store_run_telemetry(&core.storage, "task-1", &session_id, "run-1");
-    store_run_telemetry(&core.storage, "task-1", &session_id, "run-2");
 
     let timeline_response = IpcServer::process(
         &core,
@@ -362,71 +153,14 @@ async fn get_execution_run_telemetry_requests_filter_by_run_id() {
         },
     )
     .await;
-    let metrics_response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionRunMetrics {
-            run_id: "run-1".to_string(),
-        },
-    )
-    .await;
-    let logs_response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::QueryExecutionRunLogs {
-            run_id: "run-1".to_string(),
-        },
-    )
-    .await;
-
     match timeline_response {
         IpcResponse::Success(value) => {
-            let timeline: crate::ExecutionTimeline =
+            let timeline: crate::RunTimeline =
                 serde_json::from_value(value).expect("execution timeline");
-            assert_eq!(timeline.events.len(), 4);
-            assert!(
-                timeline
-                    .events
-                    .iter()
-                    .all(|event| event.run_id.as_deref() == Some("run-1"))
-            );
+            assert_eq!(timeline.events.len(), 2);
         }
         other => panic!("expected timeline success response, got {other:?}"),
     }
-
-    match metrics_response {
-        IpcResponse::Success(value) => {
-            let metrics: crate::ExecutionMetricsResponse =
-                serde_json::from_value(value).expect("execution metrics");
-            assert_eq!(metrics.samples.len(), 1);
-            assert_eq!(metrics.samples[0].run_id.as_deref(), Some("run-1"));
-        }
-        other => panic!("expected metrics success response, got {other:?}"),
-    }
-
-    match logs_response {
-        IpcResponse::Success(value) => {
-            let logs: crate::ExecutionLogResponse =
-                serde_json::from_value(value).expect("execution logs");
-            assert_eq!(logs.events.len(), 1);
-            assert_eq!(logs.events[0].run_id.as_deref(), Some("run-1"));
-        }
-        other => panic!("expected logs success response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn resolve_chat_stream_trace_falls_back_when_session_is_missing() {
-    let (core, _temp) = create_test_core().await;
-
-    let trace = resolve_chat_stream_trace(&core, "missing-session", "stream-123");
-
-    assert_eq!(trace.run_id, "stream-123");
-    assert_eq!(trace.parent_run_id, None);
-    assert_eq!(trace.turn_id, "run-stream-123");
-    assert_eq!(trace.session_id, "missing-session");
-    assert_eq!(trace.scope_id, "missing-session");
-    assert_eq!(trace.actor_id, UNKNOWN_TRACE_ACTOR_ID);
 }
 
 #[test]

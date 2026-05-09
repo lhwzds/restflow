@@ -13,7 +13,7 @@ use reqwest::Client;
 use runtime::daemon::{IpcRequest, IpcResponse, StreamFrame, run_mcp_http_server};
 use runtime::prompt_files;
 use runtime::runtime::task_runtime::install_test_llm_factory;
-use runtime::{AppCore, ChatRole, ChatSession, ExecutionThread, ExecutionTraceStats, ModelId};
+use runtime::{AppCore, ChatRole, ChatSession, ExecutionThread, ModelId};
 use serde::de::DeserializeOwned;
 use stress_support::{
     MockLlmHttpServer, MockToolHttpServer, ProviderFamily, StreamMode, StressLevel,
@@ -273,7 +273,7 @@ async fn collect_stream_frames(
 struct IpcSessionOutcome {
     stream_data_frames: usize,
     assistant_messages: usize,
-    trace_events: u64,
+    turn_events: u64,
 }
 
 async fn run_ipc_session_workload(
@@ -297,7 +297,7 @@ async fn run_ipc_session_workload(
     .await;
 
     let mut total_data_frames = 0usize;
-    let mut total_trace_events = 0u64;
+    let mut total_turn_events = 0u64;
 
     for turn in 0..turns_per_session {
         let stream_id = format!("ipc-stress-{session_index}-{turn}");
@@ -341,20 +341,6 @@ async fn run_ipc_session_workload(
         assert!(data_frames > 0, "expected data frames for {stream_id}");
         total_data_frames += data_frames;
 
-        let trace_stats: ExecutionTraceStats = request_typed(
-            client,
-            base_url,
-            &IpcRequest::GetExecutionTraceStats {
-                run_id: Some(stream_id.clone()),
-            },
-        )
-        .await;
-        assert!(
-            trace_stats.total_events > 0,
-            "expected execution trace events for {stream_id}"
-        );
-        total_trace_events += trace_stats.total_events;
-
         let thread: ExecutionThread = request_typed(
             client,
             base_url,
@@ -368,10 +354,8 @@ async fn run_ipc_session_workload(
             thread.focus.session_id.as_deref(),
             Some(session.id.as_str())
         );
-        assert!(
-            !thread.timeline.events.is_empty(),
-            "expected run timeline events"
-        );
+        assert!(thread.focus.event_count > 0, "expected turn events");
+        total_turn_events += thread.focus.event_count;
 
         session = request_typed(client, base_url, &IpcRequest::GetSession { id: session.id }).await;
         assert_eq!(
@@ -397,7 +381,7 @@ async fn run_ipc_session_workload(
     IpcSessionOutcome {
         stream_data_frames: total_data_frames,
         assistant_messages,
-        trace_events: total_trace_events,
+        turn_events: total_turn_events,
     }
 }
 
@@ -449,7 +433,7 @@ async fn smoke_ipc_session_streams_finalize_consistently() {
         .iter()
         .map(|outcome| outcome.assistant_messages)
         .sum();
-    let total_trace_events: u64 = outcomes.iter().map(|outcome| outcome.trace_events).sum();
+    let total_turn_events: u64 = outcomes.iter().map(|outcome| outcome.turn_events).sum();
 
     assert!(
         total_data_frames >= session_count * turns_per_session * rounds_for(level, 4, 8, 16),
@@ -460,8 +444,8 @@ async fn smoke_ipc_session_streams_finalize_consistently() {
         "expected persisted assistant messages across all IPC sessions"
     );
     assert!(
-        total_trace_events >= (session_count * turns_per_session) as u64,
-        "expected execution trace coverage across all IPC sessions"
+        total_turn_events >= (session_count * turns_per_session) as u64,
+        "expected turn event coverage across all IPC sessions"
     );
     let llm_metrics = llm_server.metrics();
     assert!(

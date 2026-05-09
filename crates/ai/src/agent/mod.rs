@@ -46,8 +46,8 @@ pub use stream::{
 pub use streaming_buffer::StreamDisplayMode;
 pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use sub_agent::{
-    RunTraceContext, SpawnHandle, SpawnPriority, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
-    SubagentExecutionBridge, SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState,
-    SubagentStatus, SubagentTracker, execute_subagent_plan,
+    SpawnHandle, SpawnPriority, SubagentCompletion, SubagentConfig, SubagentDefLookup,
+    SubagentDefSnapshot, SubagentDefSummary, SubagentDeps, SubagentExecutionBridge,
+    SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
+    SubagentTracker, execute_subagent_plan,
 };

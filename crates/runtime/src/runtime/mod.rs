@@ -16,7 +16,6 @@ pub use agent::{
     effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     secret_resolver_from_storage,
 };
-pub use ai::telemetry::RestflowTrace;
 pub use execution_context::{ExecutionContext, ExecutionRole};
 pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
 pub use subagent::{

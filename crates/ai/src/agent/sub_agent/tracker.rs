@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -8,7 +8,6 @@ use tokio::time::Duration;
 use crate::Result;
 use crate::error::AiError;
 use crate::steer::SteerMessage;
-use crate::telemetry::TelemetrySink;
 
 pub use types::subagent::{SubagentCompletion, SubagentResult, SubagentState, SubagentStatus};
 
@@ -37,9 +36,6 @@ pub struct SubagentTracker {
 
     /// Lock to prevent TOCTOU race between running_count() check and register().
     spawn_lock: std::sync::Mutex<()>,
-
-    /// Optional telemetry sink for structured execution events.
-    telemetry_sink: RwLock<Option<Arc<dyn TelemetrySink>>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -139,22 +135,7 @@ impl SubagentTracker {
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
             spawn_lock: std::sync::Mutex::new(()),
-            telemetry_sink: RwLock::new(None),
         }
-    }
-
-    /// Install or replace the telemetry sink used for spawned sub-agents.
-    pub fn set_telemetry_sink(&self, sink: Arc<dyn TelemetrySink>) {
-        if let Ok(mut guard) = self.telemetry_sink.write() {
-            *guard = Some(sink);
-        }
-    }
-
-    pub(crate) fn telemetry_sink(&self) -> Option<Arc<dyn TelemetrySink>> {
-        self.telemetry_sink
-            .read()
-            .ok()
-            .and_then(|guard| guard.clone())
     }
 
     fn insert_running_state(

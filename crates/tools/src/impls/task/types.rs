@@ -204,17 +204,6 @@ pub(super) enum TaskAction {
     ListArtifacts {
         id: String,
     },
-    ListTraces {
-        #[serde(default)]
-        id: Option<String>,
-        #[serde(default)]
-        limit: Option<usize>,
-    },
-    ReadTrace {
-        trace_id: String,
-        #[serde(default)]
-        line_limit: Option<usize>,
-    },
     Pause {
         id: String,
     },

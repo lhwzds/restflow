@@ -1,12 +1,9 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use crate::daemon::request_mapper::to_contract;
+use crate::RunTimeline;
 #[cfg(unix)]
-use crate::{
-    ExecutionLogResponse, ExecutionMetricsResponse, ExecutionTimeline, ProviderHealthQuery,
-    ProviderHealthResponse,
-};
+use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]
 use types::{ArchiveResponse, DeleteResponse};
 
@@ -155,61 +152,8 @@ impl IpcClient {
         self.request_typed(IpcRequest::ListRuns { query }).await
     }
 
-    pub async fn query_execution_traces(
-        &mut self,
-        query: ExecutionTraceQuery,
-    ) -> Result<Vec<ExecutionTraceEvent>> {
-        let query = to_contract(query)?;
-        self.request_typed(IpcRequest::QueryExecutionTraces { query })
-            .await
-    }
-
-    pub async fn get_execution_run_timeline(
-        &mut self,
-        run_id: String,
-    ) -> Result<ExecutionTimeline> {
+    pub async fn get_execution_run_timeline(&mut self, run_id: String) -> Result<RunTimeline> {
         self.request_typed(IpcRequest::GetExecutionRunTimeline { run_id })
-            .await
-    }
-
-    pub async fn get_execution_run_metrics(
-        &mut self,
-        run_id: String,
-    ) -> Result<ExecutionMetricsResponse> {
-        self.request_typed(IpcRequest::GetExecutionRunMetrics { run_id })
-            .await
-    }
-
-    pub async fn get_provider_health(
-        &mut self,
-        query: ProviderHealthQuery,
-    ) -> Result<ProviderHealthResponse> {
-        let query = to_contract(query)?;
-        self.request_typed(IpcRequest::GetProviderHealth { query })
-            .await
-    }
-
-    pub async fn query_execution_run_logs(
-        &mut self,
-        run_id: String,
-    ) -> Result<ExecutionLogResponse> {
-        self.request_typed(IpcRequest::QueryExecutionRunLogs { run_id })
-            .await
-    }
-
-    pub async fn get_execution_trace_stats(
-        &mut self,
-        run_id: Option<String>,
-    ) -> Result<ExecutionTraceStats> {
-        self.request_typed(IpcRequest::GetExecutionTraceStats { run_id })
-            .await
-    }
-
-    pub async fn get_execution_trace_by_id(
-        &mut self,
-        id: String,
-    ) -> Result<Option<ExecutionTraceEvent>> {
-        self.request_optional(IpcRequest::GetExecutionTraceById { id })
             .await
     }
 }

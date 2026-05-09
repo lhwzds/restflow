@@ -6,8 +6,8 @@ use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, Profi
 use crate::daemon::session_events::ChatSessionEvent;
 use crate::models::{
     AgentNode, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
-    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceStats, RunListQuery, RunSummary, Skill,
-    Task, TaskControlAction, TaskEvent, TaskPatch, TaskSpec, TerminalSession,
+    RunListQuery, RunSummary, Skill, Task, TaskControlAction, TaskEvent, TaskPatch, TaskSpec,
+    TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;

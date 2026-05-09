@@ -66,14 +66,6 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
                 "type": "string",
                 "description": "Optional parent run ID for context propagation (runtime-injected)"
             },
-            "trace_session_id": {
-                "type": "string",
-                "description": "Optional trace session ID for context propagation (runtime-injected)"
-            },
-            "trace_scope_id": {
-                "type": "string",
-                "description": "Optional trace scope ID for context propagation (runtime-injected)"
-            },
             "inline_name": {
                 "type": "string",
                 "description": "Optional temporary sub-agent name when 'agent' is omitted."

@@ -1,7 +1,7 @@
 # AI
 
 `ai` is the Rust agent framework crate. It owns the ReAct executor, provider
-clients, tool interfaces, context management, steering, and telemetry domain.
+clients, tool interfaces, context management, and steering.
 
 Python execution and Python-defined tools are intentionally outside this crate.
 Expose those capabilities through skrun-compatible examples or external

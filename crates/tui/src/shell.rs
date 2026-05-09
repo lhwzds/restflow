@@ -11,9 +11,7 @@ use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use runtime::models::SkillSource;
-use runtime::models::{
-    ChatTurnEventKind, ChatTurnStatus, ExecutionTraceCategory, ExecutionTraceEvent, ToolCallPhase,
-};
+use runtime::models::{ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus};
 use serde_json::Value;
 
 use crate::render::render_shell_bottom_viewport;
@@ -1029,7 +1027,7 @@ fn build_run_detail_lines(
             lines.extend(wrap_styled_line(
                 Line::from(vec![
                     Span::styled("    - ", muted_style()),
-                    Span::styled(trace_event_label(event), muted_style()),
+                    Span::styled(turn_event_label(event), muted_style()),
                 ]),
                 width,
             ));
@@ -1049,72 +1047,30 @@ fn run_model_label(provider: Option<&str>, model: Option<&str>) -> Option<String
     }
 }
 
-fn trace_event_label(event: &ExecutionTraceEvent) -> String {
-    match event.category {
-        ExecutionTraceCategory::ToolCall => {
-            if let Some(tool) = event.tool_call.as_ref() {
-                let phase = match tool.phase {
-                    ToolCallPhase::Started => "started",
-                    ToolCallPhase::Completed => {
-                        if tool.success == Some(false) {
-                            "failed"
-                        } else {
-                            "completed"
-                        }
-                    }
-                };
-                return format!("tool · {} · {phase}", tool.tool_name);
-            }
-            "tool".to_string()
+fn turn_event_label(event: &ChatTurnEvent) -> String {
+    match &event.kind {
+        ChatTurnEventKind::UserMessage { content } => format!("user · {}", compact_label(content)),
+        ChatTurnEventKind::AssistantMessage { content } => {
+            format!("assistant · {}", compact_label(content))
         }
-        ExecutionTraceCategory::Lifecycle => event
-            .lifecycle
-            .as_ref()
-            .map(|lifecycle| {
-                lifecycle
-                    .message
-                    .as_ref()
-                    .or(lifecycle.error.as_ref())
-                    .map(|message| format!("lifecycle · {} · {message}", lifecycle.status))
-                    .unwrap_or_else(|| format!("lifecycle · {}", lifecycle.status))
-            })
-            .unwrap_or_else(|| "lifecycle".to_string()),
-        ExecutionTraceCategory::Message => event
-            .message
-            .as_ref()
-            .map(|message| {
-                message
-                    .content_preview
-                    .as_ref()
-                    .map(|preview| format!("message · {} · {preview}", message.role))
-                    .unwrap_or_else(|| format!("message · {}", message.role))
-            })
-            .unwrap_or_else(|| "message".to_string()),
-        ExecutionTraceCategory::LlmCall => event
-            .llm_call
-            .as_ref()
-            .map(|llm| format!("llm · {}", llm.model))
-            .unwrap_or_else(|| "llm".to_string()),
-        ExecutionTraceCategory::ModelSwitch => event
-            .model_switch
-            .as_ref()
-            .map(|switch| format!("model · {} -> {}", switch.from_model, switch.to_model))
-            .unwrap_or_else(|| "model switch".to_string()),
-        ExecutionTraceCategory::MetricSample => event
-            .metric_sample
-            .as_ref()
-            .map(|metric| format!("metric · {} {}", metric.name, metric.value))
-            .unwrap_or_else(|| "metric".to_string()),
-        ExecutionTraceCategory::ProviderHealth => event
-            .provider_health
-            .as_ref()
-            .map(|health| format!("provider · {} · {}", health.provider, health.status))
-            .unwrap_or_else(|| "provider health".to_string()),
-        ExecutionTraceCategory::LogRecord => event
-            .log_record
-            .as_ref()
-            .map(|record| format!("log · {} · {}", record.level, record.message))
-            .unwrap_or_else(|| "log".to_string()),
+        ChatTurnEventKind::ToolCall { name, .. } => format!("tool · {name} · started"),
+        ChatTurnEventKind::ToolResult {
+            call_id, success, ..
+        } => {
+            let phase = if *success { "completed" } else { "failed" };
+            format!("tool · {call_id} · {phase}")
+        }
+        ChatTurnEventKind::Error { message } => format!("error · {}", compact_label(message)),
+        ChatTurnEventKind::Canceled => "canceled".to_string(),
+    }
+}
+
+fn compact_label(value: &str) -> String {
+    let value = value.trim();
+    if value.chars().count() > 80 {
+        format!("{}...", value.chars().take(77).collect::<String>())
+    } else {
+        value.to_string()
     }
 }
 
@@ -3035,9 +2991,8 @@ mod tests {
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use runtime::models::{
-        ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEventKind, ExecutionThread,
-        ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource,
-        ExecutionTraceStats, LifecycleTrace, RunKind, RunSummary, Skill, SkillSource,
+        ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEvent, ChatTurnEventKind,
+        ExecutionThread, RunKind, RunSummary, RunTimeline, Skill, SkillSource,
     };
     use types::{StreamFrame, TaskStreamEvent};
 
@@ -4566,42 +4521,14 @@ mod tests {
         };
         let thread = ExecutionThread {
             focus,
-            timeline: ExecutionTimeline {
-                events: vec![ExecutionTraceEvent {
+            timeline: RunTimeline {
+                events: vec![ChatTurnEvent {
                     id: "event-1".to_string(),
-                    task_id: String::new(),
-                    agent_id: "agent-1".to_string(),
-                    category: ExecutionTraceCategory::Lifecycle,
-                    source: ExecutionTraceSource::Runtime,
                     timestamp: 2,
-                    subflow_path: Vec::new(),
-                    run_id: Some("run-1".to_string()),
-                    parent_run_id: None,
-                    session_id: Some("session-1".to_string()),
-                    turn_id: None,
-                    requested_model: None,
-                    effective_model: Some("deepseek-chat".to_string()),
-                    provider: Some("deepseek".to_string()),
-                    attempt: None,
-                    llm_call: None,
-                    tool_call: None,
-                    model_switch: None,
-                    lifecycle: Some(LifecycleTrace {
-                        status: "run_completed".to_string(),
-                        message: Some("done".to_string()),
-                        error: None,
-                        ai_duration_ms: Some(10),
-                    }),
-                    message: None,
-                    metric_sample: None,
-                    provider_health: None,
-                    log_record: None,
+                    kind: ChatTurnEventKind::AssistantMessage {
+                        content: "done".to_string(),
+                    },
                 }],
-                stats: ExecutionTraceStats {
-                    total_events: 1,
-                    lifecycle_count: 1,
-                    ..ExecutionTraceStats::default()
-                },
             },
         };
         state.thread.set_run_focus(

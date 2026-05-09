@@ -14,7 +14,6 @@ use crate::services::session::SessionService;
 use crate::steer::SteerRegistry;
 use crate::storage::TaskStorage;
 use ai::agent::StreamEmitter;
-use ai::telemetry::{RunDescriptor, RunKind, RunLifecycleService};
 use anyhow::{Result, anyhow};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -185,7 +184,6 @@ pub trait AgentExecutor: Send + Sync {
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult>;
 }
 
@@ -320,41 +318,12 @@ impl TaskRunner {
         self.steer_registry.clone()
     }
 
-    /// Get the execution trace storage for persisting runtime events.
-    fn execution_trace_storage(&self) -> &crate::storage::ExecutionTraceStorage {
-        self.storage.execution_traces()
-    }
-
     async fn has_resume_intent(&self, task_id: &str) -> bool {
         self.resume_states.read().await.contains_key(task_id)
     }
 
     async fn staged_resume_intent(&self, task_id: &str) -> Option<ai::AgentState> {
         self.resume_states.read().await.get(task_id).cloned()
-    }
-
-    fn build_run_handle_for_task_run(
-        &self,
-        task: &Task,
-        run: &TaskRun,
-    ) -> ai::telemetry::RunHandle {
-        let trace_session_id = {
-            let session_id = task.chat_session_id.trim();
-            if session_id.is_empty() {
-                task.id.clone()
-            } else {
-                session_id.to_string()
-            }
-        };
-        let telemetry_sink =
-            crate::telemetry::build_execution_trace_sink(self.execution_trace_storage());
-        RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
-            RunKind::Task,
-            run.run_id.clone(),
-            trace_session_id,
-            task.id.clone(),
-            task.agent_id.clone(),
-        ))
     }
 
     async fn activate_resume_intent_for_launch(&self, task_id: &str) -> Result<bool> {
@@ -436,8 +405,7 @@ impl TaskRunner {
         reason: &str,
         ended_at: i64,
     ) {
-        let run_handle = self.build_run_handle_for_task_run(task, run);
-        let finalizer = TaskRunFinalizer::new(self, task.clone(), None, run_handle);
+        let finalizer = TaskRunFinalizer::new(self, task.clone(), None, run.run_id.clone());
         let duration_ms = ended_at.saturating_sub(run.started_at);
         finalizer.finalize_interrupted(reason, duration_ms).await;
     }
@@ -1143,14 +1111,9 @@ impl TaskRunner {
         }));
 
         let resolved_input = self.resolve_task_input(&task);
-        let trace_session_id = {
-            let session_id = task.chat_session_id.trim();
-            if session_id.is_empty() {
-                anyhow::bail!("task '{}' is not bound to a chat session", task.id);
-            } else {
-                session_id.to_string()
-            }
-        };
+        if task.chat_session_id.trim().is_empty() {
+            anyhow::bail!("task '{}' is not bound to a chat session", task.id);
+        }
         let run_id = format!(
             "{}-{}",
             chrono::Utc::now().timestamp_millis(),
@@ -1159,19 +1122,10 @@ impl TaskRunner {
         let execution_timeout_secs = resolve_execution_timeout_secs(&task, &self.config);
         let resume_state = self.staged_resume_intent(task_id).await;
 
-        let execution_trace_storage = self.execution_trace_storage();
-        let telemetry_sink = crate::telemetry::build_execution_trace_sink(execution_trace_storage);
-        let run_handle = RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
-            RunKind::Task,
-            run_id,
-            trace_session_id,
-            task.id.clone(),
-            task.agent_id.clone(),
-        ));
         let execution_id = resume_state
             .as_ref()
             .map(|state| state.execution_id.clone())
-            .unwrap_or_else(|| run_handle.run_id().to_string());
+            .unwrap_or_else(|| run_id.clone());
         #[cfg(test)]
         if self.fail_start_task_run_once.swap(false, Ordering::SeqCst) {
             pump_cancel.cancel();
@@ -1191,12 +1145,10 @@ impl TaskRunner {
                 task.id
             ));
         }
-        if let Err(err) = self.storage.start_task_run(
-            &task.id,
-            run_handle.run_id().to_string(),
-            execution_id,
-            start_time,
-        ) {
+        if let Err(err) =
+            self.storage
+                .start_task_run(&task.id, run_id.clone(), execution_id, start_time)
+        {
             pump_cancel.cancel();
             if let Some(pump) = message_pump.take() {
                 let _ = pump.await;
@@ -1215,22 +1167,16 @@ impl TaskRunner {
                 err
             ));
         }
-        run_handle.start().await;
-        let finalizer = TaskRunFinalizer::new(
-            self,
-            task.clone(),
-            resolved_input.clone(),
-            run_handle.clone(),
-        );
+        let finalizer =
+            TaskRunFinalizer::new(self, task.clone(), resolved_input.clone(), run_id.clone());
         self.clear_resume_intent(task_id).await;
         self.event_emitter
             .emit(task_stream_event_context(
                 TaskStreamEvent::started(&task.id, &task.name, &task.agent_id, &execution_mode_str),
                 &task,
-                run_handle.run_id(),
+                &run_id,
             ))
             .await;
-        let telemetry_context = Some(run_handle.cloned_context());
 
         if resolved_input
             .as_deref()
@@ -1272,7 +1218,6 @@ impl TaskRunner {
                         resolved_input.as_deref(),
                         steer_rx,
                         step_emitter,
-                        telemetry_context.clone(),
                     ),
                 )
                 .await
@@ -1285,7 +1230,6 @@ impl TaskRunner {
                         resolved_input.as_deref(),
                         steer_rx,
                         step_emitter,
-                        telemetry_context.clone(),
                     )
                     .await)
             }

@@ -108,14 +108,6 @@ pub(super) fn parameters_schema() -> Value {
             "limit": {
                 "type": "integer",
                 "description": "Message list limit for list_messages"
-            },
-            "trace_id": {
-                "type": "string",
-                "description": "Trace ID returned by list_traces (for read_trace)"
-            },
-            "line_limit": {
-                "type": "integer",
-                "description": "Maximum number of trailing lines returned by read_trace"
             }
         },
         "required": ["operation"]

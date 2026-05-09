@@ -129,10 +129,8 @@ mod tests {
         let env = RestflowTestEnv::new();
         let db_path = env.db_path("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let session_storage = SessionStorage::new(
-            crate::storage::ChatSessionStorage::new(db.clone()).unwrap(),
-            crate::storage::ExecutionTraceStorage::new(db.clone()).unwrap(),
-        );
+        let session_storage =
+            SessionStorage::new(crate::storage::ChatSessionStorage::new(db.clone()).unwrap());
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let task_storage = TaskStorage::new(db.clone()).unwrap();
         (

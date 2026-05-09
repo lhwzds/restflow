@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::telemetry::{TelemetryContext, TelemetrySink};
 use serde_json::Value;
 use types::{
     DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
@@ -70,10 +69,6 @@ pub struct AgentConfig {
     pub model_routing: Option<ModelRoutingConfig>,
     /// Optional model switcher used when model routing is enabled.
     pub model_switcher: Option<Arc<dyn LlmSwitcher>>,
-    /// Optional telemetry sink for execution-scoped events.
-    pub telemetry_sink: Option<Arc<dyn TelemetrySink>>,
-    /// Optional telemetry context shared across emitted events.
-    pub telemetry_context: Option<TelemetryContext>,
     /// Auto-approve security-gated tool calls (scheduled automation mode).
     pub yolo_mode: bool,
     /// Optional auxiliary reviewer invoked before each tool call.
@@ -109,8 +104,6 @@ impl AgentConfig {
             tool_output_dir: None,
             model_routing: None,
             model_switcher: None,
-            telemetry_sink: None,
-            telemetry_context: None,
             yolo_mode: false,
             tool_call_reviewer: None,
             prompt_flags: PromptFlags::default(),
@@ -191,18 +184,6 @@ impl AgentConfig {
     /// Set temperature
     pub fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = Some(temp);
-        self
-    }
-
-    /// Set telemetry sink.
-    pub fn with_telemetry_sink(mut self, telemetry_sink: Arc<dyn TelemetrySink>) -> Self {
-        self.telemetry_sink = Some(telemetry_sink);
-        self
-    }
-
-    /// Set telemetry context.
-    pub fn with_telemetry_context(mut self, telemetry_context: TelemetryContext) -> Self {
-        self.telemetry_context = Some(telemetry_context);
         self
     }
 

@@ -8,9 +8,9 @@ use crate::executor::CommandExecutor;
 use runtime::daemon::request_mapper::to_contract;
 use runtime::daemon::{IpcClient, IpcRequest};
 use runtime::models::{
-    AgentNode, ChatSession, ChatSessionSummary, ExecutionTimeline, RunListQuery, RunSummary,
-    Secret, Skill, Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch,
-    TaskProgress, TaskSpec,
+    AgentNode, ChatSession, ChatSessionSummary, RunListQuery, RunSummary, RunTimeline, Secret,
+    Skill, Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch, TaskProgress,
+    TaskSpec,
 };
 use runtime::storage::SystemConfig;
 use runtime::storage::agent::StoredAgent;
@@ -297,7 +297,7 @@ impl CommandExecutor for IpcExecutor {
         client.list_runs(query).await
     }
 
-    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {
+    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline> {
         let mut client = self.client.lock().await;
         client.get_execution_run_timeline(run_id.to_string()).await
     }

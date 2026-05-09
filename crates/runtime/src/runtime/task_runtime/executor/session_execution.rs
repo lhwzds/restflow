@@ -2,7 +2,6 @@ use super::*;
 use crate::services::adapters::SkrunSkillProvider;
 use crate::services::skill_mentions::parse_skill_mentions;
 use ai::StreamDisplayMode;
-use ai::telemetry::RunAttemptTracker;
 use types::skill::{SkillInfo, SkillProvider};
 
 fn should_force_non_stream(model: ModelId) -> bool {
@@ -18,22 +17,11 @@ fn interactive_turn_failover_config(primary: ModelId) -> FailoverConfig {
 #[derive(Default)]
 pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-    pub telemetry_context: Option<ai::telemetry::TelemetryContext>,
     pub stream_display_mode: StreamDisplayMode,
     pub workspace_root: Option<std::path::PathBuf>,
 }
 
 impl AgentRuntimeExecutor {
-    fn normalize_session_telemetry_context(
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
-        session: &ChatSession,
-    ) -> Option<ai::telemetry::TelemetryContext> {
-        telemetry_context.map(|mut context| {
-            context.trace.actor_id = session.agent_id.clone();
-            context
-        })
-    }
-
     pub(crate) fn resolve_stored_agent_for_session(
         &self,
         session: &mut ChatSession,
@@ -212,7 +200,6 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
         workspace_root: Option<std::path::PathBuf>,
     ) -> Result<SessionExecutionResult> {
@@ -263,18 +250,6 @@ impl AgentRuntimeExecutor {
         );
         let execution_context =
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
-        let final_telemetry_context = telemetry_context
-            .unwrap_or_else(|| {
-                ai::telemetry::TelemetryContext::new(ai::telemetry::RestflowTrace::new(
-                    session.id.clone(),
-                    session.id.clone(),
-                    session.id.clone(),
-                    agent_id.unwrap_or(&session.agent_id),
-                ))
-            })
-            .with_requested_model(model.as_serialized_str())
-            .with_effective_model(model.as_serialized_str())
-            .with_provider(model.provider().as_canonical_str());
 
         let mut config = ReActAgentConfig::new(user_input.to_string())
             .with_system_prompt(system_prompt.clone())
@@ -306,11 +281,6 @@ impl AgentRuntimeExecutor {
                 .with_tool_call_reviewer(Arc::new(LlmToolCallReviewer::new(swappable.clone())));
         }
         config = Self::apply_execution_context(config, &execution_context);
-        config = config
-            .with_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
-                self.storage.as_ref(),
-            ))
-            .with_telemetry_context(final_telemetry_context.clone());
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
@@ -363,14 +333,6 @@ impl AgentRuntimeExecutor {
             final_model,
         );
         execution.metrics.message_count = result.state.messages.len();
-        let mut final_telemetry_context = final_telemetry_context;
-        if !session.agent_id.trim().is_empty() {
-            final_telemetry_context.trace.actor_id = session.agent_id.clone();
-        }
-        final_telemetry_context = final_telemetry_context
-            .with_effective_model(final_model.as_serialized_str())
-            .with_provider(final_model.provider().as_canonical_str());
-        execution.final_telemetry_context = Some(final_telemetry_context);
         Ok(execution)
     }
 
@@ -387,7 +349,6 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
         workspace_root: Option<std::path::PathBuf>,
     ) -> Result<SessionExecutionResult> {
@@ -432,7 +393,6 @@ impl AgentRuntimeExecutor {
             factory,
             agent_id,
             steer_rx,
-            telemetry_context,
             stream_display_mode,
             workspace_root,
         )
@@ -452,7 +412,6 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
         stream_display_mode: StreamDisplayMode,
         workspace_root: Option<std::path::PathBuf>,
     ) -> Result<SessionExecutionResult> {
@@ -469,7 +428,6 @@ impl AgentRuntimeExecutor {
                     emitter,
                     agent_id,
                     steer_rx,
-                    telemetry_context,
                     stream_display_mode,
                     workspace_root,
                 )
@@ -493,7 +451,6 @@ impl AgentRuntimeExecutor {
                     emitter,
                     agent_id,
                     steer_rx,
-                    telemetry_context,
                     stream_display_mode,
                     workspace_root,
                 )
@@ -547,7 +504,6 @@ impl AgentRuntimeExecutor {
                     factory,
                     agent_id,
                     steer_rx.take(),
-                    telemetry_context.clone(),
                     stream_display_mode,
                     workspace_root.clone(),
                 )
@@ -609,15 +565,8 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
     ) -> Result<SessionExecutionResult> {
-        self.execute_session_turn_with_emitter(
-            session,
-            user_input,
-            max_history,
-            input_mode,
-            None,
-            None,
-        )
-        .await
+        self.execute_session_turn_with_emitter(session, user_input, max_history, input_mode, None)
+            .await
     }
 
     /// Execute a chat turn for an existing chat session with optional stream emitter.
@@ -628,7 +577,6 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<ai::telemetry::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         self.execute_session_turn_with_emitter_and_steer(
             session,
@@ -638,7 +586,6 @@ impl AgentRuntimeExecutor {
             emitter,
             SessionTurnRuntimeOptions {
                 steer_rx: None,
-                telemetry_context,
                 stream_display_mode: StreamDisplayMode::Buffered,
                 workspace_root: None,
             },
@@ -659,7 +606,6 @@ impl AgentRuntimeExecutor {
     ) -> Result<SessionExecutionResult> {
         let SessionTurnRuntimeOptions {
             steer_rx,
-            telemetry_context,
             stream_display_mode,
             workspace_root,
         } = options;
@@ -692,60 +638,18 @@ impl AgentRuntimeExecutor {
         let agent_id = session.agent_id.clone();
         let shared_emitter = share_stream_emitter(emitter);
         let mut steer_rx = steer_rx;
-        let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
-        let base_telemetry_context =
-            Self::normalize_session_telemetry_context(telemetry_context, session)
-                .unwrap_or_else(|| {
-                    ai::telemetry::TelemetryContext::new(ai::telemetry::RestflowTrace::new(
-                        session.id.clone(),
-                        session.id.clone(),
-                        session.id.clone(),
-                        session.agent_id.clone(),
-                    ))
-                })
-                .with_requested_model(primary_model.as_serialized_str())
-                .with_effective_model(primary_model.as_serialized_str())
-                .with_provider(primary_provider.as_canonical_str());
-        let mut attempt_tracker = RunAttemptTracker::default();
 
         loop {
             let node = agent_node.clone();
             let session_for_execution = session_snapshot.clone();
-            let telemetry_sink = telemetry_sink.clone();
-            let base_telemetry_context = base_telemetry_context.clone();
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = node.clone();
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
-                let (current_attempt, previous_model) = attempt_tracker.register_attempt(model);
                 let emitter = clone_shared_emitter(&shared_emitter);
                 let steer_rx = steer_rx.take();
-                let telemetry_sink = telemetry_sink.clone();
-                let telemetry_context = base_telemetry_context
-                    .clone()
-                    .with_effective_model(model.as_serialized_str())
-                    .with_provider(model.provider().as_canonical_str())
-                    .with_attempt(current_attempt);
                 let workspace_root = workspace_root.clone();
                 async move {
-                    if let Some(previous_model) = previous_model
-                        && previous_model != model
-                    {
-                        telemetry_sink
-                            .emit(
-                                ai::telemetry::ExecutionEventEnvelope::from_telemetry_context(
-                                    &telemetry_context,
-                                    ai::telemetry::ExecutionEvent::ModelSwitch {
-                                        from_model: previous_model.as_serialized_str().to_string(),
-                                        to_model: model.as_serialized_str().to_string(),
-                                        reason: Some("failover".to_string()),
-                                        success: true,
-                                    },
-                                )
-                                .with_effective_model(model.as_serialized_str().to_string()),
-                            )
-                            .await;
-                    }
                     self.execute_session_with_profiles(
                         &node,
                         model,
@@ -757,7 +661,6 @@ impl AgentRuntimeExecutor {
                         emitter,
                         Some(agent_id.as_str()),
                         steer_rx,
-                        Some(telemetry_context),
                         stream_display_mode,
                         workspace_root.clone(),
                     )
@@ -770,13 +673,6 @@ impl AgentRuntimeExecutor {
                 Ok((mut exec_result, final_model)) => {
                     exec_result.final_model = final_model;
                     exec_result.metrics.final_model = Some(final_model);
-                    if let Some(telemetry_context) = exec_result.final_telemetry_context.take() {
-                        exec_result.final_telemetry_context = Some(
-                            telemetry_context
-                                .with_effective_model(final_model.as_serialized_str())
-                                .with_provider(final_model.provider().as_canonical_str()),
-                        );
-                    }
                     return Ok(exec_result);
                 }
                 Err(err) => {
@@ -799,7 +695,6 @@ mod tests {
     use super::*;
     use ai::StreamDisplayMode;
     use ai::llm::Role;
-    use ai::telemetry::{RestflowTrace, TelemetryContext};
     use types::skill::{SkillInfo, SkillSource};
 
     #[test]
@@ -822,23 +717,6 @@ mod tests {
     fn session_turn_runtime_options_default_to_buffered_display() {
         let options = SessionTurnRuntimeOptions::default();
         assert_eq!(options.stream_display_mode, StreamDisplayMode::Buffered);
-    }
-
-    #[test]
-    fn normalize_session_telemetry_context_uses_effective_session_agent() {
-        let session = ChatSession::new("agent-fallback".to_string(), "gpt-5".to_string());
-        let context = TelemetryContext::new(RestflowTrace::new(
-            "run-1",
-            session.id.clone(),
-            session.id.clone(),
-            "agent-stale",
-        ));
-
-        let normalized =
-            AgentRuntimeExecutor::normalize_session_telemetry_context(Some(context), &session)
-                .expect("telemetry context");
-
-        assert_eq!(normalized.trace.actor_id, "agent-fallback");
     }
 
     #[test]
@@ -927,22 +805,6 @@ mod tests {
         assert_eq!(history[0].content, "old request");
         assert_eq!(history[1].role, Role::Assistant);
         assert_eq!(history[1].content, "old answer");
-    }
-
-    #[test]
-    fn telemetry_attempt_tracker_keeps_count_monotonic_across_retries() {
-        let mut tracker = RunAttemptTracker::default();
-
-        let (attempt_one, previous_one) = tracker.register_attempt(ModelId::Gpt5);
-        let (attempt_two, previous_two) = tracker.register_attempt(ModelId::CodexCli);
-        let (attempt_three, previous_three) = tracker.register_attempt(ModelId::Gpt5Mini);
-
-        assert_eq!(attempt_one, 1);
-        assert!(previous_one.is_none());
-        assert_eq!(attempt_two, 2);
-        assert_eq!(previous_two, Some(ModelId::Gpt5));
-        assert_eq!(attempt_three, 3);
-        assert_eq!(previous_three, Some(ModelId::CodexCli));
     }
 
     #[test]

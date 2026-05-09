@@ -3,8 +3,6 @@ pub mod agent_execution;
 pub mod agent_meta;
 pub mod chat_session;
 pub mod execution_console;
-pub mod execution_trace;
-pub(crate) mod execution_trace_builders;
 pub mod model_ref;
 mod provider_policy;
 pub mod run_artifact;
@@ -29,7 +27,7 @@ pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep,
 pub use agent_meta::{AgentMeta, AgentType};
 pub use execution_console::{
     ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
-    ExecutionThread, RunKind, RunListQuery, RunSummary,
+    ExecutionThread, RunKind, RunListQuery, RunSummary, RunTimeline,
 };
 pub use model_ref::ModelRef;
 pub(crate) use provider_policy::{
@@ -46,15 +44,6 @@ pub use task_runtime::{
     TaskSchedule, TaskSpec, TaskStatus, TaskTranscriptPreview,
 };
 pub use types::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
-// Export execution trace types (new naming)
-pub use execution_trace::{
-    ExecutionLogField, ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery,
-    ExecutionMetricsResponse, ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent,
-    ExecutionTraceQuery, ExecutionTraceSource, ExecutionTraceStats, ExecutionTraceTimeRange,
-    LifecycleTrace, LlmCallTrace, LogRecordTrace, MessageTrace, MetricDimension, MetricSampleTrace,
-    ModelSwitchTrace, ProviderHealthQuery, ProviderHealthResponse, ProviderHealthTrace,
-    ToolCallCompletion, ToolCallPhase, ToolCallTrace,
-};
 
 pub use crate::Secret;
 pub use chat_session::{

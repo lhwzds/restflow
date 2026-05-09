@@ -125,18 +125,6 @@ pub struct SpawnRequest {
     #[serde(default)]
     pub parent_run_id: Option<String>,
 
-    /// Optional trace session identifier used to keep child runs in the same trace session.
-    ///
-    /// This is injected by runtime and should not be supplied by users directly.
-    #[serde(default)]
-    pub trace_session_id: Option<String>,
-
-    /// Optional trace scope identifier used to group execution events for this child run.
-    ///
-    /// This is injected by runtime and should not be supplied by users directly.
-    #[serde(default)]
-    pub trace_scope_id: Option<String>,
-
     /// Optional authoritative run ID for this sub-agent execution.
     ///
     /// When provided, runtime must use this as the canonical child run ID.
@@ -484,8 +472,6 @@ mod tests {
             model: None,
             model_provider: None,
             parent_run_id: None,
-            trace_session_id: None,
-            trace_scope_id: None,
             run_id: None,
         };
         request.set_parent_run_id(Some("parent-1".to_string()));

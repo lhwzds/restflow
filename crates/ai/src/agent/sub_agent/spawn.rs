@@ -12,10 +12,6 @@ use crate::agent::{AgentState, ResourceUsage};
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::steer::SteerMessage;
-use crate::telemetry::{
-    RunDescriptor, RunHandle, RunKind, RunLifecycleService, RunTraceContext, TelemetryContext,
-    TelemetrySink,
-};
 use crate::tools::{FilteredToolset, ToolRegistry};
 use types::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan, Toolset};
 
@@ -35,18 +31,14 @@ const TEMPORARY_SUBAGENT_PROMPT: &str = "You are a temporary sub-agent. Complete
 struct ResolvedSubagentExecution {
     max_depth: usize,
     effective_limits: SubagentEffectiveLimits,
-    trace_context: RunTraceContext,
-    run_handle: Option<RunHandle>,
-    owns_lifecycle: bool,
-    telemetry_context: Option<TelemetryContext>,
-    telemetry_sink: Option<Arc<dyn TelemetrySink>>,
+    run_id: String,
+    parent_run_id: Option<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct SubagentExecutionBridge {
     pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
     pub orchestrator: Option<Arc<dyn AgentOrchestrator>>,
-    pub telemetry_sink: Option<Arc<dyn TelemetrySink>>,
 }
 
 #[derive(Clone)]
@@ -57,15 +49,11 @@ struct SubagentExecutionInvocation {
     request: SpawnRequest,
 }
 
-fn normalize_trace_identity(value: Option<&str>) -> Option<String> {
+fn normalize_authoritative_run_id(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn normalize_authoritative_run_id(value: Option<&str>) -> Option<String> {
-    normalize_trace_identity(value)
 }
 
 fn resolve_plan_provider(
@@ -135,32 +123,6 @@ fn resolve_effective_limits(
         timeout_source,
         max_iterations,
         max_iterations_source,
-    }
-}
-
-fn build_trace_context(task_id: &str, agent_name: &str, request: &SpawnRequest) -> RunTraceContext {
-    let parent_run_id = request.parent_run_id().map(ToOwned::to_owned);
-    let trace_session_id = normalize_trace_identity(request.trace_session_id.as_deref())
-        .or_else(|| normalize_trace_identity(request.trace_scope_id.as_deref()))
-        .or_else(|| normalize_trace_identity(parent_run_id.as_deref()))
-        .unwrap_or_else(|| task_id.to_string());
-    let trace_scope_id = normalize_trace_identity(request.trace_scope_id.as_deref())
-        .or_else(|| normalize_trace_identity(request.trace_session_id.as_deref()))
-        .or_else(|| normalize_trace_identity(parent_run_id.as_deref()))
-        .unwrap_or_else(|| task_id.to_string());
-
-    RunTraceContext {
-        run_id: request
-            .run_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(task_id)
-            .to_string(),
-        actor_id: agent_name.to_string(),
-        parent_run_id,
-        session_id: trace_session_id,
-        scope_id: trace_scope_id,
     }
 }
 
@@ -253,8 +215,6 @@ fn spawn_request_from_plan(
     };
     normalized_plan.validate().map_err(AiError::from)?;
     let parent_run_id = normalized_plan.parent_run_id().map(ToOwned::to_owned);
-    let trace_session_id = normalized_plan.trace_session_id.clone();
-    let trace_scope_id = normalized_plan.trace_scope_id.clone();
     let run_id = normalized_plan.run_id.clone();
 
     let mut spawn_request = SpawnRequest {
@@ -290,8 +250,6 @@ fn spawn_request_from_plan(
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned),
         parent_run_id: None,
-        trace_session_id,
-        trace_scope_id,
         run_id,
     };
     spawn_request.set_parent_run_id(parent_run_id);
@@ -318,40 +276,12 @@ pub(crate) async fn execute_subagent_once(
     let active_model = llm_client.model().to_string();
     let direct_run_id = normalize_authoritative_run_id(request.run_id.as_deref())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let trace_context = build_trace_context(&direct_run_id, &agent_def.name, &request);
-    let requested_model = request
-        .model
-        .as_deref()
-        .or(agent_def.default_model.as_deref());
-    let resolved_provider = resolve_plan_provider(&request, &bridge);
-    let run_handle = bridge.telemetry_sink.as_ref().map(|sink| {
-        RunLifecycleService::new(sink.clone())
-            .handle(
-                RunDescriptor::new(
-                    RunKind::Subagent,
-                    trace_context.run_id.clone(),
-                    trace_context.session_id.clone(),
-                    trace_context.scope_id.clone(),
-                    agent_def.name.clone(),
-                )
-                .with_parent_run_id(trace_context.parent_run_id.clone()),
-            )
-            .with_requested_model(requested_model.unwrap_or(&active_model))
-            .with_effective_model(active_model.clone())
-            .with_provider(
-                resolved_provider
-                    .clone()
-                    .unwrap_or_else(|| llm_client.provider().to_string()),
-            )
-    });
+    let parent_run_id = request.parent_run_id().map(ToOwned::to_owned);
     let execution = ResolvedSubagentExecution {
         max_depth: config.max_depth,
         effective_limits: effective_limits.clone(),
-        trace_context: trace_context.clone(),
-        run_handle: run_handle.clone(),
-        owns_lifecycle: normalize_authoritative_run_id(request.run_id.as_deref()).is_none(),
-        telemetry_context: run_handle.as_ref().map(|handle| handle.cloned_context()),
-        telemetry_sink: bridge.telemetry_sink.clone(),
+        run_id: direct_run_id,
+        parent_run_id,
     };
     let invocation = SubagentExecutionInvocation {
         llm_client,
@@ -359,17 +289,11 @@ pub(crate) async fn execute_subagent_once(
         bridge: SubagentExecutionBridge {
             llm_client_factory: bridge.llm_client_factory,
             orchestrator: None,
-            telemetry_sink: bridge.telemetry_sink,
         },
         request: request.clone(),
     };
 
     let start = std::time::Instant::now();
-    if execution.owns_lifecycle
-        && let Some(run_handle) = execution.run_handle.as_ref()
-    {
-        run_handle.start().await;
-    }
     let result = timeout(
         Duration::from_secs(effective_limits.timeout_secs),
         execute_subagent_entry(
@@ -385,60 +309,37 @@ pub(crate) async fn execute_subagent_once(
     let duration_ms = start.elapsed().as_millis() as u64;
 
     Ok(match result {
-        Ok(Ok(result)) => {
-            if execution.owns_lifecycle
-                && let Some(run_handle) = execution.run_handle.as_ref()
-            {
-                run_handle.complete(Some(duration_ms)).await;
-            }
-            execution_outcome_from_agent_result(
-                result,
-                duration_ms,
-                &agent_def.name,
-                &execution.effective_limits,
-                &active_model,
-            )
-        }
-        Ok(Err(error)) => {
-            if execution.owns_lifecycle
-                && let Some(run_handle) = execution.run_handle.as_ref()
-            {
-                run_handle.fail(error.to_string(), Some(duration_ms)).await;
-            }
-            ExecutionOutcome {
-                success: false,
-                text: Some(String::new()),
-                error: Some(error.to_string()),
-                model: Some(active_model),
-                duration_ms: Some(duration_ms),
-                metadata: Some(json!({
-                    "agent_name": agent_def.name,
-                    "effective_limits": execution.effective_limits,
-                })),
-                ..ExecutionOutcome::default()
-            }
-        }
-        Err(_) => {
-            if execution.owns_lifecycle
-                && let Some(run_handle) = execution.run_handle.as_ref()
-            {
-                run_handle
-                    .fail("Sub-agent timed out", Some(duration_ms))
-                    .await;
-            }
-            ExecutionOutcome {
-                success: false,
-                text: Some(String::new()),
-                error: Some("Sub-agent timed out".to_string()),
-                model: Some(active_model),
-                duration_ms: Some(duration_ms),
-                metadata: Some(json!({
-                    "agent_name": agent_def.name,
-                    "effective_limits": execution.effective_limits,
-                })),
-                ..ExecutionOutcome::default()
-            }
-        }
+        Ok(Ok(result)) => execution_outcome_from_agent_result(
+            result,
+            duration_ms,
+            &agent_def.name,
+            &execution.effective_limits,
+            &active_model,
+        ),
+        Ok(Err(error)) => ExecutionOutcome {
+            success: false,
+            text: Some(String::new()),
+            error: Some(error.to_string()),
+            model: Some(active_model),
+            duration_ms: Some(duration_ms),
+            metadata: Some(json!({
+                "agent_name": agent_def.name,
+                "effective_limits": execution.effective_limits,
+            })),
+            ..ExecutionOutcome::default()
+        },
+        Err(_) => ExecutionOutcome {
+            success: false,
+            text: Some(String::new()),
+            error: Some("Sub-agent timed out".to_string()),
+            model: Some(active_model),
+            duration_ms: Some(duration_ms),
+            metadata: Some(json!({
+                "agent_name": agent_def.name,
+                "effective_limits": execution.effective_limits,
+            })),
+            ..ExecutionOutcome::default()
+        },
     })
 }
 
@@ -470,37 +371,7 @@ pub(crate) fn spawn_subagent(
     let agent_name_for_register = agent_def.name.clone();
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
-    let trace_context = build_trace_context(&task_id, &agent_name_for_return, &request);
-    let telemetry_sink = bridge
-        .telemetry_sink
-        .clone()
-        .or_else(|| tracker.telemetry_sink());
-    let run_handle = telemetry_sink.as_ref().map(|sink| {
-        RunLifecycleService::new(sink.clone())
-            .handle(
-                RunDescriptor::new(
-                    RunKind::Subagent,
-                    trace_context.run_id.clone(),
-                    trace_context.session_id.clone(),
-                    trace_context.scope_id.clone(),
-                    agent_name_for_return.clone(),
-                )
-                .with_parent_run_id(trace_context.parent_run_id.clone()),
-            )
-            .with_requested_model(
-                request
-                    .model
-                    .as_deref()
-                    .or(agent_def.default_model.as_deref())
-                    .unwrap_or(llm_client.model()),
-            )
-            .with_effective_model(llm_client.model())
-            .with_provider(
-                resolve_plan_provider(&request, &bridge)
-                    .unwrap_or_else(|| llm_client.provider().to_string()),
-            )
-    });
-    let telemetry_context = run_handle.as_ref().map(|handle| handle.cloned_context());
+    let parent_run_id = request.parent_run_id().map(ToOwned::to_owned);
     let max_parallel = config.max_parallel_agents;
 
     tracker.try_reserve(
@@ -508,14 +379,8 @@ pub(crate) fn spawn_subagent(
         task_id.clone(),
         agent_name_for_register,
         task_for_register,
-        trace_context.parent_run_id.clone(),
+        parent_run_id.clone(),
     )?;
-
-    if let Some(run_handle) = run_handle.clone() {
-        tokio::spawn(async move {
-            run_handle.start().await;
-        });
-    }
 
     let task = request.task.clone();
     let tracker_clone = tracker.clone();
@@ -529,11 +394,8 @@ pub(crate) fn spawn_subagent(
     let execution = ResolvedSubagentExecution {
         max_depth: config.max_depth,
         effective_limits: effective_limits.clone(),
-        trace_context: trace_context.clone(),
-        run_handle: run_handle.clone(),
-        owns_lifecycle: true,
-        telemetry_context: telemetry_context.clone(),
-        telemetry_sink: telemetry_sink.clone(),
+        run_id: task_id.clone(),
+        parent_run_id,
     };
 
     let (completion_tx, completion_rx) = oneshot::channel();
@@ -627,22 +489,6 @@ pub(crate) fn spawn_subagent(
             tracker_clone.mark_completed(&task_id, subagent_result.clone());
         }
 
-        if let Some(run_handle) = execution.run_handle.as_ref() {
-            if subagent_result.success {
-                run_handle.complete(Some(duration_ms)).await;
-            } else {
-                run_handle
-                    .fail(
-                        subagent_result
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| "Sub-agent execution failed".to_string()),
-                        Some(duration_ms),
-                    )
-                    .await;
-            }
-        }
-
         let _ = completion_tx.send(subagent_result.clone());
         subagent_result
     });
@@ -657,18 +503,6 @@ pub(crate) fn spawn_subagent(
             cost_usd: None,
             error: Some(error.to_string()),
         };
-        if let Some(run_handle) = run_handle.as_ref() {
-            tokio::spawn({
-                let run_handle = run_handle.clone();
-                let error = failure
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "Sub-agent execution failed".to_string());
-                async move {
-                    run_handle.fail(error, None).await;
-                }
-            });
-        }
         tracker.mark_completed(&task_id, failure);
         return Err(error);
     }
@@ -762,20 +596,8 @@ async fn execute_subagent(
         agent_def.system_prompt.clone(),
         execution.effective_limits.max_iterations,
         &execution.effective_limits,
-        execution.trace_context.parent_run_id.as_deref(),
-        Some(execution.trace_context.session_id.as_str()),
-        Some(execution.trace_context.scope_id.as_str()),
+        execution.parent_run_id.as_deref(),
     );
-    let agent_config = if let (Some(telemetry_sink), Some(telemetry_context)) = (
-        execution.telemetry_sink.clone(),
-        execution.telemetry_context.clone(),
-    ) {
-        agent_config
-            .with_telemetry_sink(telemetry_sink)
-            .with_telemetry_context(telemetry_context)
-    } else {
-        agent_config
-    };
     let executor = if let Some(steer_rx) = steer_rx {
         AgentExecutor::new(llm_client, registry).with_steer_channel(steer_rx)
     } else {
@@ -857,9 +679,7 @@ async fn execute_subagent_with_orchestrator(
         provider,
         max_iterations: Some(execution.effective_limits.max_iterations as u32),
         parent_run_id: request.parent_run_id.clone(),
-        trace_session_id: Some(execution.trace_context.session_id.clone()),
-        trace_scope_id: Some(execution.trace_context.scope_id.clone()),
-        run_id: Some(execution.trace_context.run_id.clone()),
+        run_id: Some(execution.run_id.clone()),
         metadata: Some(json!({
             "subagent_name": agent_def.name,
             "effective_limits": execution.effective_limits,
@@ -918,8 +738,6 @@ fn build_subagent_agent_config(
     max_iterations: usize,
     effective_limits: &SubagentEffectiveLimits,
     parent_run_id: Option<&str>,
-    trace_session_id: Option<&str>,
-    trace_scope_id: Option<&str>,
 ) -> AgentConfig {
     let mut agent_config = AgentConfig::new(task);
     agent_config.system_prompt = Some(system_prompt);
@@ -931,18 +749,10 @@ fn build_subagent_agent_config(
         json!({
             "role": "subagent",
             "parent_run_id": parent_run_id,
-            "trace_session_id": trace_session_id,
-            "trace_scope_id": trace_scope_id,
             "effective_limits": effective_limits,
         }),
     );
     agent_config = agent_config.with_context("execution_role", json!("subagent"));
-    if let Some(trace_session_id) = trace_session_id {
-        agent_config = agent_config.with_context("trace_session_id", json!(trace_session_id));
-    }
-    if let Some(trace_scope_id) = trace_scope_id {
-        agent_config = agent_config.with_context("trace_scope_id", json!(trace_scope_id));
-    }
     agent_config
 }
 
@@ -993,7 +803,6 @@ mod tests {
 
     use super::super::tracker::SubagentTracker;
     use super::*;
-    use crate::telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
     use types::ToolError;
     use types::subagent::{SubagentDefLookup, SubagentDefSummary, SubagentStatus};
 
@@ -1014,8 +823,6 @@ mod tests {
             3,
             &sample_effective_limits(),
             None,
-            Some("session-1"),
-            Some("scope-1"),
         );
 
         assert_eq!(
@@ -1023,8 +830,6 @@ mod tests {
             Some(&serde_json::Value::String("subagent".to_string()))
         );
         assert_eq!(config.context["execution_context"]["role"], "subagent");
-        assert_eq!(config.context["trace_session_id"], "session-1");
-        assert_eq!(config.context["trace_scope_id"], "scope-1");
     }
 
     #[test]
@@ -1035,21 +840,11 @@ mod tests {
             3,
             &sample_effective_limits(),
             Some("exec-parent-1"),
-            Some("session-2"),
-            Some("scope-2"),
         );
 
         assert_eq!(
             config.context["execution_context"]["parent_run_id"],
             "exec-parent-1"
-        );
-        assert_eq!(
-            config.context["execution_context"]["trace_session_id"],
-            "session-2"
-        );
-        assert_eq!(
-            config.context["execution_context"]["trace_scope_id"],
-            "scope-2"
         );
     }
 
@@ -1083,8 +878,6 @@ mod tests {
             model: None,
             model_provider: None,
             parent_run_id: None,
-            trace_session_id: None,
-            trace_scope_id: None,
             run_id: None,
         };
 
@@ -1233,18 +1026,6 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct RecordingTelemetrySink {
-        events: Mutex<Vec<ExecutionEventEnvelope>>,
-    }
-
-    #[async_trait]
-    impl TelemetrySink for RecordingTelemetrySink {
-        async fn emit(&self, event: ExecutionEventEnvelope) {
-            self.events.lock().expect("events lock").push(event);
-        }
-    }
-
     #[test]
     fn resolve_subagent_definition_from_inline_config() {
         let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::empty());
@@ -1264,8 +1045,6 @@ mod tests {
             model: None,
             model_provider: None,
             parent_run_id: None,
-            trace_session_id: None,
-            trace_scope_id: None,
             run_id: None,
         };
 
@@ -1310,8 +1089,6 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge::default(),
@@ -1358,14 +1135,11 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: Some("parent-1".to_string()),
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
                 orchestrator: Some(orchestrator.clone()),
-                telemetry_sink: None,
             },
         )
         .expect("spawn should succeed without explicit selector");
@@ -1416,14 +1190,11 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: Some("parent-1".to_string()),
-                trace_session_id: Some("session-1".to_string()),
-                trace_scope_id: Some("scope-1".to_string()),
                 run_id: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
                 orchestrator: Some(orchestrator.clone()),
-                telemetry_sink: None,
             },
         )
         .expect("spawn should succeed");
@@ -1479,14 +1250,11 @@ mod tests {
                 model: Some("gpt-5.3-codex".to_string()),
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: Some(llm_factory),
                 orchestrator: Some(orchestrator.clone()),
-                telemetry_sink: None,
             },
         )
         .expect("spawn should succeed");
@@ -1535,14 +1303,11 @@ mod tests {
                 model: Some("gpt-5.3-codex".to_string()),
                 model_provider: Some("openai".to_string()),
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
                 orchestrator: Some(orchestrator.clone()),
-                telemetry_sink: None,
             },
         )
         .expect("spawn should succeed");
@@ -1593,14 +1358,11 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
                 orchestrator: Some(orchestrator.clone()),
-                telemetry_sink: None,
             },
         )
         .await
@@ -1660,7 +1422,6 @@ mod tests {
             SubagentExecutionBridge {
                 llm_client_factory: Some(factory),
                 orchestrator: None,
-                telemetry_sink: None,
             },
         )
         .await
@@ -1746,81 +1507,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn spawn_subagent_uses_explicit_trace_session_and_scope() {
+    async fn spawn_subagent_delegating_orchestrator_runs_once() {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
-        let sink = Arc::new(RecordingTelemetrySink::default());
-        tracker.set_telemetry_sink(sink.clone());
-        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
-        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
-            "mock",
-            vec![MockStep::text("done")],
-        ));
-        let tool_registry = Arc::new(ToolRegistry::new());
-        let config = SubagentConfig {
-            max_parallel_agents: 2,
-            subagent_timeout_secs: 10,
-            max_iterations: 5,
-            max_depth: 1,
-        };
-
-        let handle = spawn_subagent(
-            tracker.clone(),
-            definitions,
-            llm_client,
-            tool_registry,
-            config,
-            SpawnRequest {
-                agent_id: Some("tester".to_string()),
-                inline: None,
-                task: "trace me".to_string(),
-                timeout_secs: Some(10),
-                max_iterations: None,
-                priority: None,
-                model: None,
-                model_provider: None,
-                parent_run_id: Some("exec-parent-1".to_string()),
-                trace_session_id: Some("session-main-1".to_string()),
-                trace_scope_id: Some("scope-main-1".to_string()),
-                run_id: None,
-            },
-            SubagentExecutionBridge::default(),
-        )
-        .expect("spawn should succeed");
-
-        let result = tracker
-            .wait(&handle.id)
-            .await
-            .expect("subagent result should be available");
-        let result = result.result.expect("subagent result payload");
-        assert!(result.success);
-
-        let events = sink.events.lock().expect("events lock").clone();
-        assert_eq!(events.len(), 3);
-        assert!(matches!(events[0].event, ExecutionEvent::RunStarted));
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event.event, ExecutionEvent::LlmCall(_)))
-        );
-        assert!(matches!(
-            events[2].event,
-            ExecutionEvent::RunCompleted { .. }
-        ));
-        for event in events {
-            assert_eq!(event.trace.run_id, handle.id);
-            assert_eq!(event.trace.parent_run_id.as_deref(), Some("exec-parent-1"));
-            assert_eq!(event.trace.session_id, "session-main-1");
-            assert_eq!(event.trace.scope_id, "scope-main-1");
-        }
-    }
-
-    #[tokio::test]
-    async fn spawn_subagent_delegating_orchestrator_emits_single_lifecycle() {
-        let (tx, rx) = mpsc::channel(16);
-        let tracker = Arc::new(SubagentTracker::new(tx, rx));
-        let sink = Arc::new(RecordingTelemetrySink::default());
-        tracker.set_telemetry_sink(sink.clone());
         let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
         let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
             "mock-nested",
@@ -1842,7 +1531,6 @@ mod tests {
             bridge: SubagentExecutionBridge {
                 llm_client_factory: None,
                 orchestrator: None,
-                telemetry_sink: Some(sink.clone()),
             },
         });
 
@@ -1862,14 +1550,11 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: Some("parent-1".to_string()),
-                trace_session_id: Some("session-1".to_string()),
-                trace_scope_id: Some("scope-1".to_string()),
                 run_id: None,
             },
             SubagentExecutionBridge {
                 llm_client_factory: None,
                 orchestrator: Some(orchestrator.clone()),
-                telemetry_sink: Some(sink.clone()),
             },
         )
         .expect("spawn should succeed");
@@ -1881,38 +1566,6 @@ mod tests {
         let result = completion.result.expect("result payload should exist");
         assert!(result.success);
         assert_eq!(result.output, "nested orchestration done");
-
-        let events = sink.events.lock().expect("events lock").clone();
-        let child_events: Vec<_> = events
-            .into_iter()
-            .filter(|event| event.trace.run_id == handle.id)
-            .collect();
-        assert_eq!(
-            child_events
-                .iter()
-                .filter(|event| matches!(event.event, ExecutionEvent::RunStarted))
-                .count(),
-            1
-        );
-        assert_eq!(
-            child_events
-                .iter()
-                .filter(|event| matches!(event.event, ExecutionEvent::RunCompleted { .. }))
-                .count(),
-            1
-        );
-        assert_eq!(
-            child_events
-                .iter()
-                .filter(|event| matches!(event.event, ExecutionEvent::RunFailed { .. }))
-                .count(),
-            0
-        );
-        assert!(
-            child_events
-                .iter()
-                .any(|event| matches!(event.event, ExecutionEvent::LlmCall(_)))
-        );
 
         let plans = orchestrator.plans.lock().expect("plans lock");
         assert_eq!(plans.len(), 1);
@@ -1955,8 +1608,6 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge::default(),
@@ -1979,8 +1630,6 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge::default(),
@@ -2021,8 +1670,6 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge::default(),
@@ -2079,8 +1726,6 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_run_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
                 run_id: None,
             },
             SubagentExecutionBridge::default(),
@@ -2181,15 +1826,11 @@ mod tests {
             7,
             &sample_effective_limits(),
             None,
-            Some("session-3"),
-            Some("scope-3"),
         );
         assert_eq!(config.max_iterations, 7);
         assert_eq!(config.system_prompt.as_deref(), Some("You are subagent"));
         assert!(!config.prompt_flags.include_workspace_context);
         assert!(config.yolo_mode);
-        assert_eq!(config.context["trace_session_id"], "session-3");
-        assert_eq!(config.context["trace_scope_id"], "scope-3");
     }
 
     #[test]

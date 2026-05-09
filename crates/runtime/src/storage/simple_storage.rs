@@ -221,9 +221,5 @@ define_simple_storage! {
 }
 
 define_simple_storage! {
-    pub struct ExecutionTraceRawStorage { store: "execution-trace" }
-}
-
-define_simple_storage! {
     pub struct TerminalSessionRawStorage { store: "terminal-session" }
 }

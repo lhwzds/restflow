@@ -889,9 +889,7 @@ mod tests {
     use crate::prompt_files;
     use crate::services::session::SessionService;
     use crate::session_log::FileSessionStore;
-    use crate::storage::{
-        AgentStorage, ChatSessionStorage, ExecutionTraceStorage, SessionStorage, TaskStorage,
-    };
+    use crate::storage::{AgentStorage, ChatSessionStorage, SessionStorage, TaskStorage};
     use async_trait::async_trait;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -1310,8 +1308,7 @@ mod tests {
         let task_storage = TaskStorage::new(db.clone()).expect("task storage");
         let agent_storage = AgentStorage::new(db.clone()).expect("agent storage");
         let chat_storage = ChatSessionStorage::new(db.clone()).expect("chat storage");
-        let trace_storage = ExecutionTraceStorage::new(db.clone()).expect("trace storage");
-        let session_storage = SessionStorage::new(chat_storage.clone(), trace_storage);
+        let session_storage = SessionStorage::new(chat_storage.clone());
         let session_service = SessionService::new(
             session_storage,
             Some(agent_storage.clone()),

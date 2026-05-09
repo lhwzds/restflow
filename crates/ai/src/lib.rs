@@ -12,7 +12,6 @@ pub mod cache;
 pub mod error;
 pub mod llm;
 pub mod steer;
-pub mod telemetry;
 pub mod text_utils;
 pub mod tools;
 

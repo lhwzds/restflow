@@ -1,12 +1,11 @@
 use super::*;
 use crate::models::{TaskRunMetrics, TaskRunStatus};
-use ai::telemetry::RunHandle;
 
 pub(super) struct TaskRunFinalizer<'a> {
     runner: &'a TaskRunner,
     task: Task,
     resolved_input: Option<String>,
-    run_handle: RunHandle,
+    run_id: String,
 }
 
 impl<'a> TaskRunFinalizer<'a> {
@@ -14,13 +13,13 @@ impl<'a> TaskRunFinalizer<'a> {
         runner: &'a TaskRunner,
         task: Task,
         resolved_input: Option<String>,
-        run_handle: RunHandle,
+        run_id: String,
     ) -> Self {
         Self {
             runner,
             task,
             resolved_input,
-            run_handle,
+            run_id,
         }
     }
 
@@ -59,7 +58,7 @@ impl<'a> TaskRunFinalizer<'a> {
         outcome: Option<&ExecutionResult>,
     ) {
         if let Err(err) = self.runner.storage.mark_task_run_terminal(
-            self.run_handle.run_id(),
+            &self.run_id,
             status,
             chrono::Utc::now().timestamp_millis(),
             error,
@@ -67,7 +66,7 @@ impl<'a> TaskRunFinalizer<'a> {
         ) {
             warn!(
                 task_id = %self.task.id,
-                run_id = %self.run_handle.run_id(),
+                run_id = %self.run_id,
                 error = %err,
                 "Failed to persist task run terminal state"
             );
@@ -75,13 +74,10 @@ impl<'a> TaskRunFinalizer<'a> {
     }
 
     fn stream_event(&self, event: TaskStreamEvent) -> TaskStreamEvent {
-        task_stream_event_context(event, &self.task, self.run_handle.run_id())
+        task_stream_event_context(event, &self.task, &self.run_id)
     }
 
     pub(super) async fn finalize_success(&self, exec_result: &ExecutionResult, duration_ms: i64) {
-        self.run_handle
-            .complete(Some(duration_ms.max(0) as u64))
-            .await;
         self.persist_run_terminal(
             TaskRunStatus::Completed,
             duration_ms,
@@ -151,9 +147,6 @@ impl<'a> TaskRunFinalizer<'a> {
         duration_ms: i64,
         persist_to_session: bool,
     ) {
-        self.run_handle
-            .fail(error_msg, Some(duration_ms.max(0) as u64))
-            .await;
         self.persist_run_terminal(
             TaskRunStatus::Failed,
             duration_ms,
@@ -196,9 +189,6 @@ impl<'a> TaskRunFinalizer<'a> {
         timeout_secs: u64,
         duration_ms: i64,
     ) {
-        self.run_handle
-            .fail(error_msg, Some(duration_ms.max(0) as u64))
-            .await;
         self.persist_run_terminal(
             TaskRunStatus::TimedOut,
             duration_ms,
@@ -233,17 +223,14 @@ impl<'a> TaskRunFinalizer<'a> {
     }
 
     pub(super) async fn finalize_interrupted(&self, reason: &str, duration_ms: i64) {
-        self.run_handle
-            .interrupt(reason, Some(duration_ms.max(0) as u64))
-            .await;
         if let Err(err) = self.runner.storage.interrupt_task_run(
-            self.run_handle.run_id(),
+            &self.run_id,
             chrono::Utc::now().timestamp_millis(),
             reason.to_string(),
         ) {
             warn!(
                 task_id = %self.task.id,
-                run_id = %self.run_handle.run_id(),
+                run_id = %self.run_id,
                 error = %err,
                 "Failed to persist interrupted task run"
             );

@@ -182,14 +182,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.api.task_message_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api.task_trace_list_limit"),
-        Cell::new(config.api.task_trace_list_limit),
-    ]);
-    table.add_row(vec![
-        Cell::new("api.task_trace_line_limit"),
-        Cell::new(config.api.task_trace_line_limit),
-    ]);
-    table.add_row(vec![
         Cell::new("api.diagnostics_timeout_ms"),
         Cell::new(config.api.diagnostics_timeout_ms),
     ]);
@@ -292,12 +284,6 @@ async fn get_config_value(
         }
         "api.task_message_list_limit" => {
             json!(config.api.task_message_list_limit)
-        }
-        "api.task_trace_list_limit" => {
-            json!(config.api.task_trace_list_limit)
-        }
-        "api.task_trace_line_limit" => {
-            json!(config.api.task_trace_line_limit)
         }
         "api.diagnostics_timeout_ms" => {
             json!(config.api.diagnostics_timeout_ms)
@@ -456,12 +442,6 @@ async fn set_config_value(
             }
             "api.task_message_list_limit" => {
                 config.api_defaults.task_message_list_limit = parse_value(value)?;
-            }
-            "api.task_trace_list_limit" => {
-                config.api_defaults.task_trace_list_limit = parse_value(value)?;
-            }
-            "api.task_trace_line_limit" => {
-                config.api_defaults.task_trace_line_limit = parse_value(value)?;
             }
             "api.diagnostics_timeout_ms" => {
                 config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;

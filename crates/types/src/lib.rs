@@ -82,8 +82,7 @@ pub use store::{
     SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
     SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
     TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
-    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
-    TaskUpdateRequest, TerminalStore,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskUpdateRequest, TerminalStore,
 };
 
 // Shared orchestration contracts
@@ -237,8 +236,7 @@ pub use defaults::{
     DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH,
     DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MAX_TOOL_CALLS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
     DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
-    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_TASK_TRACE_LINE_LIMIT,
-    DEFAULT_TASK_TRACE_LIST_LIMIT, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
+    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
     DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES, MAX_API_WEB_SEARCH_RESULTS,
 };
 
