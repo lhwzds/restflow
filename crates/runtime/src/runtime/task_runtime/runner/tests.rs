@@ -211,6 +211,88 @@ fn persist_to_chat_session_uses_session_service_when_available() {
 }
 
 #[tokio::test]
+async fn running_task_persists_user_input_before_agent_completes() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let db = Arc::new(redb::Database::create(db_path).unwrap());
+    let task_storage = Arc::new(TaskStorage::new(db.clone()).unwrap());
+    let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
+    let session_storage = SessionStorage::new(chat_storage);
+    let file_store = FileSessionStore::new(temp_dir.path().join("sessions")).unwrap();
+    let session_service = SessionService::new(session_storage, None, task_storage.as_ref().clone())
+        .with_file_sessions(file_store.clone());
+
+    let session = session_service
+        .create_external_session(ChatSession::new(
+            "agent-1".to_string(),
+            "zai-coding-plan-glm-5-1".to_string(),
+        ))
+        .expect("create file session");
+    let future_time = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let mut task = task_storage
+        .create_task(
+            "Delayed Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Once {
+                run_at: future_time,
+            },
+        )
+        .unwrap();
+    task.chat_session_id = session.id.clone();
+    task.input = Some("persist me immediately".to_string());
+    task_storage.update_task(&task).unwrap();
+
+    let runner = Arc::new(
+        TaskRunner::new(
+            task_storage.clone(),
+            Arc::new(MockExecutor::with_delay(500)),
+            Arc::new(NoopNotificationSender),
+            TaskRunnerConfig {
+                poll_interval_ms: 10_000,
+                ..Default::default()
+            },
+            Arc::new(SteerRegistry::new()),
+        )
+        .with_session_service(session_service),
+    );
+    let handle = runner.clone().start();
+    handle.run_task_now(task.id.clone()).await.unwrap();
+
+    let start = Instant::now();
+    loop {
+        let messages = file_store
+            .get(&session.id)
+            .unwrap()
+            .expect("file session")
+            .to_chat_session()
+            .messages;
+        if !messages.is_empty() {
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0].content, "persist me immediately");
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "task input was not persisted before completion"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    handle.stop().await.unwrap();
+
+    let messages = file_store
+        .get(&session.id)
+        .unwrap()
+        .expect("file session")
+        .to_chat_session()
+        .messages;
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].content, "persist me immediately");
+    assert!(messages[1].content.contains("persist me immediately"));
+}
+
+#[tokio::test]
 async fn test_take_stop_receiver_returns_none_when_missing() {
     let (storage, _temp_dir) = create_test_storage();
     let runner = TaskRunner::new(

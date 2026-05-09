@@ -4,21 +4,14 @@ use crate::models::{TaskRunMetrics, TaskRunStatus};
 pub(super) struct TaskRunFinalizer<'a> {
     runner: &'a TaskRunner,
     task: Task,
-    resolved_input: Option<String>,
     run_id: String,
 }
 
 impl<'a> TaskRunFinalizer<'a> {
-    pub(super) fn new(
-        runner: &'a TaskRunner,
-        task: Task,
-        resolved_input: Option<String>,
-        run_id: String,
-    ) -> Self {
+    pub(super) fn new(runner: &'a TaskRunner, task: Task, run_id: String) -> Self {
         Self {
             runner,
             task,
-            resolved_input,
             run_id,
         }
     }
@@ -104,7 +97,7 @@ impl<'a> TaskRunFinalizer<'a> {
 
         self.runner.persist_to_chat_session(
             &self.task,
-            self.resolved_input.as_deref(),
+            None,
             &exec_result.output,
             false,
             duration_ms,
@@ -173,13 +166,8 @@ impl<'a> TaskRunFinalizer<'a> {
         }
 
         if persist_to_session {
-            self.runner.persist_to_chat_session(
-                &self.task,
-                self.resolved_input.as_deref(),
-                error_msg,
-                true,
-                duration_ms,
-            );
+            self.runner
+                .persist_to_chat_session(&self.task, None, error_msg, true, duration_ms);
         }
     }
 
@@ -213,13 +201,8 @@ impl<'a> TaskRunFinalizer<'a> {
             error!("Failed to record task timeout: {}", err);
         }
 
-        self.runner.persist_to_chat_session(
-            &self.task,
-            self.resolved_input.as_deref(),
-            error_msg,
-            true,
-            duration_ms,
-        );
+        self.runner
+            .persist_to_chat_session(&self.task, None, error_msg, true, duration_ms);
     }
 
     pub(super) async fn finalize_interrupted(&self, reason: &str, duration_ms: i64) {

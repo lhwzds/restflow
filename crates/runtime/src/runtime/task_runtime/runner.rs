@@ -6,7 +6,9 @@
 //! - Handling task lifecycle (start, complete, fail)
 //! - Persisting execution state and transcript updates
 
-use crate::models::{SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus};
+use crate::models::{
+    ChatMessage, SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus,
+};
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
@@ -405,7 +407,7 @@ impl TaskRunner {
         reason: &str,
         ended_at: i64,
     ) {
-        let finalizer = TaskRunFinalizer::new(self, task.clone(), None, run.run_id.clone());
+        let finalizer = TaskRunFinalizer::new(self, task.clone(), run.run_id.clone());
         let duration_ms = ended_at.saturating_sub(run.started_at);
         finalizer.finalize_interrupted(reason, duration_ms).await;
     }
@@ -1167,8 +1169,7 @@ impl TaskRunner {
                 err
             ));
         }
-        let finalizer =
-            TaskRunFinalizer::new(self, task.clone(), resolved_input.clone(), run_id.clone());
+        let finalizer = TaskRunFinalizer::new(self, task.clone(), run_id.clone());
         self.clear_resume_intent(task_id).await;
         self.event_emitter
             .emit(task_stream_event_context(
@@ -1198,6 +1199,7 @@ impl TaskRunner {
             self.cleanup_task_tracking(task_id).await;
             return Ok(false);
         }
+        self.persist_task_input_to_chat_session(&task, resolved_input.as_deref());
 
         let step_emitter = Some(Box::new(NoopStreamEmitter) as Box<dyn StreamEmitter>);
 

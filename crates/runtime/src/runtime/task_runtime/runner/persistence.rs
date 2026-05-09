@@ -72,6 +72,43 @@ impl TaskRunner {
     ///
     /// This bridges scheduled task execution into the chat session history so
     /// the sidebar shows execution results as regular chat messages.
+    pub(super) fn persist_task_input_to_chat_session(&self, task: &Task, input: Option<&str>) {
+        let Some(input) = input else {
+            return;
+        };
+        if input.trim().is_empty() {
+            return;
+        }
+
+        let session_id = task.chat_session_id.trim();
+        if session_id.is_empty() {
+            debug!(
+                "No chat session bound to task '{}', skipping task input persist",
+                task.name
+            );
+            return;
+        }
+
+        if let Some(session_service) = &self.session_service {
+            if let Err(e) = session_service.append_user_message(
+                session_id,
+                ChatMessage::user(input),
+                "task_runtime",
+            ) {
+                warn!(
+                    "Failed to persist task input to session '{}': {}",
+                    session_id, e
+                );
+            }
+            return;
+        }
+
+        warn!(
+            "Task runner has no SessionService; skipping task input persistence for task '{}' session '{}'",
+            task.name, session_id
+        );
+    }
+
     pub(super) fn persist_to_chat_session(
         &self,
         task: &Task,
