@@ -34,6 +34,8 @@ struct AgentFileFrontmatter {
     pub id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_ref: Option<crate::models::ModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<String>>,
@@ -529,6 +531,7 @@ fn render_agent_file(stored: &StoredAgent, prompt: &str) -> Result<String> {
     let frontmatter = AgentFileFrontmatter {
         id: stored.id.clone(),
         name: stored.name.clone(),
+        model_ref: stored.agent.model_ref,
         tools: stored.agent.tools.clone(),
         skills: stored.agent.skills.clone(),
         skill_variables: stored.agent.skill_variables.clone(),
@@ -580,6 +583,7 @@ fn load_file_agent(path: &std::path::Path) -> Result<Option<StoredAgent>> {
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_millis() as i64);
     let mut agent = AgentNode::new();
+    agent.model_ref = frontmatter.model_ref;
     agent.prompt = prompt;
     agent.tools = frontmatter.tools;
     agent.skills = frontmatter.skills;
@@ -622,6 +626,7 @@ fn apply_agent_file_frontmatter(stored: &mut StoredAgent, frontmatter: AgentFile
     if !frontmatter.name.trim().is_empty() {
         stored.name = frontmatter.name;
     }
+    stored.agent.model_ref = frontmatter.model_ref;
     stored.agent.tools = frontmatter.tools;
     stored.agent.skills = frontmatter.skills;
     stored.agent.skill_variables = frontmatter.skill_variables;
@@ -697,7 +702,7 @@ mod tests {
                 .agent
                 .resolved_model_ref()
                 .map(|model_ref| model_ref.model),
-            None
+            Some(ModelId::ClaudeSonnet4_5)
         );
         assert!(prompts_dir.join("test-agent.md").exists());
         unsafe {
@@ -763,7 +768,7 @@ mod tests {
                 .agent
                 .resolved_model_ref()
                 .map(|model_ref| model_ref.model),
-            None
+            Some(ModelId::ClaudeSonnet4_5)
         );
 
         let mut new_agent_node = create_test_agent_node();
