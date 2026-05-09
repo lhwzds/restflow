@@ -7,8 +7,6 @@ use crate::registry::{
     SkillSearchResult, SkillSortOrder,
 };
 use crate::services::adapters::SkrunSkillProvider;
-use crate::services::operation_assessment::OperationAssessorAdapter;
-use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
 use anyhow::Result;
 use axum::Json;
 use axum::Router;
@@ -270,28 +268,15 @@ async fn api_convert_session_to_task(
     State(state): State<DaemonHttpState>,
     Json(request): Json<types::request::TaskFromSessionRequest>,
 ) -> std::result::Result<Json<TaskConversionResult>, (StatusCode, Json<ErrorPayload>)> {
-    let store_request =
-        crate::boundary::task::contract_convert_request_to_store(request).map_err(|error| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorPayload::new(400, error.to_string(), None)),
-            )
-        })?;
-
-    let outcome = TaskCommandService::from_storage(
-        state.core.storage.as_ref(),
-        Some(Arc::new(OperationAssessorAdapter::new(state.core.clone()))),
-    )
-    .convert_session(store_request, TaskExecutionMode::Direct)
-    .await
-    .and_then(TaskCommandService::into_direct_result)
-    .map_err(|error| {
-        let status =
-            StatusCode::from_u16(error.code() as u16).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        (status, Json(error.payload()))
-    })?;
-
-    Ok(Json(outcome))
+    let _ = (state, request);
+    Err((
+        StatusCode::GONE,
+        Json(ErrorPayload::new(
+            410,
+            "legacy task storage has been removed",
+            None,
+        )),
+    ))
 }
 
 async fn api_marketplace_search(

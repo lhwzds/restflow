@@ -607,18 +607,6 @@ pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfil
     Ok(manager)
 }
 
-pub(super) fn parse_task_status(status: &str) -> Result<TaskStatus> {
-    match status.to_lowercase().as_str() {
-        "active" => Ok(TaskStatus::Active),
-        "paused" => Ok(TaskStatus::Paused),
-        "running" => Ok(TaskStatus::Running),
-        "completed" => Ok(TaskStatus::Completed),
-        "failed" => Ok(TaskStatus::Failed),
-        "interrupted" => Ok(TaskStatus::Interrupted),
-        _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
-    }
-}
-
 pub(super) fn build_agent_system_prompt(
     core: &Arc<AppCore>,
     agent_node: AgentNode,

@@ -4,8 +4,7 @@ use super::subagent_backend::{
     build_service_subagent_tool_registry, create_subagent_manager,
 };
 use super::*;
-use crate::services::adapters::{AgentStoreAdapter, OpsProviderAdapter, TaskStoreAdapter};
-use crate::services::session::SessionService;
+use crate::services::adapters::{AgentStoreAdapter, OpsProviderAdapter};
 use ai::llm::{
     ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
@@ -16,19 +15,12 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::sync::RwLock;
 use tempfile::tempdir;
-use types::assessment::{AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent};
 use types::request::{
     AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest, WireModelRef,
 };
-use types::store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, TaskControlRequest, TaskCreateRequest,
-    TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest, TaskProgressRequest, TaskStore,
-    TaskUpdateRequest,
-};
+use types::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 
 struct DummyTool(&'static str);
-
-struct BackgroundMutationAssessor;
 
 #[async_trait]
 impl types::Tool for DummyTool {
@@ -49,114 +41,6 @@ impl types::Tool for DummyTool {
         _input: serde_json::Value,
     ) -> std::result::Result<types::ToolOutput, types::ToolError> {
         unimplemented!()
-    }
-}
-
-#[async_trait]
-impl AgentOperationAssessor for BackgroundMutationAssessor {
-    async fn assess_agent_create(
-        &self,
-        _request: AgentCreateRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            "create_agent",
-            OperationAssessmentIntent::Save,
-        ))
-    }
-
-    async fn assess_agent_update(
-        &self,
-        _request: AgentUpdateRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            "update_agent",
-            OperationAssessmentIntent::Save,
-        ))
-    }
-
-    async fn assess_task_create(
-        &self,
-        _request: TaskCreateRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            "create_task",
-            OperationAssessmentIntent::Save,
-        ))
-    }
-
-    async fn assess_task_convert_session(
-        &self,
-        _request: types::store::TaskConvertSessionRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            "convert_session_to_task",
-            OperationAssessmentIntent::Save,
-        ))
-    }
-
-    async fn assess_task_update(
-        &self,
-        _request: TaskUpdateRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            "update_task",
-            OperationAssessmentIntent::Save,
-        ))
-    }
-
-    async fn assess_task_delete(
-        &self,
-        _request: TaskDeleteRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::warning_with_confirmation(
-            "delete_task",
-            OperationAssessmentIntent::Save,
-            vec![],
-        ))
-    }
-
-    async fn assess_task_control(
-        &self,
-        _request: TaskControlRequest,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            "control_task",
-            OperationAssessmentIntent::Run,
-        ))
-    }
-
-    async fn assess_task_template(
-        &self,
-        operation: &str,
-        intent: OperationAssessmentIntent,
-        _agent_ids: Vec<String>,
-        _template_mode: bool,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(operation, intent))
-    }
-
-    async fn assess_subagent_spawn(
-        &self,
-        operation: &str,
-        _request: ContractRunSpawnRequest,
-        _template_mode: bool,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            operation,
-            OperationAssessmentIntent::Run,
-        ))
-    }
-
-    async fn assess_subagent_batch(
-        &self,
-        operation: &str,
-        _requests: Vec<ContractRunSpawnRequest>,
-        _template_mode: bool,
-    ) -> std::result::Result<OperationAssessment, types::ToolError> {
-        Ok(OperationAssessment::ok(
-            operation,
-            OperationAssessmentIntent::Run,
-        ))
     }
 }
 
@@ -185,7 +69,6 @@ fn setup_storage() -> (
     SecretStorage,
     ConfigStorage,
     AgentStorage,
-    TaskStorage,
     tempfile::TempDir,
 ) {
     let temp_dir = tempdir().unwrap();
@@ -204,7 +87,6 @@ fn setup_storage() -> (
     let secret_storage = SecretStorage::with_master_key(db.clone(), test_master_key).unwrap();
     let config_storage = ConfigStorage::new(db.clone()).unwrap();
     let agent_storage = AgentStorage::new(db.clone()).unwrap();
-    let task_storage = TaskStorage::new(db.clone()).unwrap();
 
     unsafe {
         std::env::remove_var("RESTFLOW_DIR");
@@ -215,7 +97,6 @@ fn setup_storage() -> (
         secret_storage,
         config_storage,
         agent_storage,
-        task_storage,
         temp_dir,
     )
 }
@@ -313,7 +194,6 @@ fn test_create_tool_registry() {
         _secret_storage,
         config_storage,
         _agent_storage,
-        _task_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(config_storage, None, None).unwrap();
@@ -369,7 +249,6 @@ fn test_create_tool_registry_excludes_subagent_tools_by_default() {
         _secret_storage,
         config_storage,
         _agent_storage,
-        _task_storage,
         _temp_dir,
     ) = setup_storage();
     let registry = create_tool_registry(config_storage, None, None).unwrap();
@@ -600,16 +479,15 @@ fn test_agent_store_adapter_crud_flow() {
         secret_storage,
         _config_storage,
         agent_storage,
-        task_storage,
         _temp_dir,
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        ["manage_tasks".to_string(), "manage_agents".to_string()]
+        ["manage_agents".to_string()]
             .into_iter()
             .collect::<HashSet<_>>(),
     ));
-    let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, task_storage, known_tools);
+    let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, known_tools);
     let base_node = crate::models::AgentNode {
         model_ref: Some(crate::models::ModelRef::from_model(
             crate::models::ModelId::ClaudeSonnet4_5,
@@ -619,7 +497,7 @@ fn test_agent_store_adapter_crud_flow() {
         codex_cli_reasoning_effort: None,
         codex_cli_execution_mode: None,
         api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
-        tools: Some(vec!["manage_tasks".to_string()]),
+        tools: Some(vec!["manage_agents".to_string()]),
         skills: None,
         skill_variables: None,
         skill_preflight_policy_mode: None,
@@ -660,10 +538,7 @@ fn test_agent_store_adapter_crud_flow() {
                     model: "gpt-5-mini".to_string(),
                 }),
                 prompt: Some("Updated prompt".to_string()),
-                tools: Some(vec![
-                    "manage_tasks".to_string(),
-                    "manage_agents".to_string(),
-                ]),
+                tools: Some(vec!["manage_agents".to_string()]),
                 skills: None,
                 ..ContractAgentNode::default()
             }),
@@ -709,16 +584,15 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         secret_storage,
         _config_storage,
         agent_storage,
-        task_storage,
         _temp_dir,
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        ["manage_tasks".to_string()]
+        ["manage_agents".to_string()]
             .into_iter()
             .collect::<HashSet<_>>(),
     ));
-    let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, task_storage, known_tools);
+    let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, known_tools);
 
     let err = AgentStore::create_agent(
         &adapter,
@@ -732,257 +606,6 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     )
     .expect_err("expected validation error");
     assert!(err.to_string().contains("validation_error"));
-}
-
-#[test]
-fn test_agent_store_adapter_blocks_delete_with_active_task() {
-    struct AgentsDirEnvCleanup;
-    impl Drop for AgentsDirEnvCleanup {
-        fn drop(&mut self) {
-            unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
-        }
-    }
-
-    let _cleanup = AgentsDirEnvCleanup;
-    let _env_lock = crate::prompt_files::agents_dir_env_lock();
-    let agents_temp = tempdir().unwrap();
-    unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
-
-    let (
-        _session_storage,
-        _unused_storage_slot,
-        secret_storage,
-        _config_storage,
-        agent_storage,
-        task_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let known_tools = Arc::new(RwLock::new(
-        ["manage_tasks".to_string()]
-            .into_iter()
-            .collect::<HashSet<_>>(),
-    ));
-    let adapter = AgentStoreAdapter::new(
-        agent_storage.clone(),
-        secret_storage,
-        task_storage.clone(),
-        known_tools,
-    );
-
-    let created = AgentStore::create_agent(
-        &adapter,
-        AgentCreateRequest {
-            name: "Task Owner".to_string(),
-            agent: ContractAgentNode {
-                model_ref: Some(WireModelRef {
-                    provider: "anthropic".to_string(),
-                    model: "claude-sonnet-4-5".to_string(),
-                }),
-                prompt: Some("owner".to_string()),
-                ..ContractAgentNode::default()
-            },
-        },
-    )
-    .unwrap();
-    let agent_id = created
-        .get("id")
-        .and_then(|value| value.as_str())
-        .unwrap()
-        .to_string();
-
-    task_storage
-        .create_task(
-            "Active MCP Task".to_string(),
-            agent_id.clone(),
-            crate::models::TaskSchedule::default(),
-        )
-        .unwrap();
-
-    let err = AgentStore::delete_agent(&adapter, &agent_id).expect_err("should be blocked");
-    let msg = err.to_string();
-    assert!(msg.contains("Cannot delete agent"));
-    assert!(msg.contains("Active MCP Task"));
-}
-
-#[test]
-fn test_task_store_adapter_task_flow() {
-    struct AgentsDirEnvCleanup;
-    impl Drop for AgentsDirEnvCleanup {
-        fn drop(&mut self) {
-            unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
-        }
-    }
-    let _cleanup = AgentsDirEnvCleanup;
-    let _env_lock = crate::prompt_files::agents_dir_env_lock();
-    let agents_temp = tempdir().unwrap();
-    unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
-
-    let (
-        session_storage,
-        _execution_context,
-        _secret_storage,
-        _config_storage,
-        agent_storage,
-        task_storage,
-        _temp_dir,
-    ) = setup_storage();
-
-    let created_agent = agent_storage
-        .create_agent(
-            "Background Owner".to_string(),
-            crate::models::AgentNode::new(),
-        )
-        .unwrap();
-    let adapter = TaskStoreAdapter::new(
-        task_storage.clone(),
-        agent_storage.clone(),
-        SessionService::new(session_storage, Some(agent_storage), task_storage),
-    )
-    .with_assessor(Arc::new(BackgroundMutationAssessor));
-
-    let created = TaskStore::create_task(
-        &adapter,
-        TaskCreateRequest {
-            name: "Task".to_string(),
-            agent_id: created_agent.id,
-            chat_session_id: None,
-            schedule: types::request::TaskSchedule::default(),
-            input: Some("Run periodic checks".to_string()),
-            input_template: Some("Template {{task.id}}".to_string()),
-            timeout_secs: Some(1800),
-            resource_limits: None,
-            preview: false,
-            approval_id: None,
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        created
-            .get("result")
-            .and_then(|value| value.get("input_template"))
-            .and_then(|value| value.as_str()),
-        Some("Template {{task.id}}")
-    );
-    let task_id = created
-        .get("result")
-        .and_then(|value| value.get("id"))
-        .and_then(|value| value.as_str())
-        .unwrap()
-        .to_string();
-
-    let updated = TaskStore::update_task(
-        &adapter,
-        TaskUpdateRequest {
-            id: task_id.clone(),
-            name: Some("Task Updated".to_string()),
-            description: Some("Updated description".to_string()),
-            agent_id: None,
-            chat_session_id: None,
-            input: Some("Run checks and summarize".to_string()),
-            input_template: Some("Updated {{task.name}}".to_string()),
-            schedule: None,
-            execution_mode: None,
-            timeout_secs: Some(900),
-            resource_limits: None,
-            preview: false,
-            approval_id: None,
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        updated
-            .get("result")
-            .and_then(|value| value.get("name"))
-            .and_then(|value| value.as_str()),
-        Some("Task Updated")
-    );
-    assert_eq!(
-        updated
-            .get("result")
-            .and_then(|value| value.get("timeout_secs"))
-            .and_then(|value| value.as_u64()),
-        Some(900)
-    );
-
-    let controlled = TaskStore::control_task(
-        &adapter,
-        TaskControlRequest {
-            id: task_id.clone(),
-            action: "run_now".to_string(),
-            preview: false,
-            approval_id: None,
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        controlled
-            .get("result")
-            .and_then(|value| value.get("status"))
-            .and_then(|value| value.as_str()),
-        Some("active")
-    );
-
-    let message = TaskStore::send_task_message(
-        &adapter,
-        TaskMessageRequest {
-            id: task_id.clone(),
-            message: "Also check deployment logs".to_string(),
-            source: Some("user".to_string()),
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        message.get("status").and_then(|value| value.as_str()),
-        Some("queued")
-    );
-
-    let progress = TaskStore::get_task_progress(
-        &adapter,
-        TaskProgressRequest {
-            id: task_id.clone(),
-            event_limit: Some(5),
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        progress.get("task_id").and_then(|value| value.as_str()),
-        Some(task_id.as_str())
-    );
-
-    let messages = TaskStore::list_task_messages(
-        &adapter,
-        TaskMessageListRequest {
-            id: task_id.clone(),
-            limit: Some(10),
-        },
-    )
-    .unwrap();
-    assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
-
-    let delete_preview = TaskStore::delete_task(
-        &adapter,
-        types::store::TaskDeleteRequest {
-            id: task_id.clone(),
-            preview: true,
-            approval_id: None,
-        },
-    )
-    .unwrap();
-    let token = delete_preview["assessment"]["approval_id"]
-        .as_str()
-        .expect("delete preview token")
-        .to_string();
-    let deleted = TaskStore::delete_task(
-        &adapter,
-        types::store::TaskDeleteRequest {
-            id: task_id,
-            preview: false,
-            approval_id: Some(token),
-        },
-    )
-    .unwrap();
-    assert_eq!(deleted["result"]["deleted"].as_bool(), Some(true));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1076,7 +699,6 @@ async fn test_create_tool_registry_uses_minimal_core_tool_surface() {
         _secret_storage,
         config_storage,
         _agent_storage,
-        _task_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1227,7 +849,6 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         _secret_storage,
         config_storage,
         agent_storage,
-        _task_storage,
         _temp_dir,
     ) = setup_storage();
 
@@ -1285,7 +906,6 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         secret_storage,
         config_storage,
         agent_storage,
-        _task_storage,
         _temp_dir,
     ) = setup_storage();
 

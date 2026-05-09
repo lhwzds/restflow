@@ -12,7 +12,6 @@ pub mod secret;
 pub mod security_query;
 pub mod session;
 pub mod skill_provider;
-pub mod task_store;
 
 pub use agent::AgentStoreAdapter;
 pub use config::ConfigStoreAdapter;
@@ -22,4 +21,3 @@ pub use secret::SecretStoreAdapter;
 pub use security_query::SecurityQueryProviderAdapter;
 pub use session::SessionStorageAdapter;
 pub use skill_provider::SkrunSkillProvider;
-pub use task_store::TaskStoreAdapter;

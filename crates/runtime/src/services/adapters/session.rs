@@ -2,7 +2,7 @@
 
 use crate::services::session::SessionService;
 use crate::session_log::FileSessionStore;
-use crate::storage::{AgentStorage, TaskStorage};
+use crate::storage::AgentStorage;
 use serde_json::{Value, json};
 use tools::ToolError;
 use types::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
@@ -11,28 +11,18 @@ use types::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, 
 pub struct SessionStorageAdapter {
     sessions: FileSessionStore,
     agent_storage: AgentStorage,
-    task_storage: TaskStorage,
 }
 
 impl SessionStorageAdapter {
-    pub fn new(
-        sessions: FileSessionStore,
-        agent_storage: AgentStorage,
-        task_storage: TaskStorage,
-    ) -> Self {
+    pub fn new(sessions: FileSessionStore, agent_storage: AgentStorage) -> Self {
         Self {
             sessions,
             agent_storage,
-            task_storage,
         }
     }
 
     fn session_service(&self) -> SessionService {
-        SessionService::new(
-            self.sessions.clone(),
-            Some(self.agent_storage.clone()),
-            self.task_storage.clone(),
-        )
+        SessionService::new(self.sessions.clone(), Some(self.agent_storage.clone()))
     }
 }
 
@@ -128,10 +118,8 @@ mod tests {
         let env = RestflowTestEnv::new();
         let session_storage = FileSessionStore::new(env.root().join("sessions")).unwrap();
         let agent_storage = AgentStorage::new_file_backed().unwrap();
-        let task_storage =
-            TaskStorage::new_file_backed_path(env.root().join("restflow.tasks.json")).unwrap();
         (
-            SessionStorageAdapter::new(session_storage, agent_storage, task_storage),
+            SessionStorageAdapter::new(session_storage, agent_storage),
             env,
         )
     }
@@ -194,45 +182,6 @@ mod tests {
 
         let result = adapter.delete_session(&session_id).unwrap();
         assert_eq!(result["purged"], true);
-    }
-
-    #[test]
-    fn test_delete_session_rejects_background_bound_session() {
-        let (adapter, _dir) = setup();
-        let agent_id = create_default_agent(&adapter);
-        let created = adapter
-            .create_session(SessionCreateRequest {
-                agent_id: agent_id.clone(),
-                model: "gpt-4".to_string(),
-                name: Some("Bound Session".to_string()),
-                skill_id: None,
-                retention: None,
-            })
-            .unwrap();
-        let session_id = created["id"].as_str().unwrap().to_string();
-
-        adapter
-            .task_storage
-            .create_task_from_spec(crate::models::TaskSpec {
-                name: "Session Owner".to_string(),
-                agent_id,
-                chat_session_id: Some(session_id.clone()),
-                description: None,
-                input: Some("run".to_string()),
-                input_template: None,
-                schedule: crate::models::TaskSchedule::default(),
-                execution_mode: None,
-                timeout_secs: None,
-                resource_limits: None,
-                prerequisites: Vec::new(),
-                continuation: None,
-            })
-            .unwrap();
-
-        let err = adapter
-            .delete_session(&session_id)
-            .expect_err("bound session must not be deleted");
-        assert!(err.to_string().contains("bound to task"));
     }
 
     #[test]

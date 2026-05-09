@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::models::{
     ChatSession, ChatSessionSource, ChatTurn, ChatTurnEventKind, ChatTurnStatus,
     ExecutionContainerKind, ExecutionContainerSummary, ExecutionThread, RunKind, RunListQuery,
-    RunSummary, RunTimeline, Task, TaskRun,
+    RunSummary, RunTimeline,
 };
 use crate::storage::Storage;
 
@@ -36,7 +36,6 @@ impl ExecutionConsoleService {
 
     pub fn list_execution_containers(&self) -> Result<Vec<ExecutionContainerSummary>> {
         let sessions = self.list_sessions()?;
-        let tasks = self.storage.tasks.list_tasks()?;
         let mut containers = Vec::new();
 
         for session in sessions
@@ -56,31 +55,6 @@ impl ExecutionConsoleService {
                 agent_id: Some(session.agent_id.clone()),
                 source_channel: session.source_channel,
                 source_conversation_id: session.source_conversation_id.clone(),
-            });
-        }
-
-        for task in tasks {
-            let runs = self
-                .storage
-                .tasks
-                .list_task_runs(&task.id)
-                .unwrap_or_default();
-            containers.push(ExecutionContainerSummary {
-                id: task.id.clone(),
-                kind: ExecutionContainerKind::Task,
-                title: task.name.clone(),
-                subtitle: task.description.clone(),
-                updated_at: task.updated_at,
-                status: Some(task.status.as_str().to_string()),
-                session_count: runs.len() as u32,
-                latest_session_id: Some(task.chat_session_id.clone()),
-                latest_run_id: runs
-                    .iter()
-                    .max_by_key(|run| run.updated_at)
-                    .map(|run| run.run_id.clone()),
-                agent_id: Some(task.agent_id.clone()),
-                source_channel: None,
-                source_conversation_id: None,
             });
         }
 
@@ -108,20 +82,7 @@ impl ExecutionConsoleService {
                 runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
                 Ok(runs)
             }
-            ExecutionContainerKind::Task => {
-                let Some(task) = self.storage.tasks.get_task(&query.container.id)? else {
-                    return Ok(Vec::new());
-                };
-                let mut runs = self
-                    .storage
-                    .tasks
-                    .list_task_runs(&task.id)?
-                    .into_iter()
-                    .map(|run| task_run_summary(&task, &run))
-                    .collect::<Vec<_>>();
-                runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-                Ok(runs)
-            }
+            ExecutionContainerKind::Task => Ok(Vec::new()),
         }
     }
 
@@ -159,18 +120,6 @@ impl ExecutionConsoleService {
             }
         }
 
-        for task in self.storage.tasks.list_tasks()? {
-            if let Some(run) = self
-                .storage
-                .tasks
-                .list_task_runs(&task.id)?
-                .into_iter()
-                .find(|run| run.run_id == run_id)
-            {
-                return Ok(task_run_summary(&task, &run));
-            }
-        }
-
         Err(ExecutionThreadError::RunNotFound(run_id.to_string()))
     }
 
@@ -188,32 +137,6 @@ impl ExecutionConsoleService {
                 return Ok(RunTimeline {
                     events: turn.events.clone(),
                 });
-            }
-        }
-
-        for task in self.storage.tasks.list_tasks()? {
-            if self
-                .storage
-                .tasks
-                .list_task_runs(&task.id)?
-                .into_iter()
-                .any(|run| run.run_id == run_id)
-            {
-                let Some(session) = self
-                    .storage
-                    .file_sessions
-                    .get(&task.chat_session_id)?
-                    .map(|session| session.to_chat_session())
-                else {
-                    return Ok(RunTimeline::default());
-                };
-                let events = session
-                    .turns
-                    .iter()
-                    .find(|turn| turn.id == run_id)
-                    .map(|turn| turn.events.clone())
-                    .unwrap_or_default();
-                return Ok(RunTimeline { events });
             }
         }
 
@@ -261,35 +184,6 @@ fn workspace_run_summary(session: &ChatSession, turn: &ChatTurn) -> RunSummary {
         effective_model: Some(session.model.clone()).filter(|value| !value.is_empty()),
         provider: Some(session.provider.clone()).filter(|value| !value.is_empty()),
         event_count: turn.events.len() as u64,
-    }
-}
-
-fn task_run_summary(task: &Task, run: &TaskRun) -> RunSummary {
-    RunSummary {
-        id: run.run_id.clone(),
-        kind: RunKind::TaskRun,
-        container_id: task.id.clone(),
-        root_run_id: Some(run.run_id.clone()),
-        title: task.name.clone(),
-        subtitle: run.error.clone().or_else(|| task.description.clone()),
-        status: run.status.as_str().to_string(),
-        updated_at: run.updated_at,
-        started_at: Some(run.started_at),
-        ended_at: run.ended_at,
-        session_id: Some(task.chat_session_id.clone()),
-        run_id: Some(run.run_id.clone()),
-        task_id: Some(task.id.clone()),
-        parent_run_id: None,
-        agent_id: Some(task.agent_id.clone()),
-        source_channel: None,
-        source_conversation_id: None,
-        effective_model: run
-            .metrics
-            .final_model
-            .clone()
-            .or(run.metrics.active_model.clone()),
-        provider: None,
-        event_count: run.metrics.message_count.unwrap_or_default() as u64,
     }
 }
 

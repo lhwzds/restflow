@@ -16,7 +16,7 @@ use crate::{
     auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
     models::{
         AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatTurnEventKind,
-        ChatTurnStatus, Skill, SteerMessage, TaskStatus,
+        ChatTurnStatus, Skill, SteerMessage,
     },
     process::ProcessRegistry,
     services::session::SessionService,
@@ -210,27 +210,6 @@ impl AgentRuntimeExecutor {
         )
         .await
         .map_err(|error| anyhow!(error.to_string()))
-    }
-
-    fn validate_prerequisites(&self, prerequisites: &[String]) -> Result<()> {
-        if prerequisites.is_empty() {
-            return Ok(());
-        }
-
-        let mut failed = Vec::new();
-        for task_id in prerequisites {
-            match self.storage.tasks.get_task(task_id)? {
-                Some(task) if task.status == TaskStatus::Completed => {}
-                Some(task) => failed.push(format!("{} ({})", task.id, task.status.as_str())),
-                None => failed.push(format!("{task_id} (not found)")),
-            }
-        }
-
-        if failed.is_empty() {
-            Ok(())
-        } else {
-            Err(anyhow!("Prerequisites not met: {}", failed.join(", ")))
-        }
     }
 
     /// Create a new AgentRuntimeExecutor with access to storage.

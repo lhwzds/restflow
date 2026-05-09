@@ -1,8 +1,6 @@
 //! OpsProvider adapter for daemon health and operational queries.
 
 use crate::daemon::check_health;
-use crate::models::TaskStatus;
-use crate::storage::TaskStorage;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -18,34 +16,11 @@ fn build_ops_response(operation: &str, evidence: Value, verification: Value) -> 
     })
 }
 
-pub struct OpsProviderAdapter {
-    task_storage: TaskStorage,
-}
+pub struct OpsProviderAdapter;
 
 impl OpsProviderAdapter {
-    pub fn new(task_storage: TaskStorage) -> Self {
-        Self { task_storage }
-    }
-
-    fn parse_status_filter(status: Option<&str>) -> tools::Result<Option<TaskStatus>> {
-        let Some(status) = status else {
-            return Ok(None);
-        };
-        let parsed = match status.trim().to_ascii_lowercase().as_str() {
-            "active" => TaskStatus::Active,
-            "paused" => TaskStatus::Paused,
-            "running" => TaskStatus::Running,
-            "completed" => TaskStatus::Completed,
-            "failed" => TaskStatus::Failed,
-            "interrupted" => TaskStatus::Interrupted,
-            value => {
-                return Err(ToolError::Tool(format!(
-                    "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",
-                    value
-                )));
-            }
-        };
-        Ok(Some(parsed))
+    pub fn new() -> Self {
+        Self
     }
 
     fn canonical_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
@@ -134,39 +109,17 @@ impl OpsProvider for OpsProviderAdapter {
     }
 
     fn task_summary(&self, status: Option<&str>, limit: usize) -> tools::Result<Value> {
-        let status_filter = Self::parse_status_filter(status)?;
-        let tasks = match status_filter.clone() {
-            Some(s) => self.task_storage.list_tasks_by_status(s)?,
-            None => self.task_storage.list_tasks()?,
-        };
-        let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
-        for task in &tasks {
-            *by_status
-                .entry(task.status.as_str().to_string())
-                .or_default() += 1;
-        }
-        let sample: Vec<Value> = tasks
-            .iter()
-            .take(limit)
-            .map(|task| {
-                json!({
-                    "id": task.id,
-                    "name": task.name,
-                    "agent_id": task.agent_id,
-                    "status": task.status.as_str(),
-                    "updated_at": task.updated_at
-                })
-            })
-            .collect();
+        let by_status: BTreeMap<String, usize> = BTreeMap::new();
+        let sample: Vec<Value> = Vec::new();
         let evidence = json!({
-            "total": tasks.len(),
+            "total": 0,
             "by_status": by_status,
             "sample": sample
         });
         let verification = json!({
-            "status_filter": status_filter.as_ref().map(|s| s.as_str()),
+            "status_filter": status,
             "sample_limit": limit,
-            "derived_from": "task_storage"
+            "derived_from": "task_storage_removed"
         });
         Ok(build_ops_response("task_summary", evidence, verification))
     }
@@ -243,16 +196,12 @@ impl OpsProviderAdapter {
 #[cfg(test)]
 mod tests_adapter {
     use super::*;
-    use std::sync::Arc;
     use tempfile::tempdir;
     use types::store::OpsProvider;
 
     fn setup() -> (OpsProviderAdapter, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let bg_storage = TaskStorage::new(db).unwrap();
-        (OpsProviderAdapter::new(bg_storage), temp_dir)
+        (OpsProviderAdapter::new(), temp_dir)
     }
 
     #[test]
@@ -294,25 +243,5 @@ mod tests_adapter {
         let (lines, truncated) = OpsProviderAdapter::read_log_tail(&log_file, 100).unwrap();
         assert_eq!(lines.len(), 2);
         assert!(!truncated);
-    }
-
-    #[test]
-    fn test_parse_status_filter() {
-        assert!(
-            OpsProviderAdapter::parse_status_filter(None)
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            OpsProviderAdapter::parse_status_filter(Some("active"))
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            OpsProviderAdapter::parse_status_filter(Some("RUNNING"))
-                .unwrap()
-                .is_some()
-        );
-        assert!(OpsProviderAdapter::parse_status_filter(Some("invalid")).is_err());
     }
 }

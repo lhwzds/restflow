@@ -31,11 +31,7 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         .cleanup_workspace_sessions_by_retention(now_ms)?
         .deleted;
 
-    let tasks = if let Some(cutoff) = retention_cutoff(now_ms, config.task_retention_days) {
-        core.storage.tasks.cleanup_old_tasks(cutoff)?
-    } else {
-        0
-    };
+    let tasks = 0;
 
     let audit_events = 0;
 

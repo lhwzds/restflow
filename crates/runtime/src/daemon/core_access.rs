@@ -3,12 +3,11 @@ use super::ipc_protocol::IpcRequest;
 use super::launcher::ensure_daemon_running;
 use super::request_mapper::to_contract;
 use crate::AppCore;
-use crate::boundary::task::core_spec_to_contract;
 use crate::models::{AgentNode, Skill, Task, TaskSpec, TaskStatus};
 use crate::paths;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
-    skills as skills_service, task_command::TaskCommandService,
+    skills as skills_service,
 };
 use crate::storage::SystemConfig;
 use anyhow::Result;
@@ -121,10 +120,7 @@ impl CoreAccess {
 
     pub async fn list_tasks(&mut self, status: Option<TaskStatus>) -> Result<Vec<Task>> {
         match self {
-            CoreAccess::Local(core) => match status {
-                Some(status) => core.storage.tasks.list_tasks_by_status(status),
-                None => core.storage.tasks.list_tasks(),
-            },
+            CoreAccess::Local(_) => Ok(Vec::new()),
             CoreAccess::Remote(client) => {
                 client
                     .request_typed(IpcRequest::ListTasks {
@@ -137,7 +133,10 @@ impl CoreAccess {
 
     pub async fn get_task(&mut self, id: &str) -> Result<Option<Task>> {
         match self {
-            CoreAccess::Local(core) => core.storage.tasks.get_task(id),
+            CoreAccess::Local(_) => {
+                let _ = id;
+                Ok(None)
+            }
             CoreAccess::Remote(client) => {
                 client
                     .request_optional(IpcRequest::GetTask { id: id.to_string() })
@@ -148,12 +147,13 @@ impl CoreAccess {
 
     pub async fn create_task(&mut self, spec: TaskSpec) -> Result<Task> {
         match self {
-            CoreAccess::Local(core) => TaskCommandService::from_storage(&core.storage, None)
-                .create_from_spec_direct(spec)
-                .map_err(|error| anyhow::anyhow!(error.to_string())),
+            CoreAccess::Local(_) => {
+                let _ = spec;
+                anyhow::bail!("legacy task storage has been removed")
+            }
             CoreAccess::Remote(client) => {
-                let spec = core_spec_to_contract(spec)?;
-                client.request_typed(IpcRequest::CreateTask { spec }).await
+                let _ = (client, spec);
+                anyhow::bail!("legacy task storage has been removed")
             }
         }
     }

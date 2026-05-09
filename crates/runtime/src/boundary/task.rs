@@ -1,33 +1,13 @@
 use crate::boundary::codec::{from_contract, to_contract};
-use crate::models::{
-    ExecutionMode, ResourceLimits, TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
-};
-use crate::services::task_conversion::default_conversion_schedule;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use tools::ToolError;
+use crate::models::{TaskPatch, TaskSpec};
 use types::request::{
-    ExecutionMode as ContractExecutionMode, ResourceLimits as ContractResourceLimits,
     TaskFromSessionRequest as ContractTaskFromSessionRequest, TaskPatch as ContractTaskPatch,
-    TaskSchedule as ContractTaskSchedule, TaskSpec as ContractTaskSpec,
+    TaskSpec as ContractTaskSpec,
 };
-use types::store::{TaskConvertSessionRequest, TaskCreateRequest, TaskUpdateRequest};
+use types::store::TaskConvertSessionRequest;
 
-type CoreTaskControlAction = TaskControlAction;
 type CoreTaskPatch = TaskPatch;
-type CoreTaskSchedule = TaskSchedule;
 type CoreTaskSpec = TaskSpec;
-
-pub(crate) struct ConvertSessionToTaskOptions {
-    pub(crate) name: Option<String>,
-    pub(crate) schedule: CoreTaskSchedule,
-    pub(crate) input: Option<String>,
-    pub(crate) timeout_secs: Option<u64>,
-    pub(crate) resource_limits: Option<ResourceLimits>,
-    pub(crate) run_now: bool,
-}
-
-pub(crate) type ConvertSessionRequestOptions = ConvertSessionToTaskOptions;
 
 pub(crate) fn contract_task_spec_to_core_task_spec(
     spec: ContractTaskSpec,
@@ -95,153 +75,6 @@ pub(crate) fn core_patch_to_contract(patch: CoreTaskPatch) -> anyhow::Result<Con
     core_task_patch_to_contract_task_patch(patch)
 }
 
-pub(crate) fn core_task_spec_to_store_create_request(
-    spec: &CoreTaskSpec,
-) -> anyhow::Result<TaskCreateRequest> {
-    Ok(TaskCreateRequest {
-        name: spec.name.clone(),
-        agent_id: spec.agent_id.clone(),
-        chat_session_id: spec.chat_session_id.clone(),
-        schedule: to_contract(spec.schedule.clone())?,
-        input: spec.input.clone(),
-        input_template: spec.input_template.clone(),
-        timeout_secs: spec.timeout_secs,
-        resource_limits: spec.resource_limits.clone().map(to_contract).transpose()?,
-        preview: false,
-        approval_id: None,
-    })
-}
-
-pub(crate) fn core_spec_to_create_request(
-    spec: &CoreTaskSpec,
-) -> anyhow::Result<TaskCreateRequest> {
-    core_task_spec_to_store_create_request(spec)
-}
-
-pub(crate) fn core_patch_to_update_request(
-    id: String,
-    patch: &CoreTaskPatch,
-) -> anyhow::Result<TaskUpdateRequest> {
-    Ok(TaskUpdateRequest {
-        id,
-        name: patch.name.clone(),
-        description: patch.description.clone(),
-        agent_id: patch.agent_id.clone(),
-        chat_session_id: patch.chat_session_id.clone(),
-        input: patch.input.clone(),
-        input_template: patch.input_template.clone(),
-        schedule: patch.schedule.clone().map(to_contract).transpose()?,
-        execution_mode: patch.execution_mode.clone().map(to_contract).transpose()?,
-        timeout_secs: patch.timeout_secs,
-        resource_limits: patch.resource_limits.clone().map(to_contract).transpose()?,
-        preview: false,
-        approval_id: None,
-    })
-}
-
-pub(crate) fn store_create_request_to_core_task_spec(
-    request: TaskCreateRequest,
-) -> Result<CoreTaskSpec, ToolError> {
-    let schedule =
-        decode_contract::<ContractTaskSchedule, CoreTaskSchedule>("schedule", request.schedule)?;
-
-    Ok(CoreTaskSpec {
-        name: request.name,
-        agent_id: request.agent_id,
-        chat_session_id: request.chat_session_id,
-        description: None,
-        input: request.input,
-        input_template: request.input_template,
-        schedule,
-        execution_mode: None,
-        timeout_secs: request.timeout_secs,
-        resource_limits: decode_optional_contract::<ContractResourceLimits, ResourceLimits>(
-            "resource_limits",
-            request.resource_limits,
-        )?,
-        prerequisites: Vec::new(),
-        continuation: None,
-    })
-}
-
-pub(crate) fn create_request_to_spec(
-    request: TaskCreateRequest,
-) -> Result<CoreTaskSpec, ToolError> {
-    store_create_request_to_core_task_spec(request)
-}
-
-pub(crate) fn update_request_to_patch(
-    request: TaskUpdateRequest,
-) -> Result<CoreTaskPatch, ToolError> {
-    Ok(CoreTaskPatch {
-        name: request.name,
-        description: request.description,
-        agent_id: request.agent_id,
-        chat_session_id: request.chat_session_id,
-        input: request.input,
-        input_template: request.input_template,
-        schedule: decode_optional_contract::<ContractTaskSchedule, TaskSchedule>(
-            "schedule",
-            request.schedule,
-        )?,
-        execution_mode: decode_optional_contract::<ContractExecutionMode, ExecutionMode>(
-            "execution_mode",
-            request.execution_mode,
-        )?,
-        timeout_secs: request.timeout_secs,
-        resource_limits: decode_optional_contract::<ContractResourceLimits, ResourceLimits>(
-            "resource_limits",
-            request.resource_limits,
-        )?,
-        prerequisites: None,
-        continuation: None,
-    })
-}
-
-pub(crate) fn parse_task_control_action(action: &str) -> Result<CoreTaskControlAction, ToolError> {
-    match action.trim().to_lowercase().as_str() {
-        "start" => Ok(CoreTaskControlAction::Start),
-        "pause" => Ok(CoreTaskControlAction::Pause),
-        "resume" => Ok(CoreTaskControlAction::Resume),
-        "stop" => Ok(CoreTaskControlAction::Stop),
-        "run_now" | "run-now" | "runnow" => Ok(CoreTaskControlAction::RunNow),
-        value => Err(ToolError::Tool(format!(
-            "Unknown control action: {}",
-            value
-        ))),
-    }
-}
-
-pub(crate) fn parse_control_action(action: &str) -> Result<CoreTaskControlAction, ToolError> {
-    parse_task_control_action(action)
-}
-
-pub(crate) fn task_from_session_request_to_options(
-    request: TaskConvertSessionRequest,
-) -> Result<ConvertSessionToTaskOptions, ToolError> {
-    Ok(ConvertSessionToTaskOptions {
-        name: request.name,
-        schedule: decode_optional_contract::<ContractTaskSchedule, CoreTaskSchedule>(
-            "schedule",
-            request.schedule,
-        )?
-        .unwrap_or_else(default_conversion_schedule),
-        input: request.input,
-        timeout_secs: request.timeout_secs,
-        resource_limits: decode_optional_contract::<ContractResourceLimits, ResourceLimits>(
-            "resource_limits",
-            request.resource_limits,
-        )?,
-        run_now: request.run_now.unwrap_or(false),
-    })
-}
-
-pub(crate) fn convert_session_request_to_options(
-    request: TaskConvertSessionRequest,
-) -> Result<ConvertSessionRequestOptions, ToolError> {
-    task_from_session_request_to_options(request)
-}
-
 pub(crate) fn contract_task_from_session_request_to_store(
     request: ContractTaskFromSessionRequest,
 ) -> anyhow::Result<TaskConvertSessionRequest> {
@@ -264,27 +97,10 @@ pub(crate) fn contract_convert_request_to_store(
     contract_task_from_session_request_to_store(request)
 }
 
-fn decode_contract<T: Serialize, U: DeserializeOwned>(
-    field: &str,
-    value: T,
-) -> Result<U, ToolError> {
-    let encoded = serde_json::to_value(value)
-        .map_err(|e| ToolError::Tool(format!("Invalid {}: {}", field, e)))?;
-    serde_json::from_value(encoded)
-        .map_err(|e| ToolError::Tool(format!("Invalid {}: {}", field, e)))
-}
-
-fn decode_optional_contract<T: Serialize, U: DeserializeOwned>(
-    field: &str,
-    value: Option<T>,
-) -> Result<Option<U>, ToolError> {
-    value.map(|value| decode_contract(field, value)).transpose()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ContinuationConfig;
+    use crate::models::{ContinuationConfig, ExecutionMode, ResourceLimits};
 
     #[test]
     fn contract_spec_to_core_preserves_task_defaults() {

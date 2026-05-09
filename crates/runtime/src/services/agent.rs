@@ -7,10 +7,7 @@ use crate::{
     AppCore,
     models::{AgentNode, ChatSessionSource, encode_validation_error},
     services::session::SessionService,
-    storage::{
-        TaskStorage,
-        agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
-    },
+    storage::agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
 };
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
@@ -60,25 +57,6 @@ pub async fn update_agent(
         .with_context(|| format!("Failed to update agent {}", id))
 }
 
-/// Check whether an agent has active tasks.
-/// Returns `Ok(Some(task_names))` when active tasks exist, `Ok(None)` otherwise.
-pub(crate) fn check_agent_has_active_tasks(
-    bg_storage: &TaskStorage,
-    agent_id: &str,
-) -> Result<Option<String>> {
-    let active_tasks = bg_storage.list_active_tasks_by_agent_id(agent_id)?;
-    if active_tasks.is_empty() {
-        Ok(None)
-    } else {
-        let task_names = active_tasks
-            .iter()
-            .map(|task| task.name.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
-        Ok(Some(task_names))
-    }
-}
-
 /// Check whether an agent has managed chat sessions.
 ///
 /// Returns `Ok(Some(source_list))` when linked managed sessions exist, `Ok(None)`
@@ -95,9 +73,7 @@ pub(crate) fn check_agent_has_managed_sessions(
             continue;
         }
         let (source, _) = session_service.effective_source(&session)?;
-        if matches!(source, ChatSessionSource::Background)
-            && session_service.bound_task(&session.id)?.is_some()
-        {
+        if matches!(source, ChatSessionSource::Background) {
             sources.insert("background".to_string());
         }
     }
@@ -128,16 +104,6 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
             "Cannot delete default assistant agent {} ({})",
             resolved_id,
             agent_name
-        );
-    }
-
-    if let Some(task_names) = check_agent_has_active_tasks(&core.storage.tasks, &resolved_id)
-        .with_context(|| format!("Failed to query tasks for agent {}", id))?
-    {
-        anyhow::bail!(
-            "Cannot delete agent {}: active tasks exist ({})",
-            resolved_id,
-            task_names
         );
     }
 
@@ -179,9 +145,7 @@ fn archive_agent_workspace_sessions(
     for session in session_service.list_session_views(Some(agent_id), None, true)? {
         if session_service.management_owner(&session)?.is_none() {
             let _ = session_service.archive_session(&session.id)?;
-        } else if session.source_channel == Some(ChatSessionSource::Background)
-            && session_service.bound_task(&session.id)?.is_none()
-        {
+        } else if session.source_channel == Some(ChatSessionSource::Background) {
             let _ = session_service.archive_managed_session(&session.id)?;
         }
     }
@@ -430,30 +394,6 @@ mod tests {
         // Verify it's gone
         let result = get_agent(&core, &created.id).await;
         assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_delete_agent_blocked_by_active_task() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-        let agent_node = create_test_agent_node("Task owner");
-        let created = create_agent(&core, "Task Owner".to_string(), agent_node)
-            .await
-            .unwrap();
-
-        core.storage
-            .tasks
-            .create_task(
-                "Integrity Task".to_string(),
-                created.id.clone(),
-                crate::models::TaskSchedule::default(),
-            )
-            .unwrap();
-
-        let err = delete_agent(&core, &created.id).await.unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("Cannot delete agent"));
-        assert!(msg.contains("Integrity Task"));
     }
 
     #[tokio::test]

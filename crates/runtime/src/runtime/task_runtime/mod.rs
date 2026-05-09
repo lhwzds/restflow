@@ -124,12 +124,9 @@ pub mod heartbeat;
 pub mod model_catalog;
 pub mod outcome;
 pub mod preflight;
-pub mod reply_sender;
 pub mod retry;
 pub mod runner;
 pub mod skill_snapshot;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod testkit;
 
 pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
 pub use events::{
@@ -148,6 +145,5 @@ pub use outcome::{
     CompactionMetrics, ExecutionErrorClassification, ExecutionErrorKind, ExecutionFailure,
     ExecutionMetrics, ExecutionOutcome, RetryClass, SessionExecutionResult,
 };
-pub use reply_sender::TaskReplySenderFactory;
 pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use runner::{AgentExecutor, ExecutionResult, TaskRunner, TaskRunnerConfig, TaskRunnerHandle};

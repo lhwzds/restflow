@@ -1,6 +1,6 @@
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use crate::models::{AgentNode, SkillPreflightPolicyMode, SkillSource, TaskSchedule};
+use crate::models::{AgentNode, SkillPreflightPolicyMode, SkillSource};
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use crate::services::session::SessionService;
 use crate::session_log::{FileSession, FileSessionStore};
@@ -129,11 +129,7 @@ fn load_chat_session_reads_file_session_without_materializing_to_redb() {
     file_store
         .write_session(&FileSession::from_chat_session(&session), false)
         .unwrap();
-    let session_service = SessionService::new(
-        file_store,
-        Some(storage.agents.clone()),
-        storage.tasks.clone(),
-    );
+    let session_service = SessionService::new(file_store, Some(storage.agents.clone()));
     let executor = create_test_executor(storage.clone()).with_session_service(session_service);
 
     let loaded = executor.load_chat_session(&session.id).unwrap();
@@ -591,71 +587,6 @@ async fn test_resolve_api_key_requires_matching_zai_coding_plan_secret() {
         .await;
 
     assert!(result.is_err());
-}
-
-#[test]
-fn test_validate_prerequisites_passes_with_completed_tasks() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    let task_a = storage
-        .tasks
-        .create_task(
-            "task-a".to_string(),
-            "agent-1".to_string(),
-            TaskSchedule::Once { run_at: 0 },
-        )
-        .expect("first task should create");
-    let task_b = storage
-        .tasks
-        .create_task(
-            "task-b".to_string(),
-            "agent-1".to_string(),
-            TaskSchedule::Once { run_at: 0 },
-        )
-        .expect("second task should create");
-    storage
-        .tasks
-        .complete_task_execution(&task_a.id, Some("ok".to_string()), 1)
-        .expect("first task should complete");
-    storage
-        .tasks
-        .complete_task_execution(&task_b.id, Some("done".to_string()), 1)
-        .expect("second task should complete");
-
-    let prerequisites = vec![task_a.id, task_b.id];
-    let result = executor.validate_prerequisites(&prerequisites);
-    assert!(result.is_ok(), "validation should pass: {:?}", result.err());
-}
-
-#[test]
-fn test_validate_prerequisites_rejects_incomplete_task() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage.clone());
-    let task = storage
-        .tasks
-        .create_task(
-            "task-pending".to_string(),
-            "agent-1".to_string(),
-            TaskSchedule::default(),
-        )
-        .expect("task should create");
-
-    let err = executor
-        .validate_prerequisites(std::slice::from_ref(&task.id))
-        .expect_err("validation should fail");
-    assert!(err.to_string().contains(&format!("{} (active)", task.id)));
-}
-
-#[test]
-fn test_validate_prerequisites_fails_when_missing() {
-    let (storage, _temp_dir) = create_test_storage();
-    let executor = create_test_executor(storage);
-    let prerequisites = vec!["missing-task".to_string()];
-
-    let err = executor
-        .validate_prerequisites(&prerequisites)
-        .expect_err("validation should fail");
-    assert!(err.to_string().contains("missing-task (not found)"));
 }
 
 #[test]

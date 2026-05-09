@@ -15,7 +15,7 @@ use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDef
 use crate::services::session::SessionService;
 use crate::services::task_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
-use crate::storage::{AgentStorage, ConfigStorage, SecretStorage, Storage, TaskStorage};
+use crate::storage::{AgentStorage, ConfigStorage, SecretStorage, Storage};
 use tools::ToolError;
 use types::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
@@ -39,7 +39,6 @@ struct AssessmentContext {
     session_service: SessionService,
     config: ConfigStorage,
     agents: AgentStorage,
-    tasks: TaskStorage,
 }
 
 impl AssessmentContext {
@@ -53,7 +52,6 @@ impl AssessmentContext {
             session_service: SessionService::from_storage(storage),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
-            tasks: storage.tasks.clone(),
         }
     }
 }
@@ -234,6 +232,20 @@ fn issue(
         field: field.map(ToOwned::to_owned),
         suggestion: suggestion.map(ToOwned::to_owned),
     }
+}
+
+fn task_storage_removed_assessment(
+    operation: impl Into<String>,
+    intent: OperationAssessmentIntent,
+) -> OperationAssessment {
+    let mut assessment = OperationAssessment::ok(operation, intent);
+    assessment.blockers.push(issue(
+        "task_storage_removed",
+        "Task storage has been removed; use session/task mode runtime state instead.",
+        None,
+        Some("Run the work through a session instead of the legacy task storage API."),
+    ));
+    finalize_assessment(assessment)
 }
 
 fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessmentIssue> {
@@ -696,26 +708,11 @@ async fn assess_task_update_with_context(
     context: &AssessmentContext,
     request: TaskUpdateRequest,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(context).await?;
-    let task_id = context.tasks.resolve_existing_task_id(&request.id)?;
-    let task = context
-        .tasks
-        .get_task(&task_id)?
-        .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
-    let next_agent_id = request
-        .agent_id
-        .as_deref()
-        .unwrap_or(task.agent_id.as_str());
-    let stored_agent = load_agent(context, next_agent_id).await?;
-    assess_agent_node(
-        context,
-        &auth_manager,
+    let _ = (context, request);
+    Ok(task_storage_removed_assessment(
         "update_task",
         OperationAssessmentIntent::Save,
-        &stored_agent.agent,
-        false,
-    )
-    .await
+    ))
 }
 
 pub async fn assess_task_delete(
@@ -730,26 +727,10 @@ async fn assess_task_delete_with_context(
     context: &AssessmentContext,
     request: TaskDeleteRequest,
 ) -> Result<OperationAssessment> {
-    let task_id = context.tasks.resolve_existing_task_id(&request.id)?;
-    let task = context
-        .tasks
-        .get_task(&task_id)?
-        .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
-    let mut assessment = OperationAssessment::ok("delete_task", OperationAssessmentIntent::Save);
-    assessment.warnings.push(issue(
-        "destructive_delete",
-        format!(
-            "Deleting task '{}' removes its persisted definition and run history.",
-            task.name
-        ),
-        Some("id"),
-        Some("Confirm the deletion only if you intend to permanently remove this task."),
-    ));
-    Ok(finalize_assessment_with_seed(
-        assessment,
-        Some(serde_json::json!({
-            "task_id": task.id,
-        })),
+    let _ = (context, request);
+    Ok(task_storage_removed_assessment(
+        "delete_task",
+        OperationAssessmentIntent::Save,
     ))
 }
 
@@ -765,30 +746,11 @@ async fn assess_task_control_with_context(
     context: &AssessmentContext,
     request: TaskControlRequest,
 ) -> Result<OperationAssessment> {
-    let action = request.action.trim().to_lowercase();
-    if action != "run_now" && action != "run-now" && action != "runnow" {
-        return Ok(OperationAssessment::ok(
-            "control_task",
-            OperationAssessmentIntent::Run,
-        ));
-    }
-
-    let auth_manager = build_auth(context).await?;
-    let task_id = context.tasks.resolve_existing_task_id(&request.id)?;
-    let task = context
-        .tasks
-        .get_task(&task_id)?
-        .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
-    let stored_agent = load_agent(context, &task.agent_id).await?;
-    assess_agent_node(
-        context,
-        &auth_manager,
-        "run_task",
+    let _ = (context, request);
+    Ok(task_storage_removed_assessment(
+        "control_task",
         OperationAssessmentIntent::Run,
-        &stored_agent.agent,
-        false,
-    )
-    .await
+    ))
 }
 
 pub async fn assess_task_template(
@@ -988,8 +950,8 @@ mod tests {
     use crate::prompt_files;
     use crate::services::agent::create_agent;
     use tempfile::tempdir;
+    use types::TaskConvertSessionRequest;
     use types::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
-    use types::{TaskConvertSessionRequest, TaskDeleteRequest};
 
     struct AgentsDirEnvGuard {
         _lock: std::sync::MutexGuard<'static, ()>,
@@ -1487,53 +1449,6 @@ mod tests {
         assert_eq!(first_assessment.status, OperationAssessmentStatus::Ok);
         assert_eq!(first_assessment.approval_id, second_assessment.approval_id);
         assert_eq!(first_assessment.approval_id, None);
-    }
-
-    #[tokio::test]
-    async fn assess_task_delete_returns_warning_with_bound_token() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        let created = create_agent(
-            &core,
-            "Delete Warning Agent".to_string(),
-            create_test_agent_node("Assess deletions"),
-        )
-        .await
-        .expect("agent");
-
-        let task = core
-            .storage
-            .tasks
-            .create_task_from_spec(crate::models::TaskSpec {
-                name: "Delete Target".to_string(),
-                agent_id: created.id.clone(),
-                chat_session_id: Some("task-session-delete-warning".to_string()),
-                description: None,
-                input: Some("run".to_string()),
-                input_template: None,
-                schedule: crate::models::TaskSchedule::default(),
-                execution_mode: None,
-                timeout_secs: None,
-                resource_limits: None,
-                prerequisites: Vec::new(),
-                continuation: None,
-            })
-            .expect("task");
-
-        let assessment = assess_task_delete(
-            &core,
-            TaskDeleteRequest {
-                id: task.id.clone(),
-                preview: true,
-                approval_id: None,
-            },
-        )
-        .await
-        .expect("assessment");
-
-        assert_eq!(assessment.status, OperationAssessmentStatus::Warning);
-        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
-        assert_eq!(assessment.warnings[0].code, "destructive_delete");
-        assert!(assessment.approval_id.is_some());
     }
 
     #[tokio::test]

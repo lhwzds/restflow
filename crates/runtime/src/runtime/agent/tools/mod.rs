@@ -14,16 +14,15 @@ use std::sync::{Mutex, OnceLock};
 use tracing::{debug, warn};
 
 use self::assembly::{
-    build_agent_crud_components, build_runtime_assessor, build_task_store_runtime_components,
-    populate_known_tools_from_registry, register_bash_execution_tool, register_file_execution_tool,
-    register_management_tools, register_subagent_management_tools,
+    build_agent_crud_components, build_runtime_assessor, populate_known_tools_from_registry,
+    register_bash_execution_tool, register_file_execution_tool, register_management_tools,
+    register_subagent_management_tools,
 };
 use crate::services::adapters::*;
 use crate::storage::Storage;
 use types::SubagentManager;
 use types::security::SecurityGate;
 use types::skill::SkillProvider;
-use types::store::{MANAGE_TASKS_TOOL_NAME, is_task_management_tool_name};
 
 // Re-export tool types from tools
 pub use tools::impls::{
@@ -108,7 +107,6 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "grep",
         "load_skill",
         "run_skill",
-        MANAGE_TASKS_TOOL_NAME,
         "spawn_subagent",
         "spawn_subagent_batch",
         "wait_subagents",
@@ -194,29 +192,17 @@ pub fn registry_from_allowlist_with_security_gate(
     }
 
     let wants_manage_agents = wants_named_tool(tool_names, "manage_agents");
-    let wants_manage_tasks = wants_named_tool(tool_names, MANAGE_TASKS_TOOL_NAME);
-    let wants_manage_task_tools = wants_manage_tasks;
     let wants_spawn_subagent = tool_names
         .iter()
         .any(|name| name == "spawn_subagent" || name == "spawn_subagent_batch");
     let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
-    let wants_guarded_assessor =
-        wants_manage_agents || wants_manage_task_tools || wants_spawn_subagent;
+    let wants_guarded_assessor = wants_manage_agents || wants_spawn_subagent;
     let shared_assessor =
         storage.and_then(|value| wants_guarded_assessor.then(|| build_runtime_assessor(value)));
     let agent_crud_components = storage.and_then(|value| {
-        wants_manage_agents.then(|| {
-            build_agent_crud_components(
-                value.agents.clone(),
-                value.secrets.clone(),
-                value.tasks.clone(),
-            )
-        })
-    });
-    let task_components = storage.and_then(|value| {
-        wants_manage_task_tools
-            .then(|| build_task_store_runtime_components(value, shared_assessor.clone()))
+        wants_manage_agents
+            .then(|| build_agent_crud_components(value.agents.clone(), value.secrets.clone()))
     });
 
     let mut builder = ToolRegistryBuilder::new();
@@ -314,8 +300,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
 
             // --- Storage-backed tools ---
-            tool_name
-                if is_task_management_tool_name(tool_name) || tool_name == "manage_agents" => {}
+            tool_name if tool_name == "manage_agents" => {}
             "manage_marketplace" => {
                 if storage.is_some() {
                     let registry_defaults = effective_config
@@ -333,9 +318,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 }
             }
             "manage_ops" => {
-                with_storage!(storage, "manage_ops", builder, |s| {
-                    builder.with_ops(Arc::new(OpsProviderAdapter::new(s.tasks.clone())))
-                });
+                builder = builder.with_ops(Arc::new(OpsProviderAdapter::new()));
             }
             "skill" => {
                 let provider = composite_skill_provider(storage);
@@ -369,7 +352,6 @@ pub fn registry_from_allowlist_with_security_gate(
                     builder.with_session(Arc::new(SessionStorageAdapter::new(
                         s.file_sessions.clone(),
                         s.agents.clone(),
-                        s.tasks.clone(),
                     )))
                 });
             }
@@ -423,14 +405,11 @@ pub fn registry_from_allowlist_with_security_gate(
         );
     }
 
-    if wants_manage_agents || wants_manage_task_tools {
+    if wants_manage_agents {
         if storage.is_some() {
             builder = register_management_tools(
                 builder,
                 agent_crud_components
-                    .as_ref()
-                    .map(|components| components.store.clone()),
-                task_components
                     .as_ref()
                     .map(|components| components.store.clone()),
                 shared_assessor.clone(),
@@ -438,9 +417,6 @@ pub fn registry_from_allowlist_with_security_gate(
         } else {
             if wants_manage_agents {
                 debug!(tool_name = "manage_agents", "Storage missing, skipping");
-            }
-            if wants_manage_tasks {
-                debug!(tool_name = "manage_tasks", "Storage missing, skipping");
             }
         }
     }
@@ -516,7 +492,6 @@ mod tests {
     use super::{
         effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     };
-    use crate::models::AgentNode;
     use crate::prompt_files;
     use crate::storage::Storage;
     use crate::test_support::RestflowTestEnv;
@@ -538,7 +513,6 @@ mod tests {
                 "grep",
                 "load_skill",
                 "run_skill",
-                "manage_tasks",
                 "spawn_subagent",
                 "spawn_subagent_batch",
                 "wait_subagents",
@@ -556,7 +530,7 @@ mod tests {
         assert!(!names.contains(&"discord".to_string()));
         assert!(!names.contains(&"slack".to_string()));
         assert!(!names.contains(&"skill".to_string()));
-        assert!(names.contains(&"manage_tasks".to_string()));
+        assert!(!names.contains(&"manage_tasks".to_string()));
         assert!(!names.contains(&"manage_agents".to_string()));
         assert!(!names.contains(&"manage_sessions".to_string()));
         assert!(!names.contains(&"manage_marketplace".to_string()));
@@ -569,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn test_manage_tasks_tool_registered_with_storage() {
+    fn test_manage_tasks_tool_not_registered_with_storage() {
         let state = RestflowTestEnv::new();
         let db_path = state.db_path("registry-tools.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
@@ -579,7 +553,7 @@ mod tests {
         let registry =
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
                 .unwrap();
-        assert!(registry.has("manage_tasks"));
+        assert!(!registry.has("manage_tasks"));
         assert!(registry.has("manage_agents"));
     }
 
@@ -757,44 +731,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manage_tasks_runtime_registry_injects_store_assessor() {
-        let env = RestflowTestEnv::new();
-        let db_path = env.db_path("registry-bg-runtime.db");
-        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-            .expect("storage should be created");
-        let agent_id = storage
-            .agents
-            .create_agent("Runtime Owner".to_string(), AgentNode::default())
-            .expect("agent should be created")
-            .id;
-
-        let names = vec!["manage_tasks".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
-                .expect("registry should be built");
-        let output = registry
-            .get("manage_tasks")
-            .expect("manage_tasks should be registered")
-            .execute(json!({
-                "operation": "create",
-                "name": "Runtime Preview Task",
-                "agent_id": agent_id,
-                "input": "Run checks",
-                "schedule": {
-                    "type": "interval",
-                    "interval_ms": 60000,
-                    "start_at": null
-                },
-                "preview": true
-            }))
-            .await
-            .expect("runtime tool should not fail when store assessor is injected");
-
-        assert!(output.success);
-        assert_eq!(output.result["status"], "preview");
-    }
-
-    #[tokio::test]
     async fn test_manage_agents_runtime_registry_injects_shared_assessor() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-agent-runtime.db");
@@ -808,7 +744,6 @@ mod tests {
 
         let names = vec![
             "manage_agents".to_string(),
-            "manage_tasks".to_string(),
             "bash".to_string(),
             "file".to_string(),
         ];
@@ -830,7 +765,7 @@ mod tests {
                 "operation": "create",
                 "name": "Runtime Preview Agent",
                 "agent": {
-                    "tools": ["bash", "file", "manage_tasks"]
+                    "tools": ["bash", "file"]
                 },
                 "preview": true
             }))

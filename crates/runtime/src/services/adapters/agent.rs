@@ -1,6 +1,6 @@
 //! AgentStore adapter backed by AgentStorage.
 
-use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
+use crate::storage::{AgentStorage, SecretStorage};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -12,7 +12,6 @@ use types::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 pub struct AgentStoreAdapter {
     storage: AgentStorage,
     secrets: SecretStorage,
-    task_storage: TaskStorage,
     known_tools: Arc<RwLock<HashSet<String>>>,
 }
 
@@ -20,13 +19,11 @@ impl AgentStoreAdapter {
     pub fn new(
         storage: AgentStorage,
         secrets: SecretStorage,
-        task_storage: TaskStorage,
         known_tools: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         Self {
             storage,
             secrets,
-            task_storage,
             known_tools,
         }
     }
@@ -161,16 +158,6 @@ impl AgentStore for AgentStoreAdapter {
     }
 
     fn delete_agent(&self, id: &str) -> tools::Result<Value> {
-        if let Some(task_names) =
-            crate::services::agent::check_agent_has_active_tasks(&self.task_storage, id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        {
-            return Err(ToolError::Tool(format!(
-                "Cannot delete agent {}: active tasks exist ({})",
-                id, task_names
-            )));
-        }
-
         self.storage.delete_agent(id.to_string())?;
         Ok(json!({ "id": id, "deleted": true }))
     }
@@ -197,11 +184,10 @@ mod tests {
             },
         )
         .unwrap();
-        let bg_storage = TaskStorage::new(db).unwrap();
         let known_tools = Arc::new(RwLock::new(HashSet::from(["bash".to_string()])));
 
         (
-            AgentStoreAdapter::new(agent_storage, secret_storage, bg_storage, known_tools),
+            AgentStoreAdapter::new(agent_storage, secret_storage, known_tools),
             env,
         )
     }

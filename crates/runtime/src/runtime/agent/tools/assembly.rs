@@ -2,11 +2,10 @@ use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 use super::SUBAGENT_TOOL_NAMES;
-use crate::services::adapters::{AgentStoreAdapter, TaskStoreAdapter};
+use crate::services::adapters::AgentStoreAdapter;
 use crate::services::operation_assessment::OperationAssessorAdapter;
-use crate::services::session::SessionService;
 use crate::storage::Storage;
-use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
+use crate::storage::{AgentStorage, SecretStorage};
 use tools::{
     BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool, SpawnSubagentTool,
     ToolRegistryBuilder, WaitSubagentsTool,
@@ -15,15 +14,11 @@ use types::AgentOperationAssessor;
 use types::SubagentManager;
 use types::registry::ToolRegistry;
 use types::security::SecurityGate;
-use types::store::{AgentStore, TaskStore};
+use types::store::AgentStore;
 
 pub(crate) struct AgentCrudComponents {
     pub known_tools: Arc<RwLock<HashSet<String>>>,
     pub store: Arc<dyn AgentStore>,
-}
-
-pub(crate) struct TaskStoreComponents {
-    pub store: Arc<dyn TaskStore>,
 }
 
 pub(crate) fn register_bash_execution_tool(
@@ -85,7 +80,6 @@ pub(crate) fn populate_known_tools_from_registry(
             "load_skill",
             "run_skill",
             "manage_agents",
-            "manage_tasks",
         ] {
             known.insert(name.to_string());
         }
@@ -102,38 +96,19 @@ pub(crate) fn build_runtime_assessor(storage: &Storage) -> Arc<dyn AgentOperatio
 pub(crate) fn build_agent_crud_components(
     agent_storage: AgentStorage,
     secret_storage: SecretStorage,
-    task_storage: TaskStorage,
 ) -> AgentCrudComponents {
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let store: Arc<dyn AgentStore> = Arc::new(AgentStoreAdapter::new(
         agent_storage,
         secret_storage,
-        task_storage,
         known_tools.clone(),
     ));
     AgentCrudComponents { known_tools, store }
 }
 
-pub(crate) fn build_task_store_components(
-    task_storage: TaskStorage,
-    agent_storage: AgentStorage,
-    session_service: SessionService,
-    assessor: Option<Arc<dyn AgentOperationAssessor>>,
-) -> TaskStoreComponents {
-    let mut store = TaskStoreAdapter::new(task_storage, agent_storage, session_service);
-    if let Some(assessor) = assessor {
-        store = store.with_assessor(assessor);
-    }
-
-    TaskStoreComponents {
-        store: Arc::new(store),
-    }
-}
-
 pub(crate) fn register_management_tools(
     mut builder: ToolRegistryBuilder,
     agent_store: Option<Arc<dyn AgentStore>>,
-    task_store: Option<Arc<dyn TaskStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> ToolRegistryBuilder {
     if let Some(agent_store) = agent_store {
@@ -141,14 +116,6 @@ pub(crate) fn register_management_tools(
             builder.with_agent_crud_and_assessor(agent_store, assessor)
         } else {
             builder.with_agent_crud(agent_store)
-        };
-    }
-
-    if let Some(task_store) = task_store {
-        builder = if let Some(assessor) = assessor.clone() {
-            builder.with_task_and_assessor(task_store.clone(), assessor)
-        } else {
-            builder.with_task(task_store.clone())
         };
     }
 
@@ -171,29 +138,4 @@ pub(crate) fn register_subagent_management_tools(
     registry.register(batch_tool);
     registry.register(WaitSubagentsTool::new(manager.clone()));
     registry.register(ListSubagentsTool::new(manager));
-}
-
-pub(crate) fn build_task_store_runtime_components(
-    storage: &Storage,
-    assessor: Option<Arc<dyn AgentOperationAssessor>>,
-) -> TaskStoreComponents {
-    build_task_store_components(
-        storage.tasks.clone(),
-        storage.agents.clone(),
-        SessionService::from_storage(storage),
-        assessor,
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn task_store_shell_exports_canonical_name() {
-        let _canonical_components: Option<TaskStoreComponents> = None;
-
-        let _canonical_builder = build_task_store_components;
-        let _canonical_runtime_builder = build_task_store_runtime_components;
-    }
 }

@@ -1,23 +1,13 @@
 use super::*;
-use crate::boundary::task::{
-    core_patch_to_contract, core_patch_to_update_request, core_spec_to_contract,
-    core_spec_to_create_request,
-};
-use crate::daemon::tool_result_mapper::to_tool_execution_result;
-use crate::services::operation_assessment::OperationAssessorAdapter;
-use crate::services::task_command::{TaskCommandService, TaskExecutionMode};
-
-fn resolve_task_id(
-    storage: &crate::storage::TaskStorage,
-    id_or_prefix: &str,
-) -> Result<String, String> {
-    storage
-        .resolve_existing_task_id_typed(id_or_prefix)
-        .map_err(|e| e.to_string())
-}
+use crate::boundary::task::{core_patch_to_contract, core_spec_to_contract};
 use crate::daemon::request_mapper::to_contract;
+use crate::daemon::tool_result_mapper::to_tool_execution_result;
 use ::types::DeleteWithIdResponse;
 use ::types::{TaskCommandOutcome, store::TaskDeleteRequest};
+
+fn task_storage_removed<T>() -> Result<T, String> {
+    Err("legacy task storage has been removed".to_string())
+}
 
 pub(super) struct CoreBackend {
     pub(super) core: Arc<AppCore>,
@@ -27,13 +17,6 @@ pub(super) struct CoreBackend {
 impl CoreBackend {
     fn session_service(&self) -> crate::services::session::SessionService {
         crate::services::session::SessionService::from_storage(&self.core.storage)
-    }
-
-    fn task_command_service(&self) -> TaskCommandService {
-        TaskCommandService::from_storage(
-            self.core.storage.as_ref(),
-            Some(Arc::new(OperationAssessorAdapter::new(self.core.clone()))),
-        )
     }
 
     fn get_registry(&self) -> Result<&::types::registry::ToolRegistry, String> {
@@ -110,69 +93,31 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
-        match status {
-            Some(status) => self
-                .core
-                .storage
-                .tasks
-                .list_tasks_by_status(status)
-                .map_err(|e| e.to_string()),
-            None => self
-                .core
-                .storage
-                .tasks
-                .list_tasks()
-                .map_err(|e| e.to_string()),
-        }
+        let _ = status;
+        Ok(Vec::new())
     }
 
     async fn create_task(&self, spec: TaskSpec) -> Result<Task, String> {
-        let request = core_spec_to_create_request(&spec).map_err(|e| e.to_string())?;
-        let outcome = self
-            .task_command_service()
-            .create_from_request(request, TaskExecutionMode::Direct)
-            .await
-            .map_err(|e| e.to_string())?;
-        TaskCommandService::into_direct_result(outcome).map_err(|e| e.to_string())
+        let _ = spec;
+        task_storage_removed()
     }
 
     async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
-        let request =
-            core_patch_to_update_request(id.to_string(), &patch).map_err(|e| e.to_string())?;
-        let outcome = self
-            .task_command_service()
-            .update_from_request(request, TaskExecutionMode::Direct)
-            .await
-            .map_err(|e| e.to_string())?;
-        TaskCommandService::into_direct_result(outcome).map_err(|e| e.to_string())
+        let _ = (id, patch);
+        task_storage_removed()
     }
 
     async fn delete_task(
         &self,
         request: TaskDeleteRequest,
     ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
-        self.task_command_service()
-            .delete_from_request(request, TaskExecutionMode::Guarded)
-            .await
-            .map_err(|e| e.to_string())
+        let _ = request;
+        task_storage_removed()
     }
 
     async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
-        let action = to_contract(action).map_err(|e| e.to_string())?;
-        let outcome = self
-            .task_command_service()
-            .control_from_request(
-                ::types::store::TaskControlRequest {
-                    id: id.to_string(),
-                    action,
-                    preview: false,
-                    approval_id: None,
-                },
-                TaskExecutionMode::Direct,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-        TaskCommandService::into_direct_result(outcome).map_err(|e| e.to_string())
+        let _ = (id, action);
+        task_storage_removed()
     }
 
     async fn get_task_progress(
@@ -180,9 +125,8 @@ impl McpBackend for CoreBackend {
         id: &str,
         event_limit: usize,
     ) -> Result<TaskProgress, String> {
-        self.task_command_service()
-            .progress(id, event_limit)
-            .map_err(|e| e.to_string())
+        let _ = (id, event_limit);
+        task_storage_removed()
     }
 
     async fn send_task_message(
@@ -191,23 +135,17 @@ impl McpBackend for CoreBackend {
         message: String,
         source: TaskMessageSource,
     ) -> Result<TaskMessage, String> {
-        self.core
-            .storage
-            .tasks
-            .send_task_message(id, message, source)
-            .map_err(|e| e.to_string())
+        let _ = (id, message, source);
+        task_storage_removed()
     }
 
     async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
-        self.core
-            .storage
-            .tasks
-            .list_task_messages(id, limit)
-            .map_err(|e| e.to_string())
+        let _ = (id, limit);
+        Ok(Vec::new())
     }
 
     async fn list_artifacts(&self, task_id: &str) -> Result<Vec<RunArtifact>, String> {
-        resolve_task_id(&self.core.storage.tasks, task_id)?;
+        let _ = task_id;
         Ok(Vec::new())
     }
 
@@ -220,13 +158,8 @@ impl McpBackend for CoreBackend {
     }
 
     async fn get_task(&self, id: &str) -> Result<Task, String> {
-        let resolved_id = resolve_task_id(&self.core.storage.tasks, id)?;
-        self.core
-            .storage
-            .tasks
-            .get_task(&resolved_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Task {} not found", resolved_id))
+        let _ = id;
+        task_storage_removed()
     }
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {

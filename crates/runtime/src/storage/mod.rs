@@ -5,7 +5,6 @@
 
 pub mod agent;
 pub mod redb_lease;
-pub mod task;
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -19,7 +18,6 @@ pub use crate::{
 
 pub use agent::AgentStorage;
 pub use redb_lease::RedbLeaseProvider;
-pub use task::{ResolveTaskIdError, TaskSessionBinding, TaskStorage};
 
 use crate::session_log::FileSessionStore;
 
@@ -32,7 +30,6 @@ pub struct Storage {
     db_path: PathBuf,
     pub config: ConfigStorage,
     pub agents: AgentStorage,
-    pub tasks: TaskStorage,
     pub secrets: SecretStorage,
     pub file_sessions: FileSessionStore,
 }
@@ -50,7 +47,6 @@ impl Storage {
 
         let config = ConfigStorage;
         let agents = AgentStorage::new_file_backed()?;
-        let tasks = TaskStorage::new_file_backed_path(task_store_path(path))?;
         let secrets = SecretStorage::with_config_path(db_path.clone(), secret_config)?;
         let file_sessions = FileSessionStore::new(session_store_path(path))?;
 
@@ -59,7 +55,6 @@ impl Storage {
             db_path,
             config,
             agents,
-            tasks,
             secrets,
             file_sessions,
         })
@@ -69,10 +64,6 @@ impl Storage {
     pub fn get_db(&self) -> std::sync::Arc<redb::Database> {
         std::sync::Arc::new(redb::Database::create(&self.db_path).unwrap())
     }
-}
-
-fn task_store_path(db_path: &str) -> PathBuf {
-    Path::new(db_path).with_file_name("restflow.tasks.json")
 }
 
 fn session_store_path(db_path: &str) -> PathBuf {

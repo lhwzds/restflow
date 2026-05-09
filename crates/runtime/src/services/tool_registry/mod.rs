@@ -19,7 +19,7 @@ use crate::services::adapters::*;
 use crate::session_log::FileSessionStore;
 use crate::storage::ConfigStorage;
 #[cfg(test)]
-use crate::storage::{AgentStorage, SecretStorage, TaskStorage};
+use crate::storage::{AgentStorage, SecretStorage};
 use crate::{AgentDefaults, SystemConfig};
 #[cfg(test)]
 use ai::AgentState;

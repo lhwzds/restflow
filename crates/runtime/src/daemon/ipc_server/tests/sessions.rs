@@ -1,6 +1,6 @@
 use super::*;
 use crate::models::{ChatSessionSource, ChatTurnStatus};
-use types::request::{ChildRunListQuery, WireModelRef};
+use types::request::ChildRunListQuery;
 
 fn assert_execution_thread_error(
     response: IpcResponse,
@@ -339,49 +339,6 @@ async fn is_workspace_managed_session_accepts_sessions_without_channel_bindings(
 }
 
 #[tokio::test]
-async fn delete_session_rejects_background_bound_workspace_session() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    session.source_channel = Some(ChatSessionSource::Workspace);
-    save_chat_session(&core, &session);
-
-    core.storage
-        .tasks
-        .create_task_from_spec(crate::models::TaskSpec {
-            name: "bound-task".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: Some(session.id.clone()),
-            description: None,
-            input: Some("run".to_string()),
-            input_template: None,
-            schedule: crate::models::TaskSchedule::default(),
-            execution_mode: None,
-            timeout_secs: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .unwrap();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::DeleteSession {
-            id: session.id.clone(),
-        },
-    )
-    .await;
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 409);
-            assert!(error.message.contains("bound to task"));
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn search_sessions_applies_agent_filter_and_limit() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -419,96 +376,6 @@ async fn search_sessions_applies_agent_filter_and_limit() {
     }
 }
 
-#[tokio::test]
-async fn switch_session_model_rejects_background_bound_workspace_session() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    session.source_channel = Some(ChatSessionSource::Workspace);
-    save_chat_session(&core, &session);
-
-    core.storage
-        .tasks
-        .create_task_from_spec(crate::models::TaskSpec {
-            name: "bound-task".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: Some(session.id.clone()),
-            description: None,
-            input: Some("run".to_string()),
-            input_template: None,
-            schedule: crate::models::TaskSchedule::default(),
-            execution_mode: None,
-            timeout_secs: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .unwrap();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::SwitchSessionModel {
-            session_id: session.id.clone(),
-            model_ref: WireModelRef {
-                provider: "openai".to_string(),
-                model: "gpt-5.5".to_string(),
-            },
-            reason: None,
-        },
-    )
-    .await;
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 409);
-            assert!(error.message.contains("bound to task"));
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn archive_session_rejects_background_bound_workspace_session() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-    session.source_channel = Some(ChatSessionSource::Workspace);
-    save_chat_session(&core, &session);
-
-    core.storage
-        .tasks
-        .create_task_from_spec(crate::models::TaskSpec {
-            name: "bound-task".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: Some(session.id.clone()),
-            description: None,
-            input: Some("run".to_string()),
-            input_template: None,
-            schedule: crate::models::TaskSchedule::default(),
-            execution_mode: None,
-            timeout_secs: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .unwrap();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::ArchiveSession {
-            id: session.id.clone(),
-        },
-    )
-    .await;
-    match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 409);
-            assert!(error.message.contains("bound to task"));
-        }
-        other => panic!("expected error response, got {other:?}"),
-    }
-}
 #[tokio::test]
 async fn apply_effective_session_source_defaults_to_workspace_when_no_external_route() {
     let (core, _temp) = create_test_core().await;

@@ -1,12 +1,12 @@
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
-    ChatTurnEventKind, MessageExecution, ModelId, Task,
+    ChatTurnEventKind, MessageExecution, ModelId,
 };
 use crate::runtime::session_turn::hydrate_voice_message_metadata;
 use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
 use crate::session_log::{FileSession, FileSessionStore};
-use crate::storage::{AgentStorage, Storage, TaskStorage};
+use crate::storage::{AgentStorage, Storage};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -31,12 +31,8 @@ pub struct PersistInteractiveTurnRequest<'a> {
 }
 
 impl SessionService {
-    pub fn new(
-        file_sessions: FileSessionStore,
-        agents: Option<AgentStorage>,
-        tasks: TaskStorage,
-    ) -> Self {
-        let policy = SessionPolicy::new(file_sessions.clone(), tasks);
+    pub fn new(file_sessions: FileSessionStore, agents: Option<AgentStorage>) -> Self {
+        let policy = SessionPolicy::new(file_sessions.clone());
         Self {
             agents,
             policy,
@@ -46,26 +42,18 @@ impl SessionService {
     }
 
     pub fn from_storage(storage: &Storage) -> Self {
-        Self::new(
-            storage.file_sessions.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        )
+        Self::new(storage.file_sessions.clone(), Some(storage.agents.clone()))
     }
 
     #[cfg(test)]
     pub fn with_file_sessions(mut self, file_sessions: FileSessionStore) -> Self {
-        self.policy = SessionPolicy::new(file_sessions.clone(), self.policy.tasks().clone());
+        self.policy = SessionPolicy::new(file_sessions.clone());
         self.file_sessions = file_sessions;
         self
     }
 
     pub fn management_owner(&self, session: &ChatSession) -> Result<Option<ChatSessionSource>> {
         self.policy.management_owner(session)
-    }
-
-    pub fn bound_task(&self, session_id: &str) -> Result<Option<Task>> {
-        self.policy.bound_task(session_id)
     }
 
     pub fn effective_source(
@@ -1003,11 +991,7 @@ mod tests {
         file_store
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
-        let service = SessionService::new(
-            file_store,
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        );
+        let service = SessionService::new(file_store, Some(storage.agents.clone()));
 
         let sessions = service.list_session_views(None, None, false).unwrap();
 
@@ -1032,11 +1016,7 @@ mod tests {
         file_store
             .write_session(&FileSession::from_chat_session(&archived_session), false)
             .unwrap();
-        let service = SessionService::new(
-            file_store,
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        );
+        let service = SessionService::new(file_store, Some(storage.agents.clone()));
 
         let active = service.list_session_views(None, None, false).unwrap();
         let by_skill = service
@@ -1066,7 +1046,6 @@ mod tests {
         let service = SessionService::new(
             FileSessionStore::new(file_root).unwrap(),
             Some(storage.agents.clone()),
-            storage.tasks.clone(),
         );
 
         let error = service
@@ -1082,11 +1061,7 @@ mod tests {
         let db_path = dir.path().join("session-service.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
-        let service = SessionService::new(
-            file_store.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        );
+        let service = SessionService::new(file_store.clone(), Some(storage.agents.clone()));
 
         let session = service
             .create_workspace_session(
@@ -1111,11 +1086,7 @@ mod tests {
         file_store
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
-        let service = SessionService::new(
-            file_store.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        );
+        let service = SessionService::new(file_store.clone(), Some(storage.agents.clone()));
 
         let renamed = service
             .rename_session(&session.id, "Imported".to_string())
@@ -1144,11 +1115,7 @@ mod tests {
         file_store
             .write_session(&FileSession::from_chat_session(&session), false)
             .unwrap();
-        let service = SessionService::new(
-            file_store.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        );
+        let service = SessionService::new(file_store.clone(), Some(storage.agents.clone()));
 
         assert!(service.delete_session(&session.id).unwrap());
         assert!(file_store.get(&session.id).unwrap().is_none());
@@ -1160,11 +1127,7 @@ mod tests {
         let db_path = dir.path().join("session-service.db");
         let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
         let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
-        let service = SessionService::new(
-            file_store.clone(),
-            Some(storage.agents.clone()),
-            storage.tasks.clone(),
-        );
+        let service = SessionService::new(file_store.clone(), Some(storage.agents.clone()));
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         session.add_message(ChatMessage::user("hello"));
 
