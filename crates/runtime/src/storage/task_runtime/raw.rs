@@ -11,9 +11,11 @@ use redb::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
+use std::io::ErrorKind;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct TaskStore {
@@ -29,9 +31,26 @@ struct TaskStore {
     event_task: HashMap<String, String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TaskStoreFingerprint {
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TaskStoreCacheMarker {
+    fingerprint: Option<TaskStoreFingerprint>,
+    has_store: bool,
+}
+
 fn stores() -> &'static Mutex<HashMap<usize, TaskStore>> {
     static STORES: OnceLock<Mutex<HashMap<usize, TaskStore>>> = OnceLock::new();
     STORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_markers() -> &'static Mutex<HashMap<usize, TaskStoreCacheMarker>> {
+    static CACHE_MARKERS: OnceLock<Mutex<HashMap<usize, TaskStoreCacheMarker>>> = OnceLock::new();
+    CACHE_MARKERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
@@ -230,6 +249,55 @@ impl TaskStorage {
         Ok(Some(store))
     }
 
+    fn file_fingerprint(path: &Path) -> Result<Option<TaskStoreFingerprint>> {
+        match std::fs::metadata(path) {
+            Ok(metadata) => Ok(Some(TaskStoreFingerprint {
+                len: metadata.len(),
+                modified: metadata.modified().ok(),
+            })),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => {
+                Err(error).with_context(|| format!("Failed to stat task store {}", path.display()))
+            }
+        }
+    }
+
+    fn is_file_cache_current(&self, fingerprint: Option<TaskStoreFingerprint>) -> bool {
+        let store_present = stores()
+            .lock()
+            .expect("task store lock poisoned")
+            .contains_key(&self.namespace);
+        let expected = TaskStoreCacheMarker {
+            fingerprint,
+            has_store: store_present,
+        };
+        cache_markers()
+            .lock()
+            .expect("task store cache marker lock poisoned")
+            .get(&self.namespace)
+            .copied()
+            == Some(expected)
+    }
+
+    fn record_file_cache_marker(&self, fingerprint: Option<TaskStoreFingerprint>, has_store: bool) {
+        cache_markers()
+            .lock()
+            .expect("task store cache marker lock poisoned")
+            .insert(
+                self.namespace,
+                TaskStoreCacheMarker {
+                    fingerprint,
+                    has_store,
+                },
+            );
+    }
+
+    fn record_current_file_cache_marker(&self, path: &Path, has_store: bool) -> Result<()> {
+        let fingerprint = Self::file_fingerprint(path)?;
+        self.record_file_cache_marker(fingerprint, has_store);
+        Ok(())
+    }
+
     fn refresh_from_file(&self) -> Result<()> {
         let Some(path) = self.file_path.as_ref() else {
             return Ok(());
@@ -238,13 +306,23 @@ impl TaskStorage {
     }
 
     fn refresh_from_file_unlocked(&self, path: &Path) -> Result<()> {
+        let fingerprint = Self::file_fingerprint(path)?;
+        if self.is_file_cache_current(fingerprint) {
+            return Ok(());
+        }
         let Some(store) = Self::load_store_from_file(path)? else {
+            stores()
+                .lock()
+                .expect("task store lock poisoned")
+                .remove(&self.namespace);
+            self.record_file_cache_marker(fingerprint, false);
             return Ok(());
         };
         stores()
             .lock()
             .expect("task store lock poisoned")
             .insert(self.namespace, store);
+        self.record_file_cache_marker(fingerprint, true);
         Ok(())
     }
 
@@ -312,6 +390,7 @@ impl TaskStorage {
                 .cloned()
                 .unwrap_or_default();
             Self::persist_snapshot_to_file(path, &store)
+                .and_then(|()| self.record_current_file_cache_marker(path, true))
         })
     }
 
@@ -328,12 +407,10 @@ impl TaskStorage {
     fn mutate_store<T>(&self, f: impl FnOnce(&mut TaskStore) -> Result<T>) -> Result<T> {
         self.with_file_lock(true, || {
             let (result, snapshot) = {
-                let mut stores = stores().lock().expect("task store lock poisoned");
-                if let Some(path) = self.file_path.as_ref()
-                    && let Some(store) = Self::load_store_from_file(path)?
-                {
-                    stores.insert(self.namespace, store);
+                if let Some(path) = self.file_path.as_ref() {
+                    self.refresh_from_file_unlocked(path)?;
                 }
+                let mut stores = stores().lock().expect("task store lock poisoned");
                 let result = {
                     let store = stores.entry(self.namespace).or_default();
                     f(store)?
@@ -343,6 +420,7 @@ impl TaskStorage {
             };
             if let Some(path) = self.file_path.as_ref() {
                 Self::persist_snapshot_to_file(path, &snapshot)?;
+                self.record_current_file_cache_marker(path, true)?;
             }
             Ok(result)
         })

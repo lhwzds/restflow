@@ -154,6 +154,40 @@ fn test_file_backed_task_storage_serializes_parallel_creates_across_namespaces()
     assert!(names.contains("Cross Namespace B"));
 }
 
+#[cfg(unix)]
+#[test]
+fn test_file_backed_task_storage_reuses_cached_snapshot_when_file_unchanged() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = tempdir().unwrap();
+    let task_store_path = temp_dir.path().join("tasks.json");
+    let db = Arc::new(Database::create(temp_dir.path().join("tasks.db")).unwrap());
+    let storage = TaskStorage::new_file_backed(db, task_store_path.clone()).unwrap();
+    let task = storage
+        .create_task(
+            "Cached Snapshot".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+
+    let original_mode = task_store_path.metadata().unwrap().permissions().mode();
+    std::fs::set_permissions(&task_store_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let result = (|| {
+        let loaded = storage.get_task(&task.id)?.expect("cached task");
+        assert_eq!(loaded.id, task.id);
+        assert_eq!(loaded.name, "Cached Snapshot");
+        anyhow::Ok(())
+    })();
+    std::fs::set_permissions(
+        &task_store_path,
+        std::fs::Permissions::from_mode(original_mode & 0o777),
+    )
+    .unwrap();
+
+    result.unwrap();
+}
+
 // ============== Short ID Resolution Tests ==============
 
 #[test]
