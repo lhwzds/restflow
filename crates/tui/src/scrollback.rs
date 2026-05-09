@@ -1,5 +1,5 @@
 use std::fmt;
-use std::io::{Result as IoResult, Write};
+use std::io::{ErrorKind, Result as IoResult, Write};
 
 use crossterm::Command;
 use crossterm::cursor::{MoveTo, MoveToColumn};
@@ -60,8 +60,14 @@ impl ScrollbackWriter {
             return Ok(false);
         }
         let lines = std::mem::take(&mut self.pending_lines);
-        insert_history_lines(writer, viewport_top, width, &lines)?;
-        Ok(true)
+        match insert_history_lines(writer, viewport_top, width, &lines) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::Unsupported => {
+                self.reset();
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -214,7 +220,10 @@ impl Command for SetScrollRegion {
 
     #[cfg(windows)]
     fn execute_winapi(&self) -> std::io::Result<()> {
-        panic!("SetScrollRegion requires ANSI");
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "SetScrollRegion requires ANSI support",
+        ))
     }
 
     #[cfg(windows)]
@@ -233,7 +242,10 @@ impl Command for ResetScrollRegion {
 
     #[cfg(windows)]
     fn execute_winapi(&self) -> std::io::Result<()> {
-        panic!("ResetScrollRegion requires ANSI");
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "ResetScrollRegion requires ANSI support",
+        ))
     }
 
     #[cfg(windows)]
@@ -247,6 +259,7 @@ mod tests {
     use super::{ScrollbackWriter, insert_history_lines};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
     use ratatui::text::Line;
+    use std::io::{Error, ErrorKind, Result as IoResult, Write};
 
     fn user_cell(body: &str) -> TranscriptCell {
         TranscriptCell {
@@ -354,5 +367,36 @@ mod tests {
         assert!(inserted);
         assert!(scrollback.pending_lines.is_empty());
         assert!(String::from_utf8(output).unwrap().contains("one"));
+    }
+
+    #[test]
+    fn insert_pending_falls_back_when_terminal_insert_is_unsupported() {
+        struct UnsupportedWriter;
+
+        impl Write for UnsupportedWriter {
+            fn write(&mut self, _buf: &[u8]) -> IoResult<usize> {
+                Err(Error::new(ErrorKind::Unsupported, "unsupported terminal"))
+            }
+
+            fn flush(&mut self) -> IoResult<()> {
+                Ok(())
+            }
+        }
+
+        let mut scrollback = ScrollbackWriter::default();
+        scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _| {
+            new_cells
+                .iter()
+                .map(|cell| Line::from(cell.body.clone()))
+                .collect()
+        });
+
+        let inserted = scrollback
+            .insert_pending(&mut UnsupportedWriter, 5, 40)
+            .expect("unsupported terminal should fall back to full redraw");
+
+        assert!(!inserted);
+        assert!(scrollback.pending_lines.is_empty());
+        assert!(scrollback.committed_cells.is_empty());
     }
 }

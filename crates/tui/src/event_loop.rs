@@ -118,6 +118,7 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     let mut tick = tokio::time::interval(Duration::from_secs(3));
     let mut render_tick = tokio::time::interval(RENDER_FRAME_INTERVAL);
     let mut typing_tick = tokio::time::interval(TYPING_ANIMATION_INTERVAL);
+    let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
     let mut last_active_refresh = Instant::now();
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     render_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -126,6 +127,32 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     loop {
         tokio::select! {
             biased;
+
+            result = &mut ctrl_c => {
+                if let Err(error) = result {
+                    state.status = format!("Failed to listen for Ctrl-C: {error}");
+                    render_request.merge(RenderRequest::full());
+                    ctrl_c = Box::pin(tokio::signal::ctrl_c());
+                    continue;
+                }
+                let result = process_actions(
+                    &controller,
+                    &mut renderer,
+                    &mut state,
+                    VecDeque::from([ShellAction::Ui(Action::Quit)]),
+                    tx.clone(),
+                )
+                .await?;
+                if result.should_quit {
+                    break;
+                }
+                render_request.merge(result.render_request);
+                if result.immediate_render {
+                    renderer.sync(&mut state)?;
+                    render_request = RenderRequest::default();
+                }
+                ctrl_c = Box::pin(tokio::signal::ctrl_c());
+            }
 
             maybe_event = next_terminal_event(&mut terminal_rx, &mut pending_terminal_events) => {
                 let Some(event) = maybe_event else { break; };

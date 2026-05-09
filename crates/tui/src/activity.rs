@@ -7,6 +7,7 @@ use types::{StreamEventKind, TaskStreamEvent};
 use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
 const MAX_ACTIVITY_ROWS: usize = 5;
+const MAX_BACKGROUND_TERMINAL_ENTRIES: usize = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivityEntry {
@@ -16,6 +17,7 @@ pub struct ActivityEntry {
     pub detail: String,
     pub run_id: Option<String>,
     pub is_active: bool,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -47,6 +49,7 @@ impl ActivityState {
             detail: compact_detail(body),
             run_id: None,
             is_active: true,
+            updated_at: 0,
         };
         if is_subagent_tool(name) {
             self.subagents.insert(call_id.to_string(), entry);
@@ -90,6 +93,7 @@ impl ActivityState {
                     .unwrap_or_else(|| run.provider_model_label()),
                 run_id: run.run_id.clone().or_else(|| Some(run.id.clone())),
                 is_active: is_running_status(&run.status),
+                updated_at: 0,
             };
             if self.subagents.get(&key) != Some(&next) {
                 self.subagents.insert(key, next);
@@ -159,6 +163,14 @@ impl BackgroundWorkStatus {
         self.bump();
     }
 
+    pub fn clear_terminal_entries(&mut self) {
+        let before = self.entries.len();
+        self.entries.retain(|_, entry| !is_terminal_entry(entry));
+        if self.entries.len() != before {
+            self.bump();
+        }
+    }
+
     pub fn record_task_event(&mut self, event: &TaskStreamEvent, detail: String) {
         let (status, is_active) = match &event.kind {
             StreamEventKind::Completed { .. } => ("completed", false),
@@ -169,23 +181,27 @@ impl BackgroundWorkStatus {
             | StreamEventKind::Progress { .. }
             | StreamEventKind::Heartbeat { .. } => ("running", true),
         };
-        if !is_active {
-            if self.entries.remove(&event.task_id).is_some() {
-                self.bump();
-            }
-            return;
-        }
+        let existing = self.entries.get(&event.task_id);
+        let title = task_title(event, existing);
+        let run_id = event
+            .run_id
+            .clone()
+            .or_else(|| existing.and_then(|entry| entry.run_id.clone()));
         self.entries.insert(
             event.task_id.clone(),
             ActivityEntry {
                 id: event.task_id.clone(),
-                title: task_title(event),
+                title,
                 status: status.to_string(),
                 detail: compact_detail(&detail),
-                run_id: event.run_id.clone(),
+                run_id,
                 is_active,
+                updated_at: event.timestamp,
             },
         );
+        if is_terminal_status(status) {
+            self.prune_terminal_entries();
+        }
         self.bump();
     }
 
@@ -195,14 +211,62 @@ impl BackgroundWorkStatus {
             .values()
             .filter(|entry| entry.is_active || is_running_status(&entry.status))
             .count();
-        if running == 0 {
+        if self.entries.is_empty() {
             return None;
         }
-        Some(format!("Work {running}/{} running", self.entries.len()))
+        let completed = self
+            .entries
+            .values()
+            .filter(|entry| entry.status.eq_ignore_ascii_case("completed"))
+            .count();
+        let failed = self
+            .entries
+            .values()
+            .filter(|entry| {
+                matches!(
+                    entry.status.trim().to_ascii_lowercase().as_str(),
+                    "failed" | "interrupted"
+                )
+            })
+            .count();
+        let mut parts = Vec::new();
+        if running > 0 {
+            parts.push(format!("{running} running"));
+        }
+        if completed > 0 {
+            parts.push(format!("{completed} done"));
+        }
+        if failed > 0 {
+            parts.push(format!("{failed} failed"));
+        }
+        Some(format!("Work {}", parts.join(" · ")))
     }
 
     fn bump(&mut self) {
         self.revision = self.revision.saturating_add(1);
+    }
+
+    fn prune_terminal_entries(&mut self) {
+        let terminal_count = self
+            .entries
+            .values()
+            .filter(|entry| is_terminal_entry(entry))
+            .count();
+        let remove_count = terminal_count.saturating_sub(MAX_BACKGROUND_TERMINAL_ENTRIES);
+        if remove_count == 0 {
+            return;
+        }
+
+        let mut terminal_entries = self
+            .entries
+            .values()
+            .filter(|entry| is_terminal_entry(entry))
+            .map(|entry| (entry.updated_at, entry.id.clone()))
+            .collect::<Vec<_>>();
+        terminal_entries.sort();
+        for (_, id) in terminal_entries.into_iter().take(remove_count) {
+            self.entries.remove(&id);
+        }
     }
 }
 
@@ -284,13 +348,26 @@ fn subagent_activity_title(name: &str) -> String {
     }
 }
 
-fn task_title(event: &TaskStreamEvent) -> String {
+fn task_title(event: &TaskStreamEvent, existing: Option<&ActivityEntry>) -> String {
     match &event.kind {
         StreamEventKind::Started { task_name, .. } if !task_name.trim().is_empty() => {
             task_name.trim().to_string()
         }
-        _ => event.task_id.clone(),
+        _ => existing
+            .map(|entry| entry.title.clone())
+            .unwrap_or_else(|| event.task_id.clone()),
     }
+}
+
+fn is_terminal_entry(entry: &ActivityEntry) -> bool {
+    !entry.is_active && is_terminal_status(&entry.status)
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "completed" | "failed" | "interrupted"
+    )
 }
 
 fn run_matches_active_turn(run: &RunSummary, active_run_id: Option<&str>) -> bool {
@@ -432,7 +509,158 @@ mod tests {
             "Task task-2 progress: building".to_string(),
         );
 
-        assert_eq!(state.footer_label().as_deref(), Some("Work 2/2 running"));
+        assert_eq!(state.footer_label().as_deref(), Some("Work 2 running"));
+    }
+
+    #[test]
+    fn retains_terminal_task_events_in_footer() {
+        let mut state = BackgroundWorkStatus::default();
+        state.record_task_event(
+            &TaskStreamEvent {
+                task_id: "task-1".to_string(),
+                run_id: None,
+                session_id: None,
+                parent_run_id: None,
+                scope: None,
+                timestamp: 1,
+                kind: StreamEventKind::Progress {
+                    phase: "checking".to_string(),
+                    percent: None,
+                    details: None,
+                },
+            },
+            "Task task-1 progress: checking".to_string(),
+        );
+        state.record_task_event(
+            &TaskStreamEvent {
+                task_id: "task-1".to_string(),
+                run_id: None,
+                session_id: None,
+                parent_run_id: None,
+                scope: None,
+                timestamp: 2,
+                kind: StreamEventKind::Completed {
+                    result: "Done".to_string(),
+                    duration_ms: 42,
+                    stats: None,
+                },
+            },
+            "Task task-1 completed: Done".to_string(),
+        );
+        state.record_task_event(
+            &TaskStreamEvent {
+                task_id: "task-2".to_string(),
+                run_id: None,
+                session_id: None,
+                parent_run_id: None,
+                scope: None,
+                timestamp: 3,
+                kind: StreamEventKind::Failed {
+                    error: "boom".to_string(),
+                    error_code: None,
+                    duration_ms: 43,
+                    recoverable: false,
+                },
+            },
+            "Task task-2 failed: boom".to_string(),
+        );
+
+        assert_eq!(
+            state.footer_label().as_deref(),
+            Some("Work 1 done · 1 failed")
+        );
+    }
+
+    #[test]
+    fn clears_terminal_task_events_without_dropping_running_work() {
+        let mut state = BackgroundWorkStatus::default();
+        state.record_task_event(
+            &TaskStreamEvent {
+                task_id: "running-task".to_string(),
+                run_id: None,
+                session_id: None,
+                parent_run_id: None,
+                scope: None,
+                timestamp: 1,
+                kind: StreamEventKind::Progress {
+                    phase: "checking".to_string(),
+                    percent: None,
+                    details: None,
+                },
+            },
+            "Task running-task progress: checking".to_string(),
+        );
+        state.record_task_event(
+            &TaskStreamEvent {
+                task_id: "completed-task".to_string(),
+                run_id: None,
+                session_id: None,
+                parent_run_id: None,
+                scope: None,
+                timestamp: 2,
+                kind: StreamEventKind::Completed {
+                    result: "Done".to_string(),
+                    duration_ms: 42,
+                    stats: None,
+                },
+            },
+            "Task completed-task completed: Done".to_string(),
+        );
+
+        state.clear_terminal_entries();
+
+        assert!(state.entries.contains_key("running-task"));
+        assert!(!state.entries.contains_key("completed-task"));
+        assert_eq!(state.footer_label().as_deref(), Some("Work 1 running"));
+    }
+
+    #[test]
+    fn prunes_old_terminal_task_events_but_keeps_active_work() {
+        let mut state = BackgroundWorkStatus::default();
+        for index in 0..(MAX_BACKGROUND_TERMINAL_ENTRIES + 5) {
+            state.record_task_event(
+                &TaskStreamEvent {
+                    task_id: format!("task-{index}"),
+                    run_id: None,
+                    session_id: None,
+                    parent_run_id: None,
+                    scope: None,
+                    timestamp: index as i64,
+                    kind: StreamEventKind::Completed {
+                        result: "Done".to_string(),
+                        duration_ms: 42,
+                        stats: None,
+                    },
+                },
+                format!("Task task-{index} completed: Done"),
+            );
+        }
+        state.record_task_event(
+            &TaskStreamEvent {
+                task_id: "active-task".to_string(),
+                run_id: None,
+                session_id: None,
+                parent_run_id: None,
+                scope: None,
+                timestamp: -1,
+                kind: StreamEventKind::Progress {
+                    phase: "running".to_string(),
+                    percent: None,
+                    details: None,
+                },
+            },
+            "Task active-task progress: running".to_string(),
+        );
+
+        assert_eq!(state.entries.len(), MAX_BACKGROUND_TERMINAL_ENTRIES + 1);
+        assert!(state.entries.contains_key("active-task"));
+        assert!(!state.entries.contains_key("task-0"));
+        assert!(!state.entries.contains_key("task-4"));
+        assert!(state.entries.contains_key("task-5"));
+        assert_eq!(
+            state.footer_label().as_deref(),
+            Some("Work 1 running · 50 done")
+        );
     }
 
     #[test]

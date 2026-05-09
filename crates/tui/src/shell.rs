@@ -4422,7 +4422,7 @@ mod tests {
         let stable = super::build_stable_history_cells(&state);
 
         assert!(text.is_empty());
-        assert!(footer_status_line(&state).contains("Work 1/1 running"));
+        assert!(footer_status_line(&state).contains("Work 1 running"));
         assert!(stable.is_empty());
         assert!(state.runtime_cells.is_empty());
     }
@@ -4441,27 +4441,44 @@ mod tests {
 
         assert!(text.is_empty());
         assert!(state.activity.live_cells().is_empty());
-        assert!(footer_status_line(&state).contains("Work 1/1 running"));
+        assert!(footer_status_line(&state).contains("Work 1 running"));
         assert!(state.runtime_cells.is_empty());
     }
 
     #[test]
-    fn message_viewport_drops_task_stream_activity_when_task_finishes() {
+    fn terminal_task_notice_is_persisted_when_task_finishes() {
         let mut state = AppState::empty();
         state.push_local_user_message("run build task".to_string());
         state.apply_task_event(TaskStreamEvent::started(
             "task-1", "Build", "agent-1", "api",
         ));
-        assert!(footer_status_line(&state).contains("Work 1/1 running"));
+        assert!(footer_status_line(&state).contains("Work 1 running"));
 
         state.apply_task_event(TaskStreamEvent::completed("task-1", "Done", 1200));
 
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
         assert!(text.is_empty());
         assert!(state.activity.live_cells().is_empty());
-        assert!(!footer_status_line(&state).contains("Work"));
-        assert!(state.runtime_cells.is_empty());
+        assert!(footer_status_line(&state).contains("Work 1 done"));
+        assert!(!state.runtime_cells.is_empty());
+        assert!(
+            state.runtime_cells[0]
+                .cell
+                .body
+                .contains("Task task-1 completed")
+        );
         assert!(state.status.contains("completed"));
+    }
+
+    #[test]
+    fn next_user_message_clears_completed_work_footer() {
+        let mut state = AppState::empty();
+        state.apply_task_event(TaskStreamEvent::completed("task-1", "Done", 1200));
+        assert!(footer_status_line(&state).contains("Work 1 done"));
+
+        state.push_local_user_message("continue".to_string());
+
+        assert!(!footer_status_line(&state).contains("Work"));
     }
 
     #[test]

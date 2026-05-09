@@ -1548,6 +1548,7 @@ impl AppState {
     pub fn push_local_user_message(&mut self, content: String) {
         self.reset_message_scroll();
         self.last_error_notice = None;
+        self.background_work.clear_terminal_entries();
         self.flush_active_turn_to_runtime();
         let cell = cell_from_message(
             &ShellMessage::UserMessage { content },
@@ -1708,6 +1709,9 @@ impl AppState {
                 },
             );
             if let ShellMessage::TaskNotice { content } = message {
+                self.push_message(ShellMessage::TaskNotice {
+                    content: content.clone(),
+                });
                 self.status = content;
             }
             return;

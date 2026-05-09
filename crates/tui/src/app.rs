@@ -2,8 +2,11 @@ use anyhow::Result;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::execute;
+use crossterm::style::Print;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::io;
+use std::panic;
+use std::sync::Once;
 
 use crate::controller::ShellController;
 use crate::daemon_client::TuiDaemonClient;
@@ -21,15 +24,32 @@ impl TerminalGuard {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnableBracketedPaste, Hide)?;
+        install_terminal_panic_hook();
         Ok(Self { stdout })
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(self.stdout, DisableBracketedPaste, Show);
+        restore_terminal(&mut self.stdout);
     }
+}
+
+fn restore_terminal(stdout: &mut io::Stdout) {
+    let _ = disable_raw_mode();
+    let _ = execute!(stdout, Print("\x1b[r"), DisableBracketedPaste, Show);
+}
+
+fn install_terminal_panic_hook() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            let mut stdout = io::stdout();
+            restore_terminal(&mut stdout);
+            previous(info);
+        }));
+    });
 }
 
 pub async fn run_tui(options: TuiLaunchOptions) -> Result<()> {
