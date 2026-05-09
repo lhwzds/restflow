@@ -98,6 +98,62 @@ fn test_file_backed_task_storage_serializes_parallel_creates() {
     assert!(names.contains("Parallel Task B"));
 }
 
+#[test]
+fn test_file_backed_task_storage_serializes_parallel_creates_across_namespaces() {
+    let temp_dir = tempdir().unwrap();
+    let task_store_path = temp_dir.path().join("tasks.json");
+    let first_db = Arc::new(Database::create(temp_dir.path().join("first.db")).unwrap());
+    let second_db = Arc::new(Database::create(temp_dir.path().join("second.db")).unwrap());
+    let first = TaskStorage::new_file_backed(first_db, task_store_path.clone()).unwrap();
+    let second = TaskStorage::new_file_backed(second_db, task_store_path.clone()).unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+
+    let handles = [
+        ("Cross Namespace A", first.clone()),
+        ("Cross Namespace B", second.clone()),
+    ]
+    .into_iter()
+    .map(|(name, storage)| {
+        let barrier = barrier.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            storage
+                .create_task_from_spec(TaskSpec {
+                    name: name.to_string(),
+                    agent_id: "agent-001".to_string(),
+                    chat_session_id: None,
+                    description: None,
+                    input: Some(name.to_string()),
+                    input_template: None,
+                    schedule: TaskSchedule::default(),
+                    execution_mode: None,
+                    timeout_secs: None,
+                    resource_limits: None,
+                    prerequisites: Vec::new(),
+                    continuation: None,
+                })
+                .unwrap();
+        })
+    })
+    .collect::<Vec<_>>();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let db = Arc::new(Database::create(temp_dir.path().join("reader.db")).unwrap());
+    let reader = TaskStorage::new_file_backed(db, task_store_path).unwrap();
+    let tasks = reader.list_tasks().unwrap();
+    let names = tasks
+        .iter()
+        .map(|task| task.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+
+    assert_eq!(tasks.len(), 2);
+    assert!(names.contains("Cross Namespace A"));
+    assert!(names.contains("Cross Namespace B"));
+}
+
 // ============== Short ID Resolution Tests ==============
 
 #[test]

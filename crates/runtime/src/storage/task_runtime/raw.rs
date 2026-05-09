@@ -6,9 +6,12 @@
 
 use crate::storage::simple_storage::namespace_for_db;
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use redb::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -40,6 +43,48 @@ fn temporary_path(path: &Path) -> PathBuf {
         .unwrap_or_else(|| "tmp".to_string());
     tmp.set_extension(extension);
     tmp
+}
+
+fn lock_path(path: &Path) -> PathBuf {
+    let mut lock = path.to_path_buf();
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| format!("{value}.lock"))
+        .unwrap_or_else(|| "lock".to_string());
+    lock.set_extension(extension);
+    lock
+}
+
+fn open_lock_file(path: &Path) -> Result<File> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!("Failed to create task store directory {}", parent.display())
+        })?;
+    }
+    let lock = lock_path(path);
+    OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&lock)
+        .with_context(|| format!("Failed to open task store lock {}", lock.display()))
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> Result<()> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    File::open(parent)
+        .with_context(|| format!("Failed to open task store directory {}", parent.display()))?
+        .sync_all()
+        .with_context(|| format!("Failed to sync task store directory {}", parent.display()))
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 /// Low-level process-local task storage with byte-level API.
@@ -189,6 +234,10 @@ impl TaskStorage {
         let Some(path) = self.file_path.as_ref() else {
             return Ok(());
         };
+        self.with_file_lock(false, || self.refresh_from_file_unlocked(path))
+    }
+
+    fn refresh_from_file_unlocked(&self, path: &Path) -> Result<()> {
         let Some(store) = Self::load_store_from_file(path)? else {
             return Ok(());
         };
@@ -197,6 +246,34 @@ impl TaskStorage {
             .expect("task store lock poisoned")
             .insert(self.namespace, store);
         Ok(())
+    }
+
+    fn with_file_lock<T>(
+        &self,
+        exclusive: bool,
+        operation: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        // Keep this lock outside operations that touch the process-local store:
+        // every file-backed path must acquire the file lock before the store mutex.
+        let Some(path) = self.file_path.as_ref() else {
+            return operation();
+        };
+        let lock = open_lock_file(path)?;
+        if exclusive {
+            lock.lock_exclusive()
+        } else {
+            lock.lock_shared()
+        }
+        .with_context(|| format!("Failed to lock task store {}", lock_path(path).display()))?;
+        let result = operation();
+        let unlock_result = lock
+            .unlock()
+            .with_context(|| format!("Failed to unlock task store {}", lock_path(path).display()));
+        match (result, unlock_result) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+        }
     }
 
     fn persist_snapshot_to_file(path: &Path, store: &TaskStore) -> Result<()> {
@@ -208,10 +285,18 @@ impl TaskStorage {
         let bytes = serde_json::to_vec_pretty(store)
             .with_context(|| format!("Failed to encode task store {}", path.display()))?;
         let tmp_path = temporary_path(path);
-        std::fs::write(&tmp_path, bytes)
+        let mut tmp_file = File::create(&tmp_path)
+            .with_context(|| format!("Failed to create task store {}", tmp_path.display()))?;
+        tmp_file
+            .write_all(&bytes)
             .with_context(|| format!("Failed to write task store {}", tmp_path.display()))?;
+        tmp_file
+            .sync_all()
+            .with_context(|| format!("Failed to sync task store {}", tmp_path.display()))?;
+        drop(tmp_file);
         std::fs::rename(&tmp_path, path)
             .with_context(|| format!("Failed to replace task store {}", path.display()))?;
+        sync_parent_directory(path)?;
         Ok(())
     }
 
@@ -219,37 +304,48 @@ impl TaskStorage {
         let Some(path) = self.file_path.as_ref() else {
             return Ok(());
         };
-        let store = stores()
-            .lock()
-            .expect("task store lock poisoned")
-            .get(&self.namespace)
-            .cloned()
-            .unwrap_or_default();
-        Self::persist_snapshot_to_file(path, &store)
+        self.with_file_lock(true, || {
+            let store = stores()
+                .lock()
+                .expect("task store lock poisoned")
+                .get(&self.namespace)
+                .cloned()
+                .unwrap_or_default();
+            Self::persist_snapshot_to_file(path, &store)
+        })
     }
 
     fn read_store<T>(&self, f: impl FnOnce(Option<&TaskStore>) -> Result<T>) -> Result<T> {
-        self.refresh_from_file()?;
-        let stores = stores().lock().expect("task store lock poisoned");
-        f(stores.get(&self.namespace))
+        self.with_file_lock(false, || {
+            if let Some(path) = self.file_path.as_ref() {
+                self.refresh_from_file_unlocked(path)?;
+            }
+            let stores = stores().lock().expect("task store lock poisoned");
+            f(stores.get(&self.namespace))
+        })
     }
 
     fn mutate_store<T>(&self, f: impl FnOnce(&mut TaskStore) -> Result<T>) -> Result<T> {
-        let mut stores = stores().lock().expect("task store lock poisoned");
-        if let Some(path) = self.file_path.as_ref()
-            && let Some(store) = Self::load_store_from_file(path)?
-        {
-            stores.insert(self.namespace, store);
-        }
-        let result = {
-            let store = stores.entry(self.namespace).or_default();
-            f(store)?
-        };
-        if let Some(path) = self.file_path.as_ref() {
-            let snapshot = stores.get(&self.namespace).cloned().unwrap_or_default();
-            Self::persist_snapshot_to_file(path, &snapshot)?;
-        }
-        Ok(result)
+        self.with_file_lock(true, || {
+            let (result, snapshot) = {
+                let mut stores = stores().lock().expect("task store lock poisoned");
+                if let Some(path) = self.file_path.as_ref()
+                    && let Some(store) = Self::load_store_from_file(path)?
+                {
+                    stores.insert(self.namespace, store);
+                }
+                let result = {
+                    let store = stores.entry(self.namespace).or_default();
+                    f(store)?
+                };
+                let snapshot = stores.get(&self.namespace).cloned().unwrap_or_default();
+                (result, snapshot)
+            };
+            if let Some(path) = self.file_path.as_ref() {
+                Self::persist_snapshot_to_file(path, &snapshot)?;
+            }
+            Ok(result)
+        })
     }
 
     pub fn put_task_raw(&self, id: &str, data: &[u8]) -> Result<()> {
