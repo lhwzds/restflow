@@ -19,6 +19,7 @@ use crate::{
         ChatTurnStatus, Skill, SteerMessage, TaskStatus,
     },
     process::ProcessRegistry,
+    services::session::SessionService,
     services::skill_triggers::match_triggers,
     storage::Storage,
 };
@@ -124,6 +125,7 @@ pub struct AgentRuntimeExecutor {
     subagent_tracker: Arc<SubagentTracker>,
     subagent_definitions: Arc<dyn SubagentDefLookup>,
     subagent_config: SubagentConfig,
+    session_service: SessionService,
     skill_snapshot_cache: Arc<SkillSnapshotCache>,
     reply_sender: Option<Arc<dyn ReplySender>>,
     reply_sender_factory: Option<Arc<dyn ReplySenderFactory>>,
@@ -158,9 +160,8 @@ struct ResolvedSkillSnapshot {
 
 impl AgentRuntimeExecutor {
     pub(crate) fn load_chat_session(&self, session_id: &str) -> Result<ChatSession> {
-        self.storage
-            .chat_sessions
-            .get(session_id)?
+        self.session_service
+            .get_session_view(session_id)?
             .ok_or_else(|| anyhow!("Session not found: {}", session_id))
     }
 
@@ -247,6 +248,7 @@ impl AgentRuntimeExecutor {
         subagent_tracker.set_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
             storage.as_ref(),
         ));
+        let session_service = SessionService::from_storage(storage.as_ref());
         Self {
             storage,
             process_registry,
@@ -254,10 +256,17 @@ impl AgentRuntimeExecutor {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            session_service,
             skill_snapshot_cache: Arc::new(SkillSnapshotCache::default()),
             reply_sender: None,
             reply_sender_factory: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_session_service(mut self, session_service: SessionService) -> Self {
+        self.session_service = session_service;
+        self
     }
 
     /// Set a reply sender so the agent can send intermediate messages.

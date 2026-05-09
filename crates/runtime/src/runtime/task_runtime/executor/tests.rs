@@ -2,6 +2,8 @@ use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
 use crate::models::{AgentNode, SkillPreflightPolicyMode, SkillSource, TaskSchedule};
 use crate::runtime::subagent::AgentDefinitionRegistry;
+use crate::services::session::SessionService;
+use crate::session_log::{FileSession, FileSessionStore};
 use crate::test_support::RestflowTestEnv;
 use ai::AiError;
 use ai::agent::{SubagentConfig, SubagentTracker};
@@ -116,6 +118,30 @@ fn test_executor_creation() {
     let executor = create_test_executor(storage);
     // Executor should be created successfully
     assert!(Arc::strong_count(&executor.storage) >= 1);
+}
+
+#[test]
+fn load_chat_session_reads_file_session_without_materializing_to_redb() {
+    let (storage, env) = create_test_storage();
+    let file_store = FileSessionStore::new(env.root().join("sessions")).unwrap();
+    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    session.add_message(ChatMessage::user("run from jsonl"));
+    file_store
+        .write_session(&FileSession::from_chat_session(&session), false)
+        .unwrap();
+    let session_service = SessionService::new(
+        storage.sessions.clone(),
+        Some(storage.agents.clone()),
+        storage.tasks.clone(),
+    )
+    .with_file_sessions(file_store);
+    let executor = create_test_executor(storage.clone()).with_session_service(session_service);
+
+    let loaded = executor.load_chat_session(&session.id).unwrap();
+
+    assert_eq!(loaded.id, session.id);
+    assert_eq!(loaded.messages.len(), 1);
+    assert!(storage.chat_sessions.get(&session.id).unwrap().is_none());
 }
 
 #[test]

@@ -8,7 +8,7 @@ use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::{ToolCallReviewer, ToolReviewOutcome, ToolReviewRequest};
 use crate::llm::{
     CompletionRequest, CompletionResponse, FinishReason, Role, StreamChunk, StreamResult,
-    TokenUsage, ToolCall,
+    TokenUsage, ToolCall, ToolCallDelta,
 };
 use crate::telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
 use crate::tools::ToolResult;
@@ -118,18 +118,38 @@ impl LlmClient for MockLlmClient {
     }
 
     fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
-        // For mock: convert the sync response to a single-chunk stream
+        // For mock: convert the response into the same chunk shapes real
+        // streaming clients emit, including provider reasoning and tool deltas.
         let response = futures::executor::block_on(self.complete(request));
         match response {
             Ok(resp) => {
-                let chunk = StreamChunk {
-                    text: resp.content.unwrap_or_default(),
-                    thinking: None,
-                    tool_call_delta: None,
-                    finish_reason: Some(resp.finish_reason),
-                    usage: resp.usage,
-                };
-                Box::pin(stream::once(async move { Ok(chunk) }))
+                let mut chunks = Vec::new();
+                if let Some(reasoning) = resp.reasoning_content
+                    && !reasoning.is_empty()
+                {
+                    chunks.push(Ok(StreamChunk::thinking(&reasoning)));
+                }
+                if let Some(content) = resp.content
+                    && !content.is_empty()
+                {
+                    chunks.push(Ok(StreamChunk::text(&content)));
+                }
+                for (index, call) in resp.tool_calls.into_iter().enumerate() {
+                    chunks.push(Ok(StreamChunk {
+                        text: String::new(),
+                        thinking: None,
+                        tool_call_delta: Some(ToolCallDelta {
+                            index,
+                            id: Some(call.id),
+                            name: Some(call.name),
+                            arguments: Some(call.arguments.to_string()),
+                        }),
+                        finish_reason: None,
+                        usage: None,
+                    }));
+                }
+                chunks.push(Ok(StreamChunk::final_chunk(resp.finish_reason, resp.usage)));
+                Box::pin(stream::iter(chunks))
             }
             Err(e) => Box::pin(stream::once(async move { Err(e) })),
         }
@@ -3035,6 +3055,72 @@ async fn executor_preserves_reasoning_content_in_tool_call_message() {
     assert_eq!(
         tool_call_msg.reasoning_content.as_deref(),
         Some("Let me think about the best approach...")
+    );
+}
+
+/// Verify the streaming path preserves thinking chunks as reasoning_content in
+/// the assistant tool-call message sent on the next request. This covers
+/// SwappableLlm wrappers whose provider() is not the underlying provider name.
+#[tokio::test]
+async fn executor_streaming_round_trips_reasoning_content_in_next_request() {
+    use crate::llm::{CompletionResponse, FinishReason, ToolCall};
+
+    let tool_response = CompletionResponse {
+        content: None,
+        tool_calls: vec![ToolCall {
+            id: "call_stream_ds_1".to_string(),
+            name: "echo".to_string(),
+            arguments: serde_json::json!({"message": "hello"}),
+        }],
+        finish_reason: FinishReason::ToolCalls,
+        usage: None,
+        reasoning_content: Some("Streaming reasoning before tool call.".to_string()),
+    };
+
+    let final_response = CompletionResponse {
+        content: Some("Done!".to_string()),
+        tool_calls: vec![],
+        finish_reason: FinishReason::Stop,
+        usage: None,
+        reasoning_content: None,
+    };
+
+    let mut registry = ToolRegistry::new();
+    registry.register(EchoTool);
+    let tools = Arc::new(registry);
+    let llm = Arc::new(MockLlmClient::new(vec![tool_response, final_response]));
+    let executor = AgentExecutor::new(llm.clone(), tools);
+    let mut emitter = CapturingEmitter::new();
+
+    let result = executor
+        .execute_streaming(
+            AgentConfig::new("test streaming reasoning").with_max_iterations(5),
+            &mut emitter,
+        )
+        .await
+        .expect("execution should succeed");
+    assert!(result.success);
+
+    let captured_requests = llm.captured_requests();
+    assert!(
+        captured_requests.len() >= 2,
+        "expected at least two LLM requests"
+    );
+    let second_request = &captured_requests[1];
+    let assistant_tool_message = second_request
+        .iter()
+        .find(|message| message.tool_calls.is_some())
+        .expect("second request should include prior assistant tool-call message");
+    assert_eq!(
+        assistant_tool_message.reasoning_content.as_deref(),
+        Some("Streaming reasoning before tool call.")
+    );
+    assert!(
+        second_request
+            .iter()
+            .any(|message| matches!(message.role, Role::Tool)
+                && message.tool_call_id.as_deref() == Some("call_stream_ds_1")),
+        "second request should include matching tool result"
     );
 }
 

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
 use types::{DeleteWithIdResponse, request::TaskFromSessionRequest};
@@ -239,6 +239,7 @@ async fn create_task(
     format: OutputFormat,
 ) -> Result<()> {
     let schedule = parse_schedule(&schedule_type, schedule_value)?;
+    let input_template = read_input_template_file(input_template)?;
 
     let spec = TaskSpec {
         name,
@@ -267,6 +268,14 @@ async fn create_task(
         &task.id[..8.min(task.id.len())]
     );
     Ok(())
+}
+
+fn read_input_template_file(path: Option<String>) -> Result<Option<String>> {
+    path.map(|path| {
+        std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read input template file: {path}"))
+    })
+    .transpose()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -621,6 +630,24 @@ mod tests {
         ];
         let input = derive_conversion_input(None, &messages);
         assert_eq!(input.as_deref(), Some("latest request"));
+    }
+
+    #[test]
+    fn read_input_template_file_loads_file_contents() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("task-prompt.md");
+        std::fs::write(&path, "Implement the task\n").expect("write template");
+
+        let loaded = read_input_template_file(Some(path.to_string_lossy().to_string()))
+            .expect("template should load");
+
+        assert_eq!(loaded.as_deref(), Some("Implement the task\n"));
+    }
+
+    #[test]
+    fn read_input_template_file_none_stays_none() {
+        let loaded = read_input_template_file(None).expect("none should be valid");
+        assert!(loaded.is_none());
     }
 
     #[test]
