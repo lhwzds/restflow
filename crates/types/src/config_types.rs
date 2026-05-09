@@ -161,7 +161,6 @@ pub struct ApiDefaults {
     pub task_progress_event_limit: usize,
     pub task_message_list_limit: usize,
     pub web_search_num_results: usize,
-    pub diagnostics_timeout_ms: u64,
 }
 
 pub type ApiSettings = ApiDefaults;
@@ -173,7 +172,6 @@ impl Default for ApiDefaults {
             task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
             task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
-            diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }
     }
 }

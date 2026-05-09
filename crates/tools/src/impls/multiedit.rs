@@ -11,17 +11,14 @@ use tokio::fs;
 
 use super::edit::{EditError, count_changed_lines, replace};
 use super::file_tracker::FileTracker;
-use super::shared::{LSP_DIAGNOSTIC_TIMEOUT, MAX_LSP_DIAGNOSTIC_ERRORS};
 use crate::{Result, Tool, ToolOutput};
 use types::cache::AgentCache;
-use types::store::DiagnosticsProvider;
 
 #[derive(Clone)]
 pub struct MultiEditTool {
     base_dir: Option<PathBuf>,
     require_base_dir: bool,
     tracker: Arc<FileTracker>,
-    diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     cache_manager: Option<Arc<dyn AgentCache>>,
 }
 
@@ -31,7 +28,6 @@ impl MultiEditTool {
             base_dir: None,
             require_base_dir: false,
             tracker,
-            diagnostics: None,
             cache_manager: None,
         }
     }
@@ -43,11 +39,6 @@ impl MultiEditTool {
 
     pub fn require_base_dir(mut self) -> Self {
         self.require_base_dir = true;
-        self
-    }
-
-    pub fn with_diagnostics_provider(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
-        self.diagnostics = Some(provider);
         self
     }
 
@@ -75,58 +66,6 @@ impl MultiEditTool {
                 current = directory.parent();
             }
         }
-    }
-
-    async fn run_diagnostics(&self, path: &Path) -> Option<String> {
-        let provider = self.diagnostics.as_ref()?;
-
-        if provider.ensure_open(path).await.is_err() {
-            return None;
-        }
-
-        if let Ok(content) = fs::read_to_string(path).await {
-            let _ = provider.did_change(path, &content).await;
-        }
-
-        let diags = match provider
-            .wait_for_diagnostics(path, LSP_DIAGNOSTIC_TIMEOUT)
-            .await
-        {
-            Ok(d) => d,
-            Err(_) => return None,
-        };
-
-        let errors: Vec<String> = diags
-            .iter()
-            .filter(|d| {
-                matches!(
-                    d.severity,
-                    Some(lsp_types::DiagnosticSeverity::ERROR) | None
-                )
-            })
-            .take(MAX_LSP_DIAGNOSTIC_ERRORS)
-            .map(|d| {
-                format!(
-                    "ERROR [{}:{}] {}",
-                    d.range.start.line + 1,
-                    d.range.start.character + 1,
-                    d.message
-                )
-            })
-            .collect();
-
-        if errors.is_empty() {
-            return None;
-        }
-
-        let path_str = path.display();
-        let mut output = format!("\nLSP errors detected:\n<diagnostics file=\"{path_str}\">\n");
-        for line in &errors {
-            output.push_str(line);
-            output.push('\n');
-        }
-        output.push_str("</diagnostics>");
-        Some(output)
     }
 }
 
@@ -286,16 +225,12 @@ impl Tool for MultiEditTool {
         self.tracker.record_write(&path);
         self.invalidate_caches(&path).await;
 
-        let mut msg = format!(
+        let msg = format!(
             "{} edits applied to {} ({} lines changed)",
             edits.len(),
             path.display(),
             lines_changed
         );
-
-        if let Some(diag_output) = self.run_diagnostics(&path).await {
-            msg.push_str(&diag_output);
-        }
 
         Ok(ToolOutput::success(json!({
             "message": msg,

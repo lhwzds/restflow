@@ -5,7 +5,6 @@ pub mod daemon;
 mod encryption;
 pub mod features;
 pub mod loader;
-pub mod lsp;
 pub mod mcp;
 pub mod models;
 pub mod paths;

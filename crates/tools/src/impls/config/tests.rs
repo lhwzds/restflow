@@ -548,7 +548,6 @@ async fn test_set_api_defaults() {
         ("api.session_list_limit", json!(30)),
         ("api.task_progress_event_limit", json!(12)),
         ("api.task_message_list_limit", json!(60)),
-        ("api.diagnostics_timeout_ms", json!(9000)),
     ];
 
     for (key, value) in updates {
@@ -566,7 +565,7 @@ async fn test_set_api_defaults() {
     let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
     let api = output.result.get("api").expect("api block should exist");
     assert_eq!(
-        api.get("diagnostics_timeout_ms").and_then(|v| v.as_u64()),
-        Some(9000)
+        api.get("task_message_list_limit").and_then(|v| v.as_u64()),
+        Some(60)
     );
 }

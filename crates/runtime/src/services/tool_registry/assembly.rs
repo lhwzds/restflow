@@ -71,8 +71,8 @@ pub fn create_tool_registry_with_assessor(
 
     let registry = builder
         .with_patch_and_base_dir(None)
-        .with_edit_and_diagnostics_and_base_dir(None, None)
-        .with_multiedit_and_diagnostics_and_base_dir(None, None)
+        .with_edit_and_base_dir(None)
+        .with_multiedit_and_base_dir(None)
         .with_glob_and_base_dir(None)
         .with_grep_and_base_dir(None)
         .build();

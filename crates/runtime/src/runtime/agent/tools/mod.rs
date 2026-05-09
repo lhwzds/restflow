@@ -18,14 +18,12 @@ use self::assembly::{
     populate_known_tools_from_registry, register_bash_execution_tool, register_file_execution_tool,
     register_management_tools, register_subagent_management_tools,
 };
-use crate::ApiSettings;
-use crate::lsp::LspManager;
 use crate::services::adapters::*;
 use crate::storage::Storage;
 use types::SubagentManager;
 use types::security::SecurityGate;
 use types::skill::SkillProvider;
-use types::store::{DiagnosticsProvider, MANAGE_TASKS_TOOL_NAME, is_task_management_tool_name};
+use types::store::{MANAGE_TASKS_TOOL_NAME, is_task_management_tool_name};
 
 // Re-export tool types from tools
 pub use tools::impls::{
@@ -231,18 +229,6 @@ pub fn registry_from_allowlist_with_security_gate(
             .ok()
     });
 
-    // Pre-create shared diagnostics provider when any of diagnostics/edit/multiedit
-    // are in the allowlist, so they all share the same LspManager instance.
-    let needs_diag = tool_names
-        .iter()
-        .any(|n| matches!(n.as_str(), "diagnostics" | "edit" | "multiedit"));
-    let shared_diagnostics: Option<Arc<dyn DiagnosticsProvider>> =
-        if needs_diag && let Some(root) = workspace_root {
-            Some(Arc::new(LspManager::new(root.to_path_buf())))
-        } else {
-            None
-        };
-
     /// Register a storage-backed tool, warning if storage is unavailable.
     macro_rules! with_storage {
         ($storage:expr, $tool_name:expr, $builder:ident, |$s:ident| $body:expr) => {
@@ -278,15 +264,6 @@ pub fn registry_from_allowlist_with_security_gate(
                 allow_file = true;
                 allow_file_write = true;
             }
-            "diagnostics" => {
-                if let Some(diag) = &shared_diagnostics {
-                    let timeout_ms = effective_config
-                        .as_ref()
-                        .map(|config| config.api_defaults.diagnostics_timeout_ms)
-                        .unwrap_or_else(|| ApiSettings::default().diagnostics_timeout_ms);
-                    builder = builder.with_diagnostics_with_timeout(diag.clone(), timeout_ms);
-                }
-            }
             "security_query" => {
                 let provider = if let Some(storage) = storage {
                     Arc::new(SecurityQueryProviderAdapter::with_config_storage(Arc::new(
@@ -301,16 +278,11 @@ pub fn registry_from_allowlist_with_security_gate(
                 builder = builder.with_patch_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
             "edit" => {
-                builder = builder.with_edit_and_diagnostics_and_base_dir(
-                    shared_diagnostics.clone(),
-                    workspace_root.map(Path::to_path_buf),
-                );
+                builder = builder.with_edit_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
             "multiedit" => {
-                builder = builder.with_multiedit_and_diagnostics_and_base_dir(
-                    shared_diagnostics.clone(),
-                    workspace_root.map(Path::to_path_buf),
-                );
+                builder =
+                    builder.with_multiedit_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
 
             // --- Subagent tools ---
@@ -799,56 +771,6 @@ mod tests {
         assert_eq!(
             merged.iter().filter(|name| name.as_str() == "bash").count(),
             1
-        );
-    }
-
-    #[test]
-    fn test_registry_from_allowlist_uses_configured_diagnostics_defaults() {
-        let env = RestflowTestEnv::new();
-        let db_path = env.db_path("registry-api-defaults.db");
-        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-            .expect("storage should be created");
-        let mut config = storage
-            .config
-            .get_config()
-            .expect("config should load")
-            .expect("config should exist");
-        config.api_defaults.diagnostics_timeout_ms = 9_000;
-        storage
-            .config
-            .update_config(config)
-            .expect("config should update");
-
-        let names = vec!["diagnostics".to_string()];
-        let registry = registry_from_allowlist(
-            Some(&names),
-            None,
-            None,
-            Some(&storage),
-            None,
-            None,
-            Some(env.root()),
-        )
-        .unwrap();
-
-        let diagnostics_schema = registry
-            .get("diagnostics")
-            .expect("diagnostics tool should exist")
-            .parameters_schema();
-        assert_eq!(
-            diagnostics_schema["properties"]["timeout_ms"]["default"],
-            9_000
-        );
-    }
-
-    #[test]
-    fn test_diagnostics_tool_requires_workspace_root() {
-        let names = vec!["diagnostics".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
-        assert!(
-            !registry.has("diagnostics"),
-            "diagnostics should not be registered without an explicit workspace root"
         );
     }
 

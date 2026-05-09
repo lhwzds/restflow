@@ -863,7 +863,6 @@ pub struct ApiSettings {
     pub task_progress_event_limit: usize,
     pub task_message_list_limit: usize,
     pub web_search_num_results: usize,
-    pub diagnostics_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

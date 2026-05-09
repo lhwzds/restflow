@@ -4,9 +4,7 @@
 //! Implementations are provided by downstream crates (e.g., runtime).
 
 use std::future::Future;
-use std::path::Path;
 use std::pin::Pin;
-use std::time::Duration;
 
 use crate::contracts::request::{
     AgentNode as ContractAgentNode, ExecutionMode as ContractExecutionMode,
@@ -550,20 +548,6 @@ pub trait ProcessManager: Send + Sync {
     fn kill(&self, session_id: &str) -> anyhow::Result<()>;
     fn list(&self) -> anyhow::Result<Vec<ProcessSessionInfo>>;
     fn log(&self, session_id: &str, offset: usize, limit: usize) -> anyhow::Result<ProcessLog>;
-}
-
-// ── DiagnosticsProvider ──────────────────────────────────────────────
-
-#[async_trait]
-pub trait DiagnosticsProvider: Send + Sync {
-    async fn ensure_open(&self, path: &Path) -> Result<()>;
-    async fn did_change(&self, path: &Path, content: &str) -> Result<()>;
-    async fn wait_for_diagnostics(
-        &self,
-        path: &Path,
-        timeout: Duration,
-    ) -> Result<Vec<lsp_types::Diagnostic>>;
-    async fn get_diagnostics(&self, path: &Path) -> Result<Vec<lsp_types::Diagnostic>>;
 }
 
 // ── ReplySender ──────────────────────────────────────────────────────

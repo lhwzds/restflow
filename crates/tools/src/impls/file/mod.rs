@@ -43,7 +43,6 @@ use crate::check_security;
 use crate::security::SecurityGate;
 use crate::{Tool, ToolErrorCategory, ToolOutput};
 use ::types::cache::{AgentCache, CachedSearchResult, SearchMatch as CachedSearchMatch};
-use ::types::store::DiagnosticsProvider;
 use types::{
     default_batch_line_limit, default_batch_max_matches, default_batch_max_size,
     default_context_lines, default_continue_on_error, file_parameters_schema,
@@ -98,8 +97,6 @@ pub struct FileTool {
     max_read_bytes: usize,
     /// Track file reads/writes for external modification detection
     tracker: Arc<FileTracker>,
-    /// Optional diagnostics provider
-    diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     /// Optional cache manager for file/search operations
     cache_manager: Option<Arc<dyn AgentCache>>,
     /// Optional security gate
@@ -128,7 +125,6 @@ impl FileTool {
             require_base_dir: false,
             max_read_bytes: DEFAULT_MAX_READ_BYTES,
             tracker,
-            diagnostics: None,
             cache_manager: None,
             security_gate: None,
             agent_id: None,
@@ -151,12 +147,6 @@ impl FileTool {
     /// Set maximum read size in bytes
     pub fn with_max_read(mut self, bytes: usize) -> Self {
         self.max_read_bytes = bytes;
-        self
-    }
-
-    /// Attach a diagnostics provider.
-    pub fn with_diagnostics_provider(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
-        self.diagnostics = Some(provider);
         self
     }
 
@@ -354,16 +344,6 @@ impl FileTool {
                             .await;
                         current = directory.parent();
                     }
-                }
-
-                if let Some(provider) = self.diagnostics.clone() {
-                    let path = path.clone();
-                    tokio::spawn(async move {
-                        let _ = provider.ensure_open(&path).await;
-                        if let Ok(latest_content) = fs::read_to_string(&path).await {
-                            let _ = provider.did_change(&path, &latest_content).await;
-                        }
-                    });
                 }
 
                 ToolOutput::success(serde_json::json!({

@@ -77,12 +77,12 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
 // Store traits
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
-    AuthProfileTestRequest, ConfigStore, CredentialInput, DiagnosticsProvider, MarketplaceStore,
-    OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
-    SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
-    SessionSearchQuery, SessionStore, TaskArtifactListRequest, TaskControlRequest,
-    TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest,
-    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskUpdateRequest, TerminalStore,
+    AuthProfileTestRequest, ConfigStore, CredentialInput, MarketplaceStore, OpsProvider,
+    ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore,
+    SecurityQueryProvider, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest,
+    TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
+    TaskProgressRequest, TaskStore, TaskUpdateRequest, TerminalStore,
 };
 
 // Shared orchestration contracts
@@ -230,11 +230,11 @@ pub use defaults::{
     DEFAULT_AGENT_MAX_TOOL_CALLS, DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
     DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
     DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
-    DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
-    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_CHAT_MAX_SESSION_HISTORY,
-    DEFAULT_GITHUB_CACHE_TTL_SECS, DEFAULT_MARKETPLACE_CACHE_TTL_SECS,
-    DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH,
-    DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MAX_TOOL_CALLS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
+    DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
+    DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
+    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
+    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_TASK_MAX_TOOL_CALLS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
     DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
     DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
     DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES, MAX_API_WEB_SEARCH_RESULTS,

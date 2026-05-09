@@ -32,7 +32,6 @@ pub(crate) const SUPPORTED_FIELDS: &[&str] = &[
     "api.session_list_limit",
     "api.task_progress_event_limit",
     "api.task_message_list_limit",
-    "api.diagnostics_timeout_ms",
     "runtime.task_runner_poll_interval_ms",
     "runtime.task_runner_max_concurrent_tasks",
     "runtime.chat_max_session_history",
@@ -42,7 +41,8 @@ pub(crate) const SUPPORTED_FIELDS: &[&str] = &[
 
 pub(crate) const VALID_TOP_LEVEL_FIELDS: &str = "system.*, agent.*, api.*, runtime.*, registry.*";
 pub(crate) const VALID_AGENT_FIELDS: &str = "agent.tool_timeout_secs, agent.llm_timeout_secs, agent.bash_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.max_depth, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_tool_concurrency, agent.max_tool_result_length, agent.prune_tool_max_chars, agent.compact_preserve_tokens, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs, agent.fallback_models";
-pub(crate) const VALID_API_FIELDS: &str = "api.session_list_limit, api.task_progress_event_limit, api.task_message_list_limit, api.diagnostics_timeout_ms";
+pub(crate) const VALID_API_FIELDS: &str =
+    "api.session_list_limit, api.task_progress_event_limit, api.task_message_list_limit";
 pub(crate) const VALID_RUNTIME_FIELDS: &str = "runtime.task_runner_poll_interval_ms, runtime.task_runner_max_concurrent_tasks, runtime.chat_max_session_history";
 pub(crate) const VALID_REGISTRY_FIELDS: &str =
     "registry.github_cache_ttl_secs, registry.marketplace_cache_ttl_secs";

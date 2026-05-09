@@ -1,7 +1,6 @@
 //! Edit tool for precise string replacement in files.
 //!
-//! Provides old_string/new_string replacement with 3-level fallback matching
-//! and optional post-edit LSP diagnostics.
+//! Provides old_string/new_string replacement with 3-level fallback matching.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -12,10 +11,8 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use super::file_tracker::FileTracker;
-use super::shared::{LSP_DIAGNOSTIC_TIMEOUT, MAX_LSP_DIAGNOSTIC_ERRORS};
 use crate::{Result, Tool, ToolOutput};
 use types::cache::AgentCache;
-use types::store::DiagnosticsProvider;
 
 // ── Error types ─────────────────────────────────────────────────────
 
@@ -304,7 +301,6 @@ pub struct EditTool {
     base_dir: Option<PathBuf>,
     require_base_dir: bool,
     tracker: Arc<FileTracker>,
-    diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     cache_manager: Option<Arc<dyn AgentCache>>,
 }
 
@@ -314,7 +310,6 @@ impl EditTool {
             base_dir: None,
             require_base_dir: false,
             tracker,
-            diagnostics: None,
             cache_manager: None,
         }
     }
@@ -326,11 +321,6 @@ impl EditTool {
 
     pub fn require_base_dir(mut self) -> Self {
         self.require_base_dir = true;
-        self
-    }
-
-    pub fn with_diagnostics_provider(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
-        self.diagnostics = Some(provider);
         self
     }
 
@@ -359,59 +349,6 @@ impl EditTool {
                 current = directory.parent();
             }
         }
-    }
-
-    /// Notify LSP and wait for diagnostics, returning error-only entries.
-    async fn run_diagnostics(&self, path: &Path) -> Option<String> {
-        let provider = self.diagnostics.as_ref()?;
-
-        if provider.ensure_open(path).await.is_err() {
-            return None;
-        }
-
-        if let Ok(content) = fs::read_to_string(path).await {
-            let _ = provider.did_change(path, &content).await;
-        }
-
-        let diags = match provider
-            .wait_for_diagnostics(path, LSP_DIAGNOSTIC_TIMEOUT)
-            .await
-        {
-            Ok(d) => d,
-            Err(_) => return None,
-        };
-
-        let errors: Vec<String> = diags
-            .iter()
-            .filter(|d| {
-                matches!(
-                    d.severity,
-                    Some(lsp_types::DiagnosticSeverity::ERROR) | None
-                )
-            })
-            .take(MAX_LSP_DIAGNOSTIC_ERRORS)
-            .map(|d| {
-                format!(
-                    "ERROR [{}:{}] {}",
-                    d.range.start.line + 1,
-                    d.range.start.character + 1,
-                    d.message
-                )
-            })
-            .collect();
-
-        if errors.is_empty() {
-            return None;
-        }
-
-        let path_str = path.display();
-        let mut output = format!("\nLSP errors detected:\n<diagnostics file=\"{path_str}\">\n");
-        for line in &errors {
-            output.push_str(line);
-            output.push('\n');
-        }
-        output.push_str("</diagnostics>");
-        Some(output)
     }
 }
 
@@ -535,16 +472,11 @@ impl Tool for EditTool {
         self.invalidate_caches(&path).await;
 
         // Build output message
-        let mut msg = format!(
+        let msg = format!(
             "Edit applied to {} ({} lines changed)",
             path.display(),
             lines_changed
         );
-
-        // LSP diagnostics (synchronous wait)
-        if let Some(diag_output) = self.run_diagnostics(&path).await {
-            msg.push_str(&diag_output);
-        }
 
         Ok(ToolOutput::success(json!({
             "message": msg,

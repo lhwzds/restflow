@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 /// Common generated/build directories to skip during recursive traversal.
 pub(crate) const COMMON_SKIP_DIRS: &[&str] = &[
     ".git",
@@ -21,12 +19,6 @@ pub(crate) const COMMON_SKIP_DIRS: &[&str] = &[
 
 /// Additional skip directories used by glob traversal.
 const GLOB_EXTRA_SKIP_DIRS: &[&str] = &[".node_modules"];
-
-/// Maximum number of LSP diagnostic errors to include in output.
-pub(crate) const MAX_LSP_DIAGNOSTIC_ERRORS: usize = 20;
-
-/// Timeout for waiting on LSP diagnostics after file edits.
-pub(crate) const LSP_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Returns true when a directory name should be skipped by grep traversal.
 pub(crate) fn should_skip_grep_dir(name: &str) -> bool {

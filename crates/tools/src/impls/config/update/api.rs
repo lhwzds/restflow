@@ -5,7 +5,7 @@ use types::config_types::ConfigDocument;
 use crate::Result;
 
 use super::super::fields;
-use super::super::parse::{parse_u32, parse_u64, parse_usize};
+use super::super::parse::{parse_u32, parse_usize};
 
 pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> Result<()> {
     match field {
@@ -18,9 +18,6 @@ pub(crate) fn apply(field: &str, value: &Value, config: &mut ConfigDocument) -> 
         }
         "task_message_list_limit" => {
             config.api.task_message_list_limit = parse_usize(value, "api.task_message_list_limit")?;
-        }
-        "diagnostics_timeout_ms" => {
-            config.api.diagnostics_timeout_ms = parse_u64(value, "api.diagnostics_timeout_ms")?;
         }
         _ => {
             return Err(fields::unknown_domain_field(

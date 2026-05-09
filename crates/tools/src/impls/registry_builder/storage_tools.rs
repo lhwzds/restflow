@@ -4,7 +4,6 @@ use crate::impls::TaskTool;
 use crate::impls::agent_crud::AgentCrudTool;
 use crate::impls::auth_profile::AuthProfileTool;
 use crate::impls::config::ConfigTool;
-use crate::impls::diagnostics::DiagnosticsTool;
 use crate::impls::manage_ops::ManageOpsTool;
 use crate::impls::marketplace::MarketplaceTool;
 use crate::impls::secrets::SecretsTool;
@@ -16,8 +15,8 @@ use crate::security::SecurityGate;
 use types::AgentOperationAssessor;
 use types::skill::SkillProvider;
 use types::store::{
-    AgentStore, AuthProfileStore, ConfigStore, DiagnosticsProvider, MarketplaceStore, OpsProvider,
-    SecretStore, SecurityQueryProvider, SessionStore, TaskStore, TerminalStore,
+    AgentStore, AuthProfileStore, ConfigStore, MarketplaceStore, OpsProvider, SecretStore,
+    SecurityQueryProvider, SessionStore, TaskStore, TerminalStore,
 };
 
 use super::ToolRegistryBuilder;
@@ -35,21 +34,6 @@ fn build_task_tool(
 }
 
 impl ToolRegistryBuilder {
-    pub fn with_diagnostics(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
-        self.registry.register(DiagnosticsTool::new(provider));
-        self
-    }
-
-    pub fn with_diagnostics_with_timeout(
-        mut self,
-        provider: Arc<dyn DiagnosticsProvider>,
-        default_timeout_ms: u64,
-    ) -> Self {
-        self.registry
-            .register(DiagnosticsTool::with_timeout(provider, default_timeout_ms));
-        self
-    }
-
     pub fn with_skill_tool(mut self, provider: Arc<dyn SkillProvider>) -> Self {
         self.registry.register(SkillTool::new(provider));
         self

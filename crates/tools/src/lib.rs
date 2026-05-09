@@ -41,8 +41,8 @@ pub use impls::{EditTool, MultiEditTool};
 
 // Re-export migrated tool implementations
 pub use impls::{
-    AgentCrudTool, AuthProfileTool, ConfigTool, DiagnosticsTool, PatchTool, ProcessTool, ReplyTool,
-    SecretGetPolicy, SecretsTool, SessionTool, SkillTool, SwitchModelTool, TaskTool,
+    AgentCrudTool, AuthProfileTool, ConfigTool, PatchTool, ProcessTool, ReplyTool, SecretGetPolicy,
+    SecretsTool, SessionTool, SkillTool, SwitchModelTool, TaskTool,
 };
 
 // Re-export tool_registry inline migrated tools

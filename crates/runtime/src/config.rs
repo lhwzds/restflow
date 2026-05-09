@@ -19,13 +19,13 @@ use types::{
     DEFAULT_AGENT_MAX_TOOL_CALLS, DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
     DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
     DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
-    DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
-    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_CHAT_MAX_SESSION_HISTORY,
-    DEFAULT_GITHUB_CACHE_TTL_SECS, DEFAULT_MARKETPLACE_CACHE_TTL_SECS,
-    DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH,
-    DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
-    DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
-    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
+    DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
+    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
+    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_TASK_MESSAGE_LIST_LIMIT, DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
+    DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
+    MAX_API_WEB_SEARCH_RESULTS,
 };
 
 const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
@@ -397,8 +397,6 @@ pub struct ApiDefaults {
     pub task_message_list_limit: usize,
     /// Default result count for `web_search`.
     pub web_search_num_results: usize,
-    /// Default diagnostics wait timeout in milliseconds.
-    pub diagnostics_timeout_ms: u64,
 }
 
 /// Aligned alias that matches the on-disk `[api]` section naming.
@@ -411,7 +409,6 @@ impl Default for ApiDefaults {
             task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
             task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
-            diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }
     }
 }
@@ -440,11 +437,6 @@ impl ApiDefaults {
             return Err(anyhow::anyhow!(
                 "api.web_search_num_results must be at most {}",
                 MAX_API_WEB_SEARCH_RESULTS
-            ));
-        }
-        if self.diagnostics_timeout_ms == 0 {
-            return Err(anyhow::anyhow!(
-                "api.diagnostics_timeout_ms must be at least 1"
             ));
         }
         Ok(())
@@ -922,7 +914,6 @@ struct ApiDefaultsOverride {
     pub background_progress_event_limit: Option<usize>,
     pub background_message_list_limit: Option<usize>,
     pub web_search_num_results: Option<usize>,
-    pub diagnostics_timeout_ms: Option<u64>,
 }
 
 impl ApiDefaultsOverride {
@@ -944,9 +935,6 @@ impl ApiDefaultsOverride {
         }
         if let Some(value) = self.web_search_num_results {
             api_defaults.web_search_num_results = value;
-        }
-        if let Some(value) = self.diagnostics_timeout_ms {
-            api_defaults.diagnostics_timeout_ms = value;
         }
     }
 }
@@ -1699,10 +1687,6 @@ mod tests {
             DEFAULT_API_WEB_SEARCH_RESULTS
         );
         assert_eq!(
-            config.api_defaults.diagnostics_timeout_ms,
-            DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS
-        );
-        assert_eq!(
             config.api_defaults.task_progress_event_limit,
             DEFAULT_TASK_PROGRESS_EVENT_LIMIT
         );
@@ -2161,14 +2145,12 @@ fallback_models = ["alpha", "beta"]
         let file = write_override_file(
             r#"[api]
 web_search_num_results = 7
-diagnostics_timeout_ms = 9000
 "#,
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.api_defaults.web_search_num_results, 7);
-        assert_eq!(effective.api_defaults.diagnostics_timeout_ms, 9000);
     }
 
     #[test]
@@ -2322,10 +2304,6 @@ session_list_limit = 33
 
         let mut config = SystemConfig::default();
         config.api_defaults.web_search_num_results = MAX_API_WEB_SEARCH_RESULTS + 1;
-        assert!(config.validate().is_err());
-
-        let mut config = SystemConfig::default();
-        config.api_defaults.diagnostics_timeout_ms = 0;
         assert!(config.validate().is_err());
     }
 

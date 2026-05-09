@@ -8,7 +8,6 @@ use crate::impls::glob_tool::GlobTool;
 use crate::impls::grep_tool::GrepTool;
 use crate::impls::multiedit::MultiEditTool;
 use crate::impls::patch::PatchTool;
-use types::store::DiagnosticsProvider;
 
 use super::ToolRegistryBuilder;
 use super::configs::{BashConfig, FileConfig};
@@ -39,31 +38,14 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_edit(self) -> Self {
-        self.with_edit_and_diagnostics(None)
-    }
-
-    pub fn with_edit_and_diagnostics(
-        mut self,
-        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
-    ) -> Self {
-        let mut tool = EditTool::with_tracker(self.tracker.clone());
-        if let Some(diag) = diagnostics {
-            tool = tool.with_diagnostics_provider(diag);
-        }
+    pub fn with_edit(mut self) -> Self {
+        let tool = EditTool::with_tracker(self.tracker.clone());
         self.registry.register(tool);
         self
     }
 
-    pub fn with_edit_and_diagnostics_and_base_dir(
-        mut self,
-        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
-        base_dir: Option<PathBuf>,
-    ) -> Self {
+    pub fn with_edit_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
         let mut tool = EditTool::with_tracker(self.tracker.clone()).require_base_dir();
-        if let Some(diag) = diagnostics {
-            tool = tool.with_diagnostics_provider(diag);
-        }
         if let Some(base_dir) = base_dir {
             tool = tool.with_base_dir(base_dir);
         }
@@ -71,31 +53,14 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_multiedit(self) -> Self {
-        self.with_multiedit_and_diagnostics(None)
-    }
-
-    pub fn with_multiedit_and_diagnostics(
-        mut self,
-        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
-    ) -> Self {
-        let mut tool = MultiEditTool::with_tracker(self.tracker.clone());
-        if let Some(diag) = diagnostics {
-            tool = tool.with_diagnostics_provider(diag);
-        }
+    pub fn with_multiedit(mut self) -> Self {
+        let tool = MultiEditTool::with_tracker(self.tracker.clone());
         self.registry.register(tool);
         self
     }
 
-    pub fn with_multiedit_and_diagnostics_and_base_dir(
-        mut self,
-        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
-        base_dir: Option<PathBuf>,
-    ) -> Self {
+    pub fn with_multiedit_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
         let mut tool = MultiEditTool::with_tracker(self.tracker.clone()).require_base_dir();
-        if let Some(diag) = diagnostics {
-            tool = tool.with_diagnostics_provider(diag);
-        }
         if let Some(base_dir) = base_dir {
             tool = tool.with_base_dir(base_dir);
         }
