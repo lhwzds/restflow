@@ -329,6 +329,7 @@ impl LlmClient for OpenAIClient {
             tool_calls,
             finish_reason,
             usage,
+            reasoning_content: None,
         })
     }
 

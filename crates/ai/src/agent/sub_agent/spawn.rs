@@ -1715,6 +1715,7 @@ mod tests {
                     total_tokens: 1,
                     cost_usd: Some(0.0),
                 }),
+                reasoning_content: None,
             })
         }
 

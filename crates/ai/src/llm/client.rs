@@ -32,6 +32,11 @@ pub struct Message {
     /// Tool calls made by the assistant (for assistant messages)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+    /// Provider-specific reasoning content (e.g. DeepSeek reasoning_content).
+    /// Must be round-tripped back to the API when present on assistant messages
+    /// with tool_calls, otherwise the provider returns 400.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
 }
 
 impl Message {
@@ -43,6 +48,7 @@ impl Message {
             tool_call_id: None,
             name: None,
             tool_calls: None,
+            reasoning_content: None,
         }
     }
 
@@ -54,6 +60,7 @@ impl Message {
             tool_call_id: None,
             name: None,
             tool_calls: None,
+            reasoning_content: None,
         }
     }
 
@@ -65,6 +72,7 @@ impl Message {
             tool_call_id: None,
             name: None,
             tool_calls: None,
+            reasoning_content: None,
         }
     }
 
@@ -76,6 +84,23 @@ impl Message {
             tool_call_id: None,
             name: None,
             tool_calls: Some(tool_calls),
+            reasoning_content: None,
+        }
+    }
+
+    /// Create an assistant message with tool calls and reasoning content
+    pub fn assistant_with_tool_calls_and_reasoning(
+        content: Option<String>,
+        tool_calls: Vec<ToolCall>,
+        reasoning_content: Option<String>,
+    ) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: content.unwrap_or_default(),
+            tool_call_id: None,
+            name: None,
+            tool_calls: Some(tool_calls),
+            reasoning_content,
         }
     }
 
@@ -87,6 +112,7 @@ impl Message {
             tool_call_id: Some(tool_call_id.into()),
             name: None,
             tool_calls: None,
+            reasoning_content: None,
         }
     }
 }
@@ -106,6 +132,10 @@ pub struct CompletionResponse {
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: FinishReason,
     pub usage: Option<TokenUsage>,
+    /// Provider-specific reasoning content (e.g. DeepSeek reasoning_content).
+    /// When present, must be stored in the assistant message so it can be
+    /// sent back to the API on subsequent requests.
+    pub reasoning_content: Option<String>,
 }
 
 /// Reason for completion

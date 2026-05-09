@@ -428,6 +428,7 @@ impl LlmClient for AnthropicClient {
                 total_tokens: data.usage.input_tokens + data.usage.output_tokens,
                 cost_usd,
             }),
+            reasoning_content: None,
         })
     }
 

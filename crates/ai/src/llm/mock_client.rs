@@ -136,6 +136,7 @@ impl MockLlmClient {
             tool_calls: Vec::new(),
             finish_reason: FinishReason::Stop,
             usage: Some(Self::usage_for(text.len())),
+            reasoning_content: None,
         }
     }
 }
@@ -166,6 +167,7 @@ impl LlmClient for MockLlmClient {
                 content: Some(content),
                 tool_calls: Vec::new(),
                 finish_reason: FinishReason::Stop,
+                reasoning_content: None,
             }),
             MockStepKind::ToolCall {
                 id,
@@ -180,6 +182,7 @@ impl LlmClient for MockLlmClient {
                     arguments,
                 }],
                 finish_reason: FinishReason::ToolCalls,
+                reasoning_content: None,
             }),
             MockStepKind::Error(message) => Err(AiError::Llm(message)),
             MockStepKind::Timeout => Err(AiError::Llm("mock timeout".to_string())),

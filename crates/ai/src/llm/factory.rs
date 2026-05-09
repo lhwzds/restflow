@@ -6,7 +6,8 @@ use std::sync::Arc;
 use crate::error::{AiError, Result};
 use crate::llm::retry::RetryingLlmClient;
 use crate::llm::{
-    AnthropicClient, CodexClient, GeminiCliClient, LlmClient, OpenAIClient, OpenCodeClient,
+    AnthropicClient, CodexClient, DeepSeekClient, GeminiCliClient, LlmClient, OpenAIClient,
+    OpenCodeClient,
 };
 use types::{ClientKind, LlmProvider, ModelSpec};
 
@@ -78,6 +79,9 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 match spec.provider {
                     LlmProvider::Anthropic => {
                         Arc::new(AnthropicClient::new(key)?.with_model(spec.client_model))
+                    }
+                    LlmProvider::DeepSeek => {
+                        Arc::new(DeepSeekClient::new(key)?.with_model(spec.client_model))
                     }
                     LlmProvider::MiniMax | LlmProvider::MiniMaxCodingPlan => Arc::new(
                         AnthropicClient::new(key)?
@@ -179,6 +183,46 @@ mod tests {
             Some(ClientKind::ClaudeCodeCli)
         );
         assert_eq!(factory.client_kind_for_model("missing"), None);
+    }
+
+    #[test]
+    fn deepseek_provider_creates_deepseek_client() {
+        let mut api_keys: HashMap<LlmProvider, String> = HashMap::new();
+        api_keys.insert(LlmProvider::DeepSeek, "sk-test-deepseek-key".to_string());
+
+        let factory = DefaultLlmClientFactory::new(
+            api_keys,
+            vec![ModelSpec::new(
+                "deepseek-v4-pro",
+                LlmProvider::DeepSeek,
+                "deepseek-v4-pro",
+            )],
+        );
+
+        let client = factory
+            .create_client("deepseek-v4-pro", Some("sk-test-deepseek-key"))
+            .expect("DeepSeek client creation should succeed");
+
+        // Verify the client is wired correctly (provider() returns "deepseek")
+        assert_eq!(client.provider(), "deepseek");
+        assert_eq!(client.model(), "deepseek-v4-pro");
+    }
+
+    #[test]
+    fn openai_provider_still_uses_openai_client() {
+        let mut api_keys: HashMap<LlmProvider, String> = HashMap::new();
+        api_keys.insert(LlmProvider::OpenAI, "sk-test-openai-key".to_string());
+
+        let factory = DefaultLlmClientFactory::new(
+            api_keys,
+            vec![ModelSpec::new("gpt-5", LlmProvider::OpenAI, "gpt-5")],
+        );
+
+        let client = factory
+            .create_client("gpt-5", Some("sk-test-openai-key"))
+            .expect("OpenAI client creation should succeed");
+
+        assert_eq!(client.provider(), "openai");
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub use client::{
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
 pub use factory::{DefaultLlmClientFactory, LlmClientFactory};
-pub use http::{AnthropicClient, OpenAIClient};
+pub use http::{AnthropicClient, DeepSeekClient, OpenAIClient};
 #[cfg(any(test, feature = "test-utils"))]
 pub use mock_client::{MockLlmClient, MockStep, MockStepKind};
 pub use retry::{LlmRetryConfig, RetryingLlmClient};

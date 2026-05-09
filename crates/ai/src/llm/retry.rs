@@ -246,6 +246,7 @@ mod tests {
                     total_tokens: 2,
                     cost_usd: None,
                 }),
+                reasoning_content: None,
             })
         }
 

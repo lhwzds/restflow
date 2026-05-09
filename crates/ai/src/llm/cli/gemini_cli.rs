@@ -96,6 +96,7 @@ impl LlmClient for GeminiCliClient {
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         })
     }
 

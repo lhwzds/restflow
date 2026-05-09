@@ -680,10 +680,13 @@ impl AgentExecutor {
             }
 
             // Add assistant message WITH tool_calls to maintain proper conversation history
-            // This is required by OpenAI/Anthropic APIs to correlate tool results with their calls
-            let tool_call_msg = Message::assistant_with_tool_calls(
+            // This is required by OpenAI/Anthropic APIs to correlate tool results with their calls.
+            // Preserve provider-specific reasoning_content (e.g. DeepSeek) so it can be
+            // round-tripped back on subsequent requests.
+            let tool_call_msg = Message::assistant_with_tool_calls_and_reasoning(
                 response.content.clone(),
                 response.tool_calls.clone(),
+                response.reasoning_content.clone(),
             );
             state.add_message(tool_call_msg);
 

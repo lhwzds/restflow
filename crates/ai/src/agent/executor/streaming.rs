@@ -99,6 +99,8 @@ impl AgentExecutor {
         let mut accumulator = ToolCallAccumulator::new();
         let mut usage = None;
         let mut finish_reason = None;
+        let captures_reasoning_content = self.llm.provider() == "deepseek";
+        let mut reasoning_content = String::new();
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result?;
@@ -114,6 +116,9 @@ impl AgentExecutor {
 
             if let Some(thinking) = &chunk.thinking {
                 emitter.emit_thinking_delta(thinking).await;
+                if captures_reasoning_content {
+                    reasoning_content.push_str(thinking);
+                }
             }
 
             if let Some(delta) = &chunk.tool_call_delta {
@@ -138,6 +143,11 @@ impl AgentExecutor {
             tool_calls: accumulator.finalize(),
             finish_reason: finish_reason.unwrap_or(FinishReason::Stop),
             usage,
+            reasoning_content: if reasoning_content.is_empty() {
+                None
+            } else {
+                Some(reasoning_content)
+            },
         })
     }
 }

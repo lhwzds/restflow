@@ -253,6 +253,7 @@ impl LlmClient for TestLlmClient {
             tool_calls: Vec::new(),
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         })
     }
 

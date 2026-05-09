@@ -110,6 +110,7 @@ impl LlmClient for MockLlmClient {
                     total_tokens: 15,
                     cost_usd: None,
                 }),
+                reasoning_content: None,
             })
         } else {
             Ok(responses.remove(0))
@@ -166,6 +167,7 @@ impl LlmClient for DelayedLlmClient {
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         })
     }
 
@@ -209,6 +211,7 @@ impl LlmClient for ChunkedStreamingLlmClient {
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         })
     }
 
@@ -632,6 +635,7 @@ async fn test_executor_simple_completion() {
             total_tokens: 30,
             cost_usd: None,
         }),
+        reasoning_content: None,
     };
 
     let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -653,6 +657,7 @@ async fn test_execute_from_state_resumes_without_reinjecting_prompt() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -724,6 +729,7 @@ async fn test_executor_uses_working_memory() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -762,6 +768,7 @@ async fn test_executor_multi_turn_with_tool_calls() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         // Second response (completion)
         CompletionResponse {
@@ -769,6 +776,7 @@ async fn test_executor_multi_turn_with_tool_calls() {
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -803,12 +811,14 @@ async fn test_executor_configured_reviewer_sees_session_context_before_tool_exec
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("All done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
     let mock_llm = Arc::new(MockLlmClient::new(responses));
@@ -1019,12 +1029,14 @@ async fn test_executor_state_tracks_full_history() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("Done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1049,6 +1061,7 @@ async fn test_executor_injects_workspace_instructions_as_user_message() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1138,12 +1151,14 @@ async fn test_executor_defers_approval_and_continues() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("continued".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1177,12 +1192,14 @@ async fn test_executor_retries_retryable_tool_errors() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1212,12 +1229,14 @@ async fn test_executor_skips_retry_for_non_retryable_errors() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1250,12 +1269,14 @@ async fn test_failed_tool_emitter_keeps_structured_result() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1291,6 +1312,7 @@ async fn test_run_stream_basic() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1333,12 +1355,14 @@ async fn test_run_stream_with_tools() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1390,6 +1414,7 @@ async fn test_utf8_truncation_chinese_chars() {
         }],
         finish_reason: FinishReason::ToolCalls,
         usage: None,
+        reasoning_content: None,
     };
 
     let mock_llm = Arc::new(MockLlmClient::new(vec![
@@ -1399,6 +1424,7 @@ async fn test_utf8_truncation_chinese_chars() {
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ]));
 
@@ -1422,6 +1448,7 @@ async fn test_run_via_stream_matches_run_direct() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let direct_llm = Arc::new(MockLlmClient::new(vec![response.clone()]));
@@ -1453,6 +1480,7 @@ async fn test_backward_compat_execute_streaming_emits_complete() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1543,6 +1571,7 @@ async fn test_non_stream_run_with_emitter_emits_tool_events() {
                 total_tokens: 18,
                 cost_usd: Some(0.02),
             }),
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
@@ -1554,6 +1583,7 @@ async fn test_non_stream_run_with_emitter_emits_tool_events() {
                 total_tokens: 12,
                 cost_usd: Some(0.01),
             }),
+            reasoning_content: None,
         },
     ];
 
@@ -1595,12 +1625,14 @@ async fn test_non_stream_run_from_state_with_emitter_emits_tool_events() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
 
@@ -1644,6 +1676,7 @@ async fn test_non_stream_run_with_emitter_records_llm_usage() {
             total_tokens: 15,
             cost_usd: Some(0.03),
         }),
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1734,6 +1767,7 @@ async fn test_run_with_emitter_emits_model_switch_for_routing() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1795,6 +1829,7 @@ async fn test_prompt_flags_disable_tools() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1821,6 +1856,7 @@ async fn test_prompt_flags_disable_base() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -1846,6 +1882,7 @@ async fn test_prompt_flags_default_all_enabled() {
         tool_calls: vec![],
         finish_reason: FinishReason::Stop,
         usage: None,
+        reasoning_content: None,
     };
 
     let llm = Arc::new(MockLlmClient::new(vec![response]));
@@ -2479,12 +2516,14 @@ async fn test_spawn_subagent_uses_telemetry_run_id_as_parent_run_id() {
             }],
             finish_reason: FinishReason::ToolCalls,
             usage: None,
+            reasoning_content: None,
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
             usage: None,
+            reasoning_content: None,
         },
     ];
     let mut tools = ToolRegistry::new();
@@ -2937,4 +2976,114 @@ fn test_truncate_tool_output_exact_boundary() {
     let exact = "b".repeat(100);
     let result = truncate_tool_output(&exact, 100, None, "c1", "test");
     assert_eq!(result, exact);
+}
+
+// ── DeepSeek reasoning_content preservation tests ──
+
+/// Verify that when a CompletionResponse includes `reasoning_content`,
+/// the executor preserves it in the assistant tool-call message added to state.
+/// This is required for DeepSeek thinking-mode models which return 400 if
+/// reasoning_content is missing from assistant tool-call messages on subsequent
+/// requests.
+#[tokio::test]
+async fn executor_preserves_reasoning_content_in_tool_call_message() {
+    use crate::llm::{CompletionResponse, FinishReason, ToolCall};
+
+    let tool_response = CompletionResponse {
+        content: None,
+        tool_calls: vec![ToolCall {
+            id: "call_ds_1".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "echo hello"}),
+        }],
+        finish_reason: FinishReason::ToolCalls,
+        usage: None,
+        reasoning_content: Some("Let me think about the best approach...".to_string()),
+    };
+
+    let final_response = CompletionResponse {
+        content: Some("Done!".to_string()),
+        tool_calls: vec![],
+        finish_reason: FinishReason::Stop,
+        usage: None,
+        reasoning_content: None,
+    };
+
+    let mut registry = ToolRegistry::new();
+    registry.register(EchoTool);
+    let tools = Arc::new(registry);
+    let llm = Arc::new(MockLlmClient::new(vec![tool_response, final_response]));
+    let executor = AgentExecutor::new(llm, tools);
+
+    let config = AgentConfig::new("test input".to_string()).with_max_iterations(5);
+
+    let result = executor
+        .run(config)
+        .await
+        .expect("execution should succeed");
+    assert!(result.success);
+
+    // Find the assistant message with tool_calls in state
+    let tool_call_msg = result
+        .state
+        .messages
+        .iter()
+        .find(|m| m.tool_calls.is_some())
+        .expect("should have assistant message with tool_calls");
+
+    // Verify reasoning_content is preserved
+    assert_eq!(
+        tool_call_msg.reasoning_content.as_deref(),
+        Some("Let me think about the best approach...")
+    );
+}
+
+/// Verify that when CompletionResponse has no reasoning_content, the assistant
+/// tool-call message has reasoning_content set to None (no spurious data).
+#[tokio::test]
+async fn executor_handles_missing_reasoning_content_gracefully() {
+    use crate::llm::{CompletionResponse, FinishReason, ToolCall};
+
+    let tool_response = CompletionResponse {
+        content: None,
+        tool_calls: vec![ToolCall {
+            id: "call_no_reason".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "ls"}),
+        }],
+        finish_reason: FinishReason::ToolCalls,
+        usage: None,
+        reasoning_content: None,
+    };
+
+    let final_response = CompletionResponse {
+        content: Some("All done".to_string()),
+        tool_calls: vec![],
+        finish_reason: FinishReason::Stop,
+        usage: None,
+        reasoning_content: None,
+    };
+
+    let mut registry = ToolRegistry::new();
+    registry.register(EchoTool);
+    let tools = Arc::new(registry);
+    let llm = Arc::new(MockLlmClient::new(vec![tool_response, final_response]));
+    let executor = AgentExecutor::new(llm, tools);
+
+    let config = AgentConfig::new("test input".to_string()).with_max_iterations(5);
+
+    let result = executor
+        .run(config)
+        .await
+        .expect("execution should succeed");
+    assert!(result.success);
+
+    let tool_call_msg = result
+        .state
+        .messages
+        .iter()
+        .find(|m| m.tool_calls.is_some())
+        .expect("should have assistant message with tool_calls");
+
+    assert!(tool_call_msg.reasoning_content.is_none());
 }
