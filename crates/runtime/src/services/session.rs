@@ -1,7 +1,7 @@
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
-    MessageExecution, ModelId, Task,
+    ChatTurnEventKind, MessageExecution, ModelId, Task,
 };
 use crate::runtime::session_turn::hydrate_voice_message_metadata;
 use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
@@ -504,6 +504,148 @@ impl SessionService {
             }
             session.add_message(ChatMessage::assistant(output).with_execution(execution));
             self.persist_session_view(&session, "append_task_result")?;
+            session
+        };
+
+        self.append_locks
+            .lock()
+            .expect("session append locks")
+            .retain(|_, weak| weak.strong_count() > 0);
+
+        publish_session_event(ChatSessionEvent::MessageAdded {
+            session_id: session_id.to_string(),
+            source: source.to_string(),
+        });
+
+        Ok(session)
+    }
+
+    pub fn append_task_turn_user_message(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        input: &str,
+        source: &str,
+    ) -> Result<ChatSession> {
+        let session_lock = {
+            let mut locks = self.append_locks.lock().expect("session append locks");
+            if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(session_id.to_string(), Arc::downgrade(&lock));
+                lock
+            }
+        };
+
+        let session = {
+            let _guard = session_lock.lock().expect("session append lock");
+            let mut session = self
+                .get_session_view(session_id)?
+                .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+            session.hydrate_provider_from_model();
+            session.add_message(ChatMessage::user(input));
+            session.record_turn_user_message(turn_id, input);
+            self.persist_session_view(&session, "append_task_turn_user_message")?;
+            session
+        };
+
+        self.append_locks
+            .lock()
+            .expect("session append locks")
+            .retain(|_, weak| weak.strong_count() > 0);
+
+        publish_session_event(ChatSessionEvent::MessageAdded {
+            session_id: session_id.to_string(),
+            source: source.to_string(),
+        });
+
+        Ok(session)
+    }
+
+    pub fn append_task_turn_progress(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        message: &str,
+        source: &str,
+    ) -> Result<ChatSession> {
+        let session_lock = {
+            let mut locks = self.append_locks.lock().expect("session append locks");
+            if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(session_id.to_string(), Arc::downgrade(&lock));
+                lock
+            }
+        };
+
+        let session = {
+            let _guard = session_lock.lock().expect("session append lock");
+            let mut session = self
+                .get_session_view(session_id)?
+                .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+            session.hydrate_provider_from_model();
+            session.record_turn_event(
+                turn_id,
+                ChatTurnEventKind::Progress {
+                    message: message.to_string(),
+                },
+            );
+            self.persist_session_view(&session, "append_task_turn_progress")?;
+            session
+        };
+
+        self.append_locks
+            .lock()
+            .expect("session append locks")
+            .retain(|_, weak| weak.strong_count() > 0);
+
+        publish_session_event(ChatSessionEvent::MessageAdded {
+            session_id: session_id.to_string(),
+            source: source.to_string(),
+        });
+
+        Ok(session)
+    }
+
+    pub fn append_task_turn_result(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        output: &str,
+        execution: MessageExecution,
+        is_error: bool,
+        source: &str,
+    ) -> Result<ChatSession> {
+        let session_lock = {
+            let mut locks = self.append_locks.lock().expect("session append locks");
+            if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(session_id.to_string(), Arc::downgrade(&lock));
+                lock
+            }
+        };
+
+        let session = {
+            let _guard = session_lock.lock().expect("session append lock");
+            let mut session = self
+                .get_session_view(session_id)?
+                .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+            session.hydrate_provider_from_model();
+            session.add_message(ChatMessage::assistant(output).with_execution(execution));
+            if is_error {
+                session.fail_turn(turn_id, output);
+            } else {
+                session.complete_turn_with_assistant_message(turn_id, output);
+            }
+            self.persist_session_view(&session, "append_task_turn_result")?;
             session
         };
 

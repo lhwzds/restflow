@@ -5,7 +5,7 @@ use ai::StreamDisplayMode;
 use types::skill::{SkillInfo, SkillProvider};
 
 fn should_force_non_stream(model: ModelId) -> bool {
-    model.is_cli_model() || model.provider() == Provider::ZaiCodingPlan
+    model.is_cli_model()
 }
 
 fn interactive_turn_failover_config(primary: ModelId) -> FailoverConfig {
@@ -702,7 +702,7 @@ mod tests {
         assert!(should_force_non_stream(ModelId::CodexCli));
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
-        assert!(should_force_non_stream(ModelId::Glm5_1CodingPlan));
+        assert!(!should_force_non_stream(ModelId::Glm5_1CodingPlan));
         assert!(!should_force_non_stream(ModelId::Gpt5));
     }
 

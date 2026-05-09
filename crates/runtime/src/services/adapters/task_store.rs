@@ -494,19 +494,12 @@ mod tests {
             Some(agent_storage.clone()),
             bg_storage.clone(),
         );
-        let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
-        unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_dir.path().join("agents")) };
         // Create a default agent for referencing
         let agent = crate::models::AgentNode::default();
         agent_storage
             .create_agent("test-agent".to_string(), agent)
             .unwrap();
-        unsafe {
-            match prev_disable_file_catalog {
-                Some(value) => std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", value),
-                None => std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG"),
-            }
-        }
 
         (
             TaskStoreAdapter::new(bg_storage, agent_storage, session_service)

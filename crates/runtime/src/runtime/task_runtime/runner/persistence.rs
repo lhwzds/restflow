@@ -72,7 +72,12 @@ impl TaskRunner {
     ///
     /// This bridges scheduled task execution into the chat session history so
     /// the sidebar shows execution results as regular chat messages.
-    pub(super) fn persist_task_input_to_chat_session(&self, task: &Task, input: Option<&str>) {
+    pub(super) fn persist_task_input_to_chat_session(
+        &self,
+        task: &Task,
+        input: Option<&str>,
+        turn_id: &str,
+    ) {
         let Some(input) = input else {
             return;
         };
@@ -90,9 +95,10 @@ impl TaskRunner {
         }
 
         if let Some(session_service) = &self.session_service {
-            if let Err(e) = session_service.append_user_message(
+            if let Err(e) = session_service.append_task_turn_user_message(
                 session_id,
-                ChatMessage::user(input),
+                turn_id,
+                input,
                 "task_runtime",
             ) {
                 warn!(
@@ -112,10 +118,11 @@ impl TaskRunner {
     pub(super) fn persist_to_chat_session(
         &self,
         task: &Task,
-        input: Option<&str>,
+        _input: Option<&str>,
         output: &str,
         is_error: bool,
         duration_ms: i64,
+        turn_id: &str,
     ) {
         use crate::models::{ChatExecutionStatus, MessageExecution};
 
@@ -143,11 +150,12 @@ impl TaskRunner {
         };
 
         if let Some(session_service) = &self.session_service {
-            if let Err(e) = session_service.append_task_result(
+            if let Err(e) = session_service.append_task_turn_result(
                 session_id,
-                input,
+                turn_id,
                 output,
                 execution,
+                is_error,
                 "task_runtime",
             ) {
                 warn!(

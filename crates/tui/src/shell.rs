@@ -1060,6 +1060,9 @@ fn turn_event_label(event: &ChatTurnEvent) -> String {
             let phase = if *success { "completed" } else { "failed" };
             format!("tool · {call_id} · {phase}")
         }
+        ChatTurnEventKind::Progress { message } => {
+            format!("progress · {}", compact_label(message))
+        }
         ChatTurnEventKind::Error { message } => format!("error · {}", compact_label(message)),
         ChatTurnEventKind::Canceled => "canceled".to_string(),
     }

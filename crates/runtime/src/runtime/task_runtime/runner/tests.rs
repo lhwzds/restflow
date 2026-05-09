@@ -1,6 +1,7 @@
 use super::*;
 use crate::models::{
-    ChatSession, ResourceLimits, Task, TaskControlAction, TaskEventType, TaskSchedule, TaskStatus,
+    ChatSession, ChatTurnStatus, ResourceLimits, Task, TaskControlAction, TaskEventType,
+    TaskSchedule, TaskStatus,
 };
 use crate::runtime::task_runtime::{ChannelEventEmitter, StreamEventKind};
 use crate::services::session::SessionService;
@@ -197,7 +198,8 @@ fn persist_to_chat_session_uses_session_service_when_available() {
         Arc::new(SteerRegistry::new()),
     )
     .with_session_service(session_service);
-    runner.persist_to_chat_session(&task, Some("input"), "output", false, 10);
+    runner.persist_task_input_to_chat_session(&task, Some("input"), "run-1");
+    runner.persist_to_chat_session(&task, Some("input"), "output", false, 10, "run-1");
 
     let file_session = file_store
         .get(&session.id)
@@ -207,6 +209,8 @@ fn persist_to_chat_session_uses_session_service_when_available() {
     assert_eq!(file_session.messages.len(), 2);
     assert_eq!(file_session.messages[0].content, "input");
     assert_eq!(file_session.messages[1].content, "output");
+    assert_eq!(file_session.turns.len(), 1);
+    assert_eq!(file_session.turns[0].status, ChatTurnStatus::Completed);
     assert!(chat_storage.get(&session.id).unwrap().is_none());
 }
 

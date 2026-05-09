@@ -4,9 +4,9 @@ use crate::boundary::task::{
 };
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{
-    ChatSession, ChatSessionSource, ChatTurnEvent, ModelId, Task, TaskControlAction,
-    TaskConversionResult, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec,
-    TaskTranscriptPreview,
+    ChatSession, ChatSessionSource, ChatTurnEvent, ChatTurnEventKind, ModelId, Task,
+    TaskControlAction, TaskConversionResult, TaskMessage, TaskMessageSource, TaskPatch,
+    TaskProgress, TaskSpec, TaskTranscriptPreview,
 };
 use crate::services::operation_assessment::{
     assessment_requires_confirmation, assessment_summary, ensure_assessment_confirmed,
@@ -468,10 +468,13 @@ impl TaskCommandService {
             .storage
             .get_task_progress(id, event_limit)
             .map_err(TaskCommandError::from_anyhow)?;
-        progress.transcript = Some(
-            self.progress_transcript_preview(id)
-                .map_err(TaskCommandError::from_anyhow)?,
-        );
+        let transcript = self
+            .progress_transcript_preview(id)
+            .map_err(TaskCommandError::from_anyhow)?;
+        if let Some(stage) = Self::progress_stage_from_transcript(&transcript) {
+            progress.stage = Some(stage);
+        }
+        progress.transcript = Some(transcript);
         Ok(progress)
     }
 
@@ -514,6 +517,16 @@ impl TaskCommandService {
             turn_events,
             truncated: session.messages.len() > TASK_PROGRESS_MESSAGE_LIMIT
                 || all_turn_events.len() > TASK_PROGRESS_TURN_EVENT_LIMIT,
+        }
+    }
+
+    fn progress_stage_from_transcript(transcript: &TaskTranscriptPreview) -> Option<String> {
+        let latest = transcript.turn_events.last()?;
+        match &latest.kind {
+            ChatTurnEventKind::Progress { .. } => Some("running".to_string()),
+            ChatTurnEventKind::Error { .. } => Some("failed".to_string()),
+            ChatTurnEventKind::Canceled => Some("interrupted".to_string()),
+            _ => None,
         }
     }
 
@@ -1315,8 +1328,8 @@ mod tests {
             task_storage.clone(),
         );
 
-        let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
-        unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
+        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_dir.path().join("agents")) };
         agent_storage
             .create_agent("svc-agent".to_string(), AgentNode::default())
             .expect("create agent");
@@ -1329,9 +1342,9 @@ mod tests {
             .expect("agent present")
             .id;
         unsafe {
-            match prev_disable_file_catalog {
-                Some(value) => std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", value),
-                None => std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG"),
+            match prev_agents_dir {
+                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
+                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
             }
         }
         let mut session = ChatSession::new(agent_id, ModelId::Gpt5.as_serialized_str().to_string())
@@ -1351,17 +1364,16 @@ mod tests {
         temp_dir: &tempfile::TempDir,
         name: &str,
     ) -> String {
-        let _ = temp_dir;
-        let prev_disable_file_catalog = std::env::var_os("RESTFLOW_DISABLE_AGENT_FILE_CATALOG");
-        unsafe { std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", "1") };
+        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_dir.path().join("agents")) };
         let agent = service
             .agents
             .create_agent(name.to_string(), AgentNode::default())
             .expect("create agent");
         unsafe {
-            match prev_disable_file_catalog {
-                Some(value) => std::env::set_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG", value),
-                None => std::env::remove_var("RESTFLOW_DISABLE_AGENT_FILE_CATALOG"),
+            match prev_agents_dir {
+                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
+                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
             }
         }
         agent.id

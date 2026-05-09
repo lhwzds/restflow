@@ -1,13 +1,8 @@
 use super::*;
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
-use crate::storage::simple_storage::{AgentRawStorage, SimpleStorage};
 use types::request::{AgentNode as ContractAgentNode, WireModelRef};
 use types::{ApprovalHandledResponse, CleanupReportResponse};
-
-fn raw_agent_storage(core: &Arc<AppCore>) -> AgentRawStorage {
-    AgentRawStorage::new(core.storage.get_db()).unwrap()
-}
 
 fn ensure_test_agent_with_id(core: &Arc<AppCore>, id: &str) {
     core.storage
@@ -24,17 +19,16 @@ fn ensure_test_agent_with_id(core: &Arc<AppCore>, id: &str) {
         return;
     }
 
-    let stored = crate::storage::agent::StoredAgent {
-        id: id.to_string(),
-        name: format!("Agent {id}"),
-        agent: AgentNode::with_model(ModelId::Gpt5)
-            .with_api_key(ApiKeyConfig::Direct("test-key".to_string())),
-        prompt_file: None,
-        created_at: Some(0),
-        updated_at: Some(0),
-    };
-    let raw = serde_json::to_vec(&stored).unwrap();
-    raw_agent_storage(core).put_raw(id, &raw).unwrap();
+    let path = crate::prompt_files::ensure_agents_dir()
+        .unwrap()
+        .join(format!("agent-{id}.md"));
+    std::fs::write(
+        path,
+        format!(
+            "---\nid: {id}\nname: Agent {id}\nmodel_ref:\n  provider: openai\n  model: gpt-5\ncreated_at: 0\nupdated_at: 0\n---\n\nTest agent {id}."
+        ),
+    )
+    .unwrap();
 }
 
 fn task_spec(name: &str) -> crate::models::TaskSpec {

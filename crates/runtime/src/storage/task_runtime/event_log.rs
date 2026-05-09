@@ -30,7 +30,7 @@ impl TaskStorage {
             result.push(event);
         }
 
-        // Sort by timestamp descending (most recent first)
+        // Sort by timestamp descending (most recent first).
         result.sort_by_key(|event| std::cmp::Reverse(event.timestamp));
         Ok(result)
     }

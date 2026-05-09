@@ -209,10 +209,6 @@ macro_rules! define_simple_storage {
 }
 
 define_simple_storage! {
-    pub struct AgentRawStorage { store: "agent" }
-}
-
-define_simple_storage! {
     pub struct AuthProfileRawStorage { store: "auth-profile" }
 }
 

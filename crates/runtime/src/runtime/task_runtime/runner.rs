@@ -6,9 +6,7 @@
 //! - Handling task lifecycle (start, complete, fail)
 //! - Persisting execution state and transcript updates
 
-use crate::models::{
-    ChatMessage, SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus,
-};
+use crate::models::{SteerMessage, SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus};
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
@@ -74,6 +72,40 @@ impl StreamEmitter for NoopStreamEmitter {
     }
 
     async fn emit_complete(&mut self) {}
+}
+
+impl TaskRunner {
+    async fn record_task_progress(&self, task: &Task, run_id: &str, phase: &str, details: &str) {
+        let message = if details.trim().is_empty() {
+            phase.to_string()
+        } else {
+            format!("{phase}: {details}")
+        };
+        if let Some(session_service) = &self.session_service {
+            let session_id = task.chat_session_id.trim();
+            if !session_id.is_empty()
+                && let Err(err) = session_service.append_task_turn_progress(
+                    session_id,
+                    run_id,
+                    &message,
+                    "task_runtime",
+                )
+            {
+                warn!(
+                    task_id = task.id,
+                    run_id, phase, error = %err,
+                    "Failed to persist task progress to session"
+                );
+            }
+        }
+        self.event_emitter
+            .emit(task_stream_event_context(
+                TaskStreamEvent::progress(&task.id, phase, None, Some(details.to_string())),
+                task,
+                run_id,
+            ))
+            .await;
+    }
 }
 
 /// Message types for controlling the runner
@@ -1178,6 +1210,13 @@ impl TaskRunner {
                 &run_id,
             ))
             .await;
+        self.record_task_progress(
+            &task,
+            &run_id,
+            "Preparing session",
+            "Binding task input to the session transcript",
+        )
+        .await;
 
         if resolved_input
             .as_deref()
@@ -1199,7 +1238,14 @@ impl TaskRunner {
             self.cleanup_task_tracking(task_id).await;
             return Ok(false);
         }
-        self.persist_task_input_to_chat_session(&task, resolved_input.as_deref());
+        self.persist_task_input_to_chat_session(&task, resolved_input.as_deref(), &run_id);
+        self.record_task_progress(
+            &task,
+            &run_id,
+            "Waiting for model response",
+            "Request sent to the agent model",
+        )
+        .await;
 
         let step_emitter = Some(Box::new(NoopStreamEmitter) as Box<dyn StreamEmitter>);
 

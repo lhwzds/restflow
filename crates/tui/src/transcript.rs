@@ -214,6 +214,9 @@ pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
                         success: *success,
                         result: result.clone(),
                     },
+                    ChatTurnEventKind::Progress { message } => ShellMessage::InfoNotice {
+                        content: message.clone(),
+                    },
                     ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
                         content: message.clone(),
                     },

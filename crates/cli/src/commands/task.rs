@@ -443,6 +443,9 @@ fn format_turn_event(kind: &runtime::models::ChatTurnEventKind) -> String {
                 truncate(result, 160)
             )
         }
+        runtime::models::ChatTurnEventKind::Progress { message } => {
+            format!("Progress: {}", truncate(message, 200))
+        }
         runtime::models::ChatTurnEventKind::Error { message } => {
             format!("Error: {}", truncate(message, 200))
         }

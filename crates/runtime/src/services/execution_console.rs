@@ -293,6 +293,7 @@ fn turn_title(turn: &ChatTurn) -> Option<String> {
         ChatTurnEventKind::AssistantMessage { content } => Some(trim_title(content)),
         ChatTurnEventKind::ToolCall { name, .. } => Some(format!("Tool: {name}")),
         ChatTurnEventKind::ToolResult { call_id, .. } => Some(format!("Tool result: {call_id}")),
+        ChatTurnEventKind::Progress { message } => Some(trim_title(message)),
         ChatTurnEventKind::Error { message } => Some(trim_title(message)),
         ChatTurnEventKind::Canceled => Some("Canceled turn".to_string()),
     })

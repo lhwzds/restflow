@@ -1326,6 +1326,7 @@ fn event_text(event: &SessionLogEvent) -> String {
                 name, arguments, ..
             } => format!("{name} {arguments}").to_lowercase(),
             ChatTurnEventKind::ToolResult { result, .. } => result.to_lowercase(),
+            ChatTurnEventKind::Progress { message } => message.to_lowercase(),
             ChatTurnEventKind::Error { message } => message.to_lowercase(),
             ChatTurnEventKind::Canceled => "canceled".to_string(),
         },

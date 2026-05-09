@@ -277,6 +277,8 @@ pub enum ChatTurnEventKind {
         success: bool,
         result: String,
     },
+    /// Runtime progress inside the turn.
+    Progress { message: String },
     /// The runtime reported an error for this turn.
     Error { message: String },
     /// The user canceled or interrupted this turn.

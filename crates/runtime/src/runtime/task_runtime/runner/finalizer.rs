@@ -101,6 +101,7 @@ impl<'a> TaskRunFinalizer<'a> {
             &exec_result.output,
             false,
             duration_ms,
+            &self.run_id,
         );
 
         if let Some(compaction) = exec_result.metrics.compaction.as_ref() {
@@ -166,8 +167,14 @@ impl<'a> TaskRunFinalizer<'a> {
         }
 
         if persist_to_session {
-            self.runner
-                .persist_to_chat_session(&self.task, None, error_msg, true, duration_ms);
+            self.runner.persist_to_chat_session(
+                &self.task,
+                None,
+                error_msg,
+                true,
+                duration_ms,
+                &self.run_id,
+            );
         }
     }
 
@@ -201,8 +208,14 @@ impl<'a> TaskRunFinalizer<'a> {
             error!("Failed to record task timeout: {}", err);
         }
 
-        self.runner
-            .persist_to_chat_session(&self.task, None, error_msg, true, duration_ms);
+        self.runner.persist_to_chat_session(
+            &self.task,
+            None,
+            error_msg,
+            true,
+            duration_ms,
+            &self.run_id,
+        );
     }
 
     pub(super) async fn finalize_interrupted(&self, reason: &str, duration_ms: i64) {
