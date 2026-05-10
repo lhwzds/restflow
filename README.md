@@ -103,11 +103,15 @@ A compiled execution flow.
 
 RestFlow is not a split frontend/backend app. It is a Rust runtime and TUI:
 
-- `runtime` owns daemon execution and runtime adapters
-- `ai` owns the agent loop, model execution, and subagent runtime capability
+- `types` owns the shared public data model
+- `llm` owns model client adapters
+- `agent` owns the agent loop and turn execution
+- `tools` owns built-in tool implementations
+- `core` owns local file-backed state, secrets, and runtime services
+- `runner` owns foreground and background run orchestration
+- `daemon` owns background task hosting
+- `cli` and `tui` are the local user surfaces
 - Python capabilities live outside the core runtime as skrun-compatible examples
-- `tools` owns tool implementations and registry assembly helpers
-- `tui` is the primary user interface
 - `skrun` owns external executable tool examples and installed skill runs
 
 Execution naming follows one canonical model:
@@ -125,8 +129,8 @@ See the local task/run domain reference for the current design:
 
 RestFlow now focuses on the minimal runtime foundation:
 
-- daemon-owned execution
-- TUI and CLI as clients
+- foreground TUI execution
+- daemon-hosted background execution
 - minimal tool execution
 - skill discovery through `load_skill`
 - executable skill runs through `run_skill`
@@ -150,6 +154,9 @@ portable artifacts:
 ```bash
 # Rust workspace
 cargo check
+
+# local daemon
+make run
 ```
 
 Default MCP HTTP endpoint:

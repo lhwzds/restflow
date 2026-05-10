@@ -1,11 +1,11 @@
 ---
 title: Task and Run Domain Model
 covers:
-  - crates/runtime/src/models/task_runtime.rs
-  - crates/runtime/src/runtime/task_runtime/**/*.rs
-  - crates/runtime/src/storage/task_runtime/**/*.rs
-  - crates/runtime/src/mcp/server/tasks.rs
-  - crates/tools/src/impls/task/**/*.rs
+  - crates/types/src/lib.rs
+  - crates/core/src/lib.rs
+  - crates/runner/src/lib.rs
+  - crates/daemon/src/lib.rs
+  - crates/tui/src/lib.rs
 ---
 
 # Task / Run Domain Model
@@ -14,11 +14,11 @@ This document defines the canonical naming boundary for RestFlow.
 
 ## Core Principle
 
-RestFlow keeps `Task / Run` as the background-runtime domain model:
+RestFlow keeps `Task / Run` as the background execution vocabulary:
 
 - `Agent`: capability, identity, role, and configuration
-- `Task`: a schedulable unit of work assigned to an agent
-- `Run`: one agent execution
+- `Task`: a durable background goal or trigger assigned to an agent
+- `Run`: one execution segment recorded against a session
 - `Sub-agent`: delegated ephemeral child run spawned within a parent run
 
 `Agent` is not a task state model.
@@ -26,8 +26,9 @@ RestFlow keeps `Task / Run` as the background-runtime domain model:
 
 The durable/ephemeral split belongs to the envelope around a run:
 
-- Background task: durable `TaskSpec`, schedule, controls, and repeated runs.
-- Sub-agent: ephemeral child run, `parent_run_id`, and no task storage row.
+- Background task: durable goal/trigger metadata plus repeated run summaries.
+- Foreground TUI turn: session-local run state with direct user steering.
+- Sub-agent: ephemeral child run, `parent_run_id`, and no separate task record.
 
 TUI command overlays may show background tasks and sub-agent child runs
 together for navigation, but storage and daemon state must keep the durable task
@@ -39,27 +40,23 @@ not as a separate durable UI state model.
 
 ### Execution Ownership
 
-- `ai` owns subagent runtime capability and lifecycle.
-- `runtime` owns durable background/task runtime and daemon-side execution orchestration.
-- `runtime::runtime::subagent` is adapter-only and should not grow a second subagent runtime owner surface.
-- `tools` owns tool surfaces only, not runtime ownership.
+- `types` owns shared run and sub-agent data shapes.
+- `agent` owns the core agent loop and sub-agent runtime primitives.
+- `tools` owns callable tool implementations only.
+- `runner` binds agents, tools, sessions, and sub-agent managers into execution.
+- `daemon` hosts background work; it should not become the foreground TUI runtime.
+- `tui` renders current turn activity and session history.
 - Team-style coordination is skrun skill guidance, not a saved product object or reusable template.
-- `spawn_subagent_batch` is the only team-style execution primitive. Durable work must use Task/Run history instead of separate team runtime state, mailbox, assignment state, or approval state.
 
 ### Core, Contracts, Runtime, Storage Adapters
 
-These layers must use canonical task/run terms:
+These layers must use canonical run terms:
 
-- `Task`
-- `TaskSpec`
-- `TaskPatch`
-- `TaskStatus`
-- `TaskMessage`
-- `TaskProgress`
-- `TaskControlAction`
 - `RunSummary`
 - `RunListQuery`
-- `ChildRunListQuery`
+- `RunKind`
+- `RunTimeline`
+- `ExecutionThread`
 
 Non-canonical execution names must not appear in task/run runtime, storage, or
 transport surfaces.
@@ -68,9 +65,7 @@ transport surfaces.
 
 CLI commands, daemon request wrappers, stores, stream state, and route parameters must prefer:
 
-- `task_id`
 - `run_id`
-- `Task*`
 - `Run*`
 
 Compatibility wrappers should be removed instead of extending dual task/run surfaces.

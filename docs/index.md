@@ -4,12 +4,14 @@ covers:
   - README.md
   - Cargo.toml
   - Cargo.lock
-  - Dockerfile
   - Makefile
-  - docker-compose.dev.yml
   - crates/**/*.rs
   - examples/skrun/**/*.py
+  - homebrew-tap-template/**/*.md
+  - homebrew-tap-template/**/*.rb
+  - homebrew-tap-template/**/*.yml
   - npm/scripts/**/*.js
+  - scripts/**/*.md
   - scripts/**/*.sh
 ---
 

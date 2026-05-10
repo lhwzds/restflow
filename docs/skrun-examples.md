@@ -2,7 +2,7 @@
 title: skrun Examples
 covers:
   - examples/skrun/**
-  - crates/tools/src/impls/skrun.rs
+  - crates/tools/src/lib.rs
 ---
 
 # skrun Examples

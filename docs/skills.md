@@ -1,11 +1,10 @@
 ---
 title: Skills
 covers:
-  - crates/runtime/src/registry/**/*.rs
-  - crates/runtime/src/services/skill*.rs
-  - crates/tools/src/skill/**/*.rs
-  - crates/tools/src/impls/load_skill.rs
-  - crates/tools/src/impls/skrun.rs
+  - crates/types/src/lib.rs
+  - crates/tools/src/lib.rs
+  - crates/core/src/lib.rs
+  - crates/runner/src/lib.rs
 ---
 
 # Skills

@@ -2,15 +2,16 @@
 title: TUI
 covers:
   - crates/tui/**/*.rs
-  - crates/cli/src/cli.rs
-  - crates/cli/src/commands/start.rs
+  - crates/cli/src/main.rs
+  - crates/runner/src/lib.rs
+  - crates/daemon/src/lib.rs
 ---
 
 # TUI
 
 The RestFlow TUI is the default interactive entrypoint. It is designed around a
-conversation transcript, a fixed composer, temporary overlays, and daemon-backed
-streaming.
+conversation transcript, a fixed composer, temporary overlays, and foreground
+runner streaming.
 
 ## Interaction Model
 
@@ -25,7 +26,8 @@ streaming.
 The transcript is persistent conversation history. The composer and overlays
 are temporary UI. Overlay state should not be appended to conversation history.
 
-## Daemon Boundary
+## Runtime Boundary
 
-The TUI talks to the local daemon. If the daemon is unavailable, the UI should
-show a clear offline state and allow `/daemon` to start or stop it.
+The TUI owns foreground interaction and should not depend on the daemon for
+normal chat turns. The daemon is reserved for hosted background work and
+process-level management.

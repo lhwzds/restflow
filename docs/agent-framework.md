@@ -1,19 +1,19 @@
 ---
 title: Agent Framework
 covers:
-  - crates/ai/Cargo.toml
-  - crates/ai/README.md
-  - crates/ai/**/*.rs
-  - crates/runtime/src/runtime/agent/**/*.rs
-  - crates/runtime/src/runtime/orchestrator/**/*.rs
-  - crates/runtime/src/services/tool_registry/**/*.rs
+  - crates/types/src/lib.rs
+  - crates/llm/src/lib.rs
+  - crates/agent/src/lib.rs
   - crates/tools/src/**/*.rs
+  - crates/core/src/lib.rs
+  - crates/runner/src/lib.rs
+  - crates/daemon/src/lib.rs
 ---
 
 # Agent Framework
 
-RestFlow's core framework is intentionally small. The runtime executes an
-agent, exposes a minimal coding toolset, loads skill guidance, and delegates
+RestFlow's core framework is intentionally small. The runner executes an agent,
+exposes a minimal coding toolset, loads skill guidance, and delegates
 specialized capabilities to executable skrun skills.
 
 ## Core Runtime
@@ -53,13 +53,14 @@ They should live as external skrun skills or optional clients.
 
 ## Event Boundary
 
-Client-visible task and session stream events live in `types`.
+Client-visible session and run event types live in `types`.
 They should describe realtime UI/runtime state only and should not embed trace
 payloads. Trace records can be derived from runtime events or exported through a
 separate adapter.
 
-The shared telemetry event domain lives in `ai`; `runtime`
-projects those events into daemon-owned persistence.
+The foreground TUI and background daemon consume the same runner-level event
+stream. Long-lived persistence belongs in session JSONL and file-backed state,
+with redb reserved for secrets.
 
 ## Python Integration
 

@@ -107,7 +107,7 @@ for ((i = 1; i <= RUNS; i++)); do
     panic_count=$((panic_count + 1))
     break
   fi
-  if cargo test -p runtime --test stress_mock_runtime -- --nocapture >>"$LOG_FILE" 2>&1; then
+  if cargo test --workspace --all-targets -- --nocapture >>"$LOG_FILE" 2>&1; then
     success=$((success + 1))
   else
     failure=$((failure + 1))

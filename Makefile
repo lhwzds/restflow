@@ -1,56 +1,22 @@
-.PHONY: dev prod build down logs clean help run install cli release release-check fmt test lint audit stress toolchain
+.PHONY: help run install cli release release-check fmt test lint audit toolchain
 
 RUST_TOOLCHAIN ?= stable
 CARGO_TARGET_DIR ?= $(HOME)/.cargo-targets/restflow
 export CARGO_TARGET_DIR
 RESTFLOW_RELEASE_BIN := $(CARGO_TARGET_DIR)/release/restflow
 
-# Development mode with hot reload
-dev:
-	docker compose -f docker-compose.dev.yml up
-
-# Production mode
-prod:
-	docker compose up -d --build
-
-# Build production image only
-build:
-	docker compose build
-
-# Stop all containers
-down:
-	docker compose -f docker-compose.dev.yml down 2>/dev/null || true
-	docker compose down 2>/dev/null || true
-
-# View logs
-logs:
-	docker compose logs -f
-
-# Clean up volumes and images (includes down)
-clean: down
-	docker volume rm restflow_cargo-cache restflow_target-cache 2>/dev/null || true
-	docker rmi restflow-backend restflow-restflow 2>/dev/null || true
-
-# Run daemon locally (no docker)
+# Run daemon locally
 run:
 	cargo run --bin restflow -- daemon start --foreground
 
 help:
 	@echo "Usage:"
 	@echo ""
-	@echo "  Docker:"
-	@echo "    make dev    - Start dev mode with docker (hot reload)"
-	@echo "    make prod   - Start production mode with docker"
-	@echo "    make down   - Stop all containers"
-	@echo "    make logs   - View container logs"
-	@echo "    make clean  - Remove containers and volumes"
-	@echo ""
-	@echo "  Local (no docker):"
+	@echo "  Local:"
 	@echo "    make run    - Run daemon locally"
 	@echo "  CLI:"
 	@echo "    make fmt     - Format Rust code"
 	@echo "    make test    - Run Rust tests"
-	@echo "    make stress  - Run smoke, stress, and soak stress tests sequentially"
 	@echo "    make lint    - Run Rust fmt and clippy checks"
 	@echo "    make audit   - Run cargo security audit"
 	@echo "    make cli     - Build CLI in release mode"
@@ -71,27 +37,6 @@ test:
 	TYPEGEN_DIR="$$(mktemp -d)"; \
 	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
 	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test
-
-# Run smoke, stress, and soak stress tests sequentially
-stress:
-	@set -e; \
-	TYPEGEN_DIR="$$(mktemp -d)"; \
-	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_task_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=smoke TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_task_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=stress TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mock_runtime -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_chat_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_task_profiles -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_mixed_workloads -- --nocapture --test-threads=1; \
-	RESTFLOW_STRESS_LEVEL=soak TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test -p runtime --features test-utils --test stress_ipc_sessions -- --nocapture --test-threads=1
 
 # Run Rust lint checks
 lint: toolchain
