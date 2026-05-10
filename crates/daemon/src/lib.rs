@@ -1075,7 +1075,6 @@ pub mod daemon {
         };
         use crate::AgentDefaults;
         use crate::AppCore;
-        use crate::auth::{AuthManagerConfig, AuthProfileManager};
         use crate::process::ProcessRegistry;
         use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
         use crate::runtime::session_runner::{AgentRuntimeExecutor, SessionInputMode};
@@ -1121,12 +1120,11 @@ pub mod daemon {
                 resolve_agent_id, steer_chat_stream,
             };
             use super::*;
-            use crate::auth::secret_exists;
             use crate::daemon::request_mapper::{
                 from_contract, invalid_request_response, invalid_validation_response,
             };
             use crate::daemon::tool_result_mapper::to_tool_execution_result;
-            use crate::provider_policy::{provider_allows_secret_env, provider_display_order};
+            use crate::provider_policy::provider_display_order;
             use crate::services::execution_console::{
                 ExecutionConsoleService, ExecutionThreadError,
             };
@@ -1174,11 +1172,13 @@ pub mod daemon {
             fn available_providers(core: &Arc<AppCore>) -> Vec<Provider> {
                 let mut providers = Vec::new();
                 for provider in Provider::all().iter().copied() {
-                    let available = provider == Provider::Codex
-                        || provider_allows_secret_env(provider)
-                            && provider
-                                .api_key_env_candidates()
-                                .any(|key| secret_exists(&core.storage.secrets, key));
+                    let available = provider.api_key_env().is_none()
+                        || provider.api_key_env_candidates().any(|key| {
+                            core.storage
+                                .secrets
+                                .has_available_secret(key)
+                                .unwrap_or(false)
+                        });
 
                     if available {
                         providers.push(provider);
@@ -2216,10 +2216,7 @@ pub mod daemon {
                 }
             }
 
-            pub(super) fn create_chat_executor(
-                core: &Arc<AppCore>,
-                auth_manager: Arc<AuthProfileManager>,
-            ) -> AgentRuntimeExecutor {
+            pub(super) fn create_chat_executor(core: &Arc<AppCore>) -> AgentRuntimeExecutor {
                 let agent_defaults = load_agent_defaults_from_core(core);
                 let (completion_tx, completion_rx) = mpsc::channel(128);
                 let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
@@ -2235,7 +2232,6 @@ pub mod daemon {
                 AgentRuntimeExecutor::new(
                     core.storage.clone(),
                     process_registry,
-                    auth_manager,
                     subagent_tracker,
                     subagent_definitions,
                     subagent_config,
@@ -2501,13 +2497,11 @@ pub mod daemon {
 
                 let turn_start_index = session.messages.len();
                 let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
-                let auth_manager = Arc::new(build_auth_manager(core).await?);
                 let reply_sender = Arc::new(SessionReplySender::new(
                     reply_buffer.clone(),
                     ack_frame_tx.clone(),
                 ));
-                let executor =
-                    create_chat_executor(core, auth_manager).with_reply_sender(reply_sender);
+                let executor = create_chat_executor(core).with_reply_sender(reply_sender);
                 let chat_max_session_history = load_chat_max_session_history_from_core(core);
 
                 let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
@@ -2751,16 +2745,6 @@ pub mod daemon {
                     .first()
                     .ok_or_else(|| anyhow::anyhow!("No agents available"))?;
                 Ok(agent.id.clone())
-            }
-
-            pub(crate) async fn build_auth_manager(
-                core: &Arc<AppCore>,
-            ) -> Result<AuthProfileManager> {
-                let config = AuthManagerConfig::default();
-                let secrets = Arc::new(core.storage.secrets.clone());
-                let manager = AuthProfileManager::with_config(config, secrets);
-                manager.initialize().await?;
-                Ok(manager)
             }
 
             pub(super) fn build_agent_system_prompt(
@@ -4571,9 +4555,7 @@ pub mod daemon {
                 }
             }
             mod system {
-                use super::super::runtime::build_auth_manager;
                 use super::*;
-                use crate::auth::{AuthProvider, Credential, CredentialSource};
                 use crate::daemon::request_mapper::to_contract;
                 use types::request::{AgentNode as ContractAgentNode, WireModelRef};
                 #[tokio::test]
@@ -4763,21 +4745,6 @@ pub mod daemon {
                 #[tokio::test]
                 async fn process_get_available_models_returns_codex_catalog_without_secret() {
                     let (core, _temp) = create_test_core().await;
-                    let manager = build_auth_manager(&core).await.expect("auth manager");
-                    manager
-                        .add_profile_from_credential(
-                            "Codex",
-                            Credential::OAuth {
-                                access_token: "codex-token".to_string(),
-                                refresh_token: None,
-                                expires_at: None,
-                                email: None,
-                            },
-                            CredentialSource::Manual,
-                            AuthProvider::OpenAICodex,
-                        )
-                        .await
-                        .expect("add codex profile");
                     let runtime_tool_registry = OnceLock::new();
 
                     let response = IpcServer::process(

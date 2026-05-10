@@ -2249,7 +2249,6 @@ pub mod runtime {
         //! let executor = Arc::new(AgentRuntimeExecutor::new(
         //!     storage.clone(),
         //!     process_registry.clone(),
-        //!     auth_manager.clone(),
         //!     subagent_tracker.clone(),
         //!     subagent_definitions.clone(),
         //!     subagent_config.clone(),
@@ -2644,11 +2643,9 @@ pub mod runtime {
             use crate::runtime::{AgentOrchestratorImpl, ExecutionContext};
             use crate::tools::{ProcessTool, ReplyTool, SwitchModelTool};
             use crate::{
-                ModelId, Provider,
-                auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
-                process::ProcessRegistry,
-                services::session::SessionService,
-                services::skill_triggers::match_triggers,
+                ModelId, Provider, process::ProcessRegistry,
+                provider_policy::resolve_model_from_available_secrets,
+                services::session::SessionService, services::skill_triggers::match_triggers,
                 storage::Storage,
             };
             use ::agent::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
@@ -2669,9 +2666,6 @@ pub mod runtime {
             use types::{ExecutionOutcome, ExecutionPlan, ReplySender};
 
             use super::SessionExecutionResult;
-            use super::error_classification::{
-                classify_execution_error, is_authentication_classification,
-            };
             use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
             use super::retry::{RetryConfig, RetryState};
             use crate::runtime::agent::{
@@ -2756,7 +2750,6 @@ pub mod runtime {
             pub struct AgentRuntimeExecutor {
                 storage: Arc<Storage>,
                 process_registry: Arc<ProcessRegistry>,
-                auth_manager: Arc<AuthProfileManager>,
                 subagent_tracker: Arc<SubagentTracker>,
                 subagent_definitions: Arc<dyn SubagentDefLookup>,
                 subagent_config: SubagentConfig,
@@ -2843,7 +2836,6 @@ pub mod runtime {
                 pub fn new(
                     storage: Arc<Storage>,
                     process_registry: Arc<ProcessRegistry>,
-                    auth_manager: Arc<AuthProfileManager>,
                     subagent_tracker: Arc<SubagentTracker>,
                     subagent_definitions: Arc<dyn SubagentDefLookup>,
                     subagent_config: SubagentConfig,
@@ -2852,7 +2844,6 @@ pub mod runtime {
                     Self {
                         storage,
                         process_registry,
-                        auth_manager,
                         subagent_tracker,
                         subagent_definitions,
                         subagent_config,
@@ -2876,10 +2867,6 @@ pub mod runtime {
                     self.reply_sender = Some(sender);
                     self
                 }
-            }
-
-            fn is_credential_error(error: &anyhow::Error) -> bool {
-                is_authentication_classification(classify_execution_error(error))
             }
 
             mod model_resolution {
@@ -2938,22 +2925,10 @@ pub mod runtime {
                             }
                         }
 
-                        if let Some(profile) =
-                            self.auth_manager.get_credential_for_model(provider).await
-                        {
-                            info!(
-                                profile_name = %profile.name,
-                                auth_provider = %profile.provider,
-                                model_provider = ?provider,
-                                "Using auth profile for model provider"
-                            );
-                            return profile.get_api_key(self.auth_manager.resolver());
-                        }
-
-                        // Fall back to well-known secret names for each provider
+                        // Use well-known secret names for each provider.
                         let Some(secret_name) = provider.api_key_env() else {
                             return Err(anyhow!(
-                                "No API key fallback is defined for provider {:?}. Please configure a compatible auth profile.",
+                                "No API key fallback is defined for provider {:?}.",
                                 provider
                             ));
                         };
@@ -3023,12 +2998,12 @@ pub mod runtime {
                     pub(super) async fn resolve_model_from_stored_credentials(
                         &self,
                     ) -> Result<Option<ModelId>> {
-                        Ok(
-                            resolve_model_from_credentials(self.auth_manager.as_ref(), |key| {
-                                secret_exists(&self.storage.secrets, key)
-                            })
-                            .await,
-                        )
+                        Ok(resolve_model_from_available_secrets(|key| {
+                            self.storage
+                                .secrets
+                                .has_available_secret(key)
+                                .unwrap_or(false)
+                        }))
                     }
 
                     pub(super) async fn resolve_primary_model(
@@ -3048,7 +3023,7 @@ pub mod runtime {
                         }
 
                         Err(anyhow!(
-                            "Model not specified. Please set a model for this agent or configure a compatible API secret/auth profile."
+                            "Model not specified. Please set a model for this agent or configure a compatible API secret."
                         ))
                     }
 
@@ -3870,9 +3845,7 @@ pub mod runtime {
                             preflight.blockers.push(PreflightIssue {
                                 category: PreflightCategory::MissingSecret,
                                 message: error.to_string(),
-                                suggestion: Some(
-                                    "Configure API key via auth profile or secrets".to_string(),
-                                ),
+                                suggestion: Some("Configure API key via secrets".to_string()),
                             });
                             preflight.passed = false;
                         }
@@ -4331,168 +4304,6 @@ pub mod runtime {
                         .await
                     }
 
-                    #[allow(clippy::too_many_arguments)]
-                    async fn execute_session_with_profiles(
-                        &self,
-                        agent_node: &AgentNode,
-                        model: ModelId,
-                        session: &ChatSession,
-                        user_input: &str,
-                        primary_provider: Provider,
-                        max_history: usize,
-                        input_mode: SessionInputMode,
-                        emitter: Option<Box<dyn StreamEmitter>>,
-                        agent_id: Option<&str>,
-                        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-                        stream_display_mode: StreamDisplayMode,
-                        workspace_root: Option<std::path::PathBuf>,
-                    ) -> Result<SessionExecutionResult> {
-                        if model.is_codex_cli() || agent_node.api_key_config.is_some() {
-                            return self
-                                .execute_session_with_model(
-                                    agent_node,
-                                    model,
-                                    session,
-                                    user_input,
-                                    primary_provider,
-                                    max_history,
-                                    input_mode,
-                                    emitter,
-                                    agent_id,
-                                    steer_rx,
-                                    stream_display_mode,
-                                    workspace_root,
-                                )
-                                .await;
-                        }
-
-                        let profiles = self
-                            .auth_manager
-                            .get_compatible_profiles_for_model_provider(model.provider())
-                            .await;
-                        if profiles.is_empty() {
-                            return self
-                                .execute_session_with_model(
-                                    agent_node,
-                                    model,
-                                    session,
-                                    user_input,
-                                    primary_provider,
-                                    max_history,
-                                    input_mode,
-                                    emitter,
-                                    agent_id,
-                                    steer_rx,
-                                    stream_display_mode,
-                                    workspace_root,
-                                )
-                                .await;
-                        }
-
-                        let mut last_error: Option<anyhow::Error> = None;
-                        let mut emitter = emitter;
-                        let mut steer_rx = steer_rx;
-                        for profile in profiles {
-                            let api_key = match profile.get_api_key(self.auth_manager.resolver()) {
-                                Ok(key) => key,
-                                Err(error) => {
-                                    warn!(
-                                        profile_id = %profile.id,
-                                        profile_name = %profile.name,
-                                        model = ?model,
-                                        error = %error,
-                                        "Skipping profile because credential resolution failed"
-                                    );
-                                    continue;
-                                }
-                            };
-
-                            let model_specs = ModelId::build_model_specs();
-                            let api_keys = self
-                                .build_api_keys(
-                                    agent_node.api_key_config.as_ref(),
-                                    primary_provider,
-                                )
-                                .await;
-                            let factory = Self::build_llm_factory(api_keys, model_specs);
-                            let llm_client = Self::create_llm_client(
-                                factory.as_ref(),
-                                model,
-                                if Self::should_skip_api_key_resolution() {
-                                    None
-                                } else {
-                                    Some(api_key.as_str())
-                                },
-                                agent_node,
-                            )?;
-
-                            match self
-                                .execute_session_with_client(
-                                    agent_node,
-                                    model,
-                                    llm_client,
-                                    session,
-                                    user_input,
-                                    max_history,
-                                    input_mode,
-                                    emitter.take(),
-                                    factory,
-                                    agent_id,
-                                    steer_rx.take(),
-                                    stream_display_mode,
-                                    workspace_root.clone(),
-                                )
-                                .await
-                            {
-                                Ok(result) => {
-                                    if let Err(error) =
-                                        self.auth_manager.mark_success(&profile.id).await
-                                    {
-                                        warn!(
-                                            profile_id = %profile.id,
-                                            profile_name = %profile.name,
-                                            model = ?model,
-                                            error = %error,
-                                            "Failed to mark profile success"
-                                        );
-                                    }
-                                    return Ok(result);
-                                }
-                                Err(error) => {
-                                    if is_credential_error(&error) {
-                                        if let Err(mark_error) =
-                                            self.auth_manager.mark_failure(&profile.id).await
-                                        {
-                                            warn!(
-                                                profile_id = %profile.id,
-                                                profile_name = %profile.name,
-                                                model = ?model,
-                                                error = %mark_error,
-                                                "Failed to mark profile failure"
-                                            );
-                                        }
-
-                                        warn!(
-                                            profile_id = %profile.id,
-                                            profile_name = %profile.name,
-                                            model = ?model,
-                                            error = %error,
-                                            "Profile failed with credential-related error, trying next profile"
-                                        );
-                                        last_error = Some(error);
-                                        continue;
-                                    }
-
-                                    return Err(error);
-                                }
-                            }
-                        }
-
-                        Err(last_error.unwrap_or_else(|| {
-                            anyhow!("All profiles exhausted for provider {:?}", model.provider())
-                        }))
-                    }
-
                     /// Execute a chat turn for an existing chat session.
                     ///
                     /// This method keeps chat execution in daemon-side runtime logic so UI
@@ -4595,7 +4406,7 @@ pub mod runtime {
                                 let steer_rx = steer_rx.take();
                                 let workspace_root = workspace_root.clone();
                                 async move {
-                                    self.execute_session_with_profiles(
+                                    self.execute_session_with_model(
                                         &node,
                                         model,
                                         &session_for_execution,
@@ -4975,13 +4786,11 @@ pub mod runtime {
             #[cfg(test)]
             mod tests {
                 use super::*;
-                use crate::auth::{AuthProvider, Credential, CredentialSource};
                 use crate::provider_policy::provider_default_model;
                 use crate::runtime::subagent::AgentDefinitionRegistry;
                 use crate::services::session::SessionService;
                 use crate::session_log::{FileSession, FileSessionStore};
                 use crate::test_support::RestflowTestEnv;
-                use ::agent::AiError;
                 use ::agent::agent::{SubagentConfig, SubagentTracker};
                 use std::future::Future;
                 #[cfg(unix)]
@@ -4999,8 +4808,6 @@ pub mod runtime {
                 }
 
                 fn create_test_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
-                    let auth_manager =
-                        Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
                     let (completion_tx, completion_rx) = mpsc::channel(10);
                     let subagent_tracker =
                         Arc::new(SubagentTracker::new(completion_tx, completion_rx));
@@ -5009,7 +4816,6 @@ pub mod runtime {
                     AgentRuntimeExecutor::new(
                         storage,
                         Arc::new(ProcessRegistry::new()),
-                        auth_manager,
                         subagent_tracker,
                         subagent_definitions,
                         subagent_config,
@@ -5437,20 +5243,11 @@ pub mod runtime {
                 #[tokio::test]
                 async fn test_resolve_primary_model_uses_anthropic_opus_when_model_missing() {
                     let (storage, _temp_dir) = create_test_storage();
-                    let executor = create_test_executor(storage);
-                    executor
-                        .auth_manager
-                        .add_profile_from_credential(
-                            "anthropic-test",
-                            Credential::ApiKey {
-                                key: "test-anthropic-key".to_string(),
-                                email: None,
-                            },
-                            CredentialSource::Manual,
-                            AuthProvider::Anthropic,
-                        )
-                        .await
+                    storage
+                        .secrets
+                        .set_secret("ANTHROPIC_API_KEY", "test-anthropic-key", None)
                         .unwrap();
+                    let executor = create_test_executor(storage);
                     let node = AgentNode::new();
 
                     let resolved = executor.resolve_primary_model(&node).await.unwrap();
@@ -5578,43 +5375,6 @@ pub mod runtime {
                         .await;
 
                     assert!(result.is_err());
-                }
-
-                #[test]
-                fn test_is_credential_error_for_http_statuses() {
-                    let rate_limit = anyhow::Error::new(AiError::LlmHttp {
-                        provider: "anthropic".to_string(),
-                        status: 429,
-                        message: "rate limited".to_string(),
-                        retry_after_secs: Some(1),
-                    });
-                    assert!(!is_credential_error(&rate_limit));
-
-                    let unauthorized = anyhow::Error::new(AiError::LlmHttp {
-                        provider: "openai".to_string(),
-                        status: 401,
-                        message: "unauthorized".to_string(),
-                        retry_after_secs: None,
-                    });
-                    assert!(is_credential_error(&unauthorized));
-
-                    let server_error = anyhow::Error::new(AiError::LlmHttp {
-                        provider: "openai".to_string(),
-                        status: 500,
-                        message: "server error".to_string(),
-                        retry_after_secs: None,
-                    });
-                    assert!(!is_credential_error(&server_error));
-                }
-
-                #[test]
-                fn test_is_credential_error_for_llm_message_fallback() {
-                    let err = anyhow::Error::new(AiError::Llm("Rate limit exceeded".to_string()));
-                    assert!(!is_credential_error(&err));
-
-                    let err =
-                        anyhow::Error::new(AiError::Llm("context window exceeded".to_string()));
-                    assert!(!is_credential_error(&err));
                 }
 
                 // Note: test_build_tool_registry removed because build_tool_registry now requires
