@@ -1,10 +1,8 @@
 mod activity {
     use std::collections::BTreeMap;
 
-    use serde_json::Value;
-    use types::{RunKind, RunSummary};
-
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
+    use serde_json::Value;
 
     const MAX_ACTIVITY_ROWS: usize = 5;
 
@@ -75,36 +73,6 @@ mod activity {
             }
         }
 
-        pub fn sync_child_runs(&mut self, runs: &[RunSummary], active_run_id: Option<&str>) {
-            let mut changed = false;
-            for run in runs {
-                if run.kind != RunKind::SubagentRun || !run_matches_active_turn(run, active_run_id)
-                {
-                    continue;
-                }
-                let key = run.run_id.as_deref().unwrap_or(run.id.as_str()).to_string();
-                let next = ActivityEntry {
-                    id: key.clone(),
-                    title: run.title.clone(),
-                    status: run.status.clone(),
-                    detail: run
-                        .subtitle
-                        .clone()
-                        .unwrap_or_else(|| run.provider_model_label()),
-                    run_id: run.run_id.clone().or_else(|| Some(run.id.clone())),
-                    is_active: is_running_status(&run.status),
-                    updated_at: 0,
-                };
-                if self.subagents.get(&key) != Some(&next) {
-                    self.subagents.insert(key, next);
-                    changed = true;
-                }
-            }
-            if changed {
-                self.bump();
-            }
-        }
-
         #[cfg(test)]
         pub fn live_cells(&self) -> Vec<TranscriptCell> {
             let mut cells = Vec::new();
@@ -139,27 +107,8 @@ mod activity {
             )]
         }
 
-        pub fn has_subagent_activity(&self) -> bool {
-            !self.subagents.is_empty()
-        }
-
         fn bump(&mut self) {
             self.revision = self.revision.saturating_add(1);
-        }
-    }
-
-    trait RunSummaryExt {
-        fn provider_model_label(&self) -> String;
-    }
-
-    impl RunSummaryExt for RunSummary {
-        fn provider_model_label(&self) -> String {
-            match (&self.provider, &self.effective_model) {
-                (Some(provider), Some(model)) => format!("{provider} · {model}"),
-                (Some(provider), None) => provider.clone(),
-                (None, Some(model)) => model.clone(),
-                (None, None) => "child run".to_string(),
-            }
         }
     }
 
@@ -224,15 +173,6 @@ mod activity {
             "spawn_subagent" => "spawn".to_string(),
             _ => "subagent".to_string(),
         }
-    }
-
-    fn run_matches_active_turn(run: &RunSummary, active_run_id: Option<&str>) -> bool {
-        let Some(active_run_id) = active_run_id else {
-            return is_running_status(&run.status);
-        };
-        run.run_id.as_deref() == Some(active_run_id)
-            || run.root_run_id.as_deref() == Some(active_run_id)
-            || run.parent_run_id.as_deref() == Some(active_run_id)
     }
 
     fn is_running_status(status: &str) -> bool {
@@ -970,20 +910,11 @@ mod controller {
             } else {
                 Vec::new()
             };
-            let child_runs = if should_refresh_child_runs(state) {
-                self.child_runs_for_runs(&runs).await
-            } else {
-                state.thread.child_runs.clone()
-            };
-            if refreshed_state_is_unchanged(state, &sessions, &runs, &child_runs) {
+            if refreshed_state_is_unchanged(state, &sessions, &runs) {
                 return Ok(Vec::new());
             }
 
-            let actions = vec![ShellAction::StateRefreshed {
-                sessions,
-                runs,
-                child_runs,
-            }];
+            let actions = vec![ShellAction::StateRefreshed { sessions, runs }];
 
             Ok(actions)
         }
@@ -998,7 +929,6 @@ mod controller {
                     return Ok(vec![ShellAction::CurrentSessionReloaded {
                         session: None,
                         runs: state.thread.runs.clone(),
-                        child_runs: state.thread.child_runs.clone(),
                     }]);
                 }
                 None if state.active_turn_has_tool_call() => {
@@ -1011,21 +941,19 @@ mod controller {
             };
 
             let session = self.client.get_session(&session_id).await.ok();
-            let (runs, child_runs) = self
+            let runs = self
                 .session_runs_for_reload(state, session.as_ref().map(|_| session_id.as_str()))
                 .await;
             if state.is_streaming || state.active_turn.is_some() {
                 return Ok(vec![ShellAction::CurrentSessionReloaded {
                     session: session.map(Box::new),
                     runs,
-                    child_runs,
                 }]);
             }
 
             let mut actions = vec![ShellAction::CurrentSessionReloaded {
                 session: session.map(Box::new),
                 runs,
-                child_runs,
             }];
             actions.extend(self.refresh_actions(state).await?);
             Ok(actions)
@@ -1045,19 +973,15 @@ mod controller {
             &self,
             state: &AppState,
             session_id: Option<&str>,
-        ) -> (Vec<RunSummary>, Vec<RunSummary>) {
+        ) -> Vec<RunSummary> {
             let Some(session_id) = session_id else {
-                return (Vec::new(), Vec::new());
+                return Vec::new();
             };
             let Ok(runs) = self.client.list_runs_for_session(session_id).await else {
-                return (state.thread.runs.clone(), state.thread.child_runs.clone());
+                return state.thread.runs.clone();
             };
-            let child_runs = if should_refresh_child_runs(state) {
-                self.child_runs_for_runs(&runs).await
-            } else {
-                state.thread.child_runs.clone()
-            };
-            (runs, child_runs)
+            let _ = state;
+            runs
         }
 
         async fn start_daemon_actions(
@@ -1157,11 +1081,9 @@ mod controller {
                         .list_runs_for_session(&session_id)
                         .await
                         .unwrap_or_default();
-                    let child_runs = self.child_runs_for_runs(&runs).await;
                     Ok(vec![ShellAction::SessionOpened {
                         session: Box::new(session),
                         runs,
-                        child_runs,
                         status: format!("Opened session {session_id}"),
                     }])
                 }
@@ -1284,7 +1206,6 @@ mod controller {
             Ok(vec![ShellAction::SessionCreatedForSubmit {
                 session: Box::new(session),
                 runs: Vec::new(),
-                child_runs: Vec::new(),
                 message,
             }])
         }
@@ -1571,41 +1492,14 @@ mod controller {
             } else {
                 state.thread.runs.clone()
             };
-            let child_runs = self.child_runs_for_runs(&runs).await;
-            let items = build_work_picker_items(&runs, &child_runs);
+            let items = build_work_picker_items(&runs);
             let status = if items.is_empty() {
                 "No active runs.".to_string()
             } else {
                 "Work picker opened.".to_string()
             };
 
-            Ok(vec![ShellAction::RunPickerLoaded {
-                runs,
-                child_runs,
-                status,
-            }])
-        }
-
-        async fn child_runs_for_runs(&self, runs: &[types::RunSummary]) -> Vec<types::RunSummary> {
-            let mut child_runs = Vec::new();
-            for run in runs {
-                let Some(run_id) = run.run_id.as_deref() else {
-                    continue;
-                };
-                child_runs.extend(
-                    self.client
-                        .list_child_runs(run_id)
-                        .await
-                        .unwrap_or_default(),
-                );
-            }
-            child_runs.sort_by(|left, right| {
-                right
-                    .updated_at
-                    .cmp(&left.updated_at)
-                    .then_with(|| left.id.cmp(&right.id))
-            });
-            child_runs
+            Ok(vec![ShellAction::RunPickerLoaded { runs, status }])
         }
 
         async fn work_picker_selection_actions(
@@ -1619,11 +1513,6 @@ mod controller {
 
         async fn open_run_id_actions(&self, run_id: &str) -> Result<Vec<ShellAction>> {
             let thread = self.client.get_execution_run_thread(run_id).await?;
-            let child_runs = self
-                .client
-                .list_child_runs(run_id)
-                .await
-                .unwrap_or_default();
             let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
                 self.client.get_session(session_id).await.ok()
             } else {
@@ -1633,7 +1522,6 @@ mod controller {
                 session: session.map(Box::new),
                 run_id: run_id.to_string(),
                 thread: Box::new(thread),
-                child_runs,
                 status: format!("Opened run {run_id}"),
             }])
         }
@@ -1643,28 +1531,19 @@ mod controller {
         state: &AppState,
         sessions: &[ChatSessionSummary],
         runs: &[types::RunSummary],
-        child_runs: &[types::RunSummary],
     ) -> bool {
         if state.sessions != sessions {
             return false;
         }
         if state.current_session_id().is_some() {
-            state.thread.runs == runs && state.thread.child_runs == child_runs
+            state.thread.runs == runs
         } else {
-            runs.is_empty()
-                && child_runs.is_empty()
-                && state.thread.runs.is_empty()
-                && state.thread.child_runs.is_empty()
+            runs.is_empty() && state.thread.runs.is_empty()
         }
     }
 
     fn should_refresh_session_list(state: &AppState) -> bool {
         matches!(state.overlay, Some(OverlayState::SessionPicker { .. }))
-    }
-
-    fn should_refresh_child_runs(state: &AppState) -> bool {
-        (!state.is_streaming && state.active_turn.is_none())
-            || state.activity.has_subagent_activity()
     }
 
     fn filter_resume_sessions(
@@ -2039,8 +1918,7 @@ mod controller {
         use super::{
             build_model_picker_items_for_provider, build_provider_picker_items,
             filter_resume_sessions, preferred_reload_session_id, refreshed_state_is_unchanged,
-            select_default_model_item, should_refresh_child_runs, should_refresh_session_list,
-            start_daemon_error_actions,
+            select_default_model_item, should_refresh_session_list, start_daemon_error_actions,
         };
         use crate::reducer::ShellAction;
         use crate::state::{AppState, ModelPickerCategory, OverlayState};
@@ -2063,12 +1941,7 @@ mod controller {
             let mut state = AppState::empty();
             state.sessions = vec![session_summary_with_messages("session-1", "Chat", 2)];
 
-            assert!(refreshed_state_is_unchanged(
-                &state,
-                &state.sessions,
-                &[],
-                &[],
-            ));
+            assert!(refreshed_state_is_unchanged(&state, &state.sessions, &[],));
         }
 
         #[test]
@@ -2077,7 +1950,7 @@ mod controller {
             state.sessions = vec![session_summary_with_messages("session-1", "Chat", 2)];
             let refreshed = vec![session_summary_with_messages("session-1", "Chat", 3)];
 
-            assert!(!refreshed_state_is_unchanged(&state, &refreshed, &[], &[],));
+            assert!(!refreshed_state_is_unchanged(&state, &refreshed, &[],));
         }
 
         #[test]
@@ -2130,14 +2003,13 @@ mod controller {
         }
 
         #[test]
-        fn active_turn_refresh_keeps_hot_path_off_global_session_and_child_run_lists() {
+        fn active_turn_refresh_keeps_hot_path_off_global_session_list() {
             let mut state = AppState::empty();
             state.set_current_session(ChatSession::new("agent-1".to_string(), "model".to_string()));
             state.push_local_user_message("hello".to_string());
             state.begin_stream("turn-1".to_string());
 
             assert!(!should_refresh_session_list(&state));
-            assert!(!should_refresh_child_runs(&state));
         }
 
         #[test]
@@ -2145,7 +2017,6 @@ mod controller {
             let state = AppState::empty();
 
             assert!(!should_refresh_session_list(&state));
-            assert!(should_refresh_child_runs(&state));
         }
 
         #[test]
@@ -2393,7 +2264,7 @@ mod daemon_client {
     use std::sync::Arc;
     use tokio::sync::mpsc;
     use tokio::time::{Duration, sleep};
-    use types::request::{ChildRunListQuery, WireModelRef};
+    use types::request::WireModelRef;
     use types::{
         ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
         ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill,
@@ -2599,17 +2470,6 @@ mod daemon_client {
             client
                 .request_typed(IpcRequest::GetExecutionRunThread {
                     run_id: run_id.to_string(),
-                })
-                .await
-        }
-
-        pub async fn list_child_runs(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
-            let mut client = self.connect().await?;
-            client
-                .request_typed(IpcRequest::ListChildRuns {
-                    query: ChildRunListQuery {
-                        parent_run_id: parent_run_id.to_string(),
-                    },
                 })
                 .await
         }
@@ -3662,7 +3522,6 @@ mod reducer {
         StateRefreshed {
             sessions: Vec<ChatSessionSummary>,
             runs: Vec<RunSummary>,
-            child_runs: Vec<RunSummary>,
         },
         SessionPickerLoaded {
             sessions: Vec<ChatSessionSummary>,
@@ -3677,30 +3536,25 @@ mod reducer {
         CurrentSessionReloaded {
             session: Option<Box<ChatSession>>,
             runs: Vec<RunSummary>,
-            child_runs: Vec<RunSummary>,
         },
         SessionOpened {
             session: Box<ChatSession>,
             runs: Vec<RunSummary>,
-            child_runs: Vec<RunSummary>,
             status: String,
         },
         SessionCreatedForSubmit {
             session: Box<ChatSession>,
             runs: Vec<RunSummary>,
-            child_runs: Vec<RunSummary>,
             message: String,
         },
         RunOpened {
             session: Option<Box<ChatSession>>,
             run_id: String,
             thread: Box<ExecutionThread>,
-            child_runs: Vec<RunSummary>,
             status: String,
         },
         RunPickerLoaded {
             runs: Vec<RunSummary>,
-            child_runs: Vec<RunSummary>,
             status: String,
         },
         SkillPickerLoaded {
@@ -3835,14 +3689,10 @@ mod reducer {
                     output.effects.push(ShellEffect::ReloadCurrentSession);
                 }
             }
-            ShellAction::StateRefreshed {
-                sessions,
-                runs,
-                child_runs,
-            } => {
+            ShellAction::StateRefreshed { sessions, runs } => {
                 state.sessions = sessions;
                 if state.current_session_id().is_some() {
-                    state.set_session_runs_and_child_runs(runs, child_runs);
+                    state.set_session_runs(runs);
                 } else {
                     state.clear_thread_runs();
                 }
@@ -3866,16 +3716,12 @@ mod reducer {
                     state.push_error(status);
                 }
             }
-            ShellAction::CurrentSessionReloaded {
-                session,
-                runs,
-                child_runs,
-            } => {
+            ShellAction::CurrentSessionReloaded { session, runs } => {
                 if let Some(session) = session {
                     state.refresh_current_session(*session);
-                    state.set_session_runs_and_child_runs(runs, child_runs);
+                    state.set_session_runs(runs);
                 } else if state.is_streaming || state.active_turn.is_some() {
-                    state.set_session_runs_and_child_runs(runs, child_runs);
+                    state.set_session_runs(runs);
                 } else {
                     state.clear_current_session("The active session is no longer available.");
                 }
@@ -3883,22 +3729,20 @@ mod reducer {
             ShellAction::SessionOpened {
                 session,
                 runs,
-                child_runs,
                 status,
             } => {
                 state.set_current_session(*session);
-                state.set_session_runs_and_child_runs(runs, child_runs);
+                state.set_session_runs(runs);
                 state.clear_overlay();
                 state.status = status;
             }
             ShellAction::SessionCreatedForSubmit {
                 session,
                 runs,
-                child_runs,
                 message,
             } => {
                 state.set_current_session(*session);
-                state.set_session_runs_and_child_runs(runs, child_runs);
+                state.set_session_runs(runs);
                 state.push_local_user_message(message.clone());
                 state.start_assistant_typing();
                 state.status = "Sending message...".to_string();
@@ -3908,23 +3752,18 @@ mod reducer {
                 session,
                 run_id,
                 thread,
-                child_runs,
                 status,
             } => {
                 if let Some(session) = session {
                     state.set_current_session(*session);
                 }
-                state.set_run_focus(run_id, *thread, child_runs);
+                state.set_run_focus(run_id, *thread);
                 state.overlay = Some(crate::state::OverlayState::RunDetail);
                 state.status = status;
             }
-            ShellAction::RunPickerLoaded {
-                runs,
-                child_runs,
-                status,
-            } => {
+            ShellAction::RunPickerLoaded { runs, status } => {
                 if state.current_session_id().is_some() {
-                    state.set_session_runs_and_child_runs(runs, child_runs);
+                    state.set_session_runs(runs);
                 } else {
                     state.clear_thread_runs();
                 }
@@ -4653,7 +4492,6 @@ mod reducer {
                 &mut state,
                 ShellAction::RunPickerLoaded {
                     runs: Vec::new(),
-                    child_runs: Vec::new(),
                     status: "Work picker opened.".to_string(),
                 },
             );
@@ -5232,7 +5070,6 @@ mod reducer {
                 ShellAction::SessionCreatedForSubmit {
                     session: Box::new(session),
                     runs: Vec::new(),
-                    child_runs: Vec::new(),
                     message: "hi".to_string(),
                 },
             );
@@ -5320,7 +5157,6 @@ mod reducer {
                 ShellAction::SessionCreatedForSubmit {
                     session: Box::new(session),
                     runs: Vec::new(),
-                    child_runs: Vec::new(),
                     message: "hi".to_string(),
                 },
             );
@@ -5697,7 +5533,6 @@ mod reducer {
                 ShellAction::CurrentSessionReloaded {
                     session: None,
                     runs: Vec::new(),
-                    child_runs: Vec::new(),
                 },
             );
 
@@ -7349,23 +7184,6 @@ mod shell {
                 width,
             ));
         }
-        if !state.thread.child_runs.is_empty() {
-            lines.push(styled_line(
-                format!("  child runs: {}", state.thread.child_runs.len()),
-                muted_style(),
-            ));
-            for run in state.thread.child_runs.iter().take(3) {
-                lines.extend(wrap_styled_line(
-                    Line::from(vec![
-                        Span::styled("    - ", muted_style()),
-                        Span::styled(work_run_kind_label(run.kind), muted_style()),
-                        Span::styled(format!(" · {} · {}", run.title, run.status), muted_style()),
-                    ]),
-                    width,
-                ));
-            }
-        }
-
         lines.push(styled_line("  Timeline", muted_style()));
         let events = thread
             .timeline
@@ -10361,133 +10179,6 @@ mod shell {
         }
 
         #[test]
-        fn message_viewport_shows_subagent_runs() {
-            let mut state = AppState::empty();
-            state.push_local_user_message("coordinate live work".to_string());
-            state.apply_stream_frame(StreamFrame::Start {
-                stream_id: "run-1".to_string(),
-            });
-            state.set_session_runs_and_child_runs(
-                vec![RunSummary {
-                    id: "run-1".to_string(),
-                    kind: RunKind::WorkspaceRun,
-                    container_id: "session-1".to_string(),
-                    root_run_id: Some("run-1".to_string()),
-                    title: "Workspace run".to_string(),
-                    subtitle: None,
-                    status: "running".to_string(),
-                    updated_at: 1,
-                    started_at: Some(1),
-                    ended_at: None,
-                    session_id: Some("session-1".to_string()),
-                    run_id: Some("run-1".to_string()),
-                    task_id: None,
-                    parent_run_id: None,
-                    agent_id: Some("agent-1".to_string()),
-                    effective_model: None,
-                    provider: None,
-                    event_count: 0,
-                }],
-                vec![RunSummary {
-                    id: "child-1".to_string(),
-                    kind: RunKind::SubagentRun,
-                    container_id: "session-1".to_string(),
-                    root_run_id: Some("run-1".to_string()),
-                    title: "Subagent run".to_string(),
-                    subtitle: None,
-                    status: "running".to_string(),
-                    updated_at: 2,
-                    started_at: Some(2),
-                    ended_at: None,
-                    session_id: Some("session-1".to_string()),
-                    run_id: Some("child-1".to_string()),
-                    task_id: None,
-                    parent_run_id: Some("run-1".to_string()),
-                    agent_id: Some("agent-2".to_string()),
-                    effective_model: None,
-                    provider: None,
-                    event_count: 0,
-                }],
-            );
-
-            let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-
-            assert!(text.contains("Subagents"));
-            assert!(text.contains("Subagent run"));
-            assert!(text.contains("child-1"));
-            assert!(!text.contains("Workspace run"));
-            assert!(!text.contains("Open a run with"));
-        }
-
-        #[test]
-        fn message_viewport_hides_unrelated_running_runs_during_active_turn() {
-            let mut state = AppState::empty();
-            state.push_local_user_message("edit a file".to_string());
-            state.apply_stream_frame(StreamFrame::Start {
-                stream_id: "run-current".to_string(),
-            });
-            state.thread.child_runs = vec![RunSummary {
-                id: "child-1".to_string(),
-                kind: RunKind::SubagentRun,
-                container_id: "session-1".to_string(),
-                root_run_id: Some("run-other".to_string()),
-                title: "Other subagent run".to_string(),
-                subtitle: None,
-                status: "running".to_string(),
-                updated_at: 2,
-                started_at: Some(2),
-                ended_at: None,
-                session_id: Some("session-1".to_string()),
-                run_id: Some("child-1".to_string()),
-                task_id: None,
-                parent_run_id: Some("run-other".to_string()),
-                agent_id: Some("agent-2".to_string()),
-                effective_model: None,
-                provider: None,
-                event_count: 0,
-            }];
-
-            let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-
-            assert!(!text.contains("Current turn activity"));
-            assert!(!text.contains("Other subagent run"));
-            assert!(!text.contains("child-1"));
-        }
-
-        #[test]
-        fn message_viewport_hides_work_notice_when_agent_is_idle() {
-            let mut state = AppState::empty();
-            state.set_session_runs_and_child_runs(
-                Vec::new(),
-                vec![RunSummary {
-                    id: "child-1".to_string(),
-                    kind: RunKind::SubagentRun,
-                    container_id: "session-1".to_string(),
-                    root_run_id: Some("run-1".to_string()),
-                    title: "Subagent run".to_string(),
-                    subtitle: None,
-                    status: "running".to_string(),
-                    updated_at: 2,
-                    started_at: Some(2),
-                    ended_at: None,
-                    session_id: Some("session-1".to_string()),
-                    run_id: Some("child-1".to_string()),
-                    task_id: None,
-                    parent_run_id: Some("run-1".to_string()),
-                    agent_id: Some("agent-2".to_string()),
-                    effective_model: None,
-                    provider: None,
-                    event_count: 0,
-                }],
-            );
-
-            let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-
-            assert!(!text.contains("Activity"));
-            assert!(!text.contains("subagent run"));
-        }
-
-        #[test]
         fn message_viewport_does_not_keep_open_run_focus_as_a_live_block() {
             let mut state = AppState::empty();
             let focus = RunSummary {
@@ -10503,7 +10194,6 @@ mod shell {
                 ended_at: Some(2),
                 session_id: Some("session-1".to_string()),
                 run_id: Some("run-1".to_string()),
-                task_id: None,
                 parent_run_id: None,
                 agent_id: Some("agent-1".to_string()),
                 effective_model: Some("deepseek-chat".to_string()),
@@ -10522,30 +10212,7 @@ mod shell {
                     }],
                 },
             };
-            state.thread.set_run_focus(
-                "run-1".to_string(),
-                thread,
-                vec![RunSummary {
-                    id: "child-1".to_string(),
-                    kind: RunKind::SubagentRun,
-                    container_id: "session-1".to_string(),
-                    root_run_id: Some("run-1".to_string()),
-                    title: "Subagent run".to_string(),
-                    subtitle: None,
-                    status: "run_completed".to_string(),
-                    updated_at: 2,
-                    started_at: Some(1),
-                    ended_at: Some(2),
-                    session_id: Some("session-1".to_string()),
-                    run_id: Some("child-1".to_string()),
-                    task_id: None,
-                    parent_run_id: Some("run-1".to_string()),
-                    agent_id: Some("agent-2".to_string()),
-                    effective_model: None,
-                    provider: None,
-                    event_count: 1,
-                }],
-            );
+            state.thread.set_run_focus("run-1".to_string(), thread);
 
             let text = line_texts(&super::build_message_lines(&state, 100, 14)).join("\n");
 
@@ -10553,51 +10220,6 @@ mod shell {
             assert!(!text.contains("Run"));
             assert!(!text.contains("Workspace run"));
             assert!(!text.contains("child-1"));
-        }
-
-        #[test]
-        fn message_viewport_drops_activity_notice_when_turn_finishes() {
-            let mut state = AppState::empty();
-            state.push_local_user_message("coordinate live work".to_string());
-            state.apply_stream_frame(StreamFrame::Start {
-                stream_id: "run-1".to_string(),
-            });
-            state.set_session_runs_and_child_runs(
-                Vec::new(),
-                vec![RunSummary {
-                    id: "child-1".to_string(),
-                    kind: RunKind::SubagentRun,
-                    container_id: "session-1".to_string(),
-                    root_run_id: Some("run-1".to_string()),
-                    title: "Subagent run".to_string(),
-                    subtitle: None,
-                    status: "running".to_string(),
-                    updated_at: 2,
-                    started_at: Some(2),
-                    ended_at: None,
-                    session_id: Some("session-1".to_string()),
-                    run_id: Some("child-1".to_string()),
-                    task_id: None,
-                    parent_run_id: Some("run-1".to_string()),
-                    agent_id: Some("agent-2".to_string()),
-                    effective_model: None,
-                    provider: None,
-                    event_count: 0,
-                }],
-            );
-
-            let active_text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-            assert!(active_text.contains("Subagents"));
-            assert!(active_text.contains("Subagent run"));
-            assert!(active_text.contains("child-1"));
-
-            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
-
-            let completed_text =
-                line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-            assert!(completed_text.is_empty());
-            assert!(!completed_text.contains("Current turn activity"));
-            assert!(!completed_text.contains("child-1"));
         }
 
         #[test]
@@ -11857,7 +11479,6 @@ mod state {
         pub session: Option<ChatSession>,
         pub focus: ThreadFocus,
         pub runs: Vec<RunSummary>,
-        pub child_runs: Vec<RunSummary>,
         pub execution_thread: Option<ExecutionThread>,
     }
 
@@ -11870,7 +11491,6 @@ mod state {
             self.session = Some(session);
             self.focus = ThreadFocus::Session;
             self.runs.clear();
-            self.child_runs.clear();
             self.execution_thread = None;
         }
 
@@ -11878,7 +11498,6 @@ mod state {
             self.session = None;
             self.focus = ThreadFocus::Session;
             self.runs.clear();
-            self.child_runs.clear();
             self.execution_thread = None;
         }
 
@@ -11886,15 +11505,9 @@ mod state {
             self.runs = runs;
         }
 
-        pub fn set_run_focus(
-            &mut self,
-            run_id: String,
-            thread: ExecutionThread,
-            child_runs: Vec<RunSummary>,
-        ) {
+        pub fn set_run_focus(&mut self, run_id: String, thread: ExecutionThread) {
             self.focus = ThreadFocus::Run { run_id };
             self.execution_thread = Some(thread);
-            self.child_runs = child_runs;
         }
     }
 
@@ -12326,17 +11939,9 @@ mod state {
             self.is_streaming = false;
         }
 
-        pub fn set_run_focus(
-            &mut self,
-            run_id: String,
-            thread: ExecutionThread,
-            child_runs: Vec<RunSummary>,
-        ) {
+        pub fn set_run_focus(&mut self, run_id: String, thread: ExecutionThread) {
             self.activity.clear();
-            self.thread.set_run_focus(run_id, thread, child_runs);
-            let active_run_id = self.current_stream_id.clone();
-            self.activity
-                .sync_child_runs(&self.thread.child_runs, active_run_id.as_deref());
+            self.thread.set_run_focus(run_id, thread);
         }
 
         pub fn clear_overlay(&mut self) {
@@ -12602,28 +12207,19 @@ mod state {
         }
 
         pub fn work_picker_items(&self) -> Vec<WorkPickerItem> {
-            build_work_picker_items(&self.thread.runs, &self.thread.child_runs)
+            build_work_picker_items(&self.thread.runs)
         }
 
         pub fn run_picker_items(&self) -> Vec<WorkPickerItem> {
             self.work_picker_items()
         }
 
-        pub fn set_session_runs_and_child_runs(
-            &mut self,
-            runs: Vec<RunSummary>,
-            child_runs: Vec<RunSummary>,
-        ) {
+        pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
             self.thread.set_session_runs(runs);
-            self.thread.child_runs = child_runs;
-            let active_run_id = self.current_stream_id.clone();
-            self.activity
-                .sync_child_runs(&self.thread.child_runs, active_run_id.as_deref());
         }
 
         pub fn clear_thread_runs(&mut self) {
             self.thread.runs.clear();
-            self.thread.child_runs.clear();
             self.thread.execution_thread = None;
             self.activity.clear();
         }
@@ -12655,22 +12251,9 @@ mod state {
         }
     }
 
-    pub fn build_work_picker_items(
-        runs: &[RunSummary],
-        child_runs: &[RunSummary],
-    ) -> Vec<WorkPickerItem> {
+    pub fn build_work_picker_items(runs: &[RunSummary]) -> Vec<WorkPickerItem> {
         let mut items = Vec::new();
         items.extend(runs.iter().filter_map(|run| {
-            run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
-                run_id: run_id.clone(),
-                root_run_id: run.root_run_id.clone(),
-                parent_run_id: run.parent_run_id.clone(),
-                kind: run.kind,
-                title: run.title.clone(),
-                status: run.status.clone(),
-            })
-        }));
-        items.extend(child_runs.iter().filter_map(|run| {
             run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
                 run_id: run_id.clone(),
                 root_run_id: run.root_run_id.clone(),
@@ -13837,7 +13420,7 @@ mod state {
         }
 
         #[test]
-        fn work_picker_includes_runs_and_child_runs() {
+        fn work_picker_includes_runs() {
             let mut state = AppState::empty();
             state.thread.runs.push(types::RunSummary {
                 id: "run-local".to_string(),
@@ -13852,47 +13435,19 @@ mod state {
                 ended_at: None,
                 session_id: Some("session-1".to_string()),
                 run_id: Some("run-local".to_string()),
-                task_id: None,
                 parent_run_id: None,
                 agent_id: Some("agent-1".to_string()),
                 effective_model: None,
                 provider: None,
                 event_count: 0,
             });
-            state.thread.child_runs.push(types::RunSummary {
-                id: "child-1".to_string(),
-                kind: types::RunKind::SubagentRun,
-                container_id: "session-1".to_string(),
-                root_run_id: Some("run-local".to_string()),
-                title: "Subagent run".to_string(),
-                subtitle: None,
-                status: "running".to_string(),
-                updated_at: 2,
-                started_at: Some(2),
-                ended_at: None,
-                session_id: Some("session-1".to_string()),
-                run_id: Some("child-1".to_string()),
-                task_id: None,
-                parent_run_id: Some("run-local".to_string()),
-                agent_id: Some("agent-2".to_string()),
-                effective_model: None,
-                provider: None,
-                event_count: 0,
-            });
 
             let items = state.work_picker_items();
-            assert_eq!(items.len(), 2);
+            assert_eq!(items.len(), 1);
             assert!(matches!(
                 items[0],
                 super::WorkPickerItem::Run {
                     kind: types::RunKind::WorkspaceRun,
-                    ..
-                }
-            ));
-            assert!(matches!(
-                items[1],
-                super::WorkPickerItem::Run {
-                    kind: types::RunKind::SubagentRun,
                     ..
                 }
             ));

@@ -1527,22 +1527,6 @@ pub mod daemon {
                     map_execution_thread_response(service.get_execution_run_thread(&run_id))
                 }
 
-                pub(super) async fn handle_list_child_runs(
-                    core: &Arc<AppCore>,
-                    query: types::ChildRunListQuery,
-                ) -> IpcResponse {
-                    let parent_run_id = query.parent_run_id.trim().to_string();
-                    if parent_run_id.is_empty() {
-                        return IpcResponse::error(400, "parent_run_id is required");
-                    }
-
-                    let service = ExecutionConsoleService::from_storage(&core.storage);
-                    match service.list_child_runs(&parent_run_id) {
-                        Ok(sessions) => IpcResponse::success(sessions),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    }
-                }
-
                 pub(super) async fn handle_list_sessions(core: &Arc<AppCore>) -> IpcResponse {
                     let session_service = SessionService::from_storage(&core.storage);
                     match session_service.list_session_summaries(None, None, false) {
@@ -2085,10 +2069,6 @@ pub mod daemon {
                         IpcRequest::GetExecutionRunThread { run_id } => {
                             Self::handle_get_execution_run_thread(core, run_id).await
                         }
-                        IpcRequest::ListChildRuns { query } => match from_contract(query) {
-                            Ok(query) => Self::handle_list_child_runs(core, query).await,
-                            Err(err) => invalid_request_response(err),
-                        },
                         IpcRequest::GetExecutionRunTimeline { run_id } => {
                             Self::handle_get_execution_run_timeline(core, run_id).await
                         }
@@ -3898,7 +3878,6 @@ pub mod daemon {
             mod sessions {
                 use super::*;
                 use types::ChatTurnStatus;
-                use types::request::ChildRunListQuery;
 
                 fn assert_execution_thread_error(
                     response: IpcResponse,
@@ -4006,54 +3985,6 @@ pub mod daemon {
                                 Some(session_id.as_str())
                             );
                             assert_eq!(thread.timeline.events.len(), 2);
-                        }
-                        other => panic!("expected success response, got {other:?}"),
-                    }
-                }
-
-                #[tokio::test]
-                async fn list_child_runs_returns_bad_request_for_blank_parent_run_id() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::ListChildRuns {
-                            query: ChildRunListQuery {
-                                parent_run_id: "   ".to_string(),
-                            },
-                        },
-                    )
-                    .await;
-
-                    assert_execution_thread_error(response, 400, "parent_run_id is required");
-                }
-
-                #[tokio::test]
-                async fn list_child_runs_returns_empty_for_leaf_runs() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
-                    save_chat_session(&core, &session);
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::ListChildRuns {
-                            query: ChildRunListQuery {
-                                parent_run_id: "run-1".to_string(),
-                            },
-                        },
-                    )
-                    .await;
-
-                    match response {
-                        IpcResponse::Success(value) => {
-                            let runs: Vec<crate::RunSummary> =
-                                serde_json::from_value(value).expect("child runs");
-                            assert!(runs.is_empty());
                         }
                         other => panic!("expected success response, got {other:?}"),
                     }

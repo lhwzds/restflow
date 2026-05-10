@@ -8348,8 +8348,6 @@ pub mod runtime {
                 use crate::test_support::RestflowTestEnv;
                 use crate::{AgentStorage, StoredAgent};
                 use ::agent::agent::SubagentDefLookup;
-                use redb::Database;
-                use std::sync::Arc;
                 use std::time::Duration;
                 use types::{AgentNode, ModelId, ModelRef};
 
@@ -8444,9 +8442,8 @@ pub mod runtime {
                 fn test_storage_backed_lookup_cache_holds_snapshot_until_ttl_expires() {
                     let env = RestflowTestEnv::new();
 
-                    let db_path = env.db_path("agents.db");
-                    let db = Arc::new(Database::create(db_path).unwrap());
-                    let storage = AgentStorage::new(db).unwrap();
+                    let storage =
+                        AgentStorage::new_file_backed_path(env.root().join("agents")).unwrap();
 
                     let lookup = StorageBackedSubagentLookup::new(storage.clone())
                         .with_cache_ttl(Duration::from_secs(60));
@@ -8464,9 +8461,8 @@ pub mod runtime {
                 fn test_storage_backed_lookup_refreshes_after_ttl() {
                     let env = RestflowTestEnv::new();
 
-                    let db_path = env.db_path("agents_refresh.db");
-                    let db = Arc::new(Database::create(db_path).unwrap());
-                    let storage = AgentStorage::new(db).unwrap();
+                    let storage =
+                        AgentStorage::new_file_backed_path(env.root().join("agents")).unwrap();
 
                     let lookup = StorageBackedSubagentLookup::new(storage.clone())
                         .with_cache_ttl(Duration::from_millis(5));

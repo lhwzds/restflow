@@ -4835,10 +4835,7 @@ pub mod features {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub enum Feature {
-        Triggers,
         WebSocketTransport,
-        StuckDetection,
-        ResourceTracker,
         PlanMode,
     }
 
@@ -4857,40 +4854,25 @@ pub mod features {
     }
 
     impl Feature {
-        pub const ALL: [Feature; 5] = [
-            Feature::Triggers,
-            Feature::WebSocketTransport,
-            Feature::StuckDetection,
-            Feature::ResourceTracker,
-            Feature::PlanMode,
-        ];
+        pub const ALL: [Feature; 2] = [Feature::WebSocketTransport, Feature::PlanMode];
 
         pub fn key(self) -> &'static str {
             match self {
-                Feature::Triggers => "triggers",
                 Feature::WebSocketTransport => "websocket_transport",
-                Feature::StuckDetection => "stuck_detection",
-                Feature::ResourceTracker => "resource_tracker",
                 Feature::PlanMode => "plan_mode",
             }
         }
 
         pub fn stage(self) -> Stage {
             match self {
-                Feature::Triggers => Stage::Stable,
                 Feature::WebSocketTransport => Stage::Experimental,
-                Feature::StuckDetection => Stage::Experimental,
-                Feature::ResourceTracker => Stage::UnderDevelopment,
                 Feature::PlanMode => Stage::Experimental,
             }
         }
 
         pub fn description(self) -> &'static str {
             match self {
-                Feature::Triggers => "Activate workflows and tasks by event or schedule.",
                 Feature::WebSocketTransport => "Use websocket transport for live client streams.",
-                Feature::StuckDetection => "Detect and recover tasks that stop making progress.",
-                Feature::ResourceTracker => "Track CPU and memory usage for running tasks.",
                 Feature::PlanMode => "Allow explicit user-plan pauses in agent execution.",
             }
         }
@@ -4906,10 +4888,7 @@ pub mod features {
         fn from_str(value: &str) -> Result<Self, Self::Err> {
             let normalized = value.trim().to_ascii_lowercase();
             match normalized.as_str() {
-                "triggers" => Ok(Feature::Triggers),
                 "websocket_transport" | "websocket" => Ok(Feature::WebSocketTransport),
-                "stuck_detection" => Ok(Feature::StuckDetection),
-                "resource_tracker" => Ok(Feature::ResourceTracker),
                 "plan_mode" => Ok(Feature::PlanMode),
                 _ => Err(()),
             }
@@ -4962,12 +4941,6 @@ pub mod features {
                 experimental_features: flags.iter().map(|v| (*v).to_string()).collect(),
                 ..SystemConfig::default()
             }
-        }
-
-        #[test]
-        fn test_stable_feature_enabled_by_default() {
-            let features = Features::from_config(&SystemConfig::default());
-            assert!(features.is_enabled(Feature::Triggers));
         }
 
         #[test]
@@ -5192,7 +5165,6 @@ pub mod process {
         #[derive(Debug, Clone, Default)]
         pub struct ProcessSessionMetadata {
             pub agent_id: Option<String>,
-            pub task_id: Option<String>,
         }
 
         pub trait ProcessOutputListener: Send + Sync {
@@ -8102,7 +8074,8 @@ pub mod services {
                     let db_path = env.db_path("test.db");
                     let db = Arc::new(redb::Database::create(db_path).unwrap());
 
-                    let agent_storage = AgentStorage::new(db.clone()).unwrap();
+                    let agent_storage =
+                        AgentStorage::new_file_backed_path(env.root().join("agents")).unwrap();
                     let secret_storage = SecretStorage::with_config(
                         db.clone(),
                         crate::SecretStorageConfig {
@@ -9879,10 +9852,6 @@ pub mod services {
         }
 
         impl AgentStorage {
-            pub fn new(_db: Arc<redb::Database>) -> Result<Self> {
-                Self::new_file_backed()
-            }
-
             pub fn new_file_backed() -> Result<Self> {
                 Self::new_file_backed_path(prompt_files::ensure_agents_dir()?)
             }
@@ -10457,7 +10426,6 @@ pub mod services {
         mod tests {
             use super::*;
             use crate::prompt_files;
-            use redb::{Database, ReadableDatabase};
             use tempfile::tempdir;
             use types::ModelId;
 
@@ -10491,9 +10459,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let agent_node = create_test_agent_node();
                 let stored = storage
@@ -10527,9 +10493,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 storage
                     .create_agent("Agent 1".to_string(), create_test_agent_node())
@@ -10557,9 +10521,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let stored = storage
                     .create_agent("Original Name".to_string(), create_test_agent_node())
@@ -10590,44 +10552,12 @@ pub mod services {
             }
 
             #[test]
-            fn test_update_name_keeps_redb_tables_empty_for_file_backed_agent() {
-                let _lock = env_lock();
-                let temp_dir = tempdir().unwrap();
-                let prompts_dir = temp_dir.path().join("agents");
-                unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db.clone()).unwrap();
-
-                let stored = storage
-                    .create_agent("Original Name".to_string(), create_test_agent_node())
-                    .unwrap();
-                let updated = storage
-                    .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
-                    .unwrap();
-
-                assert_eq!(updated.name, "Updated Name");
-                assert!(updated.agent.prompt.is_some());
-
-                let read_txn = db.begin_read().unwrap();
-                let tables = read_txn.list_tables().unwrap().collect::<Vec<_>>();
-                assert!(
-                    tables.is_empty(),
-                    "file-backed agents must not create redb tables"
-                );
-
-                unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-            }
-
-            #[test]
             fn test_update_agent_renames_prompt_file_on_name_change() {
                 let _lock = env_lock();
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let stored = storage
                     .create_agent("Original Name".to_string(), create_test_agent_node())
@@ -10655,9 +10585,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let stored = storage
                     .create_agent("Prefix Test".to_string(), create_test_agent_node())
@@ -10678,9 +10606,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let stored = storage
                     .create_agent("To Delete".to_string(), create_test_agent_node())
@@ -10702,9 +10628,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let result = storage.get_agent("nonexistent".to_string()).unwrap();
                 assert!(result.is_none());
@@ -10717,9 +10641,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let result = storage.update_agent(
                     "nonexistent".to_string(),
@@ -10738,9 +10660,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let first = storage
                     .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
@@ -10762,9 +10682,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 let only = storage
                     .create_agent("Only Agent".to_string(), create_test_agent_node())
@@ -10783,9 +10701,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = AgentStorage::new(db).unwrap();
+                let storage = AgentStorage::new_file_backed_path(&prompts_dir).unwrap();
 
                 storage
                     .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
@@ -10811,9 +10727,7 @@ pub mod services {
                 let temp_dir = tempdir().unwrap();
                 let prompts_dir = temp_dir.path().join("agents");
                 unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
-                let db_path = temp_dir.path().join("test.db");
-                let db = Arc::new(Database::create(db_path).unwrap());
-                let storage = Arc::new(AgentStorage::new(db).unwrap());
+                let storage = Arc::new(AgentStorage::new_file_backed_path(&prompts_dir).unwrap());
 
                 let stored = storage
                     .create_agent("Race Test".to_string(), create_test_agent_node())
@@ -11100,7 +11014,7 @@ pub mod services {
 
         #[derive(Debug, Error)]
         pub enum ExecutionThreadError {
-            #[error("execution thread query requires run_id, session_id, or task_id")]
+            #[error("execution thread query requires run_id")]
             InvalidQuery,
             #[error("run '{0}' not found")]
             RunNotFound(String),
@@ -11176,11 +11090,6 @@ pub mod services {
                     focus: summary,
                     timeline,
                 })
-            }
-
-            pub fn list_child_runs(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
-                let _ = parent_run_id;
-                Ok(Vec::new())
             }
 
             pub fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline> {
@@ -11259,7 +11168,6 @@ pub mod services {
                 ended_at: turn.completed_at,
                 session_id: Some(session.id.clone()),
                 run_id: Some(turn.id.clone()),
-                task_id: None,
                 parent_run_id: None,
                 agent_id: Some(session.agent_id.clone()),
                 effective_model: Some(session.model.clone()).filter(|value| !value.is_empty()),
@@ -11711,7 +11619,7 @@ pub mod services {
             operation: &str,
             intent: OperationAssessmentIntent,
             agent: &AgentNode,
-            child_run_parent_fallback: bool,
+            subagent_parent_fallback: bool,
         ) -> Result<OperationAssessment> {
             let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());
 
@@ -11748,11 +11656,11 @@ pub mod services {
                 return Ok(finalize_assessment(assessment));
             }
 
-            if child_run_parent_fallback {
+            if subagent_parent_fallback {
                 if matches!(intent, OperationAssessmentIntent::Save) {
                     assessment.warnings.push(issue(
                         "inherits_parent_model",
-                        "No explicit model is configured. This child run will inherit the parent runtime model.",
+                        "No explicit model is configured. This sub-agent run will inherit the parent runtime model.",
                         Some("model_ref"),
                         Some("Set model_ref when you need deterministic provider behavior."),
                     ));
@@ -11964,9 +11872,9 @@ pub mod services {
             if matches!(assessment.intent, OperationAssessmentIntent::Save) {
                 assessment.warnings.push(issue(
                     "inherits_parent_model",
-                    "This temporary child run has no explicit model and will inherit the parent runtime model.",
+                    "This temporary sub-agent run has no explicit model and will inherit the parent runtime model.",
                     Some("model_ref"),
-                    Some("Set model_ref to make this child run deterministic."),
+                    Some("Set model_ref to make this sub-agent run deterministic."),
                 ));
             }
             Ok(finalize_assessment(assessment))
@@ -16046,8 +15954,8 @@ pub mod steer {
 
     use types::SteerMessage;
 
-    /// Registry of steer channels for running tasks.
-    /// Each running task registers a sender; external code sends steer messages.
+    /// Registry of steer channels for running streams.
+    /// Each running stream registers a sender; external code sends steer messages.
     pub struct SteerRegistry {
         channels: RwLock<HashMap<String, mpsc::Sender<SteerMessage>>>,
     }
@@ -16059,33 +15967,36 @@ pub mod steer {
             }
         }
 
-        /// Register a steer channel for a running task.
+        /// Register a steer channel for a running stream.
         /// Returns the receiver for the executor to poll.
-        pub async fn register(&self, task_id: &str) -> mpsc::Receiver<SteerMessage> {
+        pub async fn register(&self, stream_id: &str) -> mpsc::Receiver<SteerMessage> {
             let (tx, rx) = mpsc::channel(16);
-            self.channels.write().await.insert(task_id.to_string(), tx);
+            self.channels
+                .write()
+                .await
+                .insert(stream_id.to_string(), tx);
             rx
         }
 
-        /// Unregister when task completes.
-        pub async fn unregister(&self, task_id: &str) {
-            self.channels.write().await.remove(task_id);
+        /// Unregister when stream completes.
+        pub async fn unregister(&self, stream_id: &str) {
+            self.channels.write().await.remove(stream_id);
         }
 
-        /// Send a steer message to a running task.
-        /// Returns false if task is not running or channel is full.
-        pub async fn steer(&self, task_id: &str, message: SteerMessage) -> bool {
+        /// Send a steer message to a running stream.
+        /// Returns false if the stream is not running or channel is full.
+        pub async fn steer(&self, stream_id: &str, message: SteerMessage) -> bool {
             let channels = self.channels.read().await;
-            if let Some(tx) = channels.get(task_id) {
+            if let Some(tx) = channels.get(stream_id) {
                 tx.try_send(message).is_ok()
             } else {
                 false
             }
         }
 
-        /// Check if a task has a steer channel (is running).
-        pub async fn is_steerable(&self, task_id: &str) -> bool {
-            self.channels.read().await.contains_key(task_id)
+        /// Check if a stream has a steer channel.
+        pub async fn is_steerable(&self, stream_id: &str) -> bool {
+            self.channels.read().await.contains_key(stream_id)
         }
     }
 
@@ -16103,42 +16014,42 @@ pub mod steer {
         #[tokio::test]
         async fn test_steer_registry_register_unregister() {
             let registry = SteerRegistry::new();
-            let _rx = registry.register("task-1").await;
-            assert!(registry.is_steerable("task-1").await);
+            let _rx = registry.register("stream-1").await;
+            assert!(registry.is_steerable("stream-1").await);
 
-            registry.unregister("task-1").await;
-            assert!(!registry.is_steerable("task-1").await);
+            registry.unregister("stream-1").await;
+            assert!(!registry.is_steerable("stream-1").await);
         }
 
         #[tokio::test]
         async fn test_steer_message_delivery() {
             let registry = SteerRegistry::new();
-            let mut rx = registry.register("task-1").await;
+            let mut rx = registry.register("stream-1").await;
 
             let msg = SteerMessage::message("check ETH too", SteerSource::User);
-            assert!(registry.steer("task-1", msg).await);
+            assert!(registry.steer("stream-1", msg).await);
 
             let received = rx.recv().await.unwrap();
             assert_eq!(received.instruction(), "check ETH too");
         }
 
         #[tokio::test]
-        async fn test_steer_nonexistent_task() {
+        async fn test_steer_nonexistent_stream() {
             let registry = SteerRegistry::new();
             let msg = SteerMessage::message("test", SteerSource::User);
-            assert!(!registry.steer("no-such-task", msg).await);
+            assert!(!registry.steer("no-such-stream", msg).await);
         }
 
         #[tokio::test]
         async fn test_steer_channel_capacity() {
             // Channel capacity is 16, sending 20 messages should drop overflow
             let registry = SteerRegistry::new();
-            let _rx = registry.register("task-1").await; // don't consume
+            let _rx = registry.register("stream-1").await; // don't consume
 
             for i in 0..20 {
                 registry
                     .steer(
-                        "task-1",
+                        "stream-1",
                         SteerMessage::message(format!("msg-{i}"), SteerSource::User),
                     )
                     .await;
@@ -16296,8 +16207,6 @@ pub mod storage {
 
     /// Central storage manager for file-backed local state and secrets.
     pub struct Storage {
-        #[cfg(test)]
-        db_path: PathBuf,
         pub config: ConfigStorage,
         pub agents: AgentStorage,
         pub secrets: SecretStorage,
@@ -16321,18 +16230,11 @@ pub mod storage {
             let file_sessions = FileSessionStore::new(session_store_path(path))?;
 
             Ok(Self {
-                #[cfg(test)]
-                db_path,
                 config,
                 agents,
                 secrets,
                 file_sessions,
             })
-        }
-
-        #[cfg(test)]
-        pub fn get_db(&self) -> std::sync::Arc<redb::Database> {
-            std::sync::Arc::new(redb::Database::create(&self.db_path).unwrap())
         }
     }
 
@@ -16569,12 +16471,12 @@ pub use services::agent_catalog::{AgentStorage, DEFAULT_ASSISTANT_NAME, StoredAg
 pub use steer::SteerRegistry;
 pub use types::{
     AgentMeta, AgentNode, AgentType, ApiKeyConfig, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, ChildRunListQuery,
-    CodexCliExecutionMode, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionContainerSummary, ExecutionStepInfo, ExecutionThread, MessageExecution, ModelId,
-    ModelMetadataDTO, ModelRoutingConfig, Provider, RunKind, RunListQuery, RunSummary, RunTimeline,
-    Skill, SkillGating, SkillMeta, SkillReference, SkillScript, SkillSource, SkillStatus,
-    SteerMessage, SteerSource, ValidationError, ValidationErrorResponse, encode_validation_error,
+    ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, CodexCliExecutionMode,
+    ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionStepInfo,
+    ExecutionThread, MessageExecution, ModelId, ModelMetadataDTO, ModelRoutingConfig, Provider,
+    RunKind, RunListQuery, RunSummary, RunTimeline, Skill, SkillGating, SkillMeta, SkillReference,
+    SkillScript, SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError,
+    ValidationErrorResponse, encode_validation_error,
 };
 
 use std::sync::Arc;

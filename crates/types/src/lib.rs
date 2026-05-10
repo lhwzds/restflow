@@ -3846,7 +3846,7 @@ pub mod orchestrator {
         /// Optional stored agent identifier.
         #[serde(default)]
         pub agent_id: Option<String>,
-        /// Optional inline temporary child-run configuration.
+        /// Optional inline temporary sub-agent configuration.
         #[serde(default)]
         pub inline_subagent: Option<InlineRunConfig>,
         /// Runtime input for the execution.
@@ -3872,7 +3872,7 @@ pub mod orchestrator {
         pub parent_run_id: Option<String>,
         /// Optional authoritative run ID.
         ///
-        /// For sub-agent executions this identifies the canonical child run. When
+        /// For sub-agent executions this identifies the canonical sub-agent run. When
         /// supplied by a caller that already owns lifecycle emission, executors
         /// must reuse this run ID without emitting a second top-level lifecycle.
         #[serde(default)]
@@ -4101,12 +4101,12 @@ pub mod orchestrator {
                 mode: Some(ExecutionMode::Subagent),
                 agent_id: Some("child".to_string()),
                 input: Some("task".to_string()),
-                run_id: Some("child-run-1".to_string()),
+                run_id: Some("subagent-run-1".to_string()),
                 ..ExecutionPlan::default()
             };
 
             assert!(valid.validate().is_ok());
-            assert_eq!(valid.run_id.as_deref(), Some("child-run-1"));
+            assert_eq!(valid.run_id.as_deref(), Some("subagent-run-1"));
         }
     }
 }
@@ -4645,8 +4645,6 @@ pub mod run {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub run_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub task_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub parent_run_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub agent_id: Option<String>,
@@ -4661,11 +4659,6 @@ pub mod run {
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
     pub struct RunListQuery {
         pub container: ExecutionContainerRef,
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
-    pub struct ChildRunListQuery {
-        pub parent_run_id: String,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
@@ -4699,7 +4692,6 @@ pub mod run {
                 ended_at: Some(2),
                 session_id: Some("session-1".to_string()),
                 run_id: Some("run-1".to_string()),
-                task_id: None,
                 parent_run_id: None,
                 agent_id: Some("agent-1".to_string()),
                 effective_model: Some("gpt-5.4".to_string()),
@@ -4712,13 +4704,8 @@ pub mod run {
                     id: "workspace".to_string(),
                 },
             };
-            let child_query = ChildRunListQuery {
-                parent_run_id: "run-1".to_string(),
-            };
-
             assert_eq!(summary.run_id.as_deref(), Some("run-1"));
             assert_eq!(query.container.id, "workspace");
-            assert_eq!(child_query.parent_run_id, "run-1");
         }
     }
 }
@@ -6677,9 +6664,6 @@ pub mod subagent {
         DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
         DEFAULT_SUBAGENT_TIMEOUT_SECS,
     };
-    /// Canonical contract request alias for child run spawning.
-    pub type ContractChildRunSpawnRequest = ContractRunSpawnRequest;
-
     /// Snapshot of a sub-agent definition with all fields needed for execution.
     ///
     /// This is a simple owned data struct that captures the fields from a concrete
@@ -6759,7 +6743,7 @@ pub mod subagent {
         #[serde(default)]
         pub agent_id: Option<String>,
 
-        /// Optional inline configuration for temporary child-run creation.
+        /// Optional inline configuration for temporary sub-agent creation.
         ///
         /// This is used when `agent_id` is omitted.
         #[serde(default)]
@@ -6794,7 +6778,7 @@ pub mod subagent {
 
         /// Optional authoritative run ID for this sub-agent execution.
         ///
-        /// When provided, runtime must use this as the canonical child run ID.
+        /// When provided, runtime must use this as the canonical sub-agent run ID.
         #[serde(default)]
         pub run_id: Option<String>,
     }
@@ -6835,9 +6819,6 @@ pub mod subagent {
 
     /// Canonical inline run configuration alias.
     pub type InlineRunConfig = InlineSubagentConfig;
-
-    /// Canonical child-run inline configuration alias.
-    pub type InlineChildRunConfig = InlineRunConfig;
 
     /// Priority level for sub-agent spawning.
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -6954,7 +6935,7 @@ pub mod subagent {
         /// Task ID
         pub id: String,
 
-        /// Parent run ID, when this completion belongs to a child run.
+        /// Parent run ID, when this completion belongs to a sub-agent run.
         pub parent_run_id: Option<String>,
 
         /// Final terminal status.
@@ -7055,9 +7036,9 @@ pub mod subagent {
 
     fn normalize_inline_config(
         inline: Option<ContractInlineAgentRunConfig>,
-    ) -> Option<InlineChildRunConfig> {
+    ) -> Option<InlineRunConfig> {
         let inline = inline?;
-        let config = InlineChildRunConfig {
+        let config = InlineRunConfig {
             name: inline.name,
             system_prompt: inline.system_prompt,
             allowed_tools: inline.allowed_tools,
@@ -8395,9 +8376,6 @@ pub mod contracts {
             GetExecutionRunThread {
                 run_id: String,
             },
-            ListChildRuns {
-                query: ChildRunListQuery,
-            },
             GetExecutionRunTimeline {
                 run_id: String,
             },
@@ -8739,7 +8717,6 @@ pub mod contracts {
         #[serde(rename_all = "snake_case")]
         pub enum ExecutionContainerKind {
             Workspace,
-            Task,
         }
 
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -8751,11 +8728,6 @@ pub mod contracts {
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
         pub struct RunListQuery {
             pub container: ExecutionContainerRef,
-        }
-
-        #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-        pub struct ChildRunListQuery {
-            pub parent_run_id: String,
         }
 
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -8771,9 +8743,7 @@ pub mod contracts {
             pub auto_review_tools: bool,
             pub max_iterations: usize,
             pub max_depth: usize,
-            #[serde(alias = "child_run_timeout_secs")]
             pub subagent_timeout_secs: u64,
-            #[serde(alias = "max_parallel_child_runs")]
             pub max_parallel_subagents: usize,
             pub max_tool_calls: usize,
             pub max_tool_concurrency: usize,
@@ -8898,7 +8868,7 @@ pub mod contracts {
             }
 
             #[test]
-            fn list_runs_and_child_runs_round_trip() {
+            fn list_runs_round_trip() {
                 let request = IpcRequest::ListRuns {
                     query: RunListQuery {
                         container: ExecutionContainerRef {
@@ -8908,13 +8878,6 @@ pub mod contracts {
                     },
                 };
                 assert_roundtrip(&request);
-
-                let child_request = IpcRequest::ListChildRuns {
-                    query: ChildRunListQuery {
-                        parent_run_id: "run-root".to_string(),
-                    },
-                };
-                assert_roundtrip(&child_request);
             }
 
             #[test]
@@ -9551,8 +9514,8 @@ pub use assessment::{
     OperationAssessmentIssue, OperationAssessmentStatus,
 };
 pub use run::{
-    ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
-    ExecutionThread, RunKind, RunListQuery, RunSummary, RunTimeline,
+    ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionThread,
+    RunKind, RunListQuery, RunSummary, RunTimeline,
 };
 pub use session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
@@ -9593,11 +9556,10 @@ pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, Execu
 
 // Sub-agent types
 pub use subagent::{
-    ContractChildRunSpawnRequest, ContractRunSpawnRequest, InlineChildRunConfig, InlineRunConfig,
-    InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion,
-    SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-    SubagentEffectiveLimits, SubagentLimitSource, SubagentManager, SubagentResult, SubagentState,
-    SubagentStatus, resolve_agent_id, spawn_request_from_contract,
+    ContractRunSpawnRequest, InlineRunConfig, InlineSubagentConfig, SpawnHandle, SpawnPriority,
+    SpawnRequest, SubagentCompletion, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
+    SubagentDefSummary, SubagentEffectiveLimits, SubagentLimitSource, SubagentManager,
+    SubagentResult, SubagentState, SubagentStatus, resolve_agent_id, spawn_request_from_contract,
 };
 
 // LLM switching
