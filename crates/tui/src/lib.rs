@@ -6443,6 +6443,17 @@ mod shell {
     const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
     const OVERLAY_MAX_ROWS: u16 = 10;
 
+    fn overlay_capacity_for_state(state: &AppState, available_above_prompt: u16) -> u16 {
+        if matches!(
+            state.overlay,
+            Some(crate::state::OverlayState::SessionPicker { .. })
+        ) {
+            available_above_prompt
+        } else {
+            available_above_prompt.min(OVERLAY_MAX_ROWS)
+        }
+    }
+
     pub struct ShellRenderer {
         stdout: Stdout,
         scrollback: ScrollbackWriter,
@@ -6705,7 +6716,7 @@ mod shell {
             let prompt = build_prompt_snapshot(state, width, height);
             let prompt_height = prompt.lines.len() as u16 + 2;
             let available_above_prompt = height.saturating_sub(prompt_height);
-            let overlay_capacity = available_above_prompt.min(OVERLAY_MAX_ROWS);
+            let overlay_capacity = overlay_capacity_for_state(state, available_above_prompt);
             let overlay_lines =
                 build_overlay_lines(state, width, overlay_capacity).unwrap_or_default();
             let overlay_height = overlay_lines.len() as u16;
@@ -10463,6 +10474,39 @@ mod shell {
             assert!(rendered.iter().any(|line| line.contains("› Session 3")));
             assert!(!rendered.iter().any(|line| line.contains("Session 0")));
             assert!(rendered.iter().any(|line| line.contains("Session 5")));
+        }
+
+        #[test]
+        fn resume_picker_uses_full_available_viewport_height() {
+            let mut state = AppState::empty();
+            state.sessions = (0..12)
+                .map(|index| ChatSessionSummary {
+                    id: format!("session-{index}"),
+                    name: format!("Session {index}"),
+                    agent_id: "agent-1".to_string(),
+                    provider: "provider".to_string(),
+                    model: "model".to_string(),
+                    skill_id: None,
+                    message_count: index,
+                    updated_at: index as i64,
+                    last_message_preview: Some(format!("preview {index}")),
+                    archived_at: None,
+                })
+                .collect();
+            state.open_session_picker();
+
+            let snapshot = build_viewport_snapshot(&state, (120, 30));
+            let rendered = line_texts(&snapshot.lines);
+            let visible_session_rows = rendered
+                .iter()
+                .filter(|line| line.contains("Session "))
+                .count();
+
+            assert!(
+                visible_session_rows > 3,
+                "resume picker should not be capped to the compact overlay height"
+            );
+            assert!(rendered.iter().any(|line| line.contains("Session 6")));
         }
 
         #[test]
