@@ -1,9 +1,6 @@
 //! RestFlow session runner and agent execution orchestration.
 
-pub use restflow_core::*;
-pub use tools;
-
-pub mod runtime {
+mod runtime {
     pub mod agent {
         //! Agent execution engine components.
         //!
@@ -13,7 +10,7 @@ pub mod runtime {
         //! - Do not re-export `SubagentManagerImpl`, `SubagentDeps`, or related runtime
         //!   state from this module.
 
-        pub mod tools {
+        pub(crate) mod tools {
             //! Unified tool registry for agent execution.
             //!
             //! Tool implementations live in `tools`. This module provides
@@ -25,13 +22,13 @@ pub mod runtime {
                 use std::sync::{Arc, RwLock};
 
                 use super::SUBAGENT_TOOL_NAMES;
-                use crate::AgentStorage;
-                use crate::services::adapters::AgentStoreAdapter;
-                use crate::storage::SecretStorage;
-                use crate::tools::{
+                use ::tools::{
                     BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool,
                     SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
                 };
+                use restflow_core::AgentStorage;
+                use restflow_core::services::adapters::AgentStoreAdapter;
+                use restflow_core::storage::SecretStorage;
                 use types::SubagentManager;
                 use types::store::AgentStore;
                 use types::tool::SecurityGate;
@@ -147,8 +144,8 @@ pub mod runtime {
             pub mod skill_activation {
                 //! Skill-aware tool allowlist activation helpers.
 
-                use crate::services::skill_mentions::parse_skill_mentions;
                 use anyhow::{Result, bail};
+                use restflow_core::services::skill_mentions::parse_skill_mentions;
                 use std::collections::{HashMap, HashSet};
                 use types::{AgentNode, Skill};
 
@@ -179,15 +176,6 @@ pub mod runtime {
                 pub enum SkillActivationIssueCategory {
                     MissingSkill,
                     UnauthorizedSkill,
-                }
-
-                impl SkillActivationIssueCategory {
-                    pub fn as_str(self) -> &'static str {
-                        match self {
-                            Self::MissingSkill => "missing_skill",
-                            Self::UnauthorizedSkill => "unauthorized_skill",
-                        }
-                    }
                 }
 
                 pub fn effective_tool_allowlist_for_turn(
@@ -556,27 +544,17 @@ pub mod runtime {
                 register_bash_execution_tool, register_file_execution_tool,
                 register_management_tools, register_subagent_management_tools,
             };
-            use crate::services::adapters::*;
-            use crate::storage::Storage;
+            use restflow_core::services::adapters::*;
+            use restflow_core::storage::Storage;
             use types::SubagentManager;
             use types::skill::SkillProvider;
             use types::tool::SecurityGate;
 
-            // Re-export tool types from tools
-            pub use crate::tools::impls::{
-                BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool,
-                RunSkillTool, SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
-                default_registry,
-            };
+            use ::tools::impls::{BashConfig, FileConfig, RunSkillTool, ToolRegistryBuilder};
 
-            pub use ::agent::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
-            pub use skill_activation::{
-                SkillActivationIssue, SkillActivationIssueCategory, SkillActivationPolicy,
-                SkillActivationResult, effective_tool_allowlist_for_turn,
-                resolve_skill_activated_tool_allowlist,
-            };
-
-            pub type ToolResult = ToolOutput;
+            #[cfg(any(test, feature = "test-utils"))]
+            use ::agent::tools::Tool;
+            use ::agent::tools::{SecretResolver, ToolRegistry};
             const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
             const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
@@ -595,6 +573,7 @@ pub mod runtime {
             }
 
             #[cfg(any(test, feature = "test-utils"))]
+            #[allow(dead_code)]
             pub struct TestToolOverrideGuard {
                 previous: Option<TestToolOverrideMap>,
             }
@@ -609,6 +588,7 @@ pub mod runtime {
             }
 
             #[cfg(any(test, feature = "test-utils"))]
+            #[allow(dead_code)]
             pub fn install_test_tool_overrides(
                 overrides: TestToolOverrideMap,
             ) -> TestToolOverrideGuard {
@@ -664,10 +644,6 @@ pub mod runtime {
                 "wait_subagents",
                 "list_subagents",
             ];
-
-            pub fn is_subagent_tool_name(name: &str) -> bool {
-                SUBAGENT_TOOL_NAMES.contains(&name)
-            }
 
             /// Merge the default main-agent tools with agent-specific additions.
             pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<String> {
@@ -815,7 +791,7 @@ pub mod runtime {
                         }
                         "run_skill" => {
                             let mut tool = RunSkillTool::new()
-                                .with_root(crate::services::skills::skill_catalog_root()?);
+                                .with_root(restflow_core::services::skills::skill_catalog_root()?);
                             if let Some(gate) = security_gate.clone() {
                                 tool = tool.with_security(
                                     gate,
@@ -970,7 +946,7 @@ pub mod runtime {
                             registry.register_arc(tool);
                         }
                     }
-                    registry.register(crate::tools::BatchTool::new(registry_arc));
+                    registry.register(::tools::BatchTool::new(registry_arc));
                 }
 
                 #[cfg(any(test, feature = "test-utils"))]
@@ -994,7 +970,7 @@ pub mod runtime {
                     effective_main_agent_tool_names, main_agent_default_tool_names,
                     registry_from_allowlist,
                 };
-                use crate::storage::Storage;
+                use restflow_core::storage::Storage;
                 use tempfile::tempdir;
 
                 #[test]
@@ -1217,8 +1193,8 @@ pub mod runtime {
         use std::sync::Arc;
         use tracing::warn;
 
-        use crate::storage::Storage;
         use ::agent::agent::DEFAULT_AGENT_PROMPT;
+        use restflow_core::storage::Storage;
         use types::AgentNode;
 
         const DEFAULT_MAIN_AGENT_PROMPT: &str = r#"You are a RestFlow agent.
@@ -1271,16 +1247,6 @@ pub mod runtime {
         - If a command or tool requires approval, wait for approval before retrying.
         "#;
 
-        pub use tools::{
-            BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool,
-            SkillActivationPolicy, SpawnSubagentTool, Tool, ToolRegistry, ToolRegistryBuilder,
-            ToolResult, WaitSubagentsTool, default_registry, effective_main_agent_tool_names,
-            effective_tool_allowlist_for_turn, main_agent_default_tool_names,
-            registry_from_allowlist, secret_resolver_from_storage,
-        };
-        #[cfg(any(test, feature = "test-utils"))]
-        pub use tools::{TestToolOverrideGuard, install_test_tool_overrides};
-
         /// Build the agent system prompt from agent configuration.
         ///
         /// Skills are now registered as callable tools (via `registry_from_allowlist`),
@@ -1317,7 +1283,7 @@ pub mod runtime {
             Ok(base)
         }
     }
-    pub mod execution_context {
+    pub(crate) mod execution_context {
         //! Shared execution context metadata across main and sub-agent flows.
 
         use serde::{Deserialize, Serialize};
@@ -1360,6 +1326,7 @@ pub mod runtime {
                 }
             }
 
+            #[cfg(test)]
             pub fn subagent(agent_id: impl Into<String>, parent_run_id: impl Into<String>) -> Self {
                 Self {
                     role: ExecutionRole::Subagent,
@@ -2120,13 +2087,8 @@ pub mod runtime {
                 }
             }
         }
-
-        pub use kernel::{ExecutionBackend, ExecutionKernel};
-        pub use orchestrator::{
-            AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
-            TracedInteractiveExecutionResult,
-        };
     }
+    #[allow(dead_code)]
     pub mod session_runner {
         //! Agent session runtime module.
         //!
@@ -2146,9 +2108,7 @@ pub mod runtime {
         //! # Usage
         //!
         //! ```ignore
-        //! use runner::runtime::session_runner::{
-        //!     AgentRuntimeExecutor, RetryConfig, FailoverConfig, FailoverManager
-        //! };
+        //! use runner::runtime::session_runner::AgentRuntimeExecutor;
         //!
         //! // For API-based execution:
         //! let executor = Arc::new(AgentRuntimeExecutor::new(
@@ -2161,38 +2121,8 @@ pub mod runtime {
         //! let _executor = executor;
         //! ```
         //!
-        //! # Retry Example
-        //!
-        //! ```ignore
-        //! use runner::runtime::session_runner::retry::{RetryConfig, RetryState};
-        //!
-        //! let config = RetryConfig::default();
-        //! let mut state = RetryState::new();
-        //!
-        //! // After a failure
-        //! if state.should_retry(&config, "Connection timeout") {
-        //!     state.record_failure("Connection timeout", &config);
-        //!     // Wait before retrying
-        //! }
-        //! ```
-        //!
-        //! # Failover Example
-        //!
-        //! ```ignore
-        //! use runner::runtime::session_runner::failover::{FailoverConfig, FailoverManager};
-        //! use crate::ModelId;
-        //!
-        //! let config = FailoverConfig::with_fallbacks(
-        //!     ModelId::ClaudeSonnet4_5,
-        //!     vec![ModelId::Gpt5, ModelId::DeepseekChat],
-        //! );
-        //! let manager = FailoverManager::new(config);
-        //!
-        //! // Get the best available model
-        //! if let Some(model) = manager.get_available_model().await {
-        //!     // Use this model
-        //! }
-        //! ```
+        //! Retry and model failover are internal runner behavior driven by agent
+        //! configuration; callers interact with the session-turn executor.
         //!
         use ::agent::llm::Message;
         use types::ModelId;
@@ -2544,12 +2474,8 @@ pub mod runtime {
             use std::sync::Arc;
             use std::time::Duration;
 
-            use crate::runtime::{AgentOrchestratorImpl, ExecutionContext};
-            use crate::tools::{ReplyTool, SwitchModelTool};
-            use crate::{
-                ModelId, Provider, provider_policy::resolve_model_from_available_secrets,
-                services::session::SessionService, storage::Storage,
-            };
+            use crate::runtime::execution_context::ExecutionContext;
+            use crate::runtime::orchestrator::orchestrator::AgentOrchestratorImpl;
             use ::agent::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
             use ::agent::llm::Message;
             use ::agent::{
@@ -2557,29 +2483,38 @@ pub mod runtime {
                 DefaultLlmClientFactory, LlmClient, LlmClientFactory,
                 ResourceLimits as AgentResourceLimits, SwappableLlm,
             };
+            use ::tools::{ReplyTool, SwitchModelTool};
+            use restflow_core::{
+                provider_policy::resolve_model_from_available_secrets,
+                services::session::SessionService, storage::Storage,
+            };
             use tokio::sync::mpsc;
             use tokio::time::sleep;
             use tracing::{debug, info, warn};
             use types::llm::LlmProvider;
             use types::{
                 AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatTurnEventKind,
-                ChatTurnStatus, Skill, SteerMessage,
+                ChatTurnStatus, ModelId, Provider, Skill, SteerMessage,
             };
             use types::{ExecutionOutcome, ExecutionPlan, ReplySender};
 
             use super::SessionExecutionResult;
             use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
             use super::retry::{RetryConfig, RetryState};
-            use crate::runtime::agent::{
-                BashConfig, SkillActivationPolicy, ToolRegistry, build_agent_system_prompt,
-                effective_tool_allowlist_for_turn, main_agent_default_tool_names,
-                registry_from_allowlist, secret_resolver_from_storage,
+            use crate::runtime::agent::build_agent_system_prompt;
+            use crate::runtime::agent::tools::skill_activation::{
+                SkillActivationPolicy, effective_tool_allowlist_for_turn,
+            };
+            use crate::runtime::agent::tools::{
+                main_agent_default_tool_names, registry_from_allowlist,
+                secret_resolver_from_storage,
             };
             use ::agent::agent::SubagentDefLookup;
             use ::agent::agent::{
                 SubagentConfig, SubagentExecutionBridge, SubagentTracker, execute_subagent_plan,
             };
             use ::agent::llm::LlmSwitcherImpl;
+            use ::tools::{BashConfig, ToolRegistry};
             use preflight::SkillSnapshotCache;
             #[cfg(any(test, feature = "test-utils"))]
             use std::sync::{Mutex, OnceLock};
@@ -2608,6 +2543,7 @@ pub mod runtime {
             }
 
             #[cfg(any(test, feature = "test-utils"))]
+            #[allow(dead_code)]
             pub struct TestLlmFactoryGuard {
                 previous: Option<Arc<dyn LlmClientFactory>>,
             }
@@ -2622,6 +2558,7 @@ pub mod runtime {
             }
 
             #[cfg(any(test, feature = "test-utils"))]
+            #[allow(dead_code)]
             pub fn install_test_llm_factory(
                 factory: Arc<dyn LlmClientFactory>,
             ) -> TestLlmFactoryGuard {
@@ -3293,7 +3230,7 @@ pub mod runtime {
                         return Ok(PathBuf::from(path));
                     }
 
-                    let cache_dir = crate::paths::ensure_restflow_dir()?.join("cache");
+                    let cache_dir = restflow_core::paths::ensure_restflow_dir()?.join("cache");
                     std::fs::create_dir_all(&cache_dir)?;
                     Ok(cache_dir.join("models.json"))
                 }
@@ -3567,7 +3504,7 @@ pub mod runtime {
                         _agent_id: Option<&str>,
                         user_input: Option<&str>,
                     ) -> Result<Vec<String>> {
-                        let skills = crate::services::skills::list_available_skills()?;
+                        let skills = restflow_core::services::skills::list_available_skills()?;
                         let result = effective_tool_allowlist_for_turn(
                             agent_node,
                             user_input,
@@ -3637,7 +3574,7 @@ pub mod runtime {
                             build_skill_filter_signature(agent_node.skills.as_deref()),
                         );
 
-                        let all_skills = crate::services::skills::list_available_skills()?;
+                        let all_skills = restflow_core::services::skills::list_available_skills()?;
                         let version_hash = build_skill_version_hash(&all_skills);
 
                         let assigned_skill_ids = agent_node.skills.clone().unwrap_or_default();
@@ -3739,9 +3676,9 @@ pub mod runtime {
             }
             mod session_execution {
                 use super::*;
-                use crate::services::adapters::SkrunSkillProvider;
-                use crate::services::skill_mentions::parse_skill_mentions;
                 use ::agent::StreamDisplayMode;
+                use restflow_core::services::adapters::SkrunSkillProvider;
+                use restflow_core::services::skill_mentions::parse_skill_mentions;
                 use types::skill::{SkillInfo, SkillProvider};
 
                 fn should_force_non_stream(model: ModelId) -> bool {
@@ -3765,7 +3702,7 @@ pub mod runtime {
                     pub(crate) fn resolve_stored_agent_for_session(
                         &self,
                         session: &mut ChatSession,
-                    ) -> Result<crate::StoredAgent> {
+                    ) -> Result<restflow_core::StoredAgent> {
                         if let Some(agent) =
                             self.storage.agents.get_agent(session.agent_id.clone())?
                         {
@@ -4644,12 +4581,12 @@ pub mod runtime {
             #[cfg(test)]
             mod tests {
                 use super::*;
-                use crate::provider_policy::provider_default_model;
-                use crate::runtime::subagent::AgentDefinitionRegistry;
-                use crate::services::session::SessionService;
-                use crate::session_log::{FileSession, FileSessionStore};
-                use crate::test_support::RestflowTestEnv;
+                use crate::runtime::subagent::definition::AgentDefinitionRegistry;
                 use ::agent::agent::{SubagentConfig, SubagentTracker};
+                use restflow_core::provider_policy::provider_default_model;
+                use restflow_core::services::session::SessionService;
+                use restflow_core::session_log::{FileSession, FileSessionStore};
+                use restflow_core::test_support::RestflowTestEnv;
                 use std::future::Future;
                 #[cfg(unix)]
                 use std::path::PathBuf;
@@ -5239,7 +5176,8 @@ pub mod runtime {
                 // covered by integration tests in the daemon transport stack
             }
         }
-        pub mod failover {
+        #[cfg_attr(not(test), allow(dead_code))]
+        pub(crate) mod failover {
             //! Model Failover System
             //!
             //! This module provides automatic failover between AI models when the primary
@@ -5254,38 +5192,15 @@ pub mod runtime {
             //! - Circuit breaker pattern for unhealthy models
             //! - Configurable failure thresholds
             //!
-            //! # Example
-            //!
-            //! ```ignore
-            //! use runner::runtime::session_runner::failover::{FailoverConfig, FailoverManager};
-            //! use crate::ModelId;
-            //!
-            //! let config = FailoverConfig {
-            //!     primary: ModelId::ClaudeSonnet4_5,
-            //!     fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
-            //!     cooldown_secs: 300,
-            //!     failure_threshold: 3,
-            //! };
-            //!
-            //! let manager = FailoverManager::new(config);
-            //!
-            //! // Get the best available model
-            //! if let Some(model) = manager.get_available_model().await {
-            //!     // Use this model for the request
-            //! }
-            //!
-            //! // Record failure/success
-            //! manager.record_failure(ModelId::ClaudeSonnet4_5).await;
-            //! manager.record_success(ModelId::Gpt5).await;
-            //! ```
+            //! This is an internal implementation detail of session execution.
 
-            use crate::{ModelId, Provider};
             use anyhow::Result;
             use serde::{Deserialize, Serialize};
             use std::collections::{HashMap, HashSet};
             use std::sync::Arc;
             use tokio::sync::RwLock;
             use tracing::{debug, info, warn};
+            use types::{ModelId, Provider};
 
             use super::error_classification::{
                 classify_execution_error_message, is_authentication_classification,
@@ -6188,7 +6103,8 @@ pub mod runtime {
                 }
             }
         }
-        pub mod retry {
+        #[cfg_attr(not(test), allow(dead_code))]
+        pub(crate) mod retry {
             //! Retry manager for failed agent operations.
             //!
             //! This module provides a retry mechanism for agent operations that fail due to
@@ -6202,20 +6118,7 @@ pub mod runtime {
             //! - Transient error detection
             //! - Per-task retry state tracking
             //!
-            //! # Example
-            //!
-            //! ```ignore
-            //! use runner::runtime::session_runner::retry::{RetryConfig, RetryState};
-            //!
-            //! let config = RetryConfig::default();
-            //! let mut state = RetryState::new();
-            //!
-            //! // After a failure
-            //! if state.should_retry(&config, "Connection timeout") {
-            //!     state.record_failure("Connection timeout", &config);
-            //!     // Wait for state.next_retry_at before retrying
-            //! }
-            //! ```
+            //! This is an internal implementation detail of session execution.
 
             use serde::{Deserialize, Serialize};
             use std::time::Duration;
@@ -6749,11 +6652,6 @@ pub mod runtime {
         }
 
         pub use executor::{AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions};
-        #[cfg(any(test, feature = "test-utils"))]
-        pub use executor::{TestLlmFactoryGuard, install_test_llm_factory};
-        pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
-        pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
-
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum ExecutionErrorKind {
             Authentication,
@@ -6968,6 +6866,7 @@ pub mod runtime {
         }
         pub use turn_persistence::build_turn_persistence_payload;
     }
+    #[cfg_attr(not(test), allow(dead_code))]
     pub mod subagent {
         //! Storage-backed sub-agent definition adapters.
         //!
@@ -6981,9 +6880,9 @@ pub mod runtime {
             //! This module defines the available agent types that can be spawned
             //! by the main agent, including their capabilities and system prompts.
 
-            use crate::{AgentStorage, StoredAgent};
             use ::agent::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
             use parking_lot::RwLock;
+            use restflow_core::{AgentStorage, StoredAgent};
             use serde::{Deserialize, Serialize};
             use specta::Type;
             use std::collections::HashMap;
@@ -7335,9 +7234,9 @@ pub mod runtime {
             mod tests {
                 use super::{AgentDefinitionRegistry, builtin_agents};
                 use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
-                use crate::test_support::RestflowTestEnv;
-                use crate::{AgentStorage, StoredAgent};
                 use ::agent::agent::SubagentDefLookup;
+                use restflow_core::test_support::RestflowTestEnv;
+                use restflow_core::{AgentStorage, StoredAgent};
                 use std::time::Duration;
                 use types::{AgentNode, ModelId, ModelRef};
 
@@ -7467,29 +7366,12 @@ pub mod runtime {
                 }
             }
         }
-
-        pub use definition::{
-            AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
-        };
     }
-
-    // Public surface rule:
-    // - `runner::runtime` re-exports durable runner-owned execution APIs.
-    // - AI-owned subagent runtime state stays exported from `agent` /
-    //   `types` so ownership remains unambiguous.
-    pub use self::agent::build_agent_system_prompt;
-    pub use self::agent::tools::{
-        BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool,
-        SpawnSubagentTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, WaitSubagentsTool,
-        default_registry, effective_main_agent_tool_names, main_agent_default_tool_names,
-        registry_from_allowlist, secret_resolver_from_storage,
-    };
-    pub use execution_context::{ExecutionContext, ExecutionRole};
-    pub use orchestrator::AgentOrchestratorImpl;
-    pub use session_runner::{AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode};
-    pub use subagent::{
-        AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
-    };
 }
 
-pub use runtime::*;
+pub use runtime::agent::build_agent_system_prompt;
+pub use runtime::orchestrator::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
+pub use runtime::session_runner::SessionExecutionResult;
+pub use runtime::session_runner::executor::{AgentRuntimeExecutor, SessionInputMode};
+pub use runtime::session_turn::build_turn_persistence_payload;
+pub use runtime::subagent::definition::StorageBackedSubagentLookup;

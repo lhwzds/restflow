@@ -5,7 +5,10 @@ pub use runner;
 pub use tools;
 
 pub mod runtime {
-    pub use runner::runtime::*;
+    pub use runner::{
+        AgentOrchestratorImpl, AgentRuntimeExecutor, InteractiveSessionRequest, SessionInputMode,
+        StorageBackedSubagentLookup, build_agent_system_prompt, build_turn_persistence_payload,
+    };
 }
 
 pub mod daemon {
@@ -1063,10 +1066,10 @@ pub mod daemon {
         };
         use crate::AgentDefaults;
         use crate::AppCore;
-        use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
-        use crate::runtime::session_runner::{AgentRuntimeExecutor, SessionInputMode};
-        use crate::runtime::session_turn::build_turn_persistence_payload;
-        use crate::runtime::subagent::StorageBackedSubagentLookup;
+        use crate::runtime::{
+            AgentOrchestratorImpl, AgentRuntimeExecutor, InteractiveSessionRequest,
+            SessionInputMode, StorageBackedSubagentLookup, build_turn_persistence_payload,
+        };
         use crate::services::{
             session::{PersistInteractiveTurnRequest, SessionService},
             skills as skills_service,
@@ -2584,11 +2587,7 @@ pub mod daemon {
                 core: &Arc<AppCore>,
                 agent_node: AgentNode,
             ) -> Result<String> {
-                crate::runtime::agent::build_agent_system_prompt(
-                    core.storage.clone(),
-                    &agent_node,
-                    None,
-                )
+                crate::runtime::build_agent_system_prompt(core.storage.clone(), &agent_node, None)
             }
 
             #[cfg(test)]
