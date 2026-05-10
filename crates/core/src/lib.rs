@@ -2552,10 +2552,10 @@ pub mod paths {
         }
     }
 }
-pub mod prompt_files {
+mod prompt_files {
     use anyhow::{Context, Result};
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     const AGENTS_DIR: &str = "agents";
     /// Environment variable to override the agents directory path (used in tests).
@@ -2619,105 +2619,6 @@ pub mod prompt_files {
         Ok(DEFAULT_AGENT_PROMPT.to_string())
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct LoadedAgentPrompt {
-        pub content: Option<String>,
-        pub prompt_file: Option<String>,
-    }
-
-    pub fn load_agent_prompt_for_agent(
-        agent_id: &str,
-        agent_name: &str,
-        prompt_file: Option<&str>,
-    ) -> Result<LoadedAgentPrompt> {
-        validate_agent_id(agent_id)?;
-        let Some(path) = resolve_prompt_path_for_read(agent_name, prompt_file)? else {
-            return Ok(LoadedAgentPrompt {
-                content: None,
-                prompt_file: None,
-            });
-        };
-
-        let Some(content) = read_prompt_file_if_exists(&path)? else {
-            return Ok(LoadedAgentPrompt {
-                content: None,
-                prompt_file: None,
-            });
-        };
-        let content = strip_optional_frontmatter(&content).unwrap_or(content);
-
-        Ok(LoadedAgentPrompt {
-            content: if content.trim().is_empty() {
-                None
-            } else {
-                Some(content)
-            },
-            prompt_file: Some(extract_prompt_file_name(&path)?),
-        })
-    }
-
-    fn strip_optional_frontmatter(content: &str) -> Option<String> {
-        let rest = content.strip_prefix("---\n")?;
-        let (_, body) = rest.split_once("\n---")?;
-        let body = body
-            .strip_prefix("\n\n")
-            .or_else(|| body.strip_prefix('\n'))
-            .unwrap_or(body);
-        Some(body.to_string())
-    }
-
-    fn read_prompt_file_if_exists(path: &Path) -> Result<Option<String>> {
-        match fs::read_to_string(path) {
-            Ok(content) => Ok(Some(content)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error)
-                .with_context(|| format!("Failed to read agent prompt: {}", path.display())),
-        }
-    }
-
-    pub fn ensure_agent_prompt_file(
-        agent_id: &str,
-        agent_name: &str,
-        current_prompt_file: Option<&str>,
-        prompt_override: Option<&str>,
-    ) -> Result<PathBuf> {
-        ensure_prompt_templates()?;
-        validate_agent_id(agent_id)?;
-        let path = resolve_prompt_path_for_write(agent_name, current_prompt_file)?;
-
-        if let Some(prompt) = prompt_override {
-            fs::write(&path, prompt)
-                .with_context(|| format!("Failed to write agent prompt: {}", path.display()))?;
-            return Ok(path);
-        }
-
-        if path.exists() {
-            return Ok(path);
-        }
-
-        let default_prompt = load_default_main_agent_prompt()?;
-        fs::write(&path, default_prompt)
-            .with_context(|| format!("Failed to initialize agent prompt: {}", path.display()))?;
-        Ok(path)
-    }
-
-    pub fn delete_agent_prompt_file_for_agent(
-        agent_id: &str,
-        _agent_name: &str,
-        prompt_file: Option<&str>,
-    ) -> Result<()> {
-        validate_agent_id(agent_id)?;
-        if let Some(prompt_file) = prompt_file
-            && let Some(path) = resolve_prompt_path_from_file_name(prompt_file)?
-            && path.exists()
-        {
-            fs::remove_file(&path).with_context(|| {
-                format!("Failed to remove agent prompt file: {}", path.display())
-            })?;
-        }
-        Ok(())
-    }
-
     fn resolve_agents_dir() -> Result<PathBuf> {
         if let Ok(dir) = std::env::var(AGENTS_DIR_ENV)
             && !dir.trim().is_empty()
@@ -2733,129 +2634,6 @@ pub mod prompt_files {
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create agents directory: {}", dir.display()))?;
         Ok(dir)
-    }
-
-    fn validate_agent_id(agent_id: &str) -> Result<&str> {
-        let id = agent_id.trim();
-        if id.is_empty() {
-            anyhow::bail!("Agent ID is empty; cannot resolve prompt file path");
-        }
-        // Reject path traversal characters to prevent directory escape
-        if id.contains('/') || id.contains('\\') || id.contains("..") || id.contains('\0') {
-            anyhow::bail!(
-                "Agent ID '{}' contains invalid characters (path separators or '..' sequences)",
-                id
-            );
-        }
-        Ok(id)
-    }
-
-    fn resolve_prompt_path_from_file_name(prompt_file: &str) -> Result<Option<PathBuf>> {
-        let trimmed = prompt_file.trim();
-        if trimmed.is_empty() {
-            return Ok(None);
-        }
-        if trimmed.contains('/')
-            || trimmed.contains('\\')
-            || trimmed.contains("..")
-            || trimmed.contains('\0')
-        {
-            anyhow::bail!("Prompt file name contains invalid characters: {}", trimmed);
-        }
-        Ok(Some(ensure_agents_dir()?.join(trimmed)))
-    }
-
-    fn extract_prompt_file_name(path: &Path) -> Result<String> {
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .map(ToString::to_string)
-            .ok_or_else(|| anyhow::anyhow!("Invalid prompt file path: {}", path.display()))
-    }
-
-    fn resolve_prompt_path_for_read(
-        agent_name: &str,
-        prompt_file: Option<&str>,
-    ) -> Result<Option<PathBuf>> {
-        if let Some(prompt_file) = prompt_file
-            && let Some(path) = resolve_prompt_path_from_file_name(prompt_file)?
-            && path.exists()
-        {
-            return Ok(Some(path));
-        }
-
-        let agents_dir = ensure_agents_dir()?;
-        let desired = agents_dir.join(format!("{}.md", sanitize_agent_file_stem(agent_name)));
-        if desired.exists() {
-            return Ok(Some(desired));
-        }
-
-        Ok(None)
-    }
-
-    fn resolve_prompt_path_for_write(
-        agent_name: &str,
-        prompt_file: Option<&str>,
-    ) -> Result<PathBuf> {
-        let agents_dir = ensure_agents_dir()?;
-        let desired = agents_dir.join(format!("{}.md", sanitize_agent_file_stem(agent_name)));
-        let current_from_prompt_file = if let Some(prompt_file) = prompt_file {
-            resolve_prompt_path_from_file_name(prompt_file)?.filter(|path| path.exists())
-        } else {
-            None
-        };
-        let current = current_from_prompt_file;
-
-        if let Some(current_path) = current {
-            if current_path == desired {
-                return Ok(current_path);
-            }
-            if !desired.exists() {
-                fs::rename(&current_path, &desired).with_context(|| {
-                    format!(
-                        "Failed to rename agent prompt file from {} to {}",
-                        current_path.display(),
-                        desired.display()
-                    )
-                })?;
-                return Ok(desired);
-            }
-            let fallback = unique_prompt_path(&agents_dir, agent_name)?;
-            if current_path != fallback {
-                fs::rename(&current_path, &fallback).with_context(|| {
-                    format!(
-                        "Failed to rename agent prompt file from {} to {}",
-                        current_path.display(),
-                        fallback.display()
-                    )
-                })?;
-            }
-            return Ok(fallback);
-        }
-
-        if !desired.exists() {
-            return Ok(desired);
-        }
-
-        if prompt_file.is_none() {
-            // Reuse an existing name-based prompt file when the agent has no stored prompt file.
-            return Ok(desired);
-        }
-
-        unique_prompt_path(&agents_dir, agent_name)
-    }
-
-    fn unique_prompt_path(agents_dir: &std::path::Path, agent_name: &str) -> Result<PathBuf> {
-        let stem = sanitize_agent_file_stem(agent_name);
-        for index in 2..1000u16 {
-            let candidate = agents_dir.join(format!("{stem}-{index}.md"));
-            if !candidate.exists() {
-                return Ok(candidate);
-            }
-        }
-        anyhow::bail!(
-            "Failed to allocate unique prompt file path for stem '{}'",
-            stem
-        );
     }
 
     pub(crate) fn sanitize_agent_file_stem(name: &str) -> String {
@@ -2925,34 +2703,12 @@ pub mod prompt_files {
         )
     }
 
-    /// Shared lock for tests that mutate the RESTFLOW_AGENTS_DIR env var.
-    /// All tests that set/remove this env var MUST acquire this lock first
-    /// to avoid cross-module race conditions.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn agents_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        agents_dir_env_lock_impl()
-    }
-
-    #[cfg(test)]
-    fn agents_dir_env_lock_impl() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_support::agents_env_lock()
-    }
-
-    #[cfg(all(not(test), feature = "test-utils"))]
-    fn agents_dir_env_lock_impl() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
 
         fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-            agents_dir_env_lock()
+            crate::test_support::agents_env_lock()
         }
 
         #[test]
@@ -2966,105 +2722,6 @@ pub mod prompt_files {
             assert!(!temp.path().join("task.md").exists());
 
             unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-        }
-
-        #[test]
-        fn test_ensure_agent_prompt_file_creates_per_agent_markdown() {
-            let _lock = env_lock();
-            let temp = tempfile::tempdir().unwrap();
-            unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-            let path = ensure_agent_prompt_file(
-                "550e8400-e29b-41d4-a716-446655440000",
-                "Agent One",
-                None,
-                None,
-            )
-            .unwrap();
-            assert!(path.exists());
-            assert_eq!(
-                path.file_name().and_then(|v| v.to_str()),
-                Some("agent-one.md")
-            );
-            let content = fs::read_to_string(path).unwrap();
-            assert!(!content.trim().is_empty());
-
-            unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-        }
-
-        #[test]
-        fn test_load_agent_prompt_returns_override_content() {
-            let _lock = env_lock();
-            let temp = tempfile::tempdir().unwrap();
-            unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-            let id = "f7e39ba8-f1ed-4e6c-a4f4-1983f671b1d5";
-            ensure_agent_prompt_file(id, "My Custom Agent", None, Some("Custom prompt")).unwrap();
-            let loaded = load_agent_prompt_for_agent(id, "My Custom Agent", None).unwrap();
-            assert_eq!(loaded.content.as_deref(), Some("Custom prompt"));
-            assert_eq!(loaded.prompt_file.as_deref(), Some("my-custom-agent.md"));
-
-            unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-        }
-
-        #[test]
-        fn test_ensure_agent_prompt_file_preserves_plain_body() {
-            let _lock = env_lock();
-            let temp = tempfile::tempdir().unwrap();
-            unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-            let id = "d95c9423-42d7-4a13-ad80-ff94e16f8f8a";
-            let path =
-                ensure_agent_prompt_file(id, "No Rewrite", None, Some("\nLine A\nLine B")).unwrap();
-            let _ = ensure_agent_prompt_file(id, "No Rewrite", None, None).unwrap();
-            let after = fs::read_to_string(&path).unwrap();
-            assert_eq!(after, "\nLine A\nLine B");
-
-            unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-        }
-
-        #[test]
-        fn test_load_agent_prompt_missing_does_not_create_file() {
-            let _lock = env_lock();
-            let temp = tempfile::tempdir().unwrap();
-            unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-            ensure_prompt_templates().unwrap();
-            let missing = "750bf7ee";
-            let loaded = load_agent_prompt_for_agent(missing, "Missing Agent", None).unwrap();
-            assert!(loaded.content.is_none());
-            assert!(!temp.path().join(format!("{missing}.md")).exists());
-
-            unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-        }
-
-        #[test]
-        fn test_read_prompt_file_if_exists_returns_none_for_deleted_file() {
-            let _lock = env_lock();
-            let temp = tempfile::tempdir().unwrap();
-            let path = temp.path().join("deleted.md");
-            fs::write(&path, "temp").unwrap();
-            fs::remove_file(&path).unwrap();
-
-            let loaded = read_prompt_file_if_exists(&path).unwrap();
-            assert!(loaded.is_none());
-        }
-
-        #[test]
-        fn test_agent_prompt_path_rejects_path_traversal() {
-            assert!(validate_agent_id("../etc/passwd").is_err());
-            assert!(validate_agent_id("foo/bar").is_err());
-            assert!(validate_agent_id("foo\\bar").is_err());
-            assert!(validate_agent_id("foo..bar").is_err());
-            assert!(validate_agent_id("foo\0bar").is_err());
-        }
-
-        #[test]
-        fn test_agent_prompt_path_accepts_valid_ids() {
-            assert!(validate_agent_id("my-agent").is_ok());
-            assert!(validate_agent_id("agent_1").is_ok());
-            assert!(validate_agent_id("default").is_ok());
-            assert!(validate_agent_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
         }
 
         #[test]
@@ -4040,7 +3697,7 @@ pub mod services {
         /// Validate agent fields that require runtime/storage lookups.
         pub async fn validate_agent_node_for_core(
             agent: &AgentNode,
-            core: &Arc<AppCore>,
+            core: &AppCore,
         ) -> Result<(), Vec<ValidationError>> {
             let tool_registry = match crate::services::tool_registry::create_tool_registry(
                 core.storage.config.clone(),
@@ -4058,7 +3715,7 @@ pub mod services {
             validate_agent_node_with_tools(
                 agent,
                 |tool| tool_registry.has(tool),
-                &core.storage.secrets,
+                Some(&core.storage.secrets),
             )
         }
 
@@ -4075,19 +3732,21 @@ pub mod services {
                         .map(|set| set.contains(tool))
                         .unwrap_or(false)
                 },
-                secrets,
+                Some(secrets),
             )
         }
 
         fn validate_agent_node_with_tools(
             agent: &AgentNode,
             tool_exists: impl Fn(&str) -> bool,
-            secrets: &SecretStorage,
+            secrets: Option<&SecretStorage>,
         ) -> Result<(), Vec<ValidationError>> {
             let mut errors = Vec::new();
             validate_tools(agent, &tool_exists, &mut errors);
             validate_skills(agent, &mut errors);
-            validate_secret_reference(agent, secrets, &mut errors);
+            if let Some(secrets) = secrets {
+                validate_secret_reference(agent, secrets, &mut errors);
+            }
 
             if errors.is_empty() {
                 Ok(())
@@ -4189,17 +3848,12 @@ pub mod services {
                 let artifact = skrun::SkillArtifact::markdown("team", "Team", "0.1.0", "# Team");
                 skrun::save_artifact(skills_root.join("team"), &artifact).unwrap();
                 unsafe { std::env::set_var("SKRUN_SKILLS_DIR", &skills_root) };
-                let core = Arc::new(
-                    AppCore::new(env.db_path("agent-skill.db").to_str().unwrap())
-                        .await
-                        .unwrap(),
-                );
                 let node = AgentNode {
                     skills: Some(vec!["team".to_string()]),
                     ..AgentNode::new()
                 };
 
-                let result = validate_agent_node_for_core(&node, &core).await;
+                let result = validate_agent_node_with_tools(&node, |_| true, None);
                 unsafe {
                     if let Some(value) = previous_skrun_root {
                         std::env::set_var("SKRUN_SKILLS_DIR", value);
@@ -5432,621 +5086,10 @@ pub mod services {
         pub use session::SessionStorageAdapter;
         pub use skill_provider::SkrunSkillProvider;
     }
-    pub mod agent {
-        //! Agent service layer
-        //!
-        //! This module only covers agent CRUD operations.
-        //! Agent execution happens through chat sessions and subagent runs.
-
-        use crate::{
-            AppCore,
-            services::agent_catalog::{DEFAULT_ASSISTANT_NAME, StoredAgent},
-            services::agent_validation::validate_agent_node_for_core,
-            services::session::SessionService,
-        };
-        use anyhow::{Context, Result};
-        use std::sync::Arc;
-        use types::{AgentNode, encode_validation_error};
-
-        pub async fn list_agents(core: &Arc<AppCore>) -> Result<Vec<StoredAgent>> {
-            core.storage
-                .agents
-                .list_agents()
-                .context("Failed to list agents")
-        }
-
-        pub async fn get_agent(core: &Arc<AppCore>, id: &str) -> Result<StoredAgent> {
-            core.storage
-                .agents
-                .get_agent(id.to_string())
-                .with_context(|| format!("Failed to get agent {}", id))?
-                .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))
-        }
-
-        pub async fn create_agent(
-            core: &Arc<AppCore>,
-            name: String,
-            mut agent: AgentNode,
-        ) -> Result<StoredAgent> {
-            normalize_model_fields(&mut agent)?;
-            validate_agent_node(core, &agent).await?;
-            core.storage
-                .agents
-                .create_agent(name.clone(), agent)
-                .with_context(|| format!("Failed to create agent {}", name))
-        }
-
-        pub async fn update_agent(
-            core: &Arc<AppCore>,
-            id: &str,
-            name: Option<String>,
-            mut agent: Option<AgentNode>,
-        ) -> Result<StoredAgent> {
-            if let Some(agent_node) = agent.as_mut() {
-                normalize_model_fields(agent_node)?;
-                validate_agent_node(core, agent_node).await?;
-            }
-            core.storage
-                .agents
-                .update_agent(id.to_string(), name, agent)
-                .with_context(|| format!("Failed to update agent {}", id))
-        }
-
-        pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
-            let resolved_id = core
-                .storage
-                .agents
-                .resolve_existing_agent_id(id)
-                .with_context(|| format!("Failed to resolve agent {}", id))?;
-
-            let resolved_default_id = core.storage.agents.resolve_default_agent_id().ok();
-            if resolved_default_id.as_deref() == Some(resolved_id.as_str()) {
-                let agent_name = core
-                    .storage
-                    .agents
-                    .get_agent(resolved_id.clone())?
-                    .map(|agent| agent.name)
-                    .unwrap_or_else(|| DEFAULT_ASSISTANT_NAME.to_string());
-                anyhow::bail!(
-                    "Cannot delete default assistant agent {} ({})",
-                    resolved_id,
-                    agent_name
-                );
-            }
-
-            let session_service = SessionService::from_storage(&core.storage);
-            archive_agent_workspace_sessions(&session_service, &resolved_id).with_context(
-                || {
-                    format!(
-                        "Failed to archive workspace sessions before deleting agent {}",
-                        id
-                    )
-                },
-            )?;
-
-            core.storage
-                .agents
-                .delete_agent(resolved_id)
-                .with_context(|| format!("Failed to delete agent {}", id))
-        }
-
-        fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {
-            if let Err(error) = agent.normalize_model_fields() {
-                anyhow::bail!(encode_validation_error(vec![error]));
-            }
-            Ok(())
-        }
-
-        fn archive_agent_workspace_sessions(
-            session_service: &SessionService,
-            agent_id: &str,
-        ) -> Result<()> {
-            for session in session_service.list_session_views(Some(agent_id), None, true)? {
-                let _ = session_service.archive_session(&session.id)?;
-            }
-            Ok(())
-        }
-
-        async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<()> {
-            if let Err(errors) = agent.validate() {
-                anyhow::bail!(encode_validation_error(errors));
-            }
-            if let Err(errors) = validate_agent_node_for_core(agent, core).await {
-                anyhow::bail!(encode_validation_error(errors));
-            }
-            Ok(())
-        }
-
-        #[cfg(test)]
-        #[allow(clippy::await_holding_lock)]
-        mod tests {
-            use super::*;
-            use crate::prompt_files;
-            use crate::time_utils;
-            use tempfile::tempdir;
-            use types::{ApiKeyConfig, ChatSession, ModelId, ValidationErrorResponse};
-
-            struct AgentsDirEnvGuard {
-                _lock: std::sync::MutexGuard<'static, ()>,
-            }
-
-            impl AgentsDirEnvGuard {
-                fn new() -> Self {
-                    Self {
-                        _lock: prompt_files::agents_dir_env_lock(),
-                    }
-                }
-            }
-
-            impl Drop for AgentsDirEnvGuard {
-                fn drop(&mut self) {
-                    unsafe {
-                        std::env::remove_var(prompt_files::AGENTS_DIR_ENV);
-                        std::env::remove_var("RESTFLOW_DIR");
-                    };
-                }
-            }
-
-            /// Create a test AppCore with an isolated agents directory.
-            /// Returns (core, _temp_db_dir, _temp_agents_dir, _env_guard).
-            /// All returned values must be held alive for the test duration.
-            #[allow(clippy::await_holding_lock)]
-            async fn create_test_core_isolated() -> (
-                Arc<AppCore>,
-                tempfile::TempDir,
-                tempfile::TempDir,
-                AgentsDirEnvGuard,
-            ) {
-                let env_guard = AgentsDirEnvGuard::new();
-                let temp_db = tempdir().unwrap();
-                let temp_agents = tempdir().unwrap();
-                unsafe {
-                    std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path());
-                    std::env::set_var("RESTFLOW_DIR", temp_db.path());
-                };
-                let db_path = temp_db.path().join("test.db");
-                let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-                (core, temp_db, temp_agents, env_guard)
-            }
-
-            #[test]
-            fn test_agents_dir_env_guard_cleans_up_env_var() {
-                let guard = AgentsDirEnvGuard::new();
-                unsafe {
-                    std::env::set_var(prompt_files::AGENTS_DIR_ENV, "/tmp/restflow-test-agents")
-                };
-                drop(guard);
-                assert!(std::env::var(prompt_files::AGENTS_DIR_ENV).is_err());
-            }
-
-            fn create_test_agent_node(prompt: &str) -> AgentNode {
-                AgentNode {
-                    model_ref: Some(types::ModelRef::from_model(ModelId::ClaudeSonnet4_5)),
-                    prompt: Some(prompt.to_string()),
-                    temperature: Some(0.7),
-                    codex_cli_reasoning_effort: None,
-                    codex_cli_execution_mode: None,
-                    api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-                    tools: Some(vec!["bash".to_string()]),
-                    skills: None,
-                    skill_variables: None,
-                    skill_preflight_policy_mode: None,
-                    model_routing: None,
-                }
-            }
-
-            fn set_test_model(node: &mut AgentNode, model: ModelId) {
-                node.model_ref = Some(types::ModelRef::from_model(model));
-            }
-
-            #[tokio::test]
-            async fn test_list_agents_empty() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let agents = list_agents(&core).await.unwrap();
-                assert_eq!(agents.len(), 1);
-                assert_eq!(agents[0].name, "Default Assistant");
-            }
-
-            #[tokio::test]
-            async fn test_create_and_get_agent() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("You are a helpful assistant");
-                let created = create_agent(&core, "Test Agent".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                assert!(!created.id.is_empty());
-                assert_eq!(created.name, "Test Agent");
-                if let Some(prompt) = &created.agent.prompt {
-                    assert_eq!(prompt, "You are a helpful assistant");
-                }
-
-                let prompt_on_disk = prompt_files::load_agent_prompt_for_agent(
-                    &created.id,
-                    &created.name,
-                    created.prompt_file.as_deref(),
-                )
-                .unwrap();
-                assert_eq!(
-                    prompt_on_disk.content,
-                    Some("You are a helpful assistant".to_string())
-                );
-
-                let retrieved = get_agent(&core, &created.id).await.unwrap();
-                assert_eq!(retrieved.id, created.id);
-                assert_eq!(retrieved.name, "Test Agent");
-                if let Some(prompt) = &retrieved.agent.prompt {
-                    assert_eq!(prompt, "You are a helpful assistant");
-                }
-            }
-
-            #[tokio::test]
-            async fn test_list_agents_multiple() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent1 = create_test_agent_node("Agent 1 prompt");
-                let agent2 = create_test_agent_node("Agent 2 prompt");
-                let agent3 = create_test_agent_node("Agent 3 prompt");
-
-                create_agent(&core, "Agent 1".to_string(), agent1)
-                    .await
-                    .unwrap();
-                create_agent(&core, "Agent 2".to_string(), agent2)
-                    .await
-                    .unwrap();
-                create_agent(&core, "Agent 3".to_string(), agent3)
-                    .await
-                    .unwrap();
-
-                let agents = list_agents(&core).await.unwrap();
-                assert_eq!(agents.len(), 4);
-
-                let names: Vec<String> = agents.iter().map(|a| a.name.clone()).collect();
-                assert!(names.contains(&"Default Assistant".to_string()));
-                assert!(names.contains(&"Agent 1".to_string()));
-                assert!(names.contains(&"Agent 2".to_string()));
-                assert!(names.contains(&"Agent 3".to_string()));
-            }
-
-            #[tokio::test]
-            async fn test_update_agent_name() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Test prompt");
-                let created = create_agent(&core, "Original Name".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                let updated =
-                    update_agent(&core, &created.id, Some("Updated Name".to_string()), None)
-                        .await
-                        .unwrap();
-
-                assert_eq!(updated.name, "Updated Name");
-                if let Some(prompt) = &updated.agent.prompt {
-                    assert_eq!(prompt, "Test prompt");
-                }
-                let prompt_on_disk = prompt_files::load_agent_prompt_for_agent(
-                    &updated.id,
-                    &updated.name,
-                    updated.prompt_file.as_deref(),
-                )
-                .unwrap();
-                assert_eq!(prompt_on_disk.content, Some("Test prompt".to_string()));
-            }
-
-            #[tokio::test]
-            async fn test_update_agent_config() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Original prompt");
-                let created = create_agent(&core, "Test Agent".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                // Use DeepseekChat which supports temperature (unlike Gpt5Mini)
-                let mut new_agent_node = create_test_agent_node("Updated prompt");
-                new_agent_node.temperature = Some(0.9);
-                set_test_model(&mut new_agent_node, ModelId::DeepseekChat);
-
-                let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
-                    .await
-                    .unwrap();
-
-                assert_eq!(updated.name, "Test Agent"); // Name unchanged
-                if let Some(prompt) = &updated.agent.prompt {
-                    assert_eq!(prompt, "Updated prompt");
-                }
-                let prompt_on_disk = prompt_files::load_agent_prompt_for_agent(
-                    &updated.id,
-                    &updated.name,
-                    updated.prompt_file.as_deref(),
-                )
-                .unwrap();
-                assert_eq!(prompt_on_disk.content, Some("Updated prompt".to_string()));
-                assert_eq!(updated.agent.temperature, Some(0.9));
-                assert_eq!(
-                    updated
-                        .agent
-                        .resolved_model_ref()
-                        .map(|model_ref| model_ref.model),
-                    Some(ModelId::DeepseekChat)
-                );
-            }
-
-            #[tokio::test]
-            async fn test_delete_agent() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Test prompt");
-                let created = create_agent(&core, "To Delete".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                // Verify it exists
-                let retrieved = get_agent(&core, &created.id).await;
-                assert!(retrieved.is_ok());
-
-                // Delete it
-                delete_agent(&core, &created.id).await.unwrap();
-
-                // Verify it's gone
-                let result = get_agent(&core, &created.id).await;
-                assert!(result.is_err());
-            }
-
-            #[tokio::test]
-            async fn test_delete_default_assistant_is_blocked() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let default = core.storage.agents.resolve_default_agent().unwrap();
-                assert!(default.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME));
-
-                let err = delete_agent(&core, &default.id).await.unwrap_err();
-                let msg = err.to_string();
-                assert!(msg.contains("Cannot delete default assistant agent"));
-            }
-
-            #[tokio::test]
-            async fn test_delete_agent_archives_workspace_sessions() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Workspace owner");
-                let created = create_agent(&core, "Workspace Owner".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                let session = ChatSession::new(
-                    created.id.clone(),
-                    ModelId::Gpt5.as_serialized_str().to_string(),
-                )
-                .with_name("Workspace Session");
-                core.storage
-                    .file_sessions
-                    .write_session(
-                        &crate::session_log::FileSession::from_chat_session(&session),
-                        true,
-                    )
-                    .unwrap();
-
-                delete_agent(&core, &created.id).await.unwrap();
-
-                let active_sessions = core
-                    .storage
-                    .file_sessions
-                    .list()
-                    .unwrap()
-                    .into_iter()
-                    .map(|session| session.to_chat_session())
-                    .filter(|session| session.agent_id == created.id && !session.is_archived())
-                    .collect::<Vec<_>>();
-                assert!(active_sessions.is_empty());
-
-                let archived_session = core
-                    .storage
-                    .file_sessions
-                    .get(&session.id)
-                    .unwrap()
-                    .map(|session| session.to_chat_session())
-                    .expect("session should remain after archiving");
-                assert!(archived_session.is_archived());
-            }
-
-            #[tokio::test]
-            async fn test_get_nonexistent_agent_fails() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let result = get_agent(&core, "nonexistent-id").await;
-                assert!(result.is_err());
-                assert!(result.unwrap_err().to_string().contains("not found"));
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_generates_uuid() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Test prompt");
-                let created = create_agent(&core, "Test Agent".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                // Verify ID is a valid UUID format
-                assert!(!created.id.is_empty());
-                assert!(created.id.contains('-')); // UUIDs contain hyphens
-                assert_eq!(created.id.len(), 36); // Standard UUID length
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_sets_timestamps() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let before = time_utils::now_ms();
-
-                let agent_node = create_test_agent_node("Test prompt");
-                let created = create_agent(&core, "Test Agent".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                let after = time_utils::now_ms();
-
-                // Verify timestamps are set and within reasonable bounds
-                assert!(created.created_at.is_some());
-                assert!(created.updated_at.is_some());
-
-                let created_at = created.created_at.unwrap();
-                let updated_at = created.updated_at.unwrap();
-
-                assert!(created_at >= before && created_at <= after);
-                assert!(updated_at >= before && updated_at <= after);
-                assert_eq!(created_at, updated_at); // Should be same on creation
-            }
-
-            #[tokio::test]
-            async fn test_update_agent_updates_timestamp() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Test prompt");
-                let created = create_agent(&core, "Test Agent".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                // Small delay to ensure timestamp difference
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-                let updated =
-                    update_agent(&core, &created.id, Some("Updated Name".to_string()), None)
-                        .await
-                        .unwrap();
-
-                // Updated timestamp should be newer
-                assert!(updated.updated_at.unwrap() > created.updated_at.unwrap());
-                // Created timestamp should remain the same
-                assert_eq!(updated.created_at, created.created_at);
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_rejects_invalid_temperature() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let mut node = create_test_agent_node("test");
-                node.temperature = Some(3.0);
-
-                let err = create_agent(&core, "Invalid Agent".to_string(), node)
-                    .await
-                    .expect_err("expected validation error");
-                let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
-                    .expect("validation error payload should be JSON");
-                assert_eq!(payload.error_type, "validation_error");
-                assert!(payload.errors.iter().any(|e| e.field == "temperature"));
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_rejects_temperature_on_unsupported_model() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let mut node = create_test_agent_node("test");
-                set_test_model(&mut node, ModelId::Gpt5);
-                node.temperature = Some(0.5);
-
-                let err = create_agent(&core, "Bad Temp Agent".to_string(), node)
-                    .await
-                    .expect_err("expected validation error");
-                let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
-                    .expect("validation error payload should be JSON");
-                assert!(
-                    payload
-                        .errors
-                        .iter()
-                        .any(|e| e.field == "temperature" && e.message.contains("does not support"))
-                );
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_rejects_reasoning_effort_on_non_codex() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let mut node = create_test_agent_node("test");
-                // ClaudeSonnet4_5 is not a Codex model
-                node.codex_cli_reasoning_effort = Some("high".to_string());
-
-                let err = create_agent(&core, "Bad Effort Agent".to_string(), node)
-                    .await
-                    .expect_err("expected validation error");
-                let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
-                    .expect("validation error payload should be JSON");
-                assert!(
-                    payload
-                        .errors
-                        .iter()
-                        .any(|e| e.field == "codex_cli_reasoning_effort"
-                            && e.message.contains("only applies to Codex CLI"))
-                );
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_rejects_unknown_tool() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let mut node = create_test_agent_node("test");
-                node.tools = Some(vec!["tool_does_not_exist".to_string()]);
-
-                let err = create_agent(&core, "Invalid Tool Agent".to_string(), node)
-                    .await
-                    .expect_err("expected validation error");
-                let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
-                    .expect("validation error payload should be JSON");
-                assert!(payload.errors.iter().any(|e| e.field == "tools"));
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_rejects_unknown_skill() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let mut node = create_test_agent_node("test");
-                node.skills = Some(vec!["missing-skill".to_string()]);
-
-                let err = create_agent(&core, "Invalid Skill Agent".to_string(), node)
-                    .await
-                    .expect_err("expected validation error");
-                let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
-                    .expect("validation error payload should be JSON");
-                assert!(payload.errors.iter().any(|e| e.field == "skills"));
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_rejects_missing_secret_reference() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                let mut node = create_test_agent_node("test");
-                node.api_key_config = Some(ApiKeyConfig::Secret("MISSING_SECRET".to_string()));
-
-                let err = create_agent(&core, "Missing Secret Agent".to_string(), node)
-                    .await
-                    .expect_err("expected validation error");
-                let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
-                    .expect("validation error payload should be JSON");
-                assert!(payload.errors.iter().any(|e| e.field == "api_key_config"));
-            }
-
-            #[tokio::test]
-            async fn test_create_agent_accepts_existing_secret_reference() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-                core.storage
-                    .secrets
-                    .set_secret("OPENAI_API_KEY", "secret-value", None)
-                    .unwrap();
-
-                let mut node = create_test_agent_node("test");
-                node.api_key_config = Some(ApiKeyConfig::Secret("OPENAI_API_KEY".to_string()));
-                node.tools = Some(vec!["bash".to_string()]);
-
-                let created = create_agent(&core, "Valid Secret Agent".to_string(), node)
-                    .await
-                    .expect("expected create to pass");
-                assert_eq!(created.name, "Valid Secret Agent");
-            }
-        }
-    }
     pub mod agent_catalog {
         //! Typed agent storage wrapper.
 
         use crate::prompt_files;
-        use crate::time_utils;
         use anyhow::Result;
         use serde::{Deserialize, Serialize};
         use specta::Type;
@@ -6060,6 +5103,11 @@ pub mod services {
 
         /// Canonical default assistant name created during app initialization.
         pub const DEFAULT_ASSISTANT_NAME: &str = "Default Assistant";
+        pub const AGENTS_DIR_ENV: &str = prompt_files::AGENTS_DIR_ENV;
+
+        pub fn ensure_agent_prompt_templates() -> Result<()> {
+            prompt_files::ensure_prompt_templates()
+        }
 
         /// Stored agent with metadata
         #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -6121,7 +5169,7 @@ pub mod services {
 
             pub fn create_agent(&self, name: String, mut agent: AgentNode) -> Result<StoredAgent> {
                 normalize_model_fields(&mut agent)?;
-                let now = time_utils::now_ms();
+                let now = chrono::Utc::now().timestamp_millis();
                 let id = Uuid::new_v4().to_string();
 
                 // Prompt content is file-backed under ~/.restflow/agents/{agent-name}.md, not stored in DB.
@@ -6228,7 +5276,7 @@ pub mod services {
                 })
                 .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
 
-                let now = time_utils::now_ms();
+                let now = chrono::Utc::now().timestamp_millis();
                 existing_agent.updated_at = Some(now);
 
                 self.persist_without_prompt(&existing_agent)?;
@@ -6674,14 +5722,13 @@ pub mod services {
         #[cfg(test)]
         mod tests {
             use super::*;
-            use crate::prompt_files;
             use tempfile::tempdir;
             use types::ModelId;
 
             const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
             fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-                prompt_files::agents_dir_env_lock()
+                crate::test_support::agents_env_lock()
             }
 
             fn create_test_agent_node() -> AgentNode {
@@ -7214,271 +6261,6 @@ pub mod services {
             }
         }
     }
-    pub mod config {
-        use crate::AppCore;
-        use crate::storage::SystemConfig;
-        use anyhow::{Context, Result};
-        use std::sync::Arc;
-
-        // Get complete system configuration
-        pub async fn get_config(core: &Arc<AppCore>) -> Result<SystemConfig> {
-            core.storage
-                .config
-                .get_effective_config()
-                .context("Failed to get config")
-        }
-
-        // Get writable global system configuration
-        pub async fn get_global_config(core: &Arc<AppCore>) -> Result<SystemConfig> {
-            core.storage
-                .config
-                .get_global_config()
-                .context("Failed to get global config")
-        }
-
-        // Update system configuration with validation
-        pub async fn update_config(core: &Arc<AppCore>, config: SystemConfig) -> Result<()> {
-            // Validate configuration before updating
-            config.validate().context("Invalid configuration")?;
-
-            // Update configuration
-            core.storage
-                .config
-                .update_config(config)
-                .context("Failed to update config")
-        }
-    }
-    pub mod execution_console {
-        use std::sync::Arc;
-
-        use crate::storage::Storage;
-        use anyhow::Result;
-        use types::{
-            ChatSession, ChatTurn, ChatTurnEventKind, ChatTurnStatus, ExecutionContainerKind,
-            ExecutionContainerSummary, RunKind, RunListQuery, RunSummary,
-        };
-
-        #[derive(Clone)]
-        pub struct ExecutionConsoleService {
-            storage: Arc<Storage>,
-        }
-
-        impl ExecutionConsoleService {
-            pub fn new(storage: Arc<Storage>) -> Self {
-                Self { storage }
-            }
-
-            pub fn from_storage(storage: &Arc<Storage>) -> Self {
-                Self::new(storage.clone())
-            }
-
-            pub fn list_execution_containers(&self) -> Result<Vec<ExecutionContainerSummary>> {
-                let sessions = self.list_sessions()?;
-                let mut containers = Vec::new();
-
-                for session in sessions.iter() {
-                    containers.push(ExecutionContainerSummary {
-                        id: session.id.clone(),
-                        kind: ExecutionContainerKind::Workspace,
-                        title: session.name.clone(),
-                        subtitle: Some(session.model.clone()).filter(|value| !value.is_empty()),
-                        updated_at: session.updated_at,
-                        status: latest_session_status(session),
-                        session_count: 1,
-                        latest_session_id: Some(session.id.clone()),
-                        latest_run_id: latest_turn(session).map(|turn| turn.id.clone()),
-                        agent_id: Some(session.agent_id.clone()),
-                    });
-                }
-
-                containers.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-                Ok(containers)
-            }
-
-            pub fn list_runs(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
-                match query.container.kind {
-                    ExecutionContainerKind::Workspace => {
-                        let sessions = self.list_sessions()?;
-                        let mut runs = Vec::new();
-                        for session in sessions.into_iter().filter(|session| {
-                            session.id == query.container.id || query.container.id == "workspace"
-                        }) {
-                            runs.extend(
-                                session
-                                    .turns
-                                    .iter()
-                                    .map(|turn| workspace_run_summary(&session, turn)),
-                            );
-                        }
-                        runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-                        Ok(runs)
-                    }
-                }
-            }
-
-            fn list_sessions(&self) -> Result<Vec<ChatSession>> {
-                Ok(self
-                    .storage
-                    .file_sessions
-                    .list()?
-                    .into_iter()
-                    .map(|session| session.to_chat_session())
-                    .collect())
-            }
-        }
-
-        fn latest_turn(session: &ChatSession) -> Option<&ChatTurn> {
-            session.turns.iter().max_by_key(|turn| turn.updated_at)
-        }
-
-        fn latest_session_status(session: &ChatSession) -> Option<String> {
-            latest_turn(session).map(|turn| turn_status(turn.status).to_string())
-        }
-
-        fn workspace_run_summary(session: &ChatSession, turn: &ChatTurn) -> RunSummary {
-            RunSummary {
-                id: turn.id.clone(),
-                kind: RunKind::WorkspaceRun,
-                container_id: session.id.clone(),
-                root_run_id: Some(turn.id.clone()),
-                title: turn_title(turn).unwrap_or_else(|| session.name.clone()),
-                subtitle: Some(session.model.clone()).filter(|value| !value.is_empty()),
-                status: turn_status(turn.status).to_string(),
-                updated_at: turn.updated_at,
-                started_at: Some(turn.started_at),
-                ended_at: turn.completed_at,
-                session_id: Some(session.id.clone()),
-                run_id: Some(turn.id.clone()),
-                parent_run_id: None,
-                agent_id: Some(session.agent_id.clone()),
-                effective_model: Some(session.model.clone()).filter(|value| !value.is_empty()),
-                provider: Some(session.provider.clone()).filter(|value| !value.is_empty()),
-                event_count: turn.events.len() as u64,
-            }
-        }
-
-        fn turn_status(status: ChatTurnStatus) -> &'static str {
-            match status {
-                ChatTurnStatus::Running => "running",
-                ChatTurnStatus::Completed => "completed",
-                ChatTurnStatus::Canceled => "interrupted",
-                ChatTurnStatus::Failed => "failed",
-            }
-        }
-
-        fn turn_title(turn: &ChatTurn) -> Option<String> {
-            turn.events.iter().find_map(|event| match &event.kind {
-                ChatTurnEventKind::UserMessage { content } => Some(trim_title(content)),
-                ChatTurnEventKind::AssistantMessage { content } => Some(trim_title(content)),
-                ChatTurnEventKind::ToolCall { name, .. } => Some(format!("Tool: {name}")),
-                ChatTurnEventKind::ToolResult { call_id, .. } => {
-                    Some(format!("Tool result: {call_id}"))
-                }
-                ChatTurnEventKind::Progress { message } => Some(trim_title(message)),
-                ChatTurnEventKind::Error { message } => Some(trim_title(message)),
-                ChatTurnEventKind::Canceled => Some("Canceled turn".to_string()),
-            })
-        }
-
-        fn trim_title(value: &str) -> String {
-            let value = value.trim();
-            if value.chars().count() > 80 {
-                format!("{}...", value.chars().take(77).collect::<String>())
-            } else if value.is_empty() {
-                "Untitled run".to_string()
-            } else {
-                value.to_string()
-            }
-        }
-    }
-    pub mod secrets {
-        use crate::{AppCore, Secret};
-        use anyhow::{Context, Result};
-        use std::sync::Arc;
-
-        /// List all secrets (without values for security)
-        pub async fn list_secrets(core: &Arc<AppCore>) -> Result<Vec<Secret>> {
-            core.storage
-                .secrets
-                .list_secrets()
-                .context("Failed to list secrets")
-        }
-
-        /// Get a secret value by key
-        pub async fn get_secret(core: &Arc<AppCore>, key: &str) -> Result<Option<String>> {
-            core.storage
-                .secrets
-                .get_secret(key)
-                .with_context(|| format!("Failed to get secret {}", key))
-        }
-
-        /// Set or update a secret with optional description
-        pub async fn set_secret(
-            core: &Arc<AppCore>,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()> {
-            core.storage
-                .secrets
-                .set_secret(key, value, description)
-                .with_context(|| format!("Failed to set secret {}", key))
-        }
-
-        /// Create a new secret (fails if already exists)
-        ///
-        /// This operation is atomic - prevents TOCTOU race conditions.
-        pub async fn create_secret(
-            core: &Arc<AppCore>,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()> {
-            core.storage
-                .secrets
-                .create_secret(key, value, description)
-                .with_context(|| format!("Failed to create secret {}", key))
-        }
-
-        /// Update an existing secret (fails if not exists)
-        ///
-        /// This operation is atomic - prevents TOCTOU race conditions.
-        pub async fn update_secret(
-            core: &Arc<AppCore>,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()> {
-            core.storage
-                .secrets
-                .update_secret(key, value, description)
-                .with_context(|| format!("Failed to update secret {}", key))
-        }
-
-        /// Delete a secret
-        pub async fn delete_secret(core: &Arc<AppCore>, key: &str) -> Result<()> {
-            core.storage
-                .secrets
-                .delete_secret(key)
-                .with_context(|| format!("Failed to delete secret {}", key))
-        }
-
-        /// Check whether a managed secret exists in storage.
-        pub async fn has_secret(core: &Arc<AppCore>, key: &str) -> Result<bool> {
-            core.storage
-                .secrets
-                .has_secret(key)
-                .with_context(|| format!("Failed to check secret {}", key))
-        }
-
-        /// Check whether a secret is available from managed storage.
-        pub async fn has_available_secret(core: &Arc<AppCore>, key: &str) -> Result<bool> {
-            core.storage
-                .secrets
-                .has_available_secret(key)
-                .with_context(|| format!("Failed to check secret availability {}", key))
-        }
-    }
     pub mod session {
         use crate::AgentStorage;
         use crate::session_events::{ChatSessionEvent, publish_session_event};
@@ -7489,8 +6271,9 @@ pub mod services {
         use std::sync::{Arc, Mutex, Weak};
         use tracing::warn;
         use types::{
-            ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
-            MessageExecution, ModelId,
+            ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, ChatTurn,
+            ChatTurnEventKind, ChatTurnStatus, ExecutionContainerKind, ExecutionContainerSummary,
+            MessageExecution, ModelId, RunKind, RunListQuery, RunSummary,
         };
 
         #[derive(Clone)]
@@ -7611,6 +6394,49 @@ pub mod services {
                 });
                 summaries.sort_by_key(|summary| std::cmp::Reverse(summary.updated_at));
                 Ok(summaries)
+            }
+
+            pub fn list_execution_containers(&self) -> Result<Vec<ExecutionContainerSummary>> {
+                let sessions = self.list_session_views(None, None, true)?;
+                let mut containers = sessions
+                    .iter()
+                    .map(|session| ExecutionContainerSummary {
+                        id: session.id.clone(),
+                        kind: ExecutionContainerKind::Workspace,
+                        title: session.name.clone(),
+                        subtitle: Some(session.model.clone()).filter(|value| !value.is_empty()),
+                        updated_at: session.updated_at,
+                        status: latest_session_status(session),
+                        session_count: 1,
+                        latest_session_id: Some(session.id.clone()),
+                        latest_run_id: latest_turn(session).map(|turn| turn.id.clone()),
+                        agent_id: Some(session.agent_id.clone()),
+                    })
+                    .collect::<Vec<_>>();
+
+                containers.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+                Ok(containers)
+            }
+
+            pub fn list_runs(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
+                match query.container.kind {
+                    ExecutionContainerKind::Workspace => {
+                        let sessions = self.list_session_views(None, None, true)?;
+                        let mut runs = Vec::new();
+                        for session in sessions.into_iter().filter(|session| {
+                            session.id == query.container.id || query.container.id == "workspace"
+                        }) {
+                            runs.extend(
+                                session
+                                    .turns
+                                    .iter()
+                                    .map(|turn| workspace_run_summary(&session, turn)),
+                            );
+                        }
+                        runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+                        Ok(runs)
+                    }
+                }
             }
 
             fn session_matches_list_filter(
@@ -8099,6 +6925,70 @@ pub mod services {
                 "7d" => Some(7 * 24 * 60 * 60 * 1000),
                 "30d" => Some(30 * 24 * 60 * 60 * 1000),
                 _ => None,
+            }
+        }
+
+        fn latest_turn(session: &ChatSession) -> Option<&ChatTurn> {
+            session.turns.iter().max_by_key(|turn| turn.updated_at)
+        }
+
+        fn latest_session_status(session: &ChatSession) -> Option<String> {
+            latest_turn(session).map(|turn| turn_status(turn.status).to_string())
+        }
+
+        fn workspace_run_summary(session: &ChatSession, turn: &ChatTurn) -> RunSummary {
+            RunSummary {
+                id: turn.id.clone(),
+                kind: RunKind::WorkspaceRun,
+                container_id: session.id.clone(),
+                root_run_id: Some(turn.id.clone()),
+                title: turn_title(turn).unwrap_or_else(|| session.name.clone()),
+                subtitle: Some(session.model.clone()).filter(|value| !value.is_empty()),
+                status: turn_status(turn.status).to_string(),
+                updated_at: turn.updated_at,
+                started_at: Some(turn.started_at),
+                ended_at: turn.completed_at,
+                session_id: Some(session.id.clone()),
+                run_id: Some(turn.id.clone()),
+                parent_run_id: None,
+                agent_id: Some(session.agent_id.clone()),
+                effective_model: Some(session.model.clone()).filter(|value| !value.is_empty()),
+                provider: Some(session.provider.clone()).filter(|value| !value.is_empty()),
+                event_count: turn.events.len() as u64,
+            }
+        }
+
+        fn turn_status(status: ChatTurnStatus) -> &'static str {
+            match status {
+                ChatTurnStatus::Running => "running",
+                ChatTurnStatus::Completed => "completed",
+                ChatTurnStatus::Canceled => "interrupted",
+                ChatTurnStatus::Failed => "failed",
+            }
+        }
+
+        fn turn_title(turn: &ChatTurn) -> Option<String> {
+            turn.events.iter().find_map(|event| match &event.kind {
+                ChatTurnEventKind::UserMessage { content } => Some(trim_title(content)),
+                ChatTurnEventKind::AssistantMessage { content } => Some(trim_title(content)),
+                ChatTurnEventKind::ToolCall { name, .. } => Some(format!("Tool: {name}")),
+                ChatTurnEventKind::ToolResult { call_id, .. } => {
+                    Some(format!("Tool result: {call_id}"))
+                }
+                ChatTurnEventKind::Progress { message } => Some(trim_title(message)),
+                ChatTurnEventKind::Error { message } => Some(trim_title(message)),
+                ChatTurnEventKind::Canceled => Some("Canceled turn".to_string()),
+            })
+        }
+
+        fn trim_title(value: &str) -> String {
+            let value = value.trim();
+            if value.chars().count() > 80 {
+                format!("{}...", value.chars().take(77).collect::<String>())
+            } else if value.is_empty() {
+                "Untitled run".to_string()
+            } else {
+                value.to_string()
             }
         }
 
@@ -11407,12 +10297,6 @@ pub mod test_support {
         }
     }
 }
-pub mod time_utils {
-    /// Get current timestamp in milliseconds.
-    pub fn now_ms() -> i64 {
-        chrono::Utc::now().timestamp_millis()
-    }
-}
 pub use tools;
 
 pub use config::{
@@ -11435,9 +10319,18 @@ pub use types::{
     encode_validation_error,
 };
 
+use anyhow::Context;
 use std::sync::Arc;
 use storage::Storage;
 use tracing::{info, warn};
+use types::encode_validation_error as encode_agent_validation_error;
+
+fn normalize_agent_model_fields(agent: &mut AgentNode) -> anyhow::Result<()> {
+    if let Err(error) = agent.normalize_model_fields() {
+        anyhow::bail!(encode_agent_validation_error(vec![error]));
+    }
+    Ok(())
+}
 
 /// Core application state shared between daemon-backed application modes
 ///
@@ -11450,7 +10343,7 @@ pub struct AppCore {
 impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
-        prompt_files::ensure_prompt_templates()?;
+        services::agent_catalog::ensure_agent_prompt_templates()?;
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;
@@ -11468,6 +10361,95 @@ impl AppCore {
         let core = Self { storage, features };
 
         Ok(core)
+    }
+
+    pub async fn list_agents(&self) -> anyhow::Result<Vec<StoredAgent>> {
+        self.storage
+            .agents
+            .list_agents()
+            .context("Failed to list agents")
+    }
+
+    pub async fn get_agent(&self, id: &str) -> anyhow::Result<StoredAgent> {
+        self.storage
+            .agents
+            .get_agent(id.to_string())
+            .with_context(|| format!("Failed to get agent {}", id))?
+            .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))
+    }
+
+    pub async fn create_agent(
+        &self,
+        name: String,
+        mut agent: AgentNode,
+    ) -> anyhow::Result<StoredAgent> {
+        normalize_agent_model_fields(&mut agent)?;
+        self.validate_agent_node(&agent).await?;
+        self.storage
+            .agents
+            .create_agent(name.clone(), agent)
+            .with_context(|| format!("Failed to create agent {}", name))
+    }
+
+    pub async fn update_agent(
+        &self,
+        id: &str,
+        name: Option<String>,
+        mut agent: Option<AgentNode>,
+    ) -> anyhow::Result<StoredAgent> {
+        if let Some(agent_node) = agent.as_mut() {
+            normalize_agent_model_fields(agent_node)?;
+            self.validate_agent_node(agent_node).await?;
+        }
+        self.storage
+            .agents
+            .update_agent(id.to_string(), name, agent)
+            .with_context(|| format!("Failed to update agent {}", id))
+    }
+
+    pub async fn delete_agent(&self, id: &str) -> anyhow::Result<()> {
+        let resolved_id = self
+            .storage
+            .agents
+            .resolve_existing_agent_id(id)
+            .with_context(|| format!("Failed to resolve agent {}", id))?;
+
+        let resolved_default_id = self.storage.agents.resolve_default_agent_id().ok();
+        if resolved_default_id.as_deref() == Some(resolved_id.as_str()) {
+            let agent_name = self
+                .storage
+                .agents
+                .get_agent(resolved_id.clone())?
+                .map(|agent| agent.name)
+                .unwrap_or_else(|| DEFAULT_ASSISTANT_NAME.to_string());
+            anyhow::bail!(
+                "Cannot delete default assistant agent {} ({})",
+                resolved_id,
+                agent_name
+            );
+        }
+
+        let session_service = services::session::SessionService::from_storage(&self.storage);
+        for session in session_service.list_session_views(Some(&resolved_id), None, true)? {
+            let _ = session_service.archive_session(&session.id)?;
+        }
+
+        self.storage
+            .agents
+            .delete_agent(resolved_id)
+            .with_context(|| format!("Failed to delete agent {}", id))
+    }
+
+    async fn validate_agent_node(&self, agent: &AgentNode) -> anyhow::Result<()> {
+        if let Err(errors) = agent.validate() {
+            anyhow::bail!(encode_agent_validation_error(errors));
+        }
+        if let Err(errors) =
+            services::agent_validation::validate_agent_node_for_core(agent, self).await
+        {
+            anyhow::bail!(encode_agent_validation_error(errors));
+        }
+        Ok(())
     }
 
     /// Create default agent if no agents exist

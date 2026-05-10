@@ -15,10 +15,7 @@ pub mod daemon {
         use super::launcher::ensure_daemon_running;
         use super::request_mapper::to_contract;
         use crate::paths;
-        use crate::services::{
-            agent as agent_service, config as config_service, secrets as secrets_service,
-            skills as skills_service,
-        };
+        use crate::services::skills as skills_service;
         use crate::storage::SystemConfig;
         use crate::{AppCore, Secret};
         use anyhow::Result;
@@ -47,7 +44,7 @@ pub mod daemon {
 
             pub async fn list_agents(&mut self) -> Result<Vec<crate::StoredAgent>> {
                 match self {
-                    CoreAccess::Local(core) => agent_service::list_agents(core).await,
+                    CoreAccess::Local(core) => core.list_agents().await,
                     CoreAccess::Remote(client) => {
                         client.request_typed(IpcRequest::ListAgents).await
                     }
@@ -56,7 +53,7 @@ pub mod daemon {
 
             pub async fn get_agent(&mut self, id: &str) -> Result<crate::StoredAgent> {
                 match self {
-                    CoreAccess::Local(core) => agent_service::get_agent(core, id).await,
+                    CoreAccess::Local(core) => core.get_agent(id).await,
                     CoreAccess::Remote(client) => {
                         client
                             .request_typed(IpcRequest::GetAgent { id: id.to_string() })
@@ -71,7 +68,7 @@ pub mod daemon {
                 agent: AgentNode,
             ) -> Result<crate::StoredAgent> {
                 match self {
-                    CoreAccess::Local(core) => agent_service::create_agent(core, name, agent).await,
+                    CoreAccess::Local(core) => core.create_agent(name, agent).await,
                     CoreAccess::Remote(client) => {
                         let agent = types::request::AgentNode::from(agent);
                         client
@@ -88,9 +85,7 @@ pub mod daemon {
                 agent: Option<AgentNode>,
             ) -> Result<crate::StoredAgent> {
                 match self {
-                    CoreAccess::Local(core) => {
-                        agent_service::update_agent(core, id, name, agent).await
-                    }
+                    CoreAccess::Local(core) => core.update_agent(id, name, agent).await,
                     CoreAccess::Remote(client) => {
                         let agent = agent.map(types::request::AgentNode::from);
                         client
@@ -106,7 +101,7 @@ pub mod daemon {
 
             pub async fn delete_agent(&mut self, id: &str) -> Result<()> {
                 match self {
-                    CoreAccess::Local(core) => agent_service::delete_agent(core, id).await,
+                    CoreAccess::Local(core) => core.delete_agent(id).await,
                     CoreAccess::Remote(client) => {
                         let _: OkResponse = client
                             .request_typed(IpcRequest::DeleteAgent { id: id.to_string() })
@@ -138,7 +133,7 @@ pub mod daemon {
 
             pub async fn list_secrets(&mut self) -> Result<Vec<Secret>> {
                 match self {
-                    CoreAccess::Local(core) => secrets_service::list_secrets(core).await,
+                    CoreAccess::Local(core) => core.storage.secrets.list_secrets(),
                     CoreAccess::Remote(client) => {
                         client.request_typed(IpcRequest::ListSecrets).await
                     }
@@ -147,7 +142,7 @@ pub mod daemon {
 
             pub async fn get_secret(&mut self, key: &str) -> Result<Option<String>> {
                 match self {
-                    CoreAccess::Local(core) => secrets_service::get_secret(core, key).await,
+                    CoreAccess::Local(core) => core.storage.secrets.get_secret(key),
                     CoreAccess::Remote(client) => {
                         let response: types::SecretResponse = client
                             .request_typed(IpcRequest::GetSecret {
@@ -167,7 +162,7 @@ pub mod daemon {
             ) -> Result<()> {
                 match self {
                     CoreAccess::Local(core) => {
-                        secrets_service::set_secret(core, key, value, description).await
+                        core.storage.secrets.set_secret(key, value, description)
                     }
                     CoreAccess::Remote(client) => {
                         let _: OkResponse = client
@@ -184,7 +179,7 @@ pub mod daemon {
 
             pub async fn delete_secret(&mut self, key: &str) -> Result<()> {
                 match self {
-                    CoreAccess::Local(core) => secrets_service::delete_secret(core, key).await,
+                    CoreAccess::Local(core) => core.storage.secrets.delete_secret(key),
                     CoreAccess::Remote(client) => {
                         let _: OkResponse = client
                             .request_typed(IpcRequest::DeleteSecret {
@@ -198,14 +193,14 @@ pub mod daemon {
 
             pub async fn get_config(&mut self) -> Result<SystemConfig> {
                 match self {
-                    CoreAccess::Local(core) => config_service::get_config(core).await,
+                    CoreAccess::Local(core) => core.storage.config.get_effective_config(),
                     CoreAccess::Remote(client) => client.request_typed(IpcRequest::GetConfig).await,
                 }
             }
 
             pub async fn get_global_config(&mut self) -> Result<SystemConfig> {
                 match self {
-                    CoreAccess::Local(core) => config_service::get_global_config(core).await,
+                    CoreAccess::Local(core) => core.storage.config.get_global_config(),
                     CoreAccess::Remote(client) => {
                         client.request_typed(IpcRequest::GetGlobalConfig).await
                     }
@@ -214,7 +209,10 @@ pub mod daemon {
 
             pub async fn set_config(&mut self, config: SystemConfig) -> Result<()> {
                 match self {
-                    CoreAccess::Local(core) => config_service::update_config(core, config).await,
+                    CoreAccess::Local(core) => {
+                        config.validate()?;
+                        core.storage.config.update_config(config)
+                    }
                     CoreAccess::Remote(client) => {
                         let config = to_contract(config)?;
                         let _: OkResponse = client
@@ -1070,7 +1068,6 @@ pub mod daemon {
         use crate::runtime::session_turn::build_turn_persistence_payload;
         use crate::runtime::subagent::StorageBackedSubagentLookup;
         use crate::services::{
-            agent as agent_service, config as config_service, secrets as secrets_service,
             session::{PersistInteractiveTurnRequest, SessionService},
             skills as skills_service,
         };
@@ -1111,7 +1108,6 @@ pub mod daemon {
             };
             use crate::daemon::tool_result_mapper::to_tool_execution_result;
             use crate::provider_policy::provider_display_order;
-            use crate::services::execution_console::ExecutionConsoleService;
             use types::request::WireModelRef;
             use types::{
                 ArchiveResponse, CancelResponse, CleanupReportResponse, DeleteResponse,
@@ -1192,6 +1188,14 @@ pub mod daemon {
                 message
             }
 
+            fn validate_and_update_config(
+                core: &Arc<AppCore>,
+                config: crate::storage::SystemConfig,
+            ) -> anyhow::Result<()> {
+                config.validate()?;
+                core.storage.config.update_config(config)
+            }
+
             fn append_message_to_session(
                 storage: &crate::storage::Storage,
                 session: &mut ChatSession,
@@ -1228,7 +1232,7 @@ pub mod daemon {
                 }
 
                 pub(super) async fn handle_list_agents(core: &Arc<AppCore>) -> IpcResponse {
-                    match agent_service::list_agents(core).await {
+                    match core.list_agents().await {
                         Ok(agents) => IpcResponse::success(agents),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1238,7 +1242,7 @@ pub mod daemon {
                     core: &Arc<AppCore>,
                     id: String,
                 ) -> IpcResponse {
-                    match agent_service::get_agent(core, &id).await {
+                    match core.get_agent(&id).await {
                         Ok(agent) => IpcResponse::success(agent),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1249,7 +1253,7 @@ pub mod daemon {
                     name: String,
                     agent: types::AgentNode,
                 ) -> IpcResponse {
-                    match agent_service::create_agent(core, name, agent).await {
+                    match core.create_agent(name, agent).await {
                         Ok(agent) => IpcResponse::success(agent),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1261,7 +1265,7 @@ pub mod daemon {
                     name: Option<String>,
                     agent: Option<types::AgentNode>,
                 ) -> IpcResponse {
-                    match agent_service::update_agent(core, &id, name, agent).await {
+                    match core.update_agent(&id, name, agent).await {
                         Ok(agent) => IpcResponse::success(agent),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1271,7 +1275,7 @@ pub mod daemon {
                     core: &Arc<AppCore>,
                     id: String,
                 ) -> IpcResponse {
-                    match agent_service::delete_agent(core, &id).await {
+                    match core.delete_agent(&id).await {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1318,7 +1322,7 @@ pub mod daemon {
                 }
 
                 pub(super) async fn handle_list_secrets(core: &Arc<AppCore>) -> IpcResponse {
-                    match secrets_service::list_secrets(core).await {
+                    match core.storage.secrets.list_secrets() {
                         Ok(secrets) => IpcResponse::success(secrets),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1328,7 +1332,7 @@ pub mod daemon {
                     core: &Arc<AppCore>,
                     key: String,
                 ) -> IpcResponse {
-                    match secrets_service::get_secret(core, &key).await {
+                    match core.storage.secrets.get_secret(&key) {
                         Ok(Some(value)) => {
                             IpcResponse::success(SecretResponse { value: Some(value) })
                         }
@@ -1343,7 +1347,7 @@ pub mod daemon {
                     value: String,
                     description: Option<String>,
                 ) -> IpcResponse {
-                    match secrets_service::set_secret(core, &key, &value, description).await {
+                    match core.storage.secrets.set_secret(&key, &value, description) {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1355,7 +1359,11 @@ pub mod daemon {
                     value: String,
                     description: Option<String>,
                 ) -> IpcResponse {
-                    match secrets_service::create_secret(core, &key, &value, description).await {
+                    match core
+                        .storage
+                        .secrets
+                        .create_secret(&key, &value, description)
+                    {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1367,7 +1375,11 @@ pub mod daemon {
                     value: String,
                     description: Option<String>,
                 ) -> IpcResponse {
-                    match secrets_service::update_secret(core, &key, &value, description).await {
+                    match core
+                        .storage
+                        .secrets
+                        .update_secret(&key, &value, description)
+                    {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1377,21 +1389,21 @@ pub mod daemon {
                     core: &Arc<AppCore>,
                     key: String,
                 ) -> IpcResponse {
-                    match secrets_service::delete_secret(core, &key).await {
+                    match core.storage.secrets.delete_secret(&key) {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
                 }
 
                 pub(super) async fn handle_get_config(core: &Arc<AppCore>) -> IpcResponse {
-                    match config_service::get_config(core).await {
+                    match core.storage.config.get_effective_config() {
                         Ok(config) => IpcResponse::success(config),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
                 }
 
                 pub(super) async fn handle_get_global_config(core: &Arc<AppCore>) -> IpcResponse {
-                    match config_service::get_global_config(core).await {
+                    match core.storage.config.get_global_config() {
                         Ok(config) => IpcResponse::success(config),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1401,7 +1413,7 @@ pub mod daemon {
                     core: &Arc<AppCore>,
                     config: crate::storage::SystemConfig,
                 ) -> IpcResponse {
-                    match config_service::update_config(core, config).await {
+                    match validate_and_update_config(core, config) {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
@@ -1410,7 +1422,7 @@ pub mod daemon {
                 pub(super) async fn handle_list_execution_containers(
                     core: &Arc<AppCore>,
                 ) -> IpcResponse {
-                    let service = ExecutionConsoleService::from_storage(&core.storage);
+                    let service = SessionService::from_storage(&core.storage);
                     match service.list_execution_containers() {
                         Ok(containers) => IpcResponse::success(containers),
                         Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1421,7 +1433,7 @@ pub mod daemon {
                     core: &Arc<AppCore>,
                     query: types::RunListQuery,
                 ) -> IpcResponse {
-                    let service = ExecutionConsoleService::from_storage(&core.storage);
+                    let service = SessionService::from_storage(&core.storage);
                     match service.list_runs(&query) {
                         Ok(sessions) => IpcResponse::success(sessions),
                         Err(err) => IpcResponse::error(500, err.to_string()),
@@ -3335,7 +3347,7 @@ pub mod daemon {
                 subagent_config_from_defaults,
             };
             pub(super) use super::*;
-            pub(super) use crate::prompt_files;
+            pub(super) use crate::services::agent_catalog;
             pub(super) use crate::test_support::RestflowTestEnv;
             pub(super) use types::AgentNode;
             pub(super) use types::SteerCommand;
@@ -3363,7 +3375,7 @@ pub mod daemon {
                     let (_core, env) = create_test_core().await;
                     let current = std::env::var("RESTFLOW_DIR").expect("restflow dir env");
                     assert_eq!(current, env.state.root().to_string_lossy());
-                    assert!(std::env::var_os(prompt_files::AGENTS_DIR_ENV).is_none());
+                    assert!(std::env::var_os(agent_catalog::AGENTS_DIR_ENV).is_none());
                     current
                 };
 
@@ -3371,7 +3383,7 @@ pub mod daemon {
                     let (_core, env) = create_test_core().await;
                     let current = std::env::var("RESTFLOW_DIR").expect("restflow dir env");
                     assert_eq!(current, env.state.root().to_string_lossy());
-                    assert!(std::env::var_os(prompt_files::AGENTS_DIR_ENV).is_none());
+                    assert!(std::env::var_os(agent_catalog::AGENTS_DIR_ENV).is_none());
                     current
                 };
 

@@ -645,10 +645,7 @@ mod executor {
         use crate::executor::CommandExecutor;
         use crate::setup;
         use ::daemon::StoredAgent;
-        use ::daemon::services::{
-            agent as agent_service, config as config_service, secrets as secrets_service,
-            session::SessionService, skills as skills_service,
-        };
+        use ::daemon::services::{session::SessionService, skills as skills_service};
         use ::daemon::storage::SystemConfig;
         use ::daemon::{AppCore, Secret};
         use types::{AgentNode, ChatSession, ChatSessionSummary};
@@ -668,15 +665,15 @@ mod executor {
         #[async_trait]
         impl CommandExecutor for DirectExecutor {
             async fn list_agents(&self) -> Result<Vec<StoredAgent>> {
-                agent_service::list_agents(&self.core).await
+                self.core.list_agents().await
             }
 
             async fn get_agent(&self, id: &str) -> Result<StoredAgent> {
-                agent_service::get_agent(&self.core, id).await
+                self.core.get_agent(id).await
             }
 
             async fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
-                agent_service::create_agent(&self.core, name, agent).await
+                self.core.create_agent(name, agent).await
             }
 
             async fn update_agent(
@@ -685,11 +682,11 @@ mod executor {
                 name: Option<String>,
                 agent: Option<AgentNode>,
             ) -> Result<StoredAgent> {
-                agent_service::update_agent(&self.core, id, name, agent).await
+                self.core.update_agent(id, name, agent).await
             }
 
             async fn delete_agent(&self, id: &str) -> Result<()> {
-                agent_service::delete_agent(&self.core, id).await
+                self.core.delete_agent(id).await
             }
 
             async fn list_skills(&self) -> Result<Vec<Skill>> {
@@ -701,7 +698,7 @@ mod executor {
             }
 
             async fn list_secrets(&self) -> Result<Vec<Secret>> {
-                secrets_service::list_secrets(&self.core).await
+                self.core.storage.secrets.list_secrets()
             }
 
             async fn set_secret(
@@ -710,7 +707,10 @@ mod executor {
                 value: &str,
                 description: Option<String>,
             ) -> Result<()> {
-                secrets_service::set_secret(&self.core, key, value, description).await
+                self.core
+                    .storage
+                    .secrets
+                    .set_secret(key, value, description)
             }
 
             async fn create_secret(
@@ -719,7 +719,10 @@ mod executor {
                 value: &str,
                 description: Option<String>,
             ) -> Result<()> {
-                secrets_service::create_secret(&self.core, key, value, description).await
+                self.core
+                    .storage
+                    .secrets
+                    .create_secret(key, value, description)
             }
 
             async fn update_secret(
@@ -728,29 +731,30 @@ mod executor {
                 value: &str,
                 description: Option<String>,
             ) -> Result<()> {
-                secrets_service::update_secret(&self.core, key, value, description).await
+                self.core
+                    .storage
+                    .secrets
+                    .update_secret(key, value, description)
             }
 
             async fn delete_secret(&self, key: &str) -> Result<()> {
-                secrets_service::delete_secret(&self.core, key).await
+                self.core.storage.secrets.delete_secret(key)
             }
 
             async fn has_secret(&self, key: &str) -> Result<bool> {
-                Ok(secrets_service::get_secret(&self.core, key)
-                    .await?
-                    .is_some())
+                Ok(self.core.storage.secrets.get_secret(key)?.is_some())
             }
 
             async fn get_config(&self) -> Result<SystemConfig> {
-                config_service::get_config(&self.core).await
+                self.core.storage.config.get_effective_config()
             }
 
             async fn get_global_config(&self) -> Result<SystemConfig> {
-                config_service::get_global_config(&self.core).await
+                self.core.storage.config.get_global_config()
             }
 
             async fn set_config(&self, config: SystemConfig) -> Result<()> {
-                config_service::update_config(&self.core, config).await
+                validate_and_update_config(&self.core, config)
             }
 
             async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
@@ -806,12 +810,17 @@ mod executor {
             }
         }
 
+        fn validate_and_update_config(core: &AppCore, config: SystemConfig) -> Result<()> {
+            config.validate()?;
+            core.storage.config.update_config(config)
+        }
+
         async fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Result<String> {
             if let Some(agent_id) = agent_id {
                 return Ok(agent_id);
             }
 
-            let agents = agent_service::list_agents(core).await?;
+            let agents = core.list_agents().await?;
             if agents.is_empty() {
                 bail!("No agents available");
             }
