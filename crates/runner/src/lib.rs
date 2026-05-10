@@ -532,8 +532,6 @@ mod runtime {
 
             use std::path::Path;
             use std::sync::Arc;
-            #[cfg(any(test, feature = "test-utils"))]
-            use std::sync::{Mutex, OnceLock};
             use tracing::{debug, warn};
 
             use restflow_core::services::adapters::*;
@@ -543,58 +541,12 @@ mod runtime {
             use ::tools::impls::RunSkillTool;
 
             use ::agent::tools::SecretResolver;
-            #[cfg(any(test, feature = "test-utils"))]
-            use ::agent::tools::Tool;
             const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
             const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
             fn composite_skill_provider(storage: Option<&Storage>) -> Arc<dyn SkillProvider> {
                 let _ = storage;
                 Arc::new(SkrunSkillProvider::default())
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            type TestToolOverrideMap = std::collections::HashMap<String, Arc<dyn Tool>>;
-
-            #[cfg(any(test, feature = "test-utils"))]
-            fn test_tool_override_slot() -> &'static Mutex<Option<TestToolOverrideMap>> {
-                static SLOT: OnceLock<Mutex<Option<TestToolOverrideMap>>> = OnceLock::new();
-                SLOT.get_or_init(|| Mutex::new(None))
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            #[allow(dead_code)]
-            pub struct TestToolOverrideGuard {
-                previous: Option<TestToolOverrideMap>,
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            impl Drop for TestToolOverrideGuard {
-                fn drop(&mut self) {
-                    *test_tool_override_slot()
-                        .lock()
-                        .expect("test tool override slot lock") = self.previous.take();
-                }
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            #[allow(dead_code)]
-            pub fn install_test_tool_overrides(
-                overrides: TestToolOverrideMap,
-            ) -> TestToolOverrideGuard {
-                let mut guard = test_tool_override_slot()
-                    .lock()
-                    .expect("test tool override slot lock");
-                let previous = guard.replace(overrides);
-                TestToolOverrideGuard { previous }
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            fn current_test_tool_overrides() -> Option<TestToolOverrideMap> {
-                test_tool_override_slot()
-                    .lock()
-                    .expect("test tool override slot lock")
-                    .clone()
             }
 
             pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
@@ -937,13 +889,6 @@ mod runtime {
                         }
                     }
                     registry.register(::tools::BatchTool::new(registry_arc));
-                }
-
-                #[cfg(any(test, feature = "test-utils"))]
-                if let Some(overrides) = current_test_tool_overrides() {
-                    for (_name, tool) in overrides {
-                        registry.register_arc(tool);
-                    }
                 }
 
                 // Populate known_tools for AgentStoreAdapter validation
@@ -2152,8 +2097,6 @@ mod runtime {
             };
             use ::tools::{BashConfig, ToolRegistry};
             use preflight::SkillSnapshotCache;
-            #[cfg(any(test, feature = "test-utils"))]
-            use std::sync::{Mutex, OnceLock};
 
             fn share_stream_emitter(
                 emitter: Option<Box<dyn StreamEmitter>>,
@@ -2167,50 +2110,6 @@ mod runtime {
                 emitter
                     .as_ref()
                     .map(|shared| Box::new(shared.clone()) as Box<dyn StreamEmitter>)
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            type TestLlmFactorySlot = Mutex<Option<Arc<dyn LlmClientFactory>>>;
-
-            #[cfg(any(test, feature = "test-utils"))]
-            fn test_llm_factory_slot() -> &'static TestLlmFactorySlot {
-                static SLOT: OnceLock<TestLlmFactorySlot> = OnceLock::new();
-                SLOT.get_or_init(|| Mutex::new(None))
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            #[allow(dead_code)]
-            pub struct TestLlmFactoryGuard {
-                previous: Option<Arc<dyn LlmClientFactory>>,
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            impl Drop for TestLlmFactoryGuard {
-                fn drop(&mut self) {
-                    *test_llm_factory_slot()
-                        .lock()
-                        .expect("test llm factory slot lock") = self.previous.take();
-                }
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            #[allow(dead_code)]
-            pub fn install_test_llm_factory(
-                factory: Arc<dyn LlmClientFactory>,
-            ) -> TestLlmFactoryGuard {
-                let mut guard = test_llm_factory_slot()
-                    .lock()
-                    .expect("test llm factory slot lock");
-                let previous = guard.replace(factory);
-                TestLlmFactoryGuard { previous }
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            fn current_test_llm_factory() -> Option<Arc<dyn LlmClientFactory>> {
-                test_llm_factory_slot()
-                    .lock()
-                    .expect("test llm factory slot lock")
-                    .clone()
             }
 
             /// Real agent executor that bridges to ::agent::AgentExecutor.
@@ -2355,21 +2254,10 @@ mod runtime {
                         api_keys: HashMap<LlmProvider, String>,
                         model_specs: Vec<types::ModelSpec>,
                     ) -> Arc<dyn LlmClientFactory> {
-                        #[cfg(any(test, feature = "test-utils"))]
-                        if let Some(factory) = current_test_llm_factory() {
-                            return factory;
-                        }
-
                         Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs))
                     }
 
                     pub(super) fn should_skip_api_key_resolution() -> bool {
-                        #[cfg(any(test, feature = "test-utils"))]
-                        {
-                            return current_test_llm_factory().is_some();
-                        }
-
-                        #[allow(unreachable_code)]
                         false
                     }
 
@@ -3735,27 +3623,6 @@ mod runtime {
                             steer_rx,
                             stream_display_mode,
                             workspace_root,
-                        )
-                        .await
-                    }
-
-                    /// Execute a chat turn for an existing chat session.
-                    ///
-                    /// This method keeps chat execution in daemon-side runtime logic so UI
-                    /// clients (HTTP/MCP/CLI) can share the same execution behavior.
-                    pub async fn execute_session_turn(
-                        &self,
-                        session: &mut ChatSession,
-                        user_input: &str,
-                        max_history: usize,
-                        input_mode: SessionInputMode,
-                    ) -> Result<SessionExecutionResult> {
-                        self.execute_session_turn_with_emitter(
-                            session,
-                            user_input,
-                            max_history,
-                            input_mode,
-                            None,
                         )
                         .await
                     }

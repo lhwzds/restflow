@@ -6,7 +6,6 @@ edition.workspace = true
 description = "Built-in RestFlow tool implementations"
 
 [dependencies]
-agent = { workspace = true, features = ["test-utils"] }
 types.workspace = true
 anyhow.workspace = true
 async-recursion = "1.1"
@@ -29,4 +28,5 @@ tempfile = "3.25.0"
 walkdir = "2"
 
 [dev-dependencies]
+agent = { workspace = true, features = ["test-utils"] }
 llm = { workspace = true, features = ["test-utils"] }

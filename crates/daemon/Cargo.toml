@@ -16,7 +16,7 @@ test-utils = []
 types = { workspace = true, features = ["specta"] }
 agent = { workspace = true }
 tools = { workspace = true }
-restflow-core = { workspace = true, features = ["test-utils"] }
+restflow-core = { workspace = true }
 runner = { workspace = true }
 
 # External dependencies
@@ -38,6 +38,7 @@ uuid = { version = "1.21.0", features = ["v4", "serde"] }
 
 [dev-dependencies]
 agent = { workspace = true, features = ["test-utils"] }
+restflow-core = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal", "process"] }

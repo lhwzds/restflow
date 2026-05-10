@@ -4690,10 +4690,6 @@ mod operation_retry {
             self.next_retry_at = None;
             self.last_failure_at = None;
         }
-
-        pub fn is_exhausted(&self, config: &RetryConfig) -> bool {
-            self.attempt >= config.max_retries
-        }
     }
 
     /// Categorize an operation error for logging and metrics.
