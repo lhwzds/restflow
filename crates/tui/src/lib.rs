@@ -833,6 +833,14 @@ mod controller {
                 .list_available_models()
                 .await
                 .unwrap_or_default();
+            if let Some(item) = self
+                .client
+                .configured_default_model()
+                .and_then(|model| resolve_model_picker_item(&available, &model))
+            {
+                pending.update_model(item.provider, item.model, item.name);
+                return pending;
+            }
             let sessions = self.client.list_sessions().await.unwrap_or_default();
             if let Some(item) = select_default_model_item(
                 &sessions,
@@ -1267,6 +1275,9 @@ mod controller {
                 SlashCommand::SwitchModel { model } => {
                     self.switch_model_actions(state, model).await
                 }
+                SlashCommand::SetDefaultModel { model } => {
+                    self.set_default_model_actions(state, model).await
+                }
             }
         }
 
@@ -1369,6 +1380,7 @@ mod controller {
             } else {
                 state.available_models.clone()
             };
+            let default_model = self.client.configured_default_model();
             let sessions = if state.sessions.is_empty() {
                 self.client.list_sessions().await.unwrap_or_default()
             } else {
@@ -1378,6 +1390,7 @@ mod controller {
                 &sessions,
                 &available,
                 state.current_model_identity(),
+                default_model.as_deref(),
                 &provider,
             );
             let status = if items.is_empty() {
@@ -1438,6 +1451,34 @@ mod controller {
                     "Failed to switch model: {error}"
                 ))]),
             }
+        }
+
+        async fn set_default_model_actions(
+            &self,
+            state: &AppState,
+            model: String,
+        ) -> Result<Vec<ShellAction>> {
+            let available = self
+                .client
+                .list_available_models()
+                .await
+                .unwrap_or_default();
+            let Some(item) = resolve_model_picker_item(&available, &model) else {
+                return Ok(vec![ShellAction::StatusUpdated(format!(
+                    "Unknown or unavailable model: {model}"
+                ))]);
+            };
+            self.client.set_default_model(&item.model).await?;
+            let status = format!("Default model set to {}", item.model);
+            if state.current_session_id().is_none() && state.pending_session.is_some() {
+                return Ok(vec![ShellAction::PendingSessionModelSelected {
+                    provider: item.provider,
+                    model: item.model,
+                    model_name: item.name,
+                    status,
+                }]);
+            }
+            Ok(vec![ShellAction::StatusUpdated(status)])
         }
 
         async fn resolve_provider_for_model_command(
@@ -1724,6 +1765,7 @@ mod controller {
         sessions: &[ChatSessionSummary],
         available: &[ModelMetadataDTO],
         current_model: Option<(&str, &str)>,
+        default_model: Option<&str>,
         provider_filter: &str,
     ) -> Vec<ModelPickerItem> {
         let usage = model_usage_by_key(sessions);
@@ -1733,6 +1775,10 @@ mod controller {
         let current_key = current_model
             .map(|(provider, model)| model_key(provider, model))
             .filter(|key| key != ":");
+        let default_key = default_model.and_then(|model| {
+            let item = resolve_model_picker_item(available, model)?;
+            Some(model_key(&item.provider, &item.model))
+        });
 
         let mut items_by_key = HashMap::<String, ModelPickerItem>::new();
         let mut available_keys = HashSet::<String>::new();
@@ -1752,6 +1798,7 @@ mod controller {
                 .and_modify(|item| {
                     item.name = metadata.name.clone();
                     item.is_current = current_key.as_deref() == Some(key.as_str());
+                    item.is_default = default_key.as_deref() == Some(key.as_str());
                 })
                 .or_insert_with(|| ModelPickerItem {
                     provider,
@@ -1761,6 +1808,7 @@ mod controller {
                     usage_count: usage.count,
                     last_used_at: usage.last_used_at,
                     is_current: current_key.as_deref() == Some(key.as_str()),
+                    is_default: default_key.as_deref() == Some(key.as_str()),
                 });
         }
 
@@ -1779,6 +1827,7 @@ mod controller {
                     usage_count: 0,
                     last_used_at: None,
                     is_current: true,
+                    is_default: default_key.as_deref() == Some(key.as_str()),
                 });
         }
 
@@ -1833,6 +1882,7 @@ mod controller {
                 sessions,
                 available,
                 current_model,
+                None,
                 &provider.provider,
             )
             .into_iter()
@@ -1858,6 +1908,7 @@ mod controller {
                     usage_count: 0,
                     last_used_at: None,
                     is_current: false,
+                    is_default: false,
                 })
             } else {
                 None
@@ -2103,6 +2154,7 @@ mod controller {
                 &sessions,
                 &available,
                 Some(("codex", "gpt-5.4")),
+                None,
                 "codex",
             );
 
@@ -2111,6 +2163,28 @@ mod controller {
             assert!(items[0].is_current);
             assert_eq!(items[1].model, "gpt-5.4-mini");
             assert_eq!(items[1].category, ModelPickerCategory::Available);
+        }
+
+        #[test]
+        fn model_picker_marks_configured_default_model() {
+            let sessions = vec![session_summary_with_model(
+                "session-1",
+                "Recent",
+                "zai-coding-plan",
+                "zai-coding-plan-glm-5-1",
+                100,
+            )];
+            let available = vec![model_metadata(ModelId::Glm5_1CodingPlan, "GLM-5.1")];
+            let items = build_model_picker_items_for_provider(
+                &sessions,
+                &available,
+                Some(("zai-coding-plan", "zai-coding-plan-glm-5-1")),
+                Some("zai-coding-plan-glm-5-1"),
+                "zai-coding-plan",
+            );
+
+            assert!(items[0].is_current);
+            assert!(items[0].is_default);
         }
 
         #[test]
@@ -2123,7 +2197,8 @@ mod controller {
                 100,
             )];
             let available = vec![model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4")];
-            let items = build_model_picker_items_for_provider(&sessions, &available, None, "codex");
+            let items =
+                build_model_picker_items_for_provider(&sessions, &available, None, None, "codex");
 
             assert_eq!(items[0].provider, "codex");
             assert_eq!(items[0].model, "gpt-5.4");
@@ -2142,7 +2217,7 @@ mod controller {
             )];
             let available = vec![model_metadata(ModelId::Gpt5_4, "GPT-5.4")];
             let items =
-                build_model_picker_items_for_provider(&sessions, &available, None, "openai");
+                build_model_picker_items_for_provider(&sessions, &available, None, None, "openai");
 
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].model, "gpt-5-4");
@@ -2373,6 +2448,9 @@ mod daemon_client {
                 .resolve_existing_agent_id(agent_id)?;
             let model = match model {
                 Some(model) => normalize_model_input(model)?,
+                None if let Some(model) = self.configured_default_model() => {
+                    normalize_model_input(&model)?
+                }
                 None => self
                     .core
                     .storage
@@ -2384,6 +2462,18 @@ mod daemon_client {
             };
             SessionService::from_storage(&self.core.storage)
                 .create_workspace_session(agent_id, model, None, None, None)
+        }
+
+        pub fn configured_default_model(&self) -> Option<String> {
+            ::daemon::load_cli_config()
+                .ok()
+                .and_then(|config| config.model)
+        }
+
+        pub async fn set_default_model(&self, model: &str) -> Result<()> {
+            let mut config = ::daemon::load_global_cli_config()?;
+            config.model = Some(model.to_string());
+            ::daemon::write_cli_config(&config)
         }
 
         pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -3244,6 +3334,7 @@ mod keymap {
         Newline,
         Submit,
         OverlaySelect,
+        SetSelectedDefaultModel,
         DeleteSelected,
         Noop,
     }
@@ -3354,6 +3445,11 @@ mod keymap {
             }) if modifiers.contains(KeyModifiers::ALT) => Action::OverlaySelect,
             Event::Key(KeyEvent {
                 code: KeyCode::Enter,
+                modifiers,
+                ..
+            }) if modifiers.contains(KeyModifiers::SHIFT) => Action::SetSelectedDefaultModel,
+            Event::Key(KeyEvent {
+                code: KeyCode::Enter,
                 ..
             }) => Action::Submit,
             Event::Key(KeyEvent {
@@ -3394,6 +3490,12 @@ mod keymap {
         fn maps_shift_tab_to_cycle_input_mode() {
             let event = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
             assert_eq!(map_event(event), Action::CycleInputMode);
+        }
+
+        #[test]
+        fn maps_shift_enter_to_set_selected_default_model() {
+            let event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+            assert_eq!(map_event(event), Action::SetSelectedDefaultModel);
         }
 
         #[test]
@@ -4062,6 +4164,18 @@ mod reducer {
                 }
             }
             Action::OverlaySelect => {}
+            Action::SetSelectedDefaultModel => {
+                if matches!(
+                    state.overlay,
+                    Some(crate::state::OverlayState::ModelPicker { .. })
+                ) && let Some(item) = state.selected_model_item()
+                {
+                    state.status = "Setting default model...".to_string();
+                    output.effects.push(ShellEffect::ExecuteSlashCommand(
+                        SlashCommand::SetDefaultModel { model: item.model },
+                    ));
+                }
+            }
             Action::Submit => {
                 if state.overlay.is_some() {
                     if matches!(
@@ -4246,6 +4360,7 @@ mod reducer {
             SlashCommand::ListModels => "Loading providers...",
             SlashCommand::ListModelsForProvider { .. } => "Loading models...",
             SlashCommand::SwitchModel { .. } => "Switching model...",
+            SlashCommand::SetDefaultModel { .. } => "Setting default model...",
             SlashCommand::ListSessions => "Loading sessions...",
             SlashCommand::Quit => "Exiting...",
             _ => "Running command...",
@@ -4259,7 +4374,10 @@ mod reducer {
         };
         use crate::keymap::Action;
         use crate::slash_command::SlashCommand;
-        use crate::state::{AppState, InputMode, PendingSessionState, SkillPickerItem};
+        use crate::state::{
+            AppState, InputMode, ModelPickerCategory, ModelPickerItem, PendingSessionState,
+            SkillPickerItem,
+        };
         use types::{ChatSession, ChatSessionSummary, Skill, SkillSource};
         use types::{ChatSessionEvent, StreamFrame};
 
@@ -5096,6 +5214,32 @@ mod reducer {
                 state.status,
                 "No default agent is available. Start the daemon or send a message first."
             );
+        }
+
+        #[test]
+        fn shift_enter_in_model_picker_sets_global_default_model() {
+            let mut state = AppState::empty();
+            state.model_items = vec![ModelPickerItem {
+                provider: "codex".to_string(),
+                model: "gpt-5.4".to_string(),
+                name: "GPT-5.4".to_string(),
+                category: ModelPickerCategory::Available,
+                usage_count: 0,
+                last_used_at: None,
+                is_current: false,
+                is_default: false,
+            }];
+            state.open_model_picker("codex");
+
+            let output = reduce(&mut state, ShellAction::Ui(Action::SetSelectedDefaultModel));
+
+            assert!(output.actions.is_empty());
+            assert_eq!(state.status, "Setting default model...");
+            assert!(matches!(
+                output.effects.as_slice(),
+                [ShellEffect::ExecuteSlashCommand(SlashCommand::SetDefaultModel { model })]
+                    if model == "gpt-5.4"
+            ));
         }
 
         #[test]
@@ -7325,7 +7469,10 @@ mod shell {
 
         let mut lines = vec![Line::from(vec![
             Span::styled(format!("{provider} models"), tool_title_style()),
-            Span::styled("  Up/Down select, Enter switch, Esc close", muted_style()),
+            Span::styled(
+                "  Up/Down select, Enter switch, Shift+Enter default, Esc close",
+                muted_style(),
+            ),
         ])];
         if state.model_items.is_empty() {
             lines.push(styled_line("  No available models.", muted_style()));
@@ -7360,6 +7507,7 @@ mod shell {
                 Style::default().add_modifier(Modifier::BOLD)
             };
             let current = if item.is_current { " · current" } else { "" };
+            let default = if item.is_default { " · default" } else { "" };
             let usage = if item.usage_count > 0 {
                 format!(" · used {}", item.usage_count)
             } else {
@@ -7375,7 +7523,7 @@ mod shell {
                     },
                 ),
                 Span::styled(format!("{} · {}", item.provider, item.name), title_style),
-                Span::styled(format!("{current}{usage}"), muted_style()),
+                Span::styled(format!("{current}{default}{usage}"), muted_style()),
             ]);
             lines.extend(wrap_styled_line(title, width));
             let model_line = Line::from(vec![
@@ -10162,6 +10310,7 @@ mod shell {
                     usage_count: 2,
                     last_used_at: Some(10),
                     is_current: true,
+                    is_default: true,
                 },
                 ModelPickerItem {
                     provider: "openai".to_string(),
@@ -10171,6 +10320,7 @@ mod shell {
                     usage_count: 0,
                     last_used_at: None,
                     is_current: false,
+                    is_default: false,
                 },
             ];
             state.open_model_picker("codex");
@@ -10181,6 +10331,7 @@ mod shell {
             assert!(text.contains("Recently used"));
             assert!(text.contains("codex · GPT-5.4"));
             assert!(text.contains("current"));
+            assert!(text.contains("default"));
             assert!(text.contains("model: gpt-5.4"));
         }
 
@@ -10196,6 +10347,7 @@ mod shell {
                     usage_count: 0,
                     last_used_at: None,
                     is_current: false,
+                    is_default: false,
                 })
                 .collect();
             state.open_model_picker("codex");
@@ -10766,6 +10918,7 @@ mod slash_command {
         ListModelsForProvider { provider: String },
         ListRuns,
         SwitchModel { model: String },
+        SetDefaultModel { model: String },
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10809,7 +10962,7 @@ mod slash_command {
         SlashCommandSpec {
             command: "/model",
             args: "",
-            description: "Switch the current session model",
+            description: "Switch model or set the default model",
         },
         SlashCommandSpec {
             command: "/runs",
@@ -10834,6 +10987,7 @@ Slash commands:\n\
 /resume\n\
 /skill\n\
 /model\n\
+/model default <model>\n\
 	/runs";
 
     pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
@@ -10857,6 +11011,19 @@ Slash commands:\n\
                 let first = parts.next().unwrap_or_default();
                 if first.is_empty() {
                     return Ok(SlashCommand::ListModels);
+                }
+                if matches!(first, "default" | "global") {
+                    let second = parts.next().unwrap_or_default();
+                    if second.is_empty() {
+                        bail!("Usage: /model default <model> or /model default <provider> <model>");
+                    }
+                    let third = parts.next().unwrap_or_default();
+                    let model = if third.is_empty() {
+                        second.to_string()
+                    } else {
+                        format!("{second}:{third}")
+                    };
+                    return Ok(SlashCommand::SetDefaultModel { model });
                 }
                 let second = parts.next().unwrap_or_default();
                 if second.is_empty() {
@@ -10918,6 +11085,18 @@ Slash commands:\n\
             assert_eq!(
                 parse_slash_command("/model codex gpt-5.4").expect("parse"),
                 SlashCommand::SwitchModel {
+                    model: "codex:gpt-5.4".to_string(),
+                }
+            );
+            assert_eq!(
+                parse_slash_command("/model default gpt-5.4").expect("parse"),
+                SlashCommand::SetDefaultModel {
+                    model: "gpt-5.4".to_string(),
+                }
+            );
+            assert_eq!(
+                parse_slash_command("/model global codex gpt-5.4").expect("parse"),
+                SlashCommand::SetDefaultModel {
                     model: "codex:gpt-5.4".to_string(),
                 }
             );
@@ -11039,7 +11218,7 @@ mod state {
     use super::activity::ActivityState;
     use super::composer::ComposerState;
     use super::transcript::{
-        MessageGroup, ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
+        ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
         message_from_session_event, message_from_stream_frame, messages_from_session,
         transcript_cells,
     };
@@ -11049,8 +11228,6 @@ mod state {
     pub enum WorkPickerItem {
         Run {
             run_id: String,
-            root_run_id: Option<String>,
-            parent_run_id: Option<String>,
             kind: RunKind,
             title: String,
             status: String,
@@ -11109,6 +11286,7 @@ mod state {
         pub usage_count: usize,
         pub last_used_at: Option<i64>,
         pub is_current: bool,
+        pub is_default: bool,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11935,32 +12113,6 @@ mod state {
             self.thread.runs.clear();
             self.activity.clear();
         }
-
-        #[allow(dead_code)]
-        pub fn work_summary_notice(&self) -> Option<TranscriptCell> {
-            self.active_turn.as_ref()?;
-            let items = self.work_picker_items();
-            if items.is_empty() {
-                return None;
-            }
-            let active_turn_run_id = self.current_stream_id.as_deref();
-            let active_items = items
-                .into_iter()
-                .filter(|item| is_active_turn_work_item(item, active_turn_run_id))
-                .take(5)
-                .collect::<Vec<_>>();
-            if active_items.is_empty() {
-                return None;
-            }
-            Some(TranscriptCell {
-                kind: TranscriptCellKind::Notice,
-                title: "Activity".to_string(),
-                subtitle: Some("running".to_string()),
-                body: active_work_notice_text(&active_items),
-                group: MessageGroup::RuntimeNotice,
-                is_active: true,
-            })
-        }
     }
 
     pub fn build_work_picker_items(runs: &[RunSummary]) -> Vec<WorkPickerItem> {
@@ -11968,68 +12120,12 @@ mod state {
         items.extend(runs.iter().filter_map(|run| {
             run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
                 run_id: run_id.clone(),
-                root_run_id: run.root_run_id.clone(),
-                parent_run_id: run.parent_run_id.clone(),
                 kind: run.kind,
                 title: run.title.clone(),
                 status: run.status.clone(),
             })
         }));
         items
-    }
-
-    #[allow(dead_code)]
-    fn active_work_notice_text(items: &[WorkPickerItem]) -> String {
-        let mut lines = vec!["Current turn activity".to_string()];
-        for item in items {
-            match item {
-                WorkPickerItem::Run {
-                    run_id,
-                    root_run_id: _,
-                    parent_run_id: _,
-                    kind,
-                    title,
-                    status,
-                } => {
-                    let label = match kind {
-                        RunKind::WorkspaceRun => "workspace run",
-                        RunKind::SubagentRun => "team",
-                    };
-                    lines.push(format!("- {label} · {title} · {status} · {run_id}"));
-                }
-            }
-        }
-        lines.join("\n")
-    }
-
-    #[allow(dead_code)]
-    fn is_active_turn_work_item(item: &WorkPickerItem, active_turn_run_id: Option<&str>) -> bool {
-        match item {
-            WorkPickerItem::Run {
-                run_id,
-                root_run_id,
-                parent_run_id,
-                kind,
-                status,
-                ..
-            } => match kind {
-                RunKind::WorkspaceRun => false,
-                RunKind::SubagentRun => {
-                    matches_normalized_status(status, &["running"])
-                        && active_turn_run_id.is_some_and(|active_turn_run_id| {
-                            run_id == active_turn_run_id
-                                || root_run_id.as_deref() == Some(active_turn_run_id)
-                                || parent_run_id.as_deref() == Some(active_turn_run_id)
-                        })
-                }
-            },
-        }
-    }
-
-    #[allow(dead_code)]
-    fn matches_normalized_status(status: &str, values: &[&str]) -> bool {
-        let normalized = status.trim().to_ascii_lowercase();
-        values.iter().any(|value| normalized == *value)
     }
 
     pub fn work_run_kind_label(kind: RunKind) -> &'static str {

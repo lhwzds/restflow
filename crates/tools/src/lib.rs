@@ -956,7 +956,6 @@ pub mod impls {
         use crate::ToolAction;
         use crate::check_security;
         use crate::{Tool, ToolErrorCategory, ToolOutput};
-        use ::types::cache::{AgentCache, CachedSearchResult, SearchMatch as CachedSearchMatch};
         /// Maximum file size to read (1MB)
         const DEFAULT_MAX_READ_BYTES: usize = 1_000_000;
 
@@ -1157,14 +1156,26 @@ pub mod impls {
             max_read_bytes: usize,
             /// Track file reads/writes for external modification detection
             tracker: Arc<FileTracker>,
-            /// Optional cache manager for file/search operations
-            cache_manager: Option<Arc<dyn AgentCache>>,
             /// Optional security gate
             security_gate: Option<Arc<dyn SecurityGate>>,
             /// Agent identifier for security checks
             agent_id: Option<String>,
             /// Task identifier for security checks
             task_id: Option<String>,
+        }
+
+        #[derive(Debug, Clone)]
+        struct FileSearchResult {
+            matches: Vec<FileSearchMatch>,
+            total_files_searched: usize,
+            truncated: bool,
+        }
+
+        #[derive(Debug, Clone)]
+        struct FileSearchMatch {
+            file: String,
+            line: usize,
+            content: String,
         }
 
         impl Default for FileTool {
@@ -1185,7 +1196,6 @@ pub mod impls {
                     require_base_dir: false,
                     max_read_bytes: DEFAULT_MAX_READ_BYTES,
                     tracker,
-                    cache_manager: None,
                     security_gate: None,
                     agent_id: None,
                     task_id: None,
@@ -1210,11 +1220,6 @@ pub mod impls {
                 self
             }
 
-            /// Attach a cache manager for file and search operations
-            pub fn with_cache_manager(mut self, cache_manager: Arc<dyn AgentCache>) -> Self {
-                self.cache_manager = Some(cache_manager);
-                self
-            }
             pub fn with_security(
                 mut self,
                 security_gate: Arc<dyn SecurityGate>,
@@ -1276,21 +1281,12 @@ pub mod impls {
                     ));
                 }
 
-                if let Some(cache) = &self.cache_manager
-                    && let Some(content) = cache.get_file(&path, &metadata).await
-                {
-                    return Self::format_file_output(&path, &content, offset, limit);
-                }
-
                 let content = match fs::read_to_string(&path).await {
                     Ok(c) => c,
                     Err(e) => return ToolOutput::error(format!("Cannot read file: {}", e)),
                 };
 
                 self.tracker.record_read(&path);
-                if let Some(cache) = &self.cache_manager {
-                    cache.put_file(&path, content.clone(), &metadata).await;
-                }
 
                 Self::format_file_output(&path, &content, offset, limit)
             }
@@ -1325,7 +1321,7 @@ pub mod impls {
             fn format_search_output(
                 search_path: &str,
                 pattern: &str,
-                result: CachedSearchResult,
+                result: FileSearchResult,
             ) -> ToolOutput {
                 let matches: Vec<Value> = result
                     .matches
@@ -1405,17 +1401,6 @@ pub mod impls {
                 match result {
                     Ok(()) => {
                         self.tracker.record_write(&path);
-
-                        if let Some(cache) = &self.cache_manager {
-                            cache.invalidate_file(&path).await;
-                            let mut current = path.parent();
-                            while let Some(directory) = current {
-                                cache
-                                    .invalidate_search_dir(&directory.to_string_lossy())
-                                    .await;
-                                current = directory.parent();
-                            }
-                        }
 
                         ToolOutput::success(serde_json::json!({
                             "path": path.display().to_string(),
@@ -1600,19 +1585,13 @@ pub mod impls {
                 };
 
                 let search_path = path.display().to_string();
-                if let Some(cache) = &self.cache_manager
-                    && let Some(cached) =
-                        cache.get_search(pattern, &search_path, file_pattern).await
-                {
-                    return Self::format_search_output(&search_path, pattern, cached);
-                }
 
                 let regex = match Regex::new(pattern) {
                     Ok(r) => r,
                     Err(e) => return ToolOutput::error(format!("Invalid regex pattern: {}", e)),
                 };
 
-                let mut matches: Vec<CachedSearchMatch> = Vec::new();
+                let mut matches: Vec<FileSearchMatch> = Vec::new();
                 let mut truncated = false;
                 let mut total_files_searched = 0;
                 self.search_recursive(
@@ -1626,17 +1605,11 @@ pub mod impls {
                 )
                 .await;
 
-                let result = CachedSearchResult {
+                let result = FileSearchResult {
                     matches,
                     total_files_searched,
                     truncated,
                 };
-
-                if let Some(cache) = &self.cache_manager {
-                    cache
-                        .put_search(pattern, &search_path, file_pattern, result.clone())
-                        .await;
-                }
 
                 Self::format_search_output(&search_path, pattern, result)
             }
@@ -1648,7 +1621,7 @@ pub mod impls {
                 dir: &'a Path,
                 regex: &'a Regex,
                 file_pattern: Option<&'a str>,
-                matches: &'a mut Vec<CachedSearchMatch>,
+                matches: &'a mut Vec<FileSearchMatch>,
                 truncated: &'a mut bool,
                 total_files_searched: &'a mut usize,
                 base: &'a Path,
@@ -1749,7 +1722,7 @@ pub mod impls {
                 &self,
                 file: &Path,
                 regex: &Regex,
-                matches: &mut Vec<CachedSearchMatch>,
+                matches: &mut Vec<FileSearchMatch>,
                 truncated: &mut bool,
                 total_files_searched: &mut usize,
                 base: &Path,
@@ -1774,7 +1747,7 @@ pub mod impls {
                     }
 
                     if regex.is_match(line) {
-                        matches.push(CachedSearchMatch {
+                        matches.push(FileSearchMatch {
                             file: relative_path.clone(),
                             line: line_num + 1,
                             content: line.chars().take(200).collect::<String>(),
@@ -3929,7 +3902,7 @@ pub mod impls {
         // Provides old_string/new_string replacement with 3-level fallback matching.
 
         use std::fmt;
-        use std::path::{Path, PathBuf};
+        use std::path::PathBuf;
         use std::sync::Arc;
 
         use async_trait::async_trait;
@@ -3938,7 +3911,6 @@ pub mod impls {
 
         use super::file_tracker::FileTracker;
         use crate::{Result, Tool, ToolOutput};
-        use types::cache::AgentCache;
 
         // ── Error types ─────────────────────────────────────────────────────
 
@@ -4227,7 +4199,6 @@ pub mod impls {
             base_dir: Option<PathBuf>,
             require_base_dir: bool,
             tracker: Arc<FileTracker>,
-            cache_manager: Option<Arc<dyn AgentCache>>,
         }
 
         impl EditTool {
@@ -4236,7 +4207,6 @@ pub mod impls {
                     base_dir: None,
                     require_base_dir: false,
                     tracker,
-                    cache_manager: None,
                 }
             }
 
@@ -4250,31 +4220,12 @@ pub mod impls {
                 self
             }
 
-            pub fn with_cache_manager(mut self, cache: Arc<dyn AgentCache>) -> Self {
-                self.cache_manager = Some(cache);
-                self
-            }
-
             fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
                 super::path_utils::resolve_path_with_policy(
                     path,
                     self.base_dir.as_deref(),
                     self.require_base_dir,
                 )
-            }
-
-            /// Invalidate caches for the given path and its parent directories.
-            async fn invalidate_caches(&self, path: &Path) {
-                if let Some(cache) = &self.cache_manager {
-                    cache.invalidate_file(path).await;
-                    let mut current = path.parent();
-                    while let Some(directory) = current {
-                        cache
-                            .invalidate_search_dir(&directory.to_string_lossy())
-                            .await;
-                        current = directory.parent();
-                    }
-                }
             }
         }
 
@@ -4399,7 +4350,6 @@ pub mod impls {
                 }
 
                 self.tracker.record_write(&path);
-                self.invalidate_caches(&path).await;
 
                 // Build output message
                 let msg = format!(
@@ -4566,7 +4516,7 @@ pub mod impls {
         //
         // All edits succeed or the file is not modified.
 
-        use std::path::{Path, PathBuf};
+        use std::path::PathBuf;
         use std::sync::Arc;
 
         use async_trait::async_trait;
@@ -4576,14 +4526,12 @@ pub mod impls {
         use super::edit::{EditError, count_changed_lines, replace};
         use super::file_tracker::FileTracker;
         use crate::{Result, Tool, ToolOutput};
-        use types::cache::AgentCache;
 
         #[derive(Clone)]
         pub struct MultiEditTool {
             base_dir: Option<PathBuf>,
             require_base_dir: bool,
             tracker: Arc<FileTracker>,
-            cache_manager: Option<Arc<dyn AgentCache>>,
         }
 
         impl MultiEditTool {
@@ -4592,7 +4540,6 @@ pub mod impls {
                     base_dir: None,
                     require_base_dir: false,
                     tracker,
-                    cache_manager: None,
                 }
             }
 
@@ -4606,30 +4553,12 @@ pub mod impls {
                 self
             }
 
-            pub fn with_cache_manager(mut self, cache: Arc<dyn AgentCache>) -> Self {
-                self.cache_manager = Some(cache);
-                self
-            }
-
             fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
                 super::path_utils::resolve_path_with_policy(
                     path,
                     self.base_dir.as_deref(),
                     self.require_base_dir,
                 )
-            }
-
-            async fn invalidate_caches(&self, path: &Path) {
-                if let Some(cache) = &self.cache_manager {
-                    cache.invalidate_file(path).await;
-                    let mut current = path.parent();
-                    while let Some(directory) = current {
-                        cache
-                            .invalidate_search_dir(&directory.to_string_lossy())
-                            .await;
-                        current = directory.parent();
-                    }
-                }
             }
         }
 
@@ -4793,7 +4722,6 @@ pub mod impls {
                 }
 
                 self.tracker.record_write(&path);
-                self.invalidate_caches(&path).await;
 
                 let msg = format!(
                     "{} edits applied to {} ({} lines changed)",
@@ -11477,7 +11405,6 @@ pub mod impls {
         use crate::impls::file_tracker::FileTracker;
         use crate::impls::glob_tool::GlobTool;
         use crate::impls::grep_tool::GrepTool;
-        use crate::impls::list_subagents::ListSubagentsTool;
         use crate::impls::load_skill::LoadSkillTool;
         use crate::impls::manage_ops::ManageOpsTool;
         use crate::impls::multiedit::MultiEditTool;
@@ -11500,8 +11427,6 @@ pub mod impls {
             pub working_dir: Option<String>,
             /// Command timeout in seconds.
             pub timeout_secs: u64,
-            /// Blocked commands (security).
-            pub blocked_commands: Vec<String>,
             /// Whether to allow sudo.
             pub allow_sudo: bool,
             /// Maximum total bytes for stdout/stderr output payload.
@@ -11514,7 +11439,6 @@ pub mod impls {
                 Self {
                     working_dir: None,
                     timeout_secs: 300,
-                    blocked_commands: security.blocked_commands,
                     allow_sudo: security.allow_sudo,
                     max_output_bytes: 1_000_000,
                 }
@@ -11705,23 +11629,12 @@ pub mod impls {
                 self
             }
 
-            pub fn with_multiedit(mut self) -> Self {
-                let tool = MultiEditTool::with_tracker(self.tracker.clone());
-                self.registry.register(tool);
-                self
-            }
-
             pub fn with_multiedit_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
                 let mut tool = MultiEditTool::with_tracker(self.tracker.clone()).require_base_dir();
                 if let Some(base_dir) = base_dir {
                     tool = tool.with_base_dir(base_dir);
                 }
                 self.registry.register(tool);
-                self
-            }
-
-            pub fn with_glob(mut self) -> Self {
-                self.registry.register(GlobTool::new());
                 self
             }
 
@@ -11734,24 +11647,12 @@ pub mod impls {
                 self
             }
 
-            pub fn with_grep(mut self) -> Self {
-                self.registry.register(GrepTool::new());
-                self
-            }
-
             pub fn with_grep_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
                 let mut tool = GrepTool::new().require_base_dir();
                 if let Some(base_dir) = base_dir {
                     tool = tool.with_base_dir(base_dir);
                 }
                 self.registry.register(tool);
-                self
-            }
-
-            /// Register the batch tool. This requires an `Arc<ToolRegistry>` containing
-            /// the tools the batch tool can invoke.
-            pub fn with_batch(mut self, tools: Arc<ToolRegistry>) -> Self {
-                self.registry.register(BatchTool::new(tools));
                 self
             }
 
@@ -11762,11 +11663,6 @@ pub mod impls {
 
             pub fn with_wait_subagents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
                 self.registry.register(WaitSubagentsTool::new(manager));
-                self
-            }
-
-            pub fn with_list_subagents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-                self.registry.register(ListSubagentsTool::new(manager));
                 self
             }
 
@@ -14458,28 +14354,12 @@ pub use types::skill::{SkillContent, SkillInfo, SkillProvider};
 /// Bash command security configuration.
 #[derive(Debug, Clone)]
 pub struct BashSecurityConfig {
-    pub blocked_commands: Vec<String>,
     pub allow_sudo: bool,
 }
 
 impl Default for BashSecurityConfig {
     fn default() -> Self {
-        Self {
-            blocked_commands: vec![
-                "rm -rf /".to_string(),
-                "mkfs".to_string(),
-                "dd if=/dev".to_string(),
-                ":(){ :|:& };:".to_string(),
-                "chmod -R 777 /".to_string(),
-                "chown -R".to_string(),
-                "> /dev/sda".to_string(),
-                "shutdown".to_string(),
-                "reboot".to_string(),
-                "init 0".to_string(),
-                "halt".to_string(),
-            ],
-            allow_sudo: false,
-        }
+        Self { allow_sudo: false }
     }
 }
 

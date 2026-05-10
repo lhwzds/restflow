@@ -611,79 +611,6 @@ pub mod agent {
     }
 }
 
-pub mod cache {
-    //! Caching abstractions for agent tools.
-    //!
-    //! Defines data types and the [`AgentCache`] trait for file content and
-    //! search result caching, decoupling tool implementations from the concrete
-    //! cache manager in `ai`.
-
-    /// Cached search results.
-    #[derive(Debug, Clone)]
-    pub struct CachedSearchResult {
-        pub matches: Vec<SearchMatch>,
-        pub total_files_searched: usize,
-        pub truncated: bool,
-    }
-
-    /// A single search match entry.
-    #[derive(Debug, Clone)]
-    pub struct SearchMatch {
-        pub file: String,
-        pub line: usize,
-        pub content: String,
-    }
-
-    /// Unified file content and search result cache.
-    ///
-    /// Abstracts `AgentCacheManager` (file cache + search cache) so that tool
-    /// implementations can use caching without depending on `ai`.
-    #[async_trait::async_trait]
-    pub trait AgentCache: Send + Sync {
-        // ── File content cache ───────────────────────────────────────────
-
-        /// Get cached file content if it matches the current metadata.
-        async fn get_file(
-            &self,
-            path: &std::path::Path,
-            metadata: &std::fs::Metadata,
-        ) -> Option<String>;
-
-        /// Store file content in the cache.
-        async fn put_file(
-            &self,
-            path: &std::path::Path,
-            content: String,
-            metadata: &std::fs::Metadata,
-        );
-
-        /// Invalidate cached content for a specific file.
-        async fn invalidate_file(&self, path: &std::path::Path);
-
-        // ── Search result cache ──────────────────────────────────────────
-
-        /// Get cached search results.
-        async fn get_search(
-            &self,
-            pattern: &str,
-            dir: &str,
-            file_pattern: Option<&str>,
-        ) -> Option<CachedSearchResult>;
-
-        /// Store search results in the cache.
-        async fn put_search(
-            &self,
-            pattern: &str,
-            dir: &str,
-            file_pattern: Option<&str>,
-            result: CachedSearchResult,
-        );
-
-        /// Invalidate all cached searches for a directory prefix.
-        async fn invalidate_search_dir(&self, dir: &str);
-    }
-}
-
 pub mod catalog {
     use std::collections::HashMap;
     use std::sync::OnceLock;
@@ -2252,21 +2179,6 @@ pub mod defaults {
 
     /// Default cache TTL (seconds) for marketplace registry results.
     pub const DEFAULT_MARKETPLACE_CACHE_TTL_SECS: u64 = 300;
-
-    /// Default file cache entry cap for agent session caches.
-    pub const DEFAULT_AGENT_CACHE_FILE_MAX_ENTRIES: usize = 100;
-
-    /// Default max file size cached for agent session caches.
-    pub const DEFAULT_AGENT_CACHE_FILE_MAX_BYTES: usize = 1_000_000;
-
-    /// Default permission cache TTL in seconds.
-    pub const DEFAULT_AGENT_CACHE_PERMISSION_TTL_SECS: u64 = 3_600;
-
-    /// Default search cache TTL in seconds.
-    pub const DEFAULT_AGENT_CACHE_SEARCH_TTL_SECS: u64 = 30;
-
-    /// Default search cache entry cap.
-    pub const DEFAULT_AGENT_CACHE_SEARCH_MAX_ENTRIES: usize = 50;
 }
 
 pub mod error {
@@ -9431,19 +9343,14 @@ pub use contracts::{
 // Shared default constants
 pub use defaults::{
     DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS, DEFAULT_AGENT_BASH_TIMEOUT_SECS,
-    DEFAULT_AGENT_BROWSER_TIMEOUT_SECS, DEFAULT_AGENT_CACHE_FILE_MAX_BYTES,
-    DEFAULT_AGENT_CACHE_FILE_MAX_ENTRIES, DEFAULT_AGENT_CACHE_PERMISSION_TTL_SECS,
-    DEFAULT_AGENT_CACHE_SEARCH_MAX_ENTRIES, DEFAULT_AGENT_CACHE_SEARCH_TTL_SECS,
-    DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
-    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS,
-    DEFAULT_AGENT_MAX_TOOL_CONCURRENCY, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
-    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
-    DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
-    DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
-    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
-    DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
-    DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES, MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_AGENT_BROWSER_TIMEOUT_SECS, DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
+    DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS, DEFAULT_AGENT_LLM_TIMEOUT_SECS,
+    DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS, DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
+    DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
+    DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TOOL_TIMEOUT_SECS,
+    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_CHAT_MAX_SESSION_HISTORY,
+    DEFAULT_GITHUB_CACHE_TTL_SECS, DEFAULT_MARKETPLACE_CACHE_TTL_SECS,
+    DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES, DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES,
+    MAX_API_WEB_SEARCH_RESULTS,
 };
-
-// Cache types
-pub use cache::{AgentCache, CachedSearchResult, SearchMatch};

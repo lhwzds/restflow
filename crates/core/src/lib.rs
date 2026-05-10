@@ -1363,18 +1363,6 @@ pub mod config {
             write_global_config_file(&current)?;
             Ok(())
         }
-
-        /// Get worker count
-        pub fn get_worker_count(&self) -> Result<usize> {
-            Ok(self.get_effective_config()?.worker_count)
-        }
-
-        /// Update worker count
-        pub fn set_worker_count(&self, count: usize) -> Result<()> {
-            let mut config = self.get_global_config()?;
-            config.worker_count = count.max(MIN_WORKER_COUNT);
-            self.update_config(config)
-        }
     }
 
     #[cfg(test)]
@@ -2519,13 +2507,6 @@ pub mod paths {
     /// Media directory: ~/.restflow/media/
     pub fn media_dir() -> Result<PathBuf> {
         let dir = ensure_restflow_dir()?.join(MEDIA_DIR);
-        std::fs::create_dir_all(&dir)?;
-        Ok(dir)
-    }
-
-    /// Session-scoped media directory: ~/.restflow/media/{session_id}/
-    pub fn session_media_dir(session_id: &str) -> Result<PathBuf> {
-        let dir = media_dir()?.join(session_id);
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
     }
@@ -6370,35 +6351,10 @@ pub mod services {
                 Self::new(storage.file_sessions.clone(), Some(storage.agents.clone()))
             }
 
-            #[cfg(test)]
-            pub fn with_file_sessions(mut self, file_sessions: FileSessionStore) -> Self {
-                self.file_sessions = file_sessions;
-                self
-            }
-
             pub fn get_session_view(&self, session_id: &str) -> Result<Option<ChatSession>> {
                 let Some(session) = self
                     .file_sessions
                     .get(session_id)?
-                    .map(|session| session.to_chat_session())
-                else {
-                    return Ok(None);
-                };
-                Ok(Some(session))
-            }
-
-            pub fn get_session_view_by_turn_id(
-                &self,
-                turn_id: &str,
-            ) -> Result<Option<ChatSession>> {
-                let turn_id = turn_id.trim();
-                if turn_id.is_empty() {
-                    return Ok(None);
-                }
-
-                let Some(session) = self
-                    .file_sessions
-                    .get_by_turn_id(turn_id)?
                     .map(|session| session.to_chat_session())
                 else {
                     return Ok(None);
@@ -6685,14 +6641,6 @@ pub mod services {
                     source: source.to_string(),
                 });
                 Ok(())
-            }
-
-            pub fn create_external_session(&self, session: ChatSession) -> Result<ChatSession> {
-                self.persist_session_view(&session, "create_external")?;
-                publish_session_event(ChatSessionEvent::Created {
-                    session_id: session.id.clone(),
-                });
-                Ok(session)
             }
 
             pub fn save_session_metadata(&self, session: &ChatSession) -> Result<()> {
@@ -7566,11 +7514,6 @@ pub mod services {
                 .map_err(|error| anyhow!("skrun skill catalog unavailable: {error}"))
         }
 
-        /// Check if a skill exists.
-        pub async fn skill_exists(_core: &Arc<AppCore>, id: &str) -> Result<bool> {
-            skill_exists_in_catalog(id)
-        }
-
         /// Get full content for a skill reference by skill_id and ref_id.
         pub async fn get_skill_reference(
             core: &Arc<AppCore>,
@@ -8237,7 +8180,6 @@ pub mod session_log {
     use chrono::{DateTime, Datelike, TimeZone, Utc};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
-    use sha2::{Digest, Sha256};
     use std::collections::{HashMap, HashSet};
     use std::fs::{self, File, OpenOptions};
     use std::io::{BufRead, BufReader, Write};
@@ -8862,10 +8804,6 @@ pub mod session_log {
             crate::paths::sessions_dir()
         }
 
-        pub fn open_default() -> Result<Self> {
-            Self::new(Self::default_root()?)
-        }
-
         pub fn new(root: PathBuf) -> Result<Self> {
             Ok(Self { root })
         }
@@ -9308,21 +9246,6 @@ pub mod session_log {
         } else {
             title
         }
-    }
-
-    pub fn stable_session_id(events: &[SessionLogEvent]) -> String {
-        let mut hasher = Sha256::new();
-        for event in events {
-            if matches!(event, SessionLogEvent::SessionMeta { .. }) {
-                continue;
-            }
-            if let Ok(bytes) = serde_json::to_vec(event) {
-                hasher.update(bytes);
-                hasher.update(b"\n");
-            }
-        }
-        let digest = hasher.finalize();
-        hex::encode(digest)[..32].to_string()
     }
 
     pub fn now_iso() -> String {

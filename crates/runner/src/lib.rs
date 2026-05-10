@@ -4891,25 +4891,6 @@ mod runtime {
                 }
             }
 
-            pub fn success_with_compaction(
-                output: String,
-                messages: Vec<Message>,
-                compaction: CompactionMetrics,
-            ) -> Self {
-                let message_count = messages.len();
-                Self {
-                    output,
-                    messages,
-                    success: true,
-                    metrics: ExecutionMetrics {
-                        message_count,
-                        compaction: Some(compaction),
-                        ..ExecutionMetrics::default()
-                    },
-                    failure: None,
-                }
-            }
-
             pub fn failure(
                 message: impl Into<String>,
                 classification: ExecutionErrorClassification,
@@ -4927,11 +4908,6 @@ mod runtime {
                         cause,
                     }),
                 }
-            }
-
-            pub fn with_metrics(mut self, metrics: ExecutionMetrics) -> Self {
-                self.metrics = metrics;
-                self
             }
         }
 

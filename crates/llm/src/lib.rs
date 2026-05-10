@@ -4972,21 +4972,6 @@ mod failover {
     }
 
     impl FailoverConfig {
-        pub fn with_primary(primary: ModelId) -> Self {
-            let fallbacks = if primary.is_cli_model() {
-                vec![]
-            } else if primary == ModelId::ClaudeOpus4_6 {
-                vec![ModelId::ClaudeSonnet4_5]
-            } else {
-                Self::default().fallbacks
-            };
-            Self {
-                primary,
-                fallbacks,
-                ..Default::default()
-            }
-        }
-
         pub fn with_fallbacks(primary: ModelId, fallbacks: Vec<ModelId>) -> Self {
             Self {
                 primary,
@@ -5100,10 +5085,6 @@ mod failover {
             }
         }
 
-        pub fn with_defaults() -> Self {
-            Self::new(FailoverConfig::default())
-        }
-
         pub async fn get_available_model(&self) -> Option<ModelId> {
             let health = self.health.read().await;
             let now = chrono::Utc::now().timestamp_millis();
@@ -5126,16 +5107,6 @@ mod failover {
 
             warn!("All models are in cooldown or unavailable");
             None
-        }
-
-        pub async fn get_model_or_fallback(&self, preferred: ModelId) -> Option<ModelId> {
-            let health = self.health.read().await;
-            let now = chrono::Utc::now().timestamp_millis();
-            if self.is_model_available(&health, preferred, now) {
-                return Some(preferred);
-            }
-            drop(health);
-            self.get_available_model().await
         }
 
         fn is_model_available(
@@ -5186,15 +5157,6 @@ mod failover {
             }
         }
 
-        pub async fn clear_cooldown(&self, model: ModelId) {
-            let mut health = self.health.write().await;
-            if let Some(entry) = health.get_mut(&model) {
-                entry.cooldown_until = None;
-                entry.consecutive_failures = 0;
-                info!("Manually cleared cooldown for model {:?}", model);
-            }
-        }
-
         pub async fn force_cooldown(&self, model: ModelId) {
             let mut health = self.health.write().await;
             let now = chrono::Utc::now().timestamp_millis();
@@ -5204,16 +5166,6 @@ mod failover {
                 "Manually placed model {:?} in cooldown for {}s",
                 model, self.config.cooldown_secs
             );
-        }
-
-        pub async fn get_all_status(&self) -> Vec<ModelStatus> {
-            let health = self.health.read().await;
-            let now = chrono::Utc::now().timestamp_millis();
-            self.config
-                .all_models()
-                .into_iter()
-                .map(|model| self.model_status(&health, model, now))
-                .collect()
         }
 
         pub async fn get_status(&self, model: ModelId) -> ModelStatus {
@@ -5257,20 +5209,6 @@ mod failover {
 
         pub fn config(&self) -> &FailoverConfig {
             &self.config
-        }
-
-        pub async fn any_available(&self) -> bool {
-            self.get_available_model().await.is_some()
-        }
-
-        pub async fn available_count(&self) -> usize {
-            let health = self.health.read().await;
-            let now = chrono::Utc::now().timestamp_millis();
-            self.config
-                .all_models()
-                .iter()
-                .filter(|&&model| self.is_model_available(&health, model, now))
-                .count()
         }
     }
 
