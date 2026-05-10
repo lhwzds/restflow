@@ -3,24 +3,24 @@
 //! Ownership rule:
 //! - `runtime::runtime::agent` exposes tool assembly and prompt helpers.
 //! - AI-owned subagent runtime types stay in `ai` / `types`.
-//! - Do not re-export `SubagentManagerImpl`, `SubagentDeps`, `SubagentSpawner`,
-//!   or related runtime state from this module.
+//! - Do not re-export `SubagentManagerImpl`, `SubagentDeps`, or related runtime
+//!   state from this module.
 
 pub mod tools;
 
 use std::sync::Arc;
 use tracing::warn;
 
-use crate::models::AgentNode;
 use crate::storage::Storage;
 use ai::agent::DEFAULT_AGENT_PROMPT;
+use types::AgentNode;
 
 const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../prompts/agents/default.md");
 
 pub use tools::{
     BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool,
-    SkillActivationPolicy, SpawnSubagentTool, SpawnTool, Tool, ToolRegistry, ToolRegistryBuilder,
-    ToolResult, WaitSubagentsTool, default_registry, effective_main_agent_tool_names,
+    SkillActivationPolicy, SpawnSubagentTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult,
+    WaitSubagentsTool, default_registry, effective_main_agent_tool_names,
     effective_tool_allowlist_for_turn, main_agent_default_tool_names, registry_from_allowlist,
     secret_resolver_from_storage,
 };

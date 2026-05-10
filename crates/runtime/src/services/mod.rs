@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod agent;
+pub mod agent_catalog;
 pub mod cleanup;
 pub mod config;
 pub mod execution_console;
@@ -10,5 +11,4 @@ pub mod session_policy;
 pub mod skill_mentions;
 pub mod skill_triggers;
 pub mod skills;
-pub mod task_conversion;
 pub mod tool_registry;

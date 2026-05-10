@@ -1,6 +1,6 @@
 use super::*;
-use crate::models::{ChatSessionSource, ChatTurnStatus};
 use types::request::ChildRunListQuery;
+use types::{ChatSessionSource, ChatTurnStatus};
 
 fn assert_execution_thread_error(
     response: IpcResponse,
@@ -247,7 +247,7 @@ async fn record_turn_event_in_session_store_persists_tool_events() {
         &core,
         &session.id,
         "turn-1",
-        crate::models::ChatTurnEventKind::ToolCall {
+        types::ChatTurnEventKind::ToolCall {
             call_id: "call-1".to_string(),
             name: "bash".to_string(),
             arguments: "pwd".to_string(),
@@ -260,7 +260,7 @@ async fn record_turn_event_in_session_store_persists_tool_events() {
     assert_eq!(stored.turns[0].events.len(), 1);
     assert!(matches!(
         stored.turns[0].events[0].kind,
-        crate::models::ChatTurnEventKind::ToolCall { .. }
+        types::ChatTurnEventKind::ToolCall { .. }
     ));
 }
 
@@ -367,7 +367,7 @@ async fn search_sessions_applies_agent_filter_and_limit() {
 
     match response {
         IpcResponse::Success(value) => {
-            let sessions: Vec<crate::models::ChatSessionSummary> =
+            let sessions: Vec<types::ChatSessionSummary> =
                 serde_json::from_value(value).expect("session summaries");
             assert_eq!(sessions.len(), 2);
             assert!(sessions.iter().all(|session| session.agent_id == "agent-1"));

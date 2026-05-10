@@ -1,10 +1,10 @@
 //! SessionStore adapter backed by the canonical SessionService boundary.
 
+use crate::AgentStorage;
 use crate::services::session::SessionService;
 use crate::session_log::FileSessionStore;
-use crate::storage::AgentStorage;
+use crate::tools::ToolError;
 use serde_json::{Value, json};
-use tools::ToolError;
 use types::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
 
 #[derive(Clone)]
@@ -27,7 +27,7 @@ impl SessionStorageAdapter {
 }
 
 impl SessionStore for SessionStorageAdapter {
-    fn list_sessions(&self, filter: SessionListFilter) -> tools::Result<Value> {
+    fn list_sessions(&self, filter: SessionListFilter) -> crate::tools::Result<Value> {
         let include_archived = filter.include_archived.unwrap_or(false);
         let sessions = self.session_service().list_session_views(
             filter.agent_id.as_deref(),
@@ -40,13 +40,13 @@ impl SessionStore for SessionStorageAdapter {
         } else {
             let summaries = sessions
                 .iter()
-                .map(crate::models::ChatSessionSummary::from)
+                .map(types::ChatSessionSummary::from)
                 .collect::<Vec<_>>();
             Ok(serde_json::to_value(summaries)?)
         }
     }
 
-    fn get_session(&self, id: &str) -> tools::Result<Value> {
+    fn get_session(&self, id: &str) -> crate::tools::Result<Value> {
         let session = self
             .session_service()
             .get_session_view(id)?
@@ -54,7 +54,7 @@ impl SessionStore for SessionStorageAdapter {
         Ok(serde_json::to_value(session)?)
     }
 
-    fn create_session(&self, request: SessionCreateRequest) -> tools::Result<Value> {
+    fn create_session(&self, request: SessionCreateRequest) -> crate::tools::Result<Value> {
         let resolved_agent_id = self
             .agent_storage
             .resolve_existing_agent_id(&request.agent_id)?;
@@ -68,26 +68,26 @@ impl SessionStore for SessionStorageAdapter {
         Ok(serde_json::to_value(session)?)
     }
 
-    fn archive_session(&self, id: &str) -> tools::Result<Value> {
+    fn archive_session(&self, id: &str) -> crate::tools::Result<Value> {
         let archived = self.session_service().archive_workspace_session(id)?;
         Ok(json!({ "id": id, "archived": archived }))
     }
 
-    fn unarchive_session(&self, id: &str) -> tools::Result<Value> {
+    fn unarchive_session(&self, id: &str) -> crate::tools::Result<Value> {
         let unarchived = self.session_service().unarchive_workspace_session(id)?;
         Ok(json!({ "id": id, "unarchived": unarchived }))
     }
 
-    fn purge_session(&self, id: &str) -> tools::Result<Value> {
+    fn purge_session(&self, id: &str) -> crate::tools::Result<Value> {
         let purged = self.session_service().delete_workspace_session(id)?;
         Ok(json!({ "id": id, "purged": purged }))
     }
 
-    fn delete_session(&self, id: &str) -> tools::Result<Value> {
+    fn delete_session(&self, id: &str) -> crate::tools::Result<Value> {
         self.purge_session(id)
     }
 
-    fn search_sessions(&self, query: SessionSearchQuery) -> tools::Result<Value> {
+    fn search_sessions(&self, query: SessionSearchQuery) -> crate::tools::Result<Value> {
         let matched = self.session_service().search_session_views(
             &query.query,
             query.agent_id.as_deref(),
@@ -99,7 +99,7 @@ impl SessionStore for SessionStorageAdapter {
         Ok(serde_json::to_value(matched)?)
     }
 
-    fn cleanup_sessions(&self) -> tools::Result<Value> {
+    fn cleanup_sessions(&self) -> crate::tools::Result<Value> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let stats = self
             .session_service()
@@ -125,7 +125,7 @@ mod tests {
     }
 
     fn create_default_agent(adapter: &SessionStorageAdapter) -> String {
-        let agent = crate::models::AgentNode::default();
+        let agent = types::AgentNode::default();
         let created = adapter
             .agent_storage
             .create_agent("test-agent".to_string(), agent)

@@ -619,7 +619,7 @@ mod tests {
     use super::{
         latest_assistant_payload, latest_turn_assistant_matches, select_final_assistant_output,
     };
-    use crate::models::{ChatMessage, ChatSession};
+    use types::{ChatMessage, ChatSession};
 
     #[test]
     fn final_output_prefers_non_empty_execution_output() {

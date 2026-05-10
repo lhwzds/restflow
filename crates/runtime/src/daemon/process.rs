@@ -15,18 +15,12 @@ fn pid_to_unix_pid(pid: u32) -> Result<nix::unistd::Pid> {
     Ok(nix::unistd::Pid::from_raw(pid_i32))
 }
 
-#[derive(Debug, Clone)]
-pub struct DaemonConfig {
-    pub mcp: bool,
-    pub mcp_port: Option<u16>,
-}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonConfig;
 
 impl Default for DaemonConfig {
     fn default() -> Self {
-        Self {
-            mcp: true,
-            mcp_port: Some(8787),
-        }
+        Self
     }
 }
 
@@ -52,12 +46,7 @@ impl ProcessManager {
         let mut cmd = Command::new(exe);
         cmd.current_dir(daemon_working_dir()?);
         cmd.args(["daemon", "start", "--foreground"]);
-        // MCP server is enabled by default; only pass an explicit port override.
-        if config.mcp
-            && let Some(port) = config.mcp_port
-        {
-            cmd.args(["--mcp-port", &port.to_string()]);
-        }
+        let _ = config;
 
         std::fs::create_dir_all(&self.log_dir)?;
         let log_file = self.log_dir.join("daemon.log");

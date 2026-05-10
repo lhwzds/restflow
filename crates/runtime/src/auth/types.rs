@@ -8,8 +8,7 @@ use specta::Type;
 use uuid::Uuid;
 
 use super::resolver::CredentialResolver;
-use crate::Provider;
-use crate::models::provider_auth_providers;
+use crate::{Provider, provider_policy::provider_auth_providers};
 
 /// Secret key naming convention for auth profiles.
 pub fn secret_key(profile_id: &str, field: &str) -> String {

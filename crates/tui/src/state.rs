@@ -1,31 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
-use runtime::models::{
+use runtime::StoredAgent;
+use types::{
     ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus, ExecutionThread,
     ModelId, ModelMetadataDTO, Provider, RunKind, RunSummary, Skill, SkillSource,
 };
-use runtime::storage::agent::StoredAgent;
-use types::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
+use types::{ChatSessionEvent, StreamFrame};
 
-use super::activity::{ActivityState, BackgroundWorkStatus};
+use super::activity::ActivityState;
 use super::composer::ComposerState;
 use super::transcript::{
     MessageGroup, ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
-    message_from_session_event, message_from_stream_frame, message_from_task_event,
-    messages_from_session, transcript_cells,
+    message_from_session_event, message_from_stream_frame, messages_from_session, transcript_cells,
 };
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum WorkPickerItem {
-    BackgroundTask {
-        task_id: String,
-        title: String,
-        status: String,
-        next_run_at: Option<i64>,
-        latest_run_id: Option<String>,
-    },
     Run {
         run_id: String,
         root_run_id: Option<String>,
@@ -34,15 +26,6 @@ pub enum WorkPickerItem {
         title: String,
         status: String,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskPickerItem {
-    pub task_id: String,
-    pub name: String,
-    pub status: String,
-    pub next_run_at: Option<i64>,
-    pub latest_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,15 +170,13 @@ pub enum InputMode {
     #[default]
     Chat,
     Plan,
-    Task,
 }
 
 impl InputMode {
     pub fn next(self) -> Self {
         match self {
             Self::Chat => Self::Plan,
-            Self::Plan => Self::Task,
-            Self::Task => Self::Chat,
+            Self::Plan => Self::Chat,
         }
     }
 
@@ -203,7 +184,6 @@ impl InputMode {
         match self {
             Self::Chat => "Chat",
             Self::Plan => "Plan",
-            Self::Task => "Task",
         }
     }
 }
@@ -252,12 +232,6 @@ impl SessionThreadState {
         self.execution_thread = Some(thread);
         self.child_runs = child_runs;
     }
-
-    pub fn task_stream_id(&self) -> Option<&str> {
-        self.execution_thread
-            .as_ref()
-            .and_then(|thread| thread.focus.task_id.as_deref())
-    }
 }
 
 #[allow(dead_code)]
@@ -269,8 +243,6 @@ pub enum OverlayState {
     SkillManager { selected: usize },
     SkillMentionPicker { selected: usize },
     SkillDetail,
-    TaskPicker { selected: usize },
-    TaskActionPicker { task_id: String, selected: usize },
     ProviderPicker { selected: usize },
     ModelPicker { provider: String, selected: usize },
     RunPicker { selected: usize },
@@ -295,7 +267,6 @@ pub struct AppState {
     pub skills: Vec<SkillPickerItem>,
     pub skills_loaded: bool,
     pub selected_skill: Option<Skill>,
-    pub tasks: Vec<TaskPickerItem>,
     pub provider_items: Vec<ProviderPickerItem>,
     pub model_items: Vec<ModelPickerItem>,
     pub available_models: Vec<ModelMetadataDTO>,
@@ -306,8 +277,6 @@ pub struct AppState {
     pub runtime_cells: Vec<AnchoredRuntimeCell>,
     // Activity is a transient live panel for the current foreground turn.
     pub activity: ActivityState,
-    // Background work status is rendered outside the transcript message panel.
-    pub background_work: BackgroundWorkStatus,
     // Active turn is the latest live viewport. Stable history comes from session projection only.
     pub active_turn: Option<ActiveTurn>,
     active_turn_session_id: Option<String>,
@@ -341,7 +310,6 @@ impl AppState {
             skills: Vec::new(),
             skills_loaded: false,
             selected_skill: None,
-            tasks: Vec::new(),
             provider_items: Vec::new(),
             model_items: Vec::new(),
             available_models: Vec::new(),
@@ -349,7 +317,6 @@ impl AppState {
             conversation_cells: Vec::new(),
             runtime_cells: Vec::new(),
             activity: ActivityState::default(),
-            background_work: BackgroundWorkStatus::default(),
             active_turn: None,
             active_turn_session_id: None,
             active_progress_started_at_ms: None,
@@ -391,10 +358,6 @@ impl AppState {
         self.active_turn
             .as_ref()
             .is_some_and(|turn| turn.cells.iter().any(|cell| cell.tool_call_id().is_some()))
-    }
-
-    pub fn focused_task_stream_id(&self) -> Option<&str> {
-        self.thread.task_stream_id()
     }
 
     pub fn is_startup_mode(&self) -> bool {
@@ -494,7 +457,6 @@ impl AppState {
         self.pending_session = None;
         self.runtime_cells.clear();
         self.activity.clear();
-        self.background_work.clear();
         self.clear_active_response();
         self.reset_message_scroll();
         self.conversation_cells =
@@ -654,7 +616,6 @@ impl AppState {
         self.replace_session_projection(Vec::new());
         self.runtime_cells.clear();
         self.activity.clear();
-        self.background_work.clear();
         self.clear_active_response();
         self.reset_message_scroll();
         self.push_info(notice);
@@ -691,7 +652,6 @@ impl AppState {
         self.conversation_cells.clear();
         self.runtime_cells.clear();
         self.activity.clear();
-        self.background_work.clear();
         self.clear_active_response();
         self.reset_message_scroll();
         self.pending_session = pending_session;
@@ -747,17 +707,6 @@ impl AppState {
         self.overlay = Some(OverlayState::DaemonPicker { selected: 0 });
     }
 
-    pub fn open_task_picker(&mut self) {
-        self.overlay = Some(OverlayState::TaskPicker { selected: 0 });
-    }
-
-    pub fn open_task_action_picker(&mut self, task_id: impl Into<String>) {
-        self.overlay = Some(OverlayState::TaskActionPicker {
-            task_id: task_id.into(),
-            selected: 0,
-        });
-    }
-
     pub fn open_provider_picker(&mut self) {
         self.overlay = Some(OverlayState::ProviderPicker { selected: 0 });
     }
@@ -791,8 +740,6 @@ impl AppState {
             | Some(OverlayState::SessionPicker { selected })
             | Some(OverlayState::SkillManager { selected })
             | Some(OverlayState::SkillMentionPicker { selected })
-            | Some(OverlayState::TaskPicker { selected })
-            | Some(OverlayState::TaskActionPicker { selected, .. })
             | Some(OverlayState::ProviderPicker { selected })
             | Some(OverlayState::ModelPicker { selected, .. })
             | Some(OverlayState::RunPicker { selected }) => {
@@ -836,8 +783,6 @@ impl AppState {
             OverlayState::SkillManager { .. } => Some(self.skills.len()),
             OverlayState::SkillMentionPicker { .. } => Some(self.skill_mention_matches().len()),
             OverlayState::SkillDetail => None,
-            OverlayState::TaskPicker { .. } => Some(self.tasks.len()),
-            OverlayState::TaskActionPicker { .. } => Some(3),
             OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
             OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
             OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
@@ -962,30 +907,6 @@ impl AppState {
         }
     }
 
-    pub fn selected_task_id(&self) -> Option<&str> {
-        match self.overlay.as_ref() {
-            Some(OverlayState::TaskPicker { selected }) => {
-                self.tasks.get(*selected).map(|task| task.task_id.as_str())
-            }
-            _ => None,
-        }
-    }
-
-    pub fn selected_task_action(&self) -> Option<(String, &'static str)> {
-        match self.overlay.as_ref() {
-            Some(OverlayState::TaskActionPicker { task_id, selected }) => {
-                let action = match *selected {
-                    0 => "pause",
-                    1 => "resume",
-                    2 => "stop",
-                    _ => return None,
-                };
-                Some((task_id.clone(), action))
-            }
-            _ => None,
-        }
-    }
-
     pub fn selected_provider_item(&self) -> Option<ProviderPickerItem> {
         match self.overlay.as_ref() {
             Some(OverlayState::ProviderPicker { selected }) => {
@@ -1014,7 +935,7 @@ impl AppState {
     }
 
     pub fn work_picker_items(&self) -> Vec<WorkPickerItem> {
-        build_work_picker_items(&self.tasks, &self.thread.runs, &self.thread.child_runs)
+        build_work_picker_items(&self.thread.runs, &self.thread.child_runs)
     }
 
     pub fn run_picker_items(&self) -> Vec<WorkPickerItem> {
@@ -1038,7 +959,6 @@ impl AppState {
         self.thread.child_runs.clear();
         self.thread.execution_thread = None;
         self.activity.clear();
-        self.background_work.clear();
     }
 
     #[allow(dead_code)]
@@ -1048,11 +968,10 @@ impl AppState {
         if items.is_empty() {
             return None;
         }
-        let active_task_ids = self.active_turn_task_ids();
         let active_turn_run_id = self.current_stream_id.as_deref();
         let active_items = items
             .into_iter()
-            .filter(|item| is_active_turn_work_item(item, &active_task_ids, active_turn_run_id))
+            .filter(|item| is_active_turn_work_item(item, active_turn_run_id))
             .take(5)
             .collect::<Vec<_>>();
         if active_items.is_empty() {
@@ -1067,53 +986,13 @@ impl AppState {
             is_active: true,
         })
     }
-
-    fn active_turn_task_ids(&self) -> HashSet<String> {
-        let mut ids = HashSet::new();
-        let Some(active_turn) = self.active_turn.as_ref() else {
-            return ids;
-        };
-        for cell in active_turn.cells.iter().filter(|cell| {
-            cell.kind == TranscriptCellKind::Tool
-                && cell
-                    .title
-                    .strip_prefix("Tool · ")
-                    .is_some_and(|name| types::store::is_task_management_tool_name(name.trim()))
-        }) {
-            let input = extract_tool_json_payload(&cell.body, "Input:");
-            let output = extract_tool_json_payload(&cell.body, "Output:");
-            let operation = input
-                .as_ref()
-                .and_then(|value| value.get("operation"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            if !task_operation_targets_background_work(operation) {
-                continue;
-            }
-            if let Some(input) = input.as_ref() {
-                collect_task_ids(input, &mut ids);
-            }
-            if let Some(output) = output.as_ref() {
-                collect_task_ids(output, &mut ids);
-            }
-        }
-        ids
-    }
 }
 
 pub fn build_work_picker_items(
-    tasks: &[TaskPickerItem],
     runs: &[RunSummary],
     child_runs: &[RunSummary],
 ) -> Vec<WorkPickerItem> {
     let mut items = Vec::new();
-    items.extend(tasks.iter().map(|task| WorkPickerItem::BackgroundTask {
-        task_id: task.task_id.clone(),
-        title: task.name.clone(),
-        status: task.status.clone(),
-        next_run_at: task.next_run_at,
-        latest_run_id: task.latest_run_id.clone(),
-    }));
     items.extend(runs.iter().filter_map(|run| {
         run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
             run_id: run_id.clone(),
@@ -1142,19 +1021,6 @@ fn active_work_notice_text(items: &[WorkPickerItem]) -> String {
     let mut lines = vec!["Current turn activity".to_string()];
     for item in items {
         match item {
-            WorkPickerItem::BackgroundTask {
-                task_id,
-                title,
-                status,
-                latest_run_id,
-                ..
-            } => lines.push(format!(
-                "- background task · {title} · {status} · {task_id}{}",
-                latest_run_id
-                    .as_ref()
-                    .map(|run_id| format!(" · run {run_id}"))
-                    .unwrap_or_default()
-            )),
             WorkPickerItem::Run {
                 run_id,
                 root_run_id: _,
@@ -1176,24 +1042,8 @@ fn active_work_notice_text(items: &[WorkPickerItem]) -> String {
 }
 
 #[allow(dead_code)]
-fn is_active_turn_work_item(
-    item: &WorkPickerItem,
-    active_task_ids: &HashSet<String>,
-    active_turn_run_id: Option<&str>,
-) -> bool {
+fn is_active_turn_work_item(item: &WorkPickerItem, active_turn_run_id: Option<&str>) -> bool {
     match item {
-        WorkPickerItem::BackgroundTask {
-            task_id,
-            status,
-            latest_run_id,
-            ..
-        } => {
-            matches_normalized_status(status, &["active", "running"])
-                && (active_task_ids.contains(task_id)
-                    || latest_run_id
-                        .as_deref()
-                        .is_some_and(|run_id| Some(run_id) == active_turn_run_id))
-        }
         WorkPickerItem::Run {
             run_id,
             root_run_id,
@@ -1212,65 +1062,6 @@ fn is_active_turn_work_item(
                     })
             }
         },
-    }
-}
-
-fn extract_tool_json_payload(body: &str, label: &str) -> Option<serde_json::Value> {
-    let start = body.strip_prefix(label).map(|_| label.len()).or_else(|| {
-        body.find(&format!("\n{label}"))
-            .map(|index| index + 1 + label.len())
-    })?;
-    let tail = &body[start..];
-    let end = ["\nInput:", "\nOutput:", "\nError:"]
-        .iter()
-        .filter_map(|marker| tail.find(marker))
-        .min()
-        .unwrap_or(tail.len());
-    let payload = tail[..end].trim();
-    serde_json::from_str(payload).ok()
-}
-
-fn task_operation_targets_background_work(operation: &str) -> bool {
-    matches!(
-        operation,
-        "create"
-            | "convert_session"
-            | "promote_to_background"
-            | "update"
-            | "delete"
-            | "run_batch"
-            | "control"
-            | "send_message"
-            | "pause"
-            | "start"
-            | "resume"
-            | "stop"
-            | "run"
-    )
-}
-
-fn collect_task_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
-    match value {
-        serde_json::Value::Object(object) => {
-            for key in ["id", "task_id"] {
-                if let Some(id) = object.get(key).and_then(serde_json::Value::as_str)
-                    && !id.trim().is_empty()
-                {
-                    ids.insert(id.trim().to_string());
-                }
-            }
-            for key in ["result", "task", "tasks"] {
-                if let Some(value) = object.get(key) {
-                    collect_task_ids(value, ids);
-                }
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for item in items {
-                collect_task_ids(item, ids);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -1581,7 +1372,6 @@ impl AppState {
     pub fn push_local_user_message(&mut self, content: String) {
         self.reset_message_scroll();
         self.last_error_notice = None;
-        self.background_work.clear_terminal_entries();
         self.flush_active_turn_to_runtime();
         let cell = cell_from_message(
             &ShellMessage::UserMessage { content },
@@ -1722,43 +1512,6 @@ impl AppState {
     pub fn apply_session_event(&mut self, event: ChatSessionEvent) {
         if let Some(message) = message_from_session_event(&event) {
             self.push_message(message);
-        }
-    }
-
-    pub fn apply_task_event(&mut self, event: TaskStreamEvent) {
-        let message = message_from_task_event(&event);
-        let is_terminal = matches!(
-            event.kind,
-            StreamEventKind::Completed { .. }
-                | StreamEventKind::Failed { .. }
-                | StreamEventKind::Interrupted { .. }
-        );
-        if is_terminal {
-            self.background_work.record_task_event(
-                &event,
-                match &message {
-                    ShellMessage::TaskNotice { content } => content.clone(),
-                    _ => String::new(),
-                },
-            );
-            if let ShellMessage::TaskNotice { content } = message {
-                self.push_message(ShellMessage::TaskNotice {
-                    content: content.clone(),
-                });
-                self.status = content;
-            }
-            return;
-        }
-        if self.active_turn.is_none() && !self.is_streaming {
-            if let ShellMessage::TaskNotice { content } = message {
-                self.background_work
-                    .record_task_event(&event, content.clone());
-                self.status = content;
-            }
-            return;
-        }
-        if let ShellMessage::TaskNotice { content } = message {
-            self.background_work.record_task_event(&event, content);
         }
     }
 
@@ -1979,7 +1732,7 @@ fn append_active_text(body: &mut String, text: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, OverlayState, TaskPickerItem};
+    use super::{AppState, OverlayState};
     use crate::transcript::TranscriptCellKind;
     use types::{ChatSessionEvent, StreamFrame};
 
@@ -2325,8 +2078,7 @@ mod tests {
     #[test]
     fn canceled_session_refresh_deduplicates_persisted_tool_call() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.begin_stream("turn-1".to_string());
         state.push_local_user_message("run tool".to_string());
@@ -2341,7 +2093,7 @@ mod tests {
         session.record_turn_user_message("turn-1", "run tool");
         session.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-1".to_string(),
                 name: "bash".to_string(),
                 arguments: "{\"cmd\":\"sleep 10\"}".to_string(),
@@ -2362,8 +2114,7 @@ mod tests {
     #[test]
     fn cancel_flush_deduplicates_tool_call_already_projected_from_session() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.begin_stream("turn-1".to_string());
         state.push_local_user_message("run tool".to_string());
@@ -2376,7 +2127,7 @@ mod tests {
         session.record_turn_user_message("turn-1", "run tool");
         session.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-1".to_string(),
                 name: "bash".to_string(),
                 arguments: "{\"cmd\":\"sleep 10\"}".to_string(),
@@ -2417,18 +2168,11 @@ mod tests {
     }
 
     #[test]
-    fn work_picker_includes_tasks_runs_and_child_runs() {
+    fn work_picker_includes_runs_and_child_runs() {
         let mut state = AppState::empty();
-        state.tasks.push(TaskPickerItem {
-            task_id: "task-1".to_string(),
-            name: "Daily digest".to_string(),
-            status: "Active".to_string(),
-            next_run_at: None,
-            latest_run_id: Some("run-task-1".to_string()),
-        });
-        state.thread.runs.push(runtime::models::RunSummary {
+        state.thread.runs.push(types::RunSummary {
             id: "run-local".to_string(),
-            kind: runtime::models::RunKind::WorkspaceRun,
+            kind: types::RunKind::WorkspaceRun,
             container_id: "session-1".to_string(),
             root_run_id: Some("run-local".to_string()),
             title: "Run One".to_string(),
@@ -2448,9 +2192,9 @@ mod tests {
             provider: None,
             event_count: 0,
         });
-        state.thread.child_runs.push(runtime::models::RunSummary {
+        state.thread.child_runs.push(types::RunSummary {
             id: "child-1".to_string(),
-            kind: runtime::models::RunKind::SubagentRun,
+            kind: types::RunKind::SubagentRun,
             container_id: "session-1".to_string(),
             root_run_id: Some("run-local".to_string()),
             title: "Subagent run".to_string(),
@@ -2472,78 +2216,33 @@ mod tests {
         });
 
         let items = state.work_picker_items();
-        assert_eq!(items.len(), 3);
+        assert_eq!(items.len(), 2);
         assert!(matches!(
             items[0],
-            super::WorkPickerItem::BackgroundTask { .. }
+            super::WorkPickerItem::Run {
+                kind: types::RunKind::WorkspaceRun,
+                ..
+            }
         ));
         assert!(matches!(
             items[1],
             super::WorkPickerItem::Run {
-                kind: runtime::models::RunKind::WorkspaceRun,
+                kind: types::RunKind::SubagentRun,
                 ..
             }
         ));
-        assert!(matches!(
-            items[2],
-            super::WorkPickerItem::Run {
-                kind: runtime::models::RunKind::SubagentRun,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn active_turn_task_ids_extracts_manage_task_result_ids() {
-        let mut state = AppState::empty();
-        state.push_local_user_message("create a task".to_string());
-        state.apply_stream_frame(StreamFrame::ToolCall {
-            id: "call-task".to_string(),
-            name: "manage_tasks".to_string(),
-            arguments: serde_json::json!({"operation":"create","name":"Created task"}),
-        });
-        state.apply_stream_frame(StreamFrame::ToolResult {
-            id: "call-task".to_string(),
-            success: true,
-            result: serde_json::json!({
-                "status": "executed",
-                "result": {
-                    "id": "task-1"
-                }
-            })
-            .to_string(),
-        });
-
-        let tool_body = &state.active_turn.as_ref().unwrap().cells[1].body;
-        assert_eq!(
-            super::extract_tool_json_payload(tool_body, "Input:")
-                .and_then(|value| value.get("operation").cloned()),
-            Some(serde_json::json!("create"))
-        );
-        assert_eq!(
-            super::extract_tool_json_payload(tool_body, "Output:")
-                .and_then(|value| value.get("result").cloned())
-                .and_then(|value| value.get("id").cloned()),
-            Some(serde_json::json!("task-1"))
-        );
-        assert!(state.active_turn_task_ids().contains("task-1"));
     }
 
     #[test]
     fn refresh_current_session_preserves_notice_messages() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(types::ChatMessage::user("hello"));
         state.set_current_session(session.clone());
         state.push_info("notice");
 
         let mut updated = session.clone();
-        updated
-            .messages
-            .push(runtime::models::ChatMessage::assistant("hi"));
+        updated.messages.push(types::ChatMessage::assistant("hi"));
         state.refresh_current_session(updated);
 
         assert_eq!(state.conversation_cells.len(), 2);
@@ -2554,7 +2253,7 @@ mod tests {
     #[test]
     fn refresh_current_session_keeps_active_turn_until_stream_finishes() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_local_user_message("hello".to_string());
 
@@ -2563,9 +2262,7 @@ mod tests {
         assert_eq!(state.active_turn.as_ref().unwrap().cells.len(), 1);
 
         let mut updated = session;
-        updated
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
+        updated.messages.push(types::ChatMessage::user("hello"));
         state.is_streaming = false;
         state.refresh_current_session(updated);
         assert!(state.active_turn.is_none());
@@ -2576,8 +2273,7 @@ mod tests {
     #[test]
     fn refresh_current_session_keeps_streaming_turn_when_user_is_only_persisted_event() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_local_user_message("hello".to_string());
         state.is_streaming = true;
@@ -2593,8 +2289,7 @@ mod tests {
     #[test]
     fn refresh_current_session_keeps_streaming_turn_when_tool_call_is_only_projected_event() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.begin_stream("turn-1".to_string());
         state.push_local_user_message("coordinate team".to_string());
@@ -2608,7 +2303,7 @@ mod tests {
         session.record_turn_user_message("turn-1", "coordinate team");
         session.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-team".to_string(),
                 name: "spawn_subagent_batch".to_string(),
                 arguments: "{}".to_string(),
@@ -2624,8 +2319,7 @@ mod tests {
     #[test]
     fn refresh_current_session_keeps_completed_live_turn_until_session_persists_answer() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_local_user_message("hello".to_string());
         state.apply_stream_frame(StreamFrame::Data {
@@ -2633,9 +2327,7 @@ mod tests {
         });
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
+        session.messages.push(types::ChatMessage::user("hello"));
         state.refresh_current_session(session);
 
         assert!(state.active_turn.is_some());
@@ -2650,8 +2342,7 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_turn_when_legacy_messages_project_answer() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_local_user_message("hello".to_string());
         state.apply_stream_frame(StreamFrame::Data {
@@ -2659,12 +2350,8 @@ mod tests {
         });
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
-        session
-            .messages
-            .push(runtime::models::ChatMessage::assistant("done"));
+        session.messages.push(types::ChatMessage::user("hello"));
+        session.messages.push(types::ChatMessage::assistant("done"));
         state.refresh_current_session(session);
 
         assert!(state.active_turn.is_none());
@@ -2679,8 +2366,7 @@ mod tests {
     fn refresh_current_session_projects_queued_update_as_user_message_when_turn_finishes() {
         let mut state = AppState::empty();
         let turn_id = "turn-1".to_string();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.begin_stream(turn_id.clone());
         state.push_local_user_message("hello".to_string());
@@ -2709,8 +2395,7 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_partial_when_session_projects_full_answer() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.begin_stream("stream-1".to_string());
         state.push_local_user_message("hello".to_string());
@@ -2718,12 +2403,8 @@ mod tests {
             content: "do".to_string(),
         });
 
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
-        session
-            .messages
-            .push(runtime::models::ChatMessage::assistant("done"));
+        session.messages.push(types::ChatMessage::user("hello"));
+        session.messages.push(types::ChatMessage::assistant("done"));
         state.refresh_current_session(session);
 
         assert!(state.active_turn.is_none());
@@ -2743,8 +2424,7 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_turn_when_current_stream_is_completed() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         let stream_id = "stream-1".to_string();
@@ -2770,8 +2450,7 @@ mod tests {
     #[test]
     fn active_refresh_session_id_survives_until_active_turn_reconciles() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         let session_id = session.id.clone();
         state.set_current_session(session.clone());
         state.push_local_user_message("hello".to_string());
@@ -2795,8 +2474,7 @@ mod tests {
     #[test]
     fn refresh_current_session_ignores_late_stream_frames_after_persisted_completion() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         let stream_id = "stream-1".to_string();
@@ -2826,15 +2504,14 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_turn_when_persisted_turn_matches_user_message() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         state.begin_stream("local-stream-id".to_string());
         state.push_local_user_message("create two tasks\n".to_string());
         state.apply_stream_frame(StreamFrame::ToolCall {
             id: "call-1".to_string(),
-            name: "manage_tasks".to_string(),
+            name: "bash".to_string(),
             arguments: serde_json::json!({}),
         });
         assert!(state.active_turn.is_some());
@@ -2842,15 +2519,15 @@ mod tests {
         session.record_turn_user_message("persisted-turn-id", "create two tasks\n");
         session.record_turn_event(
             "persisted-turn-id",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-1".to_string(),
-                name: "manage_tasks".to_string(),
+                name: "bash".to_string(),
                 arguments: "{}".to_string(),
             },
         );
         session.record_turn_event(
             "persisted-turn-id",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "call-1".to_string(),
                 success: true,
                 result: "ok".to_string(),
@@ -2880,8 +2557,7 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_turn_when_matching_completed_turn_is_not_last() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         state.begin_stream("local-stream-id".to_string());
@@ -2895,7 +2571,7 @@ mod tests {
         session.record_turn_user_message("persisted-turn-id", "coordinate team\n");
         session.record_turn_event(
             "persisted-turn-id",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-1".to_string(),
                 name: "spawn_subagent_batch".to_string(),
                 arguments: "{}".to_string(),
@@ -2903,7 +2579,7 @@ mod tests {
         );
         session.record_turn_event(
             "persisted-turn-id",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "call-1".to_string(),
                 success: true,
                 result: "child ok".to_string(),
@@ -2934,8 +2610,7 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_turn_when_persisted_tool_call_matches() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         state.begin_stream("local-stream-id".to_string());
@@ -2949,7 +2624,7 @@ mod tests {
         session.record_turn_user_message("persisted-turn-id", "persisted user text");
         session.record_turn_event(
             "persisted-turn-id",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-team".to_string(),
                 name: "spawn_subagent_batch".to_string(),
                 arguments: "{}".to_string(),
@@ -2957,7 +2632,7 @@ mod tests {
         );
         session.record_turn_event(
             "persisted-turn-id",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "call-team".to_string(),
                 success: true,
                 result: "child ok".to_string(),
@@ -2975,8 +2650,7 @@ mod tests {
     #[test]
     fn refresh_current_session_keeps_active_tool_turn_for_repeated_user_text() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         session.record_turn_user_message("old-turn", "repeat");
         session.complete_turn_with_assistant_message("old-turn", "old answer");
         state.set_current_session(session.clone());
@@ -2999,8 +2673,7 @@ mod tests {
     #[test]
     fn refresh_current_session_clears_active_turn_when_session_messages_have_answer() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         state.begin_stream("local-stream-id".to_string());
@@ -3009,8 +2682,8 @@ mod tests {
             content: "parent ok".to_string(),
         });
 
-        session.add_message(runtime::models::ChatMessage::user("coordinate team"));
-        session.add_message(runtime::models::ChatMessage::assistant("parent ok"));
+        session.add_message(types::ChatMessage::user("coordinate team"));
+        session.add_message(types::ChatMessage::assistant("parent ok"));
 
         state.refresh_current_session(session);
 
@@ -3022,7 +2695,7 @@ mod tests {
     #[test]
     fn pending_user_message_stays_before_local_assistant_finalize() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session);
         state.push_local_user_message("123".to_string());
         state.apply_stream_frame(StreamFrame::Ack {
@@ -3041,7 +2714,7 @@ mod tests {
     #[test]
     fn daemon_backed_stream_done_waits_for_session_refresh_before_stable_runtime() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session);
         state.push_local_user_message("hello".to_string());
         state.apply_stream_frame(StreamFrame::Ack {
@@ -3060,7 +2733,7 @@ mod tests {
     #[test]
     fn refresh_after_interrupted_stream_preserves_partial_turn_after_user() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_local_user_message("first".to_string());
         state.apply_stream_frame(StreamFrame::Ack {
@@ -3069,9 +2742,7 @@ mod tests {
         state.cancel_active_response();
 
         let mut updated = session;
-        updated
-            .messages
-            .push(runtime::models::ChatMessage::user("first"));
+        updated.messages.push(types::ChatMessage::user("first"));
         state.refresh_current_session(updated);
 
         let rendered = state.transcript_cells_for_render();
@@ -3086,7 +2757,7 @@ mod tests {
     #[test]
     fn next_submit_preserves_interrupted_turn_before_new_user() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session);
         state.push_local_user_message("first".to_string());
         state.apply_stream_frame(StreamFrame::Ack {
@@ -3108,7 +2779,7 @@ mod tests {
     #[test]
     fn failed_first_turn_stays_before_later_persisted_success() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
 
         state.push_local_user_message("first".to_string());
@@ -3121,12 +2792,8 @@ mod tests {
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
         let mut updated = session;
-        updated
-            .messages
-            .push(runtime::models::ChatMessage::user("second"));
-        updated
-            .messages
-            .push(runtime::models::ChatMessage::assistant("OK"));
+        updated.messages.push(types::ChatMessage::user("second"));
+        updated.messages.push(types::ChatMessage::assistant("OK"));
         state.refresh_current_session(updated);
 
         let rendered = state.transcript_cells_for_render();
@@ -3160,15 +2827,14 @@ mod tests {
     #[test]
     fn refresh_removes_runtime_error_when_session_persists_equivalent_error() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session.clone());
         state.push_error("Stream error 500: Preflight check failed:\n- missing secret");
 
         session.record_turn_user_message("turn-1", "hello");
         session.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::Error {
+            types::ChatTurnEventKind::Error {
                 message: "Preflight check failed:\n- missing secret".to_string(),
             },
         );
@@ -3189,7 +2855,7 @@ mod tests {
     #[test]
     fn refresh_removes_runtime_tool_cells_when_session_persists_turn_events() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session);
         state.push_local_user_message("hello".to_string());
         state.apply_stream_frame(StreamFrame::ToolCall {
@@ -3207,12 +2873,11 @@ mod tests {
         });
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        let mut persisted =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         persisted.record_turn_user_message("turn-1", "hello");
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-1".to_string(),
                 name: "bash".to_string(),
                 arguments: "{\"command\":\"pwd\"}".to_string(),
@@ -3220,7 +2885,7 @@ mod tests {
         );
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "call-1".to_string(),
                 success: true,
                 result: "/tmp".to_string(),
@@ -3245,7 +2910,7 @@ mod tests {
     #[test]
     fn refresh_removes_runtime_cells_when_persisted_turn_has_equivalent_live_content() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session);
         state.push_local_user_message("hello".to_string());
         state.apply_stream_frame(StreamFrame::ToolCall {
@@ -3263,12 +2928,11 @@ mod tests {
         });
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        let mut persisted =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         persisted.record_turn_user_message("turn-1", "hello");
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "call-1".to_string(),
                 name: "spawn_subagent_batch".to_string(),
                 arguments: "{\"specs\":[{\"task\":\"reply\"}]}".to_string(),
@@ -3276,7 +2940,7 @@ mod tests {
         );
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "call-1".to_string(),
                 success: true,
                 result: "{\"operation\":\"spawn\",\"status\":\"completed\"}".to_string(),
@@ -3308,7 +2972,7 @@ mod tests {
     #[test]
     fn refresh_keeps_persisted_team_activity_when_final_answer_matches() {
         let mut state = AppState::empty();
-        let session = runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         state.set_current_session(session);
         state.push_local_user_message("run one subagent".to_string());
         state.apply_stream_frame(StreamFrame::ToolCall {
@@ -3350,12 +3014,11 @@ mod tests {
             .to_string(),
         });
 
-        let mut persisted =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
         persisted.record_turn_user_message("turn-1", "run one subagent");
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "spawn-call".to_string(),
                 name: "spawn_subagent_batch".to_string(),
                 arguments: serde_json::json!({
@@ -3366,7 +3029,7 @@ mod tests {
         );
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "spawn-call".to_string(),
                 success: true,
                 result: serde_json::json!({
@@ -3379,7 +3042,7 @@ mod tests {
         );
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolCall {
+            types::ChatTurnEventKind::ToolCall {
                 call_id: "wait-call".to_string(),
                 name: "wait_subagents".to_string(),
                 arguments: serde_json::json!({
@@ -3391,7 +3054,7 @@ mod tests {
         );
         persisted.record_turn_event(
             "turn-1",
-            runtime::models::ChatTurnEventKind::ToolResult {
+            types::ChatTurnEventKind::ToolResult {
                 call_id: "wait-call".to_string(),
                 success: true,
                 result: serde_json::json!({
@@ -3433,11 +3096,8 @@ mod tests {
     #[test]
     fn clear_current_session_keeps_notices() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(types::ChatMessage::user("hello"));
         state.set_current_session(session);
         state.push_info("notice");
 
@@ -3464,11 +3124,8 @@ mod tests {
     fn set_current_session_resets_runtime_cells_for_new_session() {
         let mut state = AppState::empty();
         state.push_info("notice");
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(types::ChatMessage::user("hello"));
 
         state.set_current_session(session);
 
@@ -3480,11 +3137,8 @@ mod tests {
     #[test]
     fn refresh_current_session_preserves_runtime_cells_and_streaming_active_turn() {
         let mut state = AppState::empty();
-        let mut session =
-            runtime::models::ChatSession::new("agent-1".to_string(), "model".to_string());
-        session
-            .messages
-            .push(runtime::models::ChatMessage::user("hello"));
+        let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(types::ChatMessage::user("hello"));
         state.set_current_session(session.clone());
         state.push_info("notice");
         state.is_streaming = true;
@@ -3495,7 +3149,7 @@ mod tests {
         let mut updated = session.clone();
         updated
             .messages
-            .push(runtime::models::ChatMessage::assistant("reply"));
+            .push(types::ChatMessage::assistant("reply"));
         state.refresh_current_session(updated);
 
         assert_eq!(state.conversation_cells.len(), 2);

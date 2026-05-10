@@ -1,4 +1,4 @@
-use crate::models::MessageExecution;
+use types::MessageExecution;
 
 use super::voice_transcript::enrich_voice_message_with_transcript;
 

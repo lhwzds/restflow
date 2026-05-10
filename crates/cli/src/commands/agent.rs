@@ -6,7 +6,7 @@ use crate::cli::{AgentCommands, CodexExecutionModeArg};
 use crate::commands::utils::{format_timestamp, short_id};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use runtime::models::AgentNode;
+use types::AgentNode;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,

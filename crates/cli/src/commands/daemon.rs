@@ -1,12 +1,9 @@
 use crate::cli::DaemonCommands;
 use crate::commands::daemon_state::{self, EffectiveDaemonStatus, RunningSource};
-use crate::daemon::CliTaskRunner;
 use anyhow::{Context, Result};
 use runtime::AppCore;
 use runtime::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
 use runtime::paths;
-use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 #[cfg(not(unix))]
 use std::process::Command;
@@ -17,16 +14,12 @@ use tracing::{error, info, warn};
 #[cfg(unix)]
 use nix::libc;
 
-const MCP_BIND_ADDR_ENV: &str = "RESTFLOW_MCP_BIND_ADDR";
 const CLEANUP_INTERVAL_HOURS: u64 = 24;
 const DAEMON_STOP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_STOP_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
-pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
-    let config = DaemonConfig {
-        mcp: true,
-        mcp_port,
-    };
+pub async fn restart_background() -> Result<()> {
+    let config = DaemonConfig::default();
 
     let previous_pid = current_daemon_pid().await?;
     let was_running = stop_daemon_effective().await?;
@@ -52,14 +45,8 @@ pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
 
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
     match command {
-        DaemonCommands::Start {
-            foreground,
-            mcp_port,
-        } => start(core, foreground, mcp_port).await,
-        DaemonCommands::Restart {
-            foreground,
-            mcp_port,
-        } => restart(core, foreground, mcp_port).await,
+        DaemonCommands::Start { foreground } => start(core, foreground).await,
+        DaemonCommands::Restart { foreground } => restart(core, foreground).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
     }
@@ -73,18 +60,12 @@ pub async fn run_without_core(command: &DaemonCommands) -> Result<bool> {
     }
 
     match command {
-        DaemonCommands::Start {
-            foreground: false,
-            mcp_port,
-        } => {
-            start_background(*mcp_port).await?;
+        DaemonCommands::Start { foreground: false } => {
+            start_background().await?;
             Ok(true)
         }
-        DaemonCommands::Restart {
-            foreground: false,
-            mcp_port,
-        } => {
-            restart_background(*mcp_port).await?;
+        DaemonCommands::Restart { foreground: false } => {
+            restart_background().await?;
             Ok(true)
         }
         DaemonCommands::Stop => {
@@ -102,22 +83,15 @@ pub async fn run_without_core(command: &DaemonCommands) -> Result<bool> {
 fn should_run_without_core(command: &DaemonCommands) -> bool {
     matches!(
         command,
-        DaemonCommands::Start {
-            foreground: false,
-            ..
-        } | DaemonCommands::Restart {
-            foreground: false,
-            ..
-        } | DaemonCommands::Stop
+        DaemonCommands::Start { foreground: false }
+            | DaemonCommands::Restart { foreground: false }
+            | DaemonCommands::Stop
             | DaemonCommands::Status
     )
 }
 
-async fn start_background(mcp_port: Option<u16>) -> Result<()> {
-    let config = DaemonConfig {
-        mcp: true,
-        mcp_port,
-    };
+async fn start_background() -> Result<()> {
+    let config = DaemonConfig::default();
 
     let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
     if let EffectiveDaemonStatus::Running { pid, .. } = snapshot.daemon_status {
@@ -134,11 +108,8 @@ async fn start_background(mcp_port: Option<u16>) -> Result<()> {
     Ok(())
 }
 
-async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> Result<()> {
-    let config = DaemonConfig {
-        mcp: true,
-        mcp_port,
-    };
+async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
+    let config = DaemonConfig::default();
 
     if foreground {
         // In foreground mode, clean stale artifacts before binding.
@@ -174,12 +145,9 @@ fn print_already_running(pid: Option<u32>) {
     }
 }
 
-async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> Result<()> {
+async fn restart(core: Arc<AppCore>, foreground: bool) -> Result<()> {
     if foreground {
-        let config = DaemonConfig {
-            mcp: true,
-            mcp_port,
-        };
+        let config = DaemonConfig::default();
         let previous_pid = current_daemon_pid().await?;
         let was_running = stop_daemon_effective().await?;
         if was_running {
@@ -193,7 +161,7 @@ async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) ->
         }
         run_daemon(core, config).await
     } else {
-        restart_background(mcp_port).await
+        restart_background().await
     }
 }
 
@@ -242,21 +210,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         }
     });
 
-    // MCP server is always enabled
-    let mcp_bind_addr = resolve_mcp_bind_addr();
-    let addr = std::net::SocketAddr::new(mcp_bind_addr, config.mcp_port.unwrap_or(8787));
-    let mcp_shutdown = shutdown_tx.subscribe();
-    let mcp_core = core.clone();
-    let mcp_handle = tokio::spawn(async move {
-        if let Err(err) = runtime::daemon::run_mcp_http_server(mcp_core, addr, mcp_shutdown).await {
-            error!(error = %err, "MCP server stopped unexpectedly");
-        }
-    });
-
-    let mut task_runner = CliTaskRunner::new(core.clone());
-    if let Err(err) = task_runner.start().await {
-        error!(error = %err, "Task runner failed to start; continuing without runner");
-    }
+    let _ = config;
 
     if let Err(err) = run_and_log_cleanup(core.clone()).await {
         warn!(error = %err, "Startup cleanup failed");
@@ -270,10 +224,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
 
     // Ensure core services did not fail immediately before declaring daemon as running.
     sleep(Duration::from_millis(120)).await;
-    ensure_startup_services_and_cleanup(ipc_handle.is_finished(), mcp_handle.is_finished(), || {
-        task_runner.stop()
-    })
-    .await?;
+    ensure_startup_services(ipc_handle.is_finished())?;
 
     let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
@@ -284,37 +235,16 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let mut shutdown_rx = shutdown_tx.subscribe();
     let _ = shutdown_rx.recv().await;
 
-    task_runner.stop().await?;
     let _ = ipc_handle.await;
-    let _ = mcp_handle.await;
     let _ = cleanup_handle.await;
 
     println!("Daemon stopped");
     Ok(())
 }
 
-async fn ensure_startup_services_and_cleanup<F, Fut>(
-    ipc_finished: bool,
-    mcp_finished: bool,
-    stop_runner: F,
-) -> Result<()>
-where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<()>>,
-{
-    let failure_message = if ipc_finished {
-        Some("IPC server exited during startup")
-    } else if mcp_finished {
-        Some("MCP server exited during startup")
-    } else {
-        None
-    };
-
-    if let Some(message) = failure_message {
-        stop_runner()
-            .await
-            .context("Failed to stop task runner after startup check failure")?;
-        anyhow::bail!(message);
+fn ensure_startup_services(ipc_finished: bool) -> Result<()> {
+    if ipc_finished {
+        anyhow::bail!("IPC server exited during startup");
     }
 
     Ok(())
@@ -645,24 +575,6 @@ fn send_kill_signal(pid: u32) -> Result<()> {
     Ok(())
 }
 
-fn resolve_mcp_bind_addr() -> IpAddr {
-    match std::env::var(MCP_BIND_ADDR_ENV) {
-        Ok(value) => parse_mcp_bind_addr(Some(&value)).unwrap_or_else(|| {
-            warn!(
-                env = MCP_BIND_ADDR_ENV,
-                value = %value,
-                "Invalid MCP bind address, falling back to 127.0.0.1"
-            );
-            IpAddr::V4(Ipv4Addr::LOCALHOST)
-        }),
-        Err(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
-    }
-}
-
-fn parse_mcp_bind_addr(value: Option<&str>) -> Option<IpAddr> {
-    value.and_then(|v| v.parse().ok())
-}
-
 struct PidFileGuard {
     path: PathBuf,
 }
@@ -775,65 +687,30 @@ fn read_lock_pid(path: &std::path::Path) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ensure_startup_services_and_cleanup, parse_mcp_bind_addr, should_run_without_core,
-    };
+    use super::{ensure_startup_services, should_run_without_core};
     use crate::cli::DaemonCommands;
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn parse_mcp_bind_addr_accepts_ipv4() {
-        let ip = parse_mcp_bind_addr(Some("0.0.0.0"));
-        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
-    }
-
-    #[test]
-    fn parse_mcp_bind_addr_accepts_ipv6() {
-        let ip = parse_mcp_bind_addr(Some("::1"));
-        assert_eq!(ip, Some(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-    }
-
-    #[test]
-    fn parse_mcp_bind_addr_rejects_invalid_value() {
-        let ip = parse_mcp_bind_addr(Some("not-an-ip"));
-        assert_eq!(ip, None);
-    }
 
     #[test]
     fn no_core_routing_accepts_background_start() {
-        let command = DaemonCommands::Start {
-            foreground: false,
-            mcp_port: None,
-        };
+        let command = DaemonCommands::Start { foreground: false };
         assert!(should_run_without_core(&command));
     }
 
     #[test]
     fn no_core_routing_rejects_foreground_start() {
-        let command = DaemonCommands::Start {
-            foreground: true,
-            mcp_port: Some(8787),
-        };
+        let command = DaemonCommands::Start { foreground: true };
         assert!(!should_run_without_core(&command));
     }
 
     #[test]
     fn no_core_routing_accepts_background_restart() {
-        let command = DaemonCommands::Restart {
-            foreground: false,
-            mcp_port: None,
-        };
+        let command = DaemonCommands::Restart { foreground: false };
         assert!(should_run_without_core(&command));
     }
 
     #[test]
     fn no_core_routing_rejects_foreground_restart() {
-        let command = DaemonCommands::Restart {
-            foreground: true,
-            mcp_port: Some(8787),
-        };
+        let command = DaemonCommands::Restart { foreground: true };
         assert!(!should_run_without_core(&command));
     }
 
@@ -843,59 +720,14 @@ mod tests {
         assert!(should_run_without_core(&DaemonCommands::Status));
     }
 
-    #[tokio::test]
-    async fn startup_check_stops_runner_before_bailing_on_ipc_failure() {
-        let stop_calls = Arc::new(AtomicUsize::new(0));
-        let stop_calls_clone = Arc::clone(&stop_calls);
-
-        let err = ensure_startup_services_and_cleanup(true, false, move || {
-            let stop_calls = Arc::clone(&stop_calls_clone);
-            async move {
-                stop_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        })
-        .await
-        .expect_err("startup check should fail when IPC exits");
-
-        assert_eq!(stop_calls.load(Ordering::SeqCst), 1);
+    #[test]
+    fn startup_check_bails_on_ipc_failure() {
+        let err = ensure_startup_services(true).expect_err("startup check should fail");
         assert!(err.to_string().contains("IPC server exited during startup"));
     }
 
-    #[tokio::test]
-    async fn startup_check_stops_runner_before_bailing_on_mcp_failure() {
-        let stop_calls = Arc::new(AtomicUsize::new(0));
-        let stop_calls_clone = Arc::clone(&stop_calls);
-
-        let err = ensure_startup_services_and_cleanup(false, true, move || {
-            let stop_calls = Arc::clone(&stop_calls_clone);
-            async move {
-                stop_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        })
-        .await
-        .expect_err("startup check should fail when MCP exits");
-
-        assert_eq!(stop_calls.load(Ordering::SeqCst), 1);
-        assert!(err.to_string().contains("MCP server exited during startup"));
-    }
-
-    #[tokio::test]
-    async fn startup_check_skips_runner_stop_when_services_are_healthy() {
-        let stop_calls = Arc::new(AtomicUsize::new(0));
-        let stop_calls_clone = Arc::clone(&stop_calls);
-
-        ensure_startup_services_and_cleanup(false, false, move || {
-            let stop_calls = Arc::clone(&stop_calls_clone);
-            async move {
-                stop_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        })
-        .await
-        .expect("startup check should pass when both services are running");
-
-        assert_eq!(stop_calls.load(Ordering::SeqCst), 0);
+    #[test]
+    fn startup_check_passes_when_services_are_healthy() {
+        ensure_startup_services(false).expect("startup check should pass");
     }
 }

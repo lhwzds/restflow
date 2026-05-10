@@ -1,10 +1,10 @@
 //! OpsProvider adapter for daemon health and operational queries.
 
 use crate::daemon::check_health;
+use crate::tools::ToolError;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use tools::ToolError;
 use types::store::OpsProvider;
 
 /// Build a standard ops response envelope.
@@ -45,7 +45,7 @@ impl OpsProviderAdapter {
         Ok(current.canonicalize()?)
     }
 
-    pub(crate) fn resolve_log_tail_path(path: Option<&str>) -> tools::Result<PathBuf> {
+    pub(crate) fn resolve_log_tail_path(path: Option<&str>) -> crate::tools::Result<PathBuf> {
         let logs_dir = crate::paths::logs_dir()?;
         let resolved = match path
             .map(str::trim)
@@ -93,7 +93,7 @@ impl OpsProviderAdapter {
 impl OpsProvider for OpsProviderAdapter {
     fn daemon_health(
         &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tools::Result<Value>> + Send + '_>>
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::tools::Result<Value>> + Send + '_>>
     {
         Box::pin(async move {
             let socket = crate::paths::socket_path()?;
@@ -108,7 +108,7 @@ impl OpsProvider for OpsProviderAdapter {
         })
     }
 
-    fn task_summary(&self, status: Option<&str>, limit: usize) -> tools::Result<Value> {
+    fn task_summary(&self, status: Option<&str>, limit: usize) -> crate::tools::Result<Value> {
         let by_status: BTreeMap<String, usize> = BTreeMap::new();
         let sample: Vec<Value> = Vec::new();
         let evidence = json!({
@@ -124,7 +124,7 @@ impl OpsProvider for OpsProviderAdapter {
         Ok(build_ops_response("task_summary", evidence, verification))
     }
 
-    fn log_tail(&self, lines: usize, path: Option<&str>) -> tools::Result<Value> {
+    fn log_tail(&self, lines: usize, path: Option<&str>) -> crate::tools::Result<Value> {
         let resolved = Self::resolve_log_tail_path(path)?;
         if !resolved.exists() {
             let evidence = json!({
@@ -157,7 +157,7 @@ impl OpsProvider for OpsProviderAdapter {
 // Test helper for log_tail_payload (used by tests)
 #[cfg(test)]
 impl OpsProviderAdapter {
-    pub(crate) fn log_tail_payload(input: &Value) -> tools::Result<(Value, Value)> {
+    pub(crate) fn log_tail_payload(input: &Value) -> crate::tools::Result<(Value, Value)> {
         let lines = input
             .get("lines")
             .and_then(Value::as_u64)

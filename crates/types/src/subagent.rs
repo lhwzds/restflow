@@ -5,6 +5,9 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
+use crate::contracts::request::{
+    InlineAgentRunConfig as ContractInlineAgentRunConfig, SpawnPriority as ContractSpawnPriority,
+};
 use crate::error::ToolError;
 use crate::{
     DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
@@ -347,9 +350,196 @@ pub trait SubagentManager: Send + Sync {
     fn config(&self) -> &SubagentConfig;
 }
 
-/// Trait for spawning subagents (simple variant used by SpawnTool).
-pub trait SubagentSpawner: Send + Sync {
-    fn spawn(&self, task: String) -> std::result::Result<String, ToolError>;
+fn normalize_identifier(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut previous_dash = false;
+
+    for ch in value.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+            previous_dash = false;
+            continue;
+        }
+        if !previous_dash {
+            normalized.push('-');
+            previous_dash = true;
+        }
+    }
+
+    normalized.trim_matches('-').to_string()
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn normalize_model_provider_pair(
+    model: Option<String>,
+    model_provider: Option<String>,
+) -> std::result::Result<(Option<String>, Option<String>), ToolError> {
+    let model = normalize_optional_text(model);
+    let model_provider = normalize_optional_text(model_provider);
+    if model.is_some() != model_provider.is_some() {
+        return Err(ToolError::Tool(
+            "Model override requires both 'model' and 'provider' fields.".to_string(),
+        ));
+    }
+    Ok((model, model_provider))
+}
+
+fn normalize_inline_config(
+    inline: Option<ContractInlineAgentRunConfig>,
+) -> Option<InlineChildRunConfig> {
+    let inline = inline?;
+    let config = InlineChildRunConfig {
+        name: inline.name,
+        system_prompt: inline.system_prompt,
+        allowed_tools: inline.allowed_tools,
+        max_iterations: inline.max_iterations,
+    };
+
+    if config.name.is_none()
+        && config.system_prompt.is_none()
+        && config.allowed_tools.is_none()
+        && config.max_iterations.is_none()
+    {
+        None
+    } else {
+        Some(config)
+    }
+}
+
+pub fn resolve_agent_id(
+    available_agents: &[SubagentDefSummary],
+    requested: &str,
+) -> std::result::Result<String, ToolError> {
+    let query = requested.trim();
+    if query.is_empty() {
+        return Err(ToolError::Tool("Agent name must not be empty".to_string()));
+    }
+
+    if available_agents.is_empty() {
+        return Err(ToolError::Tool(
+            "No callable sub-agents available. Create an agent first.".to_string(),
+        ));
+    }
+
+    if let Some(found) = available_agents.iter().find(|agent| agent.id == query) {
+        return Ok(found.id.clone());
+    }
+
+    if let Some(found) = available_agents
+        .iter()
+        .find(|agent| agent.id.eq_ignore_ascii_case(query))
+    {
+        return Ok(found.id.clone());
+    }
+
+    let exact_name_matches: Vec<_> = available_agents
+        .iter()
+        .filter(|agent| agent.name.eq_ignore_ascii_case(query))
+        .collect();
+    if exact_name_matches.len() == 1 {
+        return Ok(exact_name_matches[0].id.clone());
+    }
+    if exact_name_matches.len() > 1 {
+        let ids = exact_name_matches
+            .iter()
+            .map(|agent| agent.id.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(ToolError::Tool(format!(
+            "Ambiguous agent name '{}'. Matching IDs: {}",
+            query, ids
+        )));
+    }
+
+    let normalized_query = normalize_identifier(query);
+    let normalized_matches: Vec<_> = available_agents
+        .iter()
+        .filter(|agent| {
+            normalize_identifier(&agent.id) == normalized_query
+                || normalize_identifier(&agent.name) == normalized_query
+        })
+        .collect();
+    if normalized_matches.len() == 1 {
+        return Ok(normalized_matches[0].id.clone());
+    }
+    if normalized_matches.len() > 1 {
+        let ids = normalized_matches
+            .iter()
+            .map(|agent| agent.id.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(ToolError::Tool(format!(
+            "Ambiguous agent identifier '{}'. Matching IDs: {}",
+            query, ids
+        )));
+    }
+
+    let suggestions = available_agents
+        .iter()
+        .take(8)
+        .map(|agent| format!("{} ({})", agent.name, agent.id))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(ToolError::Tool(format!(
+        "Unknown agent '{}'. Available agents: {}",
+        query, suggestions
+    )))
+}
+
+pub fn spawn_request_from_contract(
+    available_agents: &[SubagentDefSummary],
+    request: ContractRunSpawnRequest,
+) -> std::result::Result<SpawnRequest, ToolError> {
+    let task = request.task.trim();
+    if task.is_empty() {
+        return Err(ToolError::Tool(
+            "Single spawn requires non-empty 'task'.".to_string(),
+        ));
+    }
+
+    let inline = normalize_inline_config(request.inline);
+    let agent_id = match request.agent_id {
+        Some(agent_id) => Some(resolve_agent_id(available_agents, &agent_id)?),
+        None => None,
+    };
+    if agent_id.is_some() && inline.is_some() {
+        return Err(ToolError::Tool(
+            "Inline temporary-subagent fields cannot be combined with 'agent'.".to_string(),
+        ));
+    }
+
+    let (model, model_provider) =
+        normalize_model_provider_pair(request.model, request.model_provider)?;
+
+    let mut spawn_request = SpawnRequest {
+        agent_id,
+        inline,
+        task: task.to_string(),
+        timeout_secs: request.timeout_secs,
+        max_iterations: request.max_iterations,
+        priority: request.priority.map(Into::into),
+        model,
+        model_provider,
+        parent_run_id: None,
+        run_id: None,
+    };
+    spawn_request.set_parent_run_id(request.parent_run_id);
+    Ok(spawn_request)
+}
+
+impl From<ContractSpawnPriority> for SpawnPriority {
+    fn from(value: ContractSpawnPriority) -> Self {
+        match value {
+            ContractSpawnPriority::Low => Self::Low,
+            ContractSpawnPriority::Normal => Self::Normal,
+            ContractSpawnPriority::High => Self::High,
+        }
+    }
 }
 
 #[cfg(test)]

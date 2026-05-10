@@ -1,6 +1,8 @@
-use crate::models::chat_session::{ChatMessageMedia, ChatMessageTranscript};
-use crate::models::{ChatMessage, ChatRole, ChatSession, ChatTurnEvent, ChatTurnEventKind};
 use std::collections::HashMap;
+use types::{
+    ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession, ChatTurnEvent,
+    ChatTurnEventKind,
+};
 
 const TRANSCRIBE_TOOL_NAME: &str = "transcribe";
 const VOICE_MEDIA_TYPE_LINE: &str = "media_type: voice";
@@ -230,8 +232,8 @@ fn upsert_transcript_block(message_content: &str, transcript: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::chat_session::ChatMediaType;
     use serde_json::json;
+    use types::ChatMediaType;
 
     fn voice_message(path: &str) -> String {
         format!(

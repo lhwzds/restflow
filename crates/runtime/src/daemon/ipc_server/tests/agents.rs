@@ -68,14 +68,12 @@ async fn process_create_agent_returns_stored_agent() {
         IpcRequest::CreateAgent {
             name: "IPC Agent".to_string(),
             agent: to_contract(AgentNode {
-                model_ref: Some(crate::models::ModelRef::from_model(
-                    crate::models::ModelId::ClaudeSonnet4_5,
-                )),
+                model_ref: Some(types::ModelRef::from_model(types::ModelId::ClaudeSonnet4_5)),
                 prompt: Some("You are a helpful assistant".to_string()),
                 temperature: Some(0.7),
                 codex_cli_reasoning_effort: None,
                 codex_cli_execution_mode: None,
-                api_key_config: Some(crate::models::ApiKeyConfig::Direct("test_key".to_string())),
+                api_key_config: Some(types::ApiKeyConfig::Direct("test_key".to_string())),
                 tools: None,
                 skills: None,
                 skill_variables: None,

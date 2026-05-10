@@ -2,14 +2,12 @@ use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
 use super::state::{
-    AppState, InputMode, ModelPickerItem, PendingSessionState, ProviderPickerItem,
-    SkillManagerSelection, SkillPickerItem, TaskPickerItem,
+    AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
+    SkillPickerItem,
 };
-use runtime::models::{
-    ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary, Task,
-};
-use runtime::storage::agent::StoredAgent;
-use types::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
+use runtime::StoredAgent;
+use types::{ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary};
+use types::{ChatSessionEvent, StreamFrame};
 
 const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
 const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
@@ -19,12 +17,10 @@ pub enum ShellAction {
     Ui(Action),
     StreamFrame(StreamFrame),
     SessionEvent(ChatSessionEvent),
-    TaskEvent(TaskStreamEvent),
     StateRefreshed {
         sessions: Vec<ChatSessionSummary>,
         runs: Vec<RunSummary>,
         child_runs: Vec<RunSummary>,
-        tasks: Vec<TaskPickerItem>,
     },
     SessionPickerLoaded {
         sessions: Vec<ChatSessionSummary>,
@@ -60,18 +56,9 @@ pub enum ShellAction {
         child_runs: Vec<RunSummary>,
         status: String,
     },
-    TaskControlCompleted {
-        task_id: String,
-        status: String,
-    },
     RunPickerLoaded {
-        tasks: Vec<TaskPickerItem>,
         runs: Vec<RunSummary>,
         child_runs: Vec<RunSummary>,
-        status: String,
-    },
-    TaskPickerLoaded {
-        tasks: Vec<TaskPickerItem>,
         status: String,
     },
     SkillPickerLoaded {
@@ -83,7 +70,7 @@ pub enum ShellAction {
         status: String,
     },
     SkillDetailLoaded {
-        skill: Box<runtime::models::Skill>,
+        skill: Box<types::Skill>,
         status: String,
     },
     ProviderPickerLoaded {
@@ -99,11 +86,6 @@ pub enum ShellAction {
     },
     ModelSwitched {
         session: Box<ChatSession>,
-        status: String,
-    },
-    TaskGoalCreated {
-        task: Box<Task>,
-        session: Option<Box<ChatSession>>,
         status: String,
     },
     PendingSessionModelSelected {
@@ -130,9 +112,6 @@ pub enum ShellAction {
     },
     OpenHelpOverlay,
     OpenDaemonPicker,
-    OpenTaskActionPicker {
-        task_id: String,
-    },
     SubmitText {
         text: String,
     },
@@ -153,9 +132,6 @@ pub enum ShellEffect {
     SubmitMessage {
         message: String,
         stream_id: String,
-    },
-    CreateTaskGoal {
-        message: String,
     },
     SteerMessage {
         session_id: String,
@@ -214,18 +190,12 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
                 output.effects.push(ShellEffect::ReloadCurrentSession);
             }
         }
-        ShellAction::TaskEvent(event) => {
-            state.apply_task_event(event);
-            output.effects.push(ShellEffect::RefreshState);
-        }
         ShellAction::StateRefreshed {
             sessions,
             runs,
             child_runs,
-            tasks,
         } => {
             state.sessions = sessions;
-            state.tasks = tasks;
             if state.current_session_id().is_some() {
                 state.set_session_runs_and_child_runs(runs, child_runs);
             } else {
@@ -303,28 +273,17 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.overlay = Some(crate::state::OverlayState::RunDetail);
             state.status = status;
         }
-        ShellAction::TaskControlCompleted { task_id, status } => {
-            state.status = format!("Task {task_id} -> {status}");
-            state.clear_overlay();
-        }
         ShellAction::RunPickerLoaded {
-            tasks,
             runs,
             child_runs,
             status,
         } => {
-            state.tasks = tasks;
             if state.current_session_id().is_some() {
                 state.set_session_runs_and_child_runs(runs, child_runs);
             } else {
                 state.clear_thread_runs();
             }
             state.open_run_picker();
-            state.status = status;
-        }
-        ShellAction::TaskPickerLoaded { tasks, status } => {
-            state.tasks = tasks;
-            state.open_task_picker();
             state.status = status;
         }
         ShellAction::SkillPickerLoaded { skills, status } => {
@@ -371,17 +330,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         ShellAction::ModelSwitched { session, status } => {
             state.refresh_current_session(*session);
             state.clear_overlay();
-            state.status = status;
-        }
-        ShellAction::TaskGoalCreated {
-            task,
-            session,
-            status,
-        } => {
-            if let Some(session) = session {
-                state.set_current_session(*session);
-            }
-            state.tasks.push(task_item_from_task(*task, None));
             state.status = status;
         }
         ShellAction::PendingSessionModelSelected {
@@ -454,11 +402,6 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
             state.composer.clear();
             state.open_daemon_picker();
             state.status = "Select daemon action".to_string();
-        }
-        ShellAction::OpenTaskActionPicker { task_id } => {
-            state.composer.clear();
-            state.open_task_action_picker(task_id);
-            state.status = "Select task action".to_string();
         }
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
         ShellAction::Quit => output.should_quit = true,
@@ -788,19 +731,6 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
                 state.push_error(error.to_string());
             }
         }
-    } else if matches!(state.input_mode, InputMode::Task) {
-        if state.default_agent_id.is_none() {
-            let message =
-                "No default agent. Configure an agent before creating a task.".to_string();
-            state.status = message.clone();
-            state.push_error(message);
-        } else {
-            state.status = "Creating background task...".to_string();
-            state.push_info(format!("Task goal queued: {}", text.trim()));
-            output
-                .effects
-                .push(ShellEffect::CreateTaskGoal { message: text });
-        }
     } else if state.current_session_id().is_none() {
         if state.is_startup_mode() {
             let message = "Daemon is offline. Use /daemon to launch it.".to_string();
@@ -868,16 +798,6 @@ fn submit_message_effect(state: &mut AppState, message: String) -> ShellEffect {
     ShellEffect::SubmitMessage { message, stream_id }
 }
 
-fn task_item_from_task(task: Task, latest_run_id: Option<String>) -> TaskPickerItem {
-    TaskPickerItem {
-        task_id: task.id,
-        name: task.name,
-        status: format!("{:?}", task.status),
-        next_run_at: task.next_run_at,
-        latest_run_id,
-    }
-}
-
 fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
     match command {
         SlashCommand::NewChat => "Starting new chat...",
@@ -885,7 +805,6 @@ fn slash_command_pending_status(command: &SlashCommand) -> &'static str {
         SlashCommand::ListModels => "Loading providers...",
         SlashCommand::ListModelsForProvider { .. } => "Loading models...",
         SlashCommand::SwitchModel { .. } => "Switching model...",
-        SlashCommand::ListTasks => "Loading tasks...",
         SlashCommand::ListSessions => "Loading sessions...",
         SlashCommand::Quit => "Exiting...",
         _ => "Running command...",
@@ -899,8 +818,8 @@ mod tests {
     };
     use crate::keymap::Action;
     use crate::slash_command::SlashCommand;
-    use crate::state::{AppState, InputMode, PendingSessionState, SkillPickerItem, TaskPickerItem};
-    use runtime::models::{ChatSession, ChatSessionSummary, Skill, SkillSource};
+    use crate::state::{AppState, InputMode, PendingSessionState, SkillPickerItem};
+    use types::{ChatSession, ChatSessionSummary, Skill, SkillSource};
     use types::{ChatSessionEvent, StreamFrame};
 
     fn session_summary(id: &str, name: &str) -> ChatSessionSummary {
@@ -945,35 +864,7 @@ mod tests {
         reduce(&mut state, ShellAction::Ui(Action::CycleInputMode));
         assert_eq!(state.input_mode, InputMode::Plan);
         reduce(&mut state, ShellAction::Ui(Action::CycleInputMode));
-        assert_eq!(state.input_mode, InputMode::Task);
-        reduce(&mut state, ShellAction::Ui(Action::CycleInputMode));
         assert_eq!(state.input_mode, InputMode::Chat);
-    }
-
-    #[test]
-    fn task_mode_submit_creates_task_goal_effect() {
-        let mut state = AppState::empty();
-        state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
-        state.input_mode = InputMode::Task;
-        state.composer.replace("review this repository");
-
-        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
-
-        assert!(matches!(
-            output.actions.as_slice(),
-            [ShellAction::SubmitText { text }] if text == "review this repository"
-        ));
-        let output = reduce(
-            &mut state,
-            ShellAction::SubmitText {
-                text: "review this repository".to_string(),
-            },
-        );
-        assert!(matches!(
-            output.effects.as_slice(),
-            [ShellEffect::CreateTaskGoal { message }] if message == "review this repository"
-        ));
-        assert_eq!(state.status, "Creating background task...");
     }
 
     #[test]
@@ -1117,13 +1008,6 @@ mod tests {
         let output = reduce(
             &mut state,
             ShellAction::RunPickerLoaded {
-                tasks: vec![TaskPickerItem {
-                    task_id: "task-1".to_string(),
-                    name: "Digest".to_string(),
-                    status: "Completed".to_string(),
-                    next_run_at: None,
-                    latest_run_id: Some("run-1".to_string()),
-                }],
                 runs: Vec::new(),
                 child_runs: Vec::new(),
                 status: "Work picker opened.".to_string(),
@@ -1138,7 +1022,6 @@ mod tests {
         ));
         assert!(state.conversation_cells.is_empty());
         assert!(state.runtime_cells.is_empty());
-        assert_eq!(state.tasks[0].latest_run_id.as_deref(), Some("run-1"));
     }
 
     #[test]
@@ -1806,7 +1689,7 @@ mod tests {
         let mut state = AppState::empty();
         state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5.4".to_string());
-        session.add_message(runtime::models::ChatMessage::user("old"));
+        session.add_message(types::ChatMessage::user("old"));
         state.set_current_session(session);
         state.push_local_user_message("pending".to_string());
         state.push_info("notice");

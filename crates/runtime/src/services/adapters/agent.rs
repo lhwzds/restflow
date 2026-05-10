@@ -1,10 +1,11 @@
 //! AgentStore adapter backed by AgentStorage.
 
-use crate::storage::{AgentStorage, SecretStorage};
+use crate::AgentStorage;
+use crate::storage::SecretStorage;
+use crate::tools::ToolError;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
-use tools::ToolError;
 use types::request::AgentNode as ContractAgentNode;
 use types::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 
@@ -28,16 +29,14 @@ impl AgentStoreAdapter {
         }
     }
 
-    fn parse_agent_node(value: ContractAgentNode) -> Result<crate::models::AgentNode, ToolError> {
-        crate::models::AgentNode::try_from_contract_node(value)
-            .map_err(|errors| ToolError::Tool(crate::models::encode_validation_error(errors)))
+    fn parse_agent_node(value: ContractAgentNode) -> Result<types::AgentNode, ToolError> {
+        types::AgentNode::try_from_contract_node(value)
+            .map_err(|errors| ToolError::Tool(types::encode_validation_error(errors)))
     }
 
-    fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), ToolError> {
+    fn validate_agent_node(&self, agent: &types::AgentNode) -> Result<(), ToolError> {
         if let Err(errors) = agent.validate() {
-            return Err(ToolError::Tool(crate::models::encode_validation_error(
-                errors,
-            )));
+            return Err(ToolError::Tool(types::encode_validation_error(errors)));
         }
 
         let mut errors = Vec::new();
@@ -45,7 +44,7 @@ impl AgentStoreAdapter {
             for tool_name in tools {
                 let normalized = tool_name.trim();
                 if normalized.is_empty() {
-                    errors.push(crate::models::ValidationError::new(
+                    errors.push(types::ValidationError::new(
                         "tools",
                         "tool name must not be empty",
                     ));
@@ -57,7 +56,7 @@ impl AgentStoreAdapter {
                     .map(|set| set.contains(normalized))
                     .unwrap_or(false);
                 if !is_known && !crate::runtime::agent::tools::is_subagent_tool_name(normalized) {
-                    errors.push(crate::models::ValidationError::new(
+                    errors.push(types::ValidationError::new(
                         "tools",
                         format!("unknown tool: {}", normalized),
                     ));
@@ -71,7 +70,7 @@ impl AgentStoreAdapter {
                 .map(|s| s.trim())
                 .filter(|s| {
                     if s.is_empty() {
-                        errors.push(crate::models::ValidationError::new(
+                        errors.push(types::ValidationError::new(
                             "skills",
                             "skill ID must not be empty",
                         ));
@@ -84,11 +83,11 @@ impl AgentStoreAdapter {
             for id in skill_ids {
                 match crate::services::skills::skill_exists_in_catalog(id) {
                     Ok(true) => {}
-                    Ok(false) => errors.push(crate::models::ValidationError::new(
+                    Ok(false) => errors.push(types::ValidationError::new(
                         "skills",
                         format!("unknown skill: {}", id),
                     )),
-                    Err(err) => errors.push(crate::models::ValidationError::new(
+                    Err(err) => errors.push(types::ValidationError::new(
                         "skills",
                         format!("failed to verify skill '{}': {}", id, err),
                     )),
@@ -96,16 +95,16 @@ impl AgentStoreAdapter {
             }
         }
 
-        if let Some(crate::models::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
+        if let Some(types::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
             let normalized = secret_name.trim();
             if !normalized.is_empty() {
                 match self.secrets.has_available_secret(normalized) {
                     Ok(true) => {}
-                    Ok(false) => errors.push(crate::models::ValidationError::new(
+                    Ok(false) => errors.push(types::ValidationError::new(
                         "api_key_config",
                         format!("secret not found in storage: {}", normalized),
                     )),
-                    Err(err) => errors.push(crate::models::ValidationError::new(
+                    Err(err) => errors.push(types::ValidationError::new(
                         "api_key_config",
                         format!("failed to verify secret '{}': {}", normalized, err),
                     )),
@@ -116,20 +115,18 @@ impl AgentStoreAdapter {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(ToolError::Tool(crate::models::encode_validation_error(
-                errors,
-            )))
+            Err(ToolError::Tool(types::encode_validation_error(errors)))
         }
     }
 }
 
 impl AgentStore for AgentStoreAdapter {
-    fn list_agents(&self) -> tools::Result<Value> {
+    fn list_agents(&self) -> crate::tools::Result<Value> {
         let agents = self.storage.list_agents()?;
         serde_json::to_value(agents).map_err(ToolError::from)
     }
 
-    fn get_agent(&self, id: &str) -> tools::Result<Value> {
+    fn get_agent(&self, id: &str) -> crate::tools::Result<Value> {
         let agent = self
             .storage
             .get_agent(id.to_string())?
@@ -137,14 +134,14 @@ impl AgentStore for AgentStoreAdapter {
         serde_json::to_value(agent).map_err(ToolError::from)
     }
 
-    fn create_agent(&self, request: AgentCreateRequest) -> tools::Result<Value> {
+    fn create_agent(&self, request: AgentCreateRequest) -> crate::tools::Result<Value> {
         let agent = Self::parse_agent_node(request.agent)?;
         self.validate_agent_node(&agent)?;
         let created = self.storage.create_agent(request.name, agent)?;
         serde_json::to_value(created).map_err(ToolError::from)
     }
 
-    fn update_agent(&self, request: AgentUpdateRequest) -> tools::Result<Value> {
+    fn update_agent(&self, request: AgentUpdateRequest) -> crate::tools::Result<Value> {
         let agent = match request.agent {
             Some(value) => {
                 let node = Self::parse_agent_node(value)?;
@@ -157,7 +154,7 @@ impl AgentStore for AgentStoreAdapter {
         serde_json::to_value(updated).map_err(ToolError::from)
     }
 
-    fn delete_agent(&self, id: &str) -> tools::Result<Value> {
+    fn delete_agent(&self, id: &str) -> crate::tools::Result<Value> {
         self.storage.delete_agent(id.to_string())?;
         Ok(json!({ "id": id, "deleted": true }))
     }

@@ -2913,6 +2913,7 @@ dependencies = [
  "aes-gcm",
  "ai",
  "anyhow",
+ "async-recursion",
  "async-stream",
  "async-trait",
  "axum",
@@ -2938,9 +2939,11 @@ dependencies = [
  "lettre",
  "nix 0.31.2",
  "num_cpus",
+ "once_cell",
  "parking_lot",
  "petgraph",
  "portable-pty",
+ "postcard",
  "rand 0.10.1",
  "redb",
  "regex",
@@ -2963,7 +2966,6 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
- "tools",
  "tower",
  "tower-http",
  "tracing",
@@ -3893,39 +3895,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
-name = "tools"
-version = "0.4.2"
-dependencies = [
- "ai",
- "anyhow",
- "async-recursion",
- "async-trait",
- "chrono",
- "dashmap",
- "dirs",
- "futures",
- "glob-match",
- "hex",
- "nix 0.31.2",
- "once_cell",
- "parking_lot",
- "postcard",
- "redb",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "skrun",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "types",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4110,14 +4079,15 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml",
  "specta",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "url",
+ "uuid",
 ]
 
 [[package]]

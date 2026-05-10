@@ -2,18 +2,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::path::Path;
 use tokio::sync::Mutex;
-use types::{CleanupReportResponse, OkResponse, request::TaskFromSessionRequest};
+use types::{CleanupReportResponse, OkResponse};
 
 use crate::executor::CommandExecutor;
+use runtime::Secret;
+use runtime::StoredAgent;
 use runtime::daemon::request_mapper::to_contract;
 use runtime::daemon::{IpcClient, IpcRequest};
-use runtime::models::{
-    AgentNode, ChatSession, ChatSessionSummary, RunListQuery, RunSummary, RunTimeline, Secret,
-    Skill, Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch, TaskProgress,
-    TaskSpec,
-};
 use runtime::storage::SystemConfig;
-use runtime::storage::agent::StoredAgent;
+use types::{AgentNode, ChatSession, ChatSessionSummary, Skill};
 
 pub struct IpcExecutor {
     client: Mutex<IpcClient>,
@@ -212,93 +209,5 @@ impl CommandExecutor for IpcExecutor {
     async fn delete_session(&self, id: &str) -> Result<bool> {
         let mut client = self.client.lock().await;
         client.delete_session(id.to_string()).await
-    }
-
-    // Task operations - use IPC client methods
-    async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>> {
-        let mut client = self.client.lock().await;
-        client.list_tasks(status).await
-    }
-
-    async fn get_task(&self, id: &str) -> Result<Task> {
-        let mut client = self.client.lock().await;
-        client
-            .get_task(id.to_string())
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))
-    }
-
-    async fn create_task(&self, spec: TaskSpec) -> Result<Task> {
-        let mut client = self.client.lock().await;
-        client.create_task(spec).await
-    }
-
-    async fn convert_session_to_task(
-        &self,
-        request: TaskFromSessionRequest,
-    ) -> Result<TaskConversionResult> {
-        let mut client = self.client.lock().await;
-        client.create_task_from_session(request).await
-    }
-
-    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task> {
-        let mut client = self.client.lock().await;
-        client.update_task(id.to_string(), patch).await
-    }
-
-    async fn delete_task(
-        &self,
-        id: &str,
-        approval_id: Option<&str>,
-    ) -> Result<types::DeleteWithIdResponse> {
-        let mut client = self.client.lock().await;
-        client
-            .delete_task(id.to_string(), approval_id.map(ToOwned::to_owned))
-            .await
-    }
-
-    async fn control_task(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-        approval_id: Option<&str>,
-    ) -> Result<Task> {
-        let mut client = self.client.lock().await;
-        client
-            .control_task(id.to_string(), action, approval_id.map(ToOwned::to_owned))
-            .await
-    }
-
-    async fn get_task_progress(
-        &self,
-        id: &str,
-        event_limit: Option<usize>,
-    ) -> Result<TaskProgress> {
-        self.request_typed(IpcRequest::GetTaskProgress {
-            id: id.to_string(),
-            event_limit,
-        })
-        .await
-    }
-
-    async fn send_task_message(&self, id: &str, message: &str) -> Result<()> {
-        let _: TaskMessage = self
-            .request_typed(IpcRequest::SendTaskMessage {
-                id: id.to_string(),
-                message: message.to_string(),
-                source: None::<String>,
-            })
-            .await?;
-        Ok(())
-    }
-
-    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
-        let mut client = self.client.lock().await;
-        client.list_runs(query).await
-    }
-
-    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline> {
-        let mut client = self.client.lock().await;
-        client.get_execution_run_timeline(run_id.to_string()).await
     }
 }

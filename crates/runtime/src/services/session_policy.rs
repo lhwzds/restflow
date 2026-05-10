@@ -1,7 +1,7 @@
-use crate::models::{ChatSession, ChatSessionSource};
 use crate::session_log::{FileSession, FileSessionStore};
 use crate::storage::Storage;
 use anyhow::Result;
+use types::{ChatSession, ChatSessionSource};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionPolicyError {
@@ -254,10 +254,10 @@ fn parse_retention_to_ms(retention: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ChatSessionSource;
     use crate::session_log::FileSessionStore;
     use crate::storage::Storage;
     use tempfile::tempdir;
+    use types::ChatSessionSource;
 
     fn create_workspace_session(file_sessions: &FileSessionStore, agent_id: &str) -> ChatSession {
         let mut session = ChatSession::new(agent_id.to_string(), "gpt-5".to_string());

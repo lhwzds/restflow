@@ -1,15 +1,12 @@
 //! Skills service layer for the skrun-managed catalog.
 
-use crate::{
-    AppCore,
-    models::{Skill, ValidationError},
-    services::adapters::SkrunSkillProvider,
-};
+use crate::{AppCore, services::adapters::SkrunSkillProvider};
 use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use types::{Skill, ValidationError};
 
 /// List all skills visible to RestFlow.
 pub async fn list_skills(_core: &Arc<AppCore>) -> Result<Vec<Skill>> {
@@ -317,7 +314,7 @@ mod tests {
             .iter()
             .find(|skill| skill.id == "team")
             .expect("team skrun skill should be listed");
-        assert_eq!(team.source, crate::models::SkillSource::External);
+        assert_eq!(team.source, types::SkillSource::External);
         assert!(team.read_only);
 
         let team = get_skill(&core, "team")
@@ -433,13 +430,13 @@ This is the skill content."#;
         let mut skill = create_test_skill("skill-3", "Skill Three");
         skill.suggested_tools = vec!["bash".to_string(), "missing_tool".to_string()];
         skill.references = vec![
-            crate::models::skill_folder::SkillReference {
+            types::SkillReference {
                 id: "known-skill".to_string(),
                 path: "./SKILL.md".to_string(),
                 title: None,
                 summary: None,
             },
-            crate::models::skill_folder::SkillReference {
+            types::SkillReference {
                 id: "missing-skill".to_string(),
                 path: "./missing.md".to_string(),
                 title: None,
@@ -469,7 +466,7 @@ This is the skill content."#;
         let mut skill = create_test_skill("skill-4", "Skill Four");
         skill.content = "Use {{ticket_id}} with {{ticket_id}}".to_string();
         skill.suggested_tools = vec!["bash".to_string()];
-        skill.references = vec![crate::models::skill_folder::SkillReference {
+        skill.references = vec![types::SkillReference {
             id: "known-skill".to_string(),
             path: "./SKILL.md".to_string(),
             title: None,

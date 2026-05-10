@@ -5,13 +5,14 @@
 
 use crate::{
     AppCore,
-    models::{AgentNode, ChatSessionSource, encode_validation_error},
+    agent_validation::validate_agent_node_async,
+    services::agent_catalog::{DEFAULT_ASSISTANT_NAME, StoredAgent},
     services::session::SessionService,
-    storage::agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
 };
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use types::{AgentNode, ChatSessionSource, encode_validation_error};
 
 pub async fn list_agents(core: &Arc<AppCore>) -> Result<Vec<StoredAgent>> {
     core.storage
@@ -156,7 +157,7 @@ async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<(
     if let Err(errors) = agent.validate() {
         anyhow::bail!(encode_validation_error(errors));
     }
-    if let Err(errors) = agent.validate_async(core).await {
+    if let Err(errors) = validate_agent_node_async(agent, core).await {
         anyhow::bail!(encode_validation_error(errors));
     }
     Ok(())
@@ -166,12 +167,10 @@ async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<(
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use crate::models::{
-        ApiKeyConfig, ChatSession, ChatSessionSource, ModelId, ValidationErrorResponse,
-    };
     use crate::prompt_files;
     use crate::time_utils;
     use tempfile::tempdir;
+    use types::{ApiKeyConfig, ChatSession, ChatSessionSource, ModelId, ValidationErrorResponse};
 
     struct AgentsDirEnvGuard {
         _lock: std::sync::MutexGuard<'static, ()>,
@@ -220,9 +219,7 @@ mod tests {
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
-            model_ref: Some(crate::models::ModelRef::from_model(
-                ModelId::ClaudeSonnet4_5,
-            )),
+            model_ref: Some(types::ModelRef::from_model(ModelId::ClaudeSonnet4_5)),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
             codex_cli_reasoning_effort: None,
@@ -237,7 +234,7 @@ mod tests {
     }
 
     fn set_test_model(node: &mut AgentNode, model: ModelId) {
-        node.model_ref = Some(crate::models::ModelRef::from_model(model));
+        node.model_ref = Some(types::ModelRef::from_model(model));
     }
 
     #[tokio::test]
@@ -455,7 +452,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_delete_agent_archives_orphan_background_sessions() {
+    async fn test_delete_agent_blocks_orphan_background_sessions() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Background owner");
@@ -478,19 +475,13 @@ mod tests {
             )
             .unwrap();
 
-        delete_agent(&core, &created.id).await.unwrap();
+        let error = delete_agent(&core, &created.id)
+            .await
+            .expect_err("background sessions should block deletion");
+        assert!(error.to_string().contains("managed sessions exist"));
 
-        let archived_session = core
-            .storage
-            .file_sessions
-            .get(&session.id)
-            .unwrap()
-            .map(|session| session.to_chat_session())
-            .expect("background session should remain archived");
-        assert!(archived_session.is_archived());
-
-        let deleted_agent = core.storage.agents.get_agent(created.id).unwrap();
-        assert!(deleted_agent.is_none());
+        let retained_agent = core.storage.agents.get_agent(created.id).unwrap();
+        assert!(retained_agent.is_some());
     }
 
     #[tokio::test]

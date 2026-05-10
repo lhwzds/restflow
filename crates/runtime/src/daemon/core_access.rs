@@ -2,17 +2,17 @@ use super::ipc_client::IpcClient;
 use super::ipc_protocol::IpcRequest;
 use super::launcher::ensure_daemon_running;
 use super::request_mapper::to_contract;
-use crate::AppCore;
-use crate::models::{AgentNode, Skill, Task, TaskSpec, TaskStatus};
 use crate::paths;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
 use crate::storage::SystemConfig;
+use crate::{AppCore, Secret};
 use anyhow::Result;
 use std::sync::Arc;
 use types::OkResponse;
+use types::{AgentNode, Skill};
 
 pub enum CoreAccess {
     Local(Arc<AppCore>),
@@ -33,14 +33,14 @@ impl CoreAccess {
         Ok(CoreAccess::Local(Arc::new(core)))
     }
 
-    pub async fn list_agents(&mut self) -> Result<Vec<crate::storage::agent::StoredAgent>> {
+    pub async fn list_agents(&mut self) -> Result<Vec<crate::StoredAgent>> {
         match self {
             CoreAccess::Local(core) => agent_service::list_agents(core).await,
             CoreAccess::Remote(client) => client.request_typed(IpcRequest::ListAgents).await,
         }
     }
 
-    pub async fn get_agent(&mut self, id: &str) -> Result<crate::storage::agent::StoredAgent> {
+    pub async fn get_agent(&mut self, id: &str) -> Result<crate::StoredAgent> {
         match self {
             CoreAccess::Local(core) => agent_service::get_agent(core, id).await,
             CoreAccess::Remote(client) => {
@@ -55,7 +55,7 @@ impl CoreAccess {
         &mut self,
         name: String,
         agent: AgentNode,
-    ) -> Result<crate::storage::agent::StoredAgent> {
+    ) -> Result<crate::StoredAgent> {
         match self {
             CoreAccess::Local(core) => agent_service::create_agent(core, name, agent).await,
             CoreAccess::Remote(client) => {
@@ -72,7 +72,7 @@ impl CoreAccess {
         id: &str,
         name: Option<String>,
         agent: Option<AgentNode>,
-    ) -> Result<crate::storage::agent::StoredAgent> {
+    ) -> Result<crate::StoredAgent> {
         match self {
             CoreAccess::Local(core) => agent_service::update_agent(core, id, name, agent).await,
             CoreAccess::Remote(client) => {
@@ -118,47 +118,7 @@ impl CoreAccess {
         }
     }
 
-    pub async fn list_tasks(&mut self, status: Option<TaskStatus>) -> Result<Vec<Task>> {
-        match self {
-            CoreAccess::Local(_) => Ok(Vec::new()),
-            CoreAccess::Remote(client) => {
-                client
-                    .request_typed(IpcRequest::ListTasks {
-                        status: status.map(|value| value.as_str().to_string()),
-                    })
-                    .await
-            }
-        }
-    }
-
-    pub async fn get_task(&mut self, id: &str) -> Result<Option<Task>> {
-        match self {
-            CoreAccess::Local(_) => {
-                let _ = id;
-                Ok(None)
-            }
-            CoreAccess::Remote(client) => {
-                client
-                    .request_optional(IpcRequest::GetTask { id: id.to_string() })
-                    .await
-            }
-        }
-    }
-
-    pub async fn create_task(&mut self, spec: TaskSpec) -> Result<Task> {
-        match self {
-            CoreAccess::Local(_) => {
-                let _ = spec;
-                anyhow::bail!("legacy task storage has been removed")
-            }
-            CoreAccess::Remote(client) => {
-                let _ = (client, spec);
-                anyhow::bail!("legacy task storage has been removed")
-            }
-        }
-    }
-
-    pub async fn list_secrets(&mut self) -> Result<Vec<crate::models::Secret>> {
+    pub async fn list_secrets(&mut self) -> Result<Vec<Secret>> {
         match self {
             CoreAccess::Local(core) => secrets_service::list_secrets(core).await,
             CoreAccess::Remote(client) => client.request_typed(IpcRequest::ListSecrets).await,

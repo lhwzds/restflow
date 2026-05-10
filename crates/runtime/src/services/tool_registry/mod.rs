@@ -4,7 +4,7 @@
 //! the [`create_tool_registry`] function that wires adapters into tools.
 
 #[cfg(test)]
-use crate::models::ModelId;
+use crate::AgentStorage;
 #[cfg(test)]
 use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{
@@ -19,10 +19,9 @@ use crate::services::adapters::*;
 use crate::session_log::FileSessionStore;
 use crate::storage::ConfigStorage;
 #[cfg(test)]
-use crate::storage::{AgentStorage, SecretStorage};
+use crate::storage::SecretStorage;
+use crate::tools::ToolRegistryBuilder;
 use crate::{AgentDefaults, SystemConfig};
-#[cfg(test)]
-use ai::AgentState;
 #[cfg(test)]
 use ai::agent::{
     StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentExecutionBridge, SubagentManagerImpl,
@@ -35,12 +34,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(test)]
 use tokio::sync::mpsc;
-use tools::ToolRegistryBuilder;
 use tracing::warn;
 #[cfg(test)]
 use types::LlmProvider;
-use types::registry::ToolRegistry;
-use types::security::SecurityGate;
+#[cfg(test)]
+use types::ModelId;
+use types::tool::SecurityGate;
+use types::toolset::ToolRegistry;
 #[cfg(test)]
 use types::{ExecutionOutcome, ExecutionPlan};
 

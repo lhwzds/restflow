@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tokio::sync::{RwLock, mpsc};
 
-use crate::models::SteerMessage;
+use types::SteerMessage;
 
 /// Registry of steer channels for running tasks.
 /// Each running task registers a sender; external code sends steer messages.
@@ -55,7 +55,7 @@ impl Default for SteerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::SteerSource;
+    use types::SteerSource;
 
     #[tokio::test]
     async fn test_steer_registry_register_unregister() {

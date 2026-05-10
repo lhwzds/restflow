@@ -1,23 +1,6 @@
 use anyhow::{Result, bail};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TaskControlAction {
-    Pause,
-    Resume,
-    Stop,
-}
-
-impl TaskControlAction {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Pause => "pause",
-            Self::Resume => "resume",
-            Self::Stop => "stop",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
     Daemon,
     NewChat,
@@ -27,22 +10,11 @@ pub enum SlashCommand {
     Help,
     ListSessions,
     ListSkills,
-    ListTasks,
     ListModels,
-    ListModelsForProvider {
-        provider: String,
-    },
+    ListModelsForProvider { provider: String },
     ListRuns,
-    TaskControl {
-        action: TaskControlAction,
-        task_id: String,
-    },
-    SwitchModel {
-        model: String,
-    },
-    OpenRun {
-        run_id: String,
-    },
+    SwitchModel { model: String },
+    OpenRun { run_id: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,11 +61,6 @@ pub const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         description: "Switch the current session model",
     },
     SlashCommandSpec {
-        command: "/task",
-        args: "",
-        description: "Select a task action",
-    },
-    SlashCommandSpec {
         command: "/runs",
         args: "",
         description: "Show work, runs, and subagents",
@@ -116,8 +83,7 @@ Slash commands:\n\
 /resume\n\
 /skill\n\
 /model\n\
-/task\n\
-/runs";
+	/runs";
 
 pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
     let mut parts = raw.split_whitespace();
@@ -152,25 +118,6 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
             })
         }
         "/runs" => Ok(SlashCommand::ListRuns),
-        "/task" => {
-            if parts.clone().next().is_none() {
-                return Ok(SlashCommand::ListTasks);
-            }
-            let action = match parts.next().unwrap_or_default() {
-                "pause" => TaskControlAction::Pause,
-                "resume" => TaskControlAction::Resume,
-                "stop" => TaskControlAction::Stop,
-                _ => bail!("Usage: /task pause|resume|stop <id>"),
-            };
-            let task_id = parts.next().unwrap_or_default();
-            if task_id.is_empty() {
-                bail!("Usage: /task pause|resume|stop <id>");
-            }
-            Ok(SlashCommand::TaskControl {
-                action,
-                task_id: task_id.to_string(),
-            })
-        }
         "/run" => {
             let action = parts.next().unwrap_or_default();
             let run_id = parts.next().unwrap_or_default();
@@ -187,37 +134,7 @@ pub fn parse_slash_command(raw: &str) -> Result<SlashCommand> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SLASH_COMMAND_SPECS, SlashCommand, TaskControlAction, parse_slash_command};
-
-    #[test]
-    fn parses_task_control_command() {
-        let command = parse_slash_command("/task pause task-1").expect("parse");
-        assert_eq!(
-            command,
-            SlashCommand::TaskControl {
-                action: TaskControlAction::Pause,
-                task_id: "task-1".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn parses_all_task_control_actions() {
-        assert_eq!(
-            parse_slash_command("/task resume task-1").expect("parse"),
-            SlashCommand::TaskControl {
-                action: TaskControlAction::Resume,
-                task_id: "task-1".to_string(),
-            }
-        );
-        assert_eq!(
-            parse_slash_command("/task stop task-1").expect("parse"),
-            SlashCommand::TaskControl {
-                action: TaskControlAction::Stop,
-                task_id: "task-1".to_string(),
-            }
-        );
-    }
+    use super::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
 
     #[test]
     fn rejects_invalid_run_command() {
@@ -252,14 +169,6 @@ mod tests {
         assert_eq!(
             parse_slash_command("/session").expect("parse"),
             SlashCommand::ListSessions
-        );
-    }
-
-    #[test]
-    fn bare_task_command_lists_tasks() {
-        assert_eq!(
-            parse_slash_command("/task").expect("parse"),
-            SlashCommand::ListTasks
         );
     }
 
@@ -377,7 +286,7 @@ mod tests {
         assert!(specs.contains(&("/resume", "")));
         assert!(specs.contains(&("/skill", "")));
         assert!(specs.contains(&("/model", "")));
-        assert!(specs.contains(&("/task", "")));
+        assert!(!specs.contains(&("/task", "")));
         assert!(!specs.contains(&("/team", "")));
         assert!(!specs.contains(&("/session", "open <session_id>")));
         assert!(specs.contains(&("/runs", "")));

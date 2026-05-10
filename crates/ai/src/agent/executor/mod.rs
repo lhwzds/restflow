@@ -319,8 +319,7 @@ impl AgentExecutor {
             .await
     }
 
-    #[deprecated(note = "Use run() or stream-based execution APIs")]
-    pub async fn execute_streaming(
+    pub async fn run_streaming_with_emitter(
         &self,
         config: AgentConfig,
         emitter: &mut dyn StreamEmitter,
@@ -621,7 +620,6 @@ impl AgentExecutor {
             }
 
             // 3. Execute tools with timeout and optional stream events.
-            let chat_session_id = state.context.get("chat_session_id").and_then(Value::as_str);
             let parent_run_id = state.execution_id.as_str();
             let results = self
                 .execute_tools_with_events(
@@ -633,7 +631,6 @@ impl AgentExecutor {
                         max_concurrency: config.max_tool_concurrency,
                         invocation: ToolInvocationContext {
                             parent_run_id: Some(parent_run_id),
-                            chat_session_id,
                             model: Some(current_model.as_str()),
                             provider: Some(current_provider.as_str()),
                         },

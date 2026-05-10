@@ -102,9 +102,7 @@ mod tests {
         assert_eq!(config.max_restarts, 5);
         assert_eq!(config.restart_window, Duration::from_secs(60));
 
-        // Verify nested DaemonConfig defaults.
-        assert!(config.daemon_config.mcp);
-        assert_eq!(config.daemon_config.mcp_port, Some(8787));
+        assert_eq!(config.daemon_config, DaemonConfig::default());
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@
 //! This module defines the available agent types that can be spawned
 //! by the main agent, including their capabilities and system prompts.
 
-use crate::storage::{AgentStorage, agent::StoredAgent};
+use crate::{AgentStorage, StoredAgent};
 use ai::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -356,15 +356,15 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 #[cfg(test)]
 mod tests {
     use super::{AgentDefinitionRegistry, builtin_agents};
-    use crate::models::{AgentNode, ModelId, ModelRef};
     use crate::prompt_files::agents_dir_env_lock;
     use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
-    use crate::storage::{AgentStorage, agent::StoredAgent};
+    use crate::{AgentStorage, StoredAgent};
     use ai::agent::SubagentDefLookup;
     use redb::Database;
     use std::sync::Arc;
     use std::time::Duration;
     use tempfile::tempdir;
+    use types::{AgentNode, ModelId, ModelRef};
 
     fn stored_agent(
         id: &str,
@@ -439,7 +439,7 @@ mod tests {
         let registry = AgentDefinitionRegistry::from_agents(&[stored]);
         let snapshot = registry.lookup("agent-2").unwrap();
         assert!(!snapshot.allowed_tools.is_empty());
-        assert!(!snapshot.allowed_tools.contains(&"manage_tasks".to_string()));
+        assert!(snapshot.allowed_tools.contains(&"bash".to_string()));
     }
 
     #[test]
@@ -455,14 +455,13 @@ mod tests {
     #[test]
     fn test_storage_backed_lookup_cache_holds_snapshot_until_ttl_expires() {
         let temp_dir = tempdir().unwrap();
+        let _env_lock = agents_dir_env_lock();
+        let agents_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+
         let db_path = temp_dir.path().join("agents.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
-
-        let _env_lock = agents_dir_env_lock();
-        let agents_dir = temp_dir.path().join("agents");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
 
         let lookup = StorageBackedSubagentLookup::new(storage.clone())
             .with_cache_ttl(Duration::from_secs(60));
@@ -480,14 +479,13 @@ mod tests {
     #[test]
     fn test_storage_backed_lookup_refreshes_after_ttl() {
         let temp_dir = tempdir().unwrap();
+        let _env_lock = agents_dir_env_lock();
+        let agents_dir = temp_dir.path().join("agents-refresh");
+        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+
         let db_path = temp_dir.path().join("agents_refresh.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
-
-        let _env_lock = agents_dir_env_lock();
-        let agents_dir = temp_dir.path().join("agents-refresh");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
 
         let lookup = StorageBackedSubagentLookup::new(storage.clone())
             .with_cache_ttl(Duration::from_millis(5));

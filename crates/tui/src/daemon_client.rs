@@ -3,20 +3,19 @@ use runtime::AppCore;
 use runtime::daemon::{
     DaemonConfig, IpcClient, is_daemon_available, start_daemon_with_config, stop_daemon,
 };
-use runtime::models::{
-    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill, Task,
-    TaskSpec,
-};
 use runtime::paths;
 use runtime::services::{session::SessionService, skills as skills_service};
-use runtime::storage::agent::{DEFAULT_ASSISTANT_NAME, StoredAgent};
+use runtime::{DEFAULT_ASSISTANT_NAME, StoredAgent};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 use types::request::{ChildRunListQuery, WireModelRef};
+use types::{
+    ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
+    ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill,
+};
 use types::{ChatSessionEvent, IpcRequest, StreamFrame};
 
 use super::event_loop::AppEvent;
@@ -158,29 +157,7 @@ impl TuiDaemonClient {
     }
 
     pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
-        let mut client = self.connect().await?;
-        let tasks: Vec<Task> = client
-            .request_typed(IpcRequest::ListTasks { status: None })
-            .await?;
-        Ok(tasks
-            .into_iter()
-            .filter_map(|task| {
-                let session_id = task.chat_session_id.trim();
-                (!session_id.is_empty()).then(|| session_id.to_string())
-            })
-            .collect())
-    }
-
-    pub async fn list_tasks(&self) -> Result<Vec<Task>> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::ListTasks { status: None })
-            .await
-    }
-
-    pub async fn create_task(&self, spec: TaskSpec) -> Result<Task> {
-        let mut client = self.connect().await?;
-        client.create_task(spec).await
+        Ok(HashSet::new())
     }
 
     pub async fn list_skills(&self) -> Result<Vec<Skill>> {
@@ -237,18 +214,6 @@ impl TuiDaemonClient {
             .await
     }
 
-    pub async fn list_runs_for_task(&self, task_id: &str) -> Result<Vec<RunSummary>> {
-        let mut client = self.connect().await?;
-        client
-            .list_runs(RunListQuery {
-                container: ExecutionContainerRef {
-                    kind: ExecutionContainerKind::Task,
-                    id: task_id.to_string(),
-                },
-            })
-            .await
-    }
-
     pub async fn get_execution_run_thread(&self, run_id: &str) -> Result<ExecutionThread> {
         let mut client = self.connect().await?;
         client
@@ -265,17 +230,6 @@ impl TuiDaemonClient {
                 query: ChildRunListQuery {
                     parent_run_id: parent_run_id.to_string(),
                 },
-            })
-            .await
-    }
-
-    pub async fn control_task(&self, task_id: &str, action: &str) -> Result<Task> {
-        let mut client = self.connect().await?;
-        client
-            .request_typed(IpcRequest::ControlTask {
-                id: task_id.to_string(),
-                action: action.to_string(),
-                approval_id: None,
             })
             .await
     }
@@ -307,40 +261,6 @@ impl TuiDaemonClient {
 
             if let Err(error) = result {
                 let _ = tx.send(AppEvent::Error(format!("Session stream stopped: {error}")));
-            }
-        })
-    }
-
-    pub fn spawn_task_events(
-        &self,
-        task_id: String,
-        tx: mpsc::UnboundedSender<AppEvent>,
-    ) -> tokio::task::JoinHandle<()> {
-        let client = self.clone();
-        tokio::spawn(async move {
-            if !client.daemon_running().await {
-                return;
-            }
-            let mut ipc = match client.connect().await {
-                Ok(ipc) => ipc,
-                Err(error) => {
-                    let _ = tx.send(AppEvent::Error(error.to_string()));
-                    return;
-                }
-            };
-
-            let result = ipc
-                .subscribe_task_events(task_id.clone(), None, None, |event| {
-                    tx.send(AppEvent::TaskEvent(event))
-                        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-                    Ok(())
-                })
-                .await;
-
-            if let Err(error) = result {
-                let _ = tx.send(AppEvent::Error(format!(
-                    "Task stream for {task_id} stopped: {error}"
-                )));
             }
         })
     }

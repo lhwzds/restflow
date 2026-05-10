@@ -9,83 +9,86 @@
 //! - Sub-agent data types and lookup traits
 //! - Provider and model catalog types
 
+pub mod agent;
 pub mod assessment;
-pub mod batch_template;
-pub mod boundary;
 pub mod cache;
 pub mod catalog;
 pub mod config_types;
 pub mod contracts;
 pub mod defaults;
 pub mod error;
-pub mod filtered;
-#[cfg(feature = "http-client")]
-pub mod http_client;
 pub mod llm;
 pub mod model;
 mod model_id;
-mod model_metadata;
 pub mod network;
 pub mod orchestrator;
 mod provider;
-mod provider_meta;
-pub mod registry;
-pub mod security;
-mod selector;
+pub mod run;
+pub mod session;
 pub mod skill;
 pub mod steer;
 pub mod store;
 pub mod subagent;
-pub mod text;
 pub mod tool;
 pub mod toolset;
-pub mod wrapper;
 
 // ── Top-level re-exports ─────────────────────────────────────────────
 
 // Error types
-pub use error::{Result as ToolResult, ToolError};
+pub use error::{
+    Result as ToolResult, ToolError, ValidationError, ValidationErrorResponse,
+    encode_validation_error,
+};
 
 // Assessment types
+pub use agent::{
+    AgentMeta, AgentNode, AgentType, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig,
+    SkillPreflightPolicyMode,
+};
 pub use assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
-    OperationAssessmentIssue, OperationAssessmentStatus, TaskCommandOutcome,
+    OperationAssessmentIssue, OperationAssessmentStatus,
+};
+pub use run::{
+    ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
+    ExecutionThread, RunArtifact, RunArtifactKind, RunKind, RunListQuery, RunSummary, RunTimeline,
+};
+pub use session::{
+    ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
+    ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary,
+    ChatSessionUpdate, ChatTurn, ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus,
+    ExecutionStepInfo, MessageExecution,
 };
 
 // Tool trait and core types
-pub use tool::{SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security};
+pub use tool::{
+    SecretResolver, SecurityDecision, SecurityGate, Tool, ToolAction, ToolErrorCategory,
+    ToolOutput, ToolSchema, check_security,
+};
 
 // Registry and toolset
-pub use registry::ToolRegistry;
-pub use toolset::{Toolset, ToolsetContext};
+pub use toolset::{
+    FilteredToolset, RateLimitWrapper, TimeoutWrapper, ToolPredicate, ToolRegistry, ToolWrapper,
+    Toolset, ToolsetContext, WrappedTool,
+};
 
-// Wrappers
-pub use wrapper::{RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
-
-// Filtered toolset
-pub use filtered::{FilteredToolset, ToolPredicate};
-
-// Security
 pub use network::{
     NetworkAllowlist, NetworkEcosystem, is_restricted_ip, resolve_and_validate_url, validate_url,
 };
-pub use security::{SecurityDecision, SecurityGate, ToolAction};
 
 // Skill types
-pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
+pub use skill::{
+    Skill, SkillContent, SkillFrontmatter, SkillGating, SkillInfo, SkillMeta, SkillProvider,
+    SkillReference, SkillScript, SkillSource, SkillStatus,
+};
 
 // Store traits
 pub use store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, ConfigStore, MarketplaceStore, OpsProvider,
-    ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore,
-    SecurityQueryProvider, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
-    SessionStore, TaskArtifactListRequest, TaskControlRequest, TaskConvertSessionRequest,
-    TaskCreateRequest, TaskDeleteRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskUpdateRequest,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, ConfigStore, OpsProvider, ProcessLog,
+    ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
 };
 
-// Shared orchestration contracts
-pub use batch_template::RuntimeTaskPayload;
 pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan};
 
 // Sub-agent types
@@ -93,21 +96,19 @@ pub use subagent::{
     ContractChildRunSpawnRequest, ContractRunSpawnRequest, InlineChildRunConfig, InlineRunConfig,
     InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion,
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-    SubagentEffectiveLimits, SubagentLimitSource, SubagentManager, SubagentResult, SubagentSpawner,
-    SubagentState, SubagentStatus,
+    SubagentEffectiveLimits, SubagentLimitSource, SubagentManager, SubagentResult, SubagentState,
+    SubagentStatus, resolve_agent_id, spawn_request_from_contract,
 };
 
 // LLM switching
 pub use llm::{ClientKind, LlmProvider, LlmSwitcher, SwapResult};
 
 // Shared model/provider normalization
-pub use model::ModelProvider;
+pub use model::{ModelMetadata, ModelMetadataDTO, ModelProvider, ModelRef};
 pub use model_id::ModelId;
-pub use model_metadata::{ModelMetadata, ModelMetadataDTO};
-pub use provider::Provider;
-pub use provider_meta::{ALL_PROVIDER_META, ProviderMeta, provider_meta};
-pub use selector::{
-    ProviderSelector, parse_model_reference, parse_provider_selector, resolve_available_model_name,
+pub use provider::{
+    ALL_PROVIDER_META, Provider, ProviderMeta, ProviderSelector, parse_model_reference,
+    parse_provider_selector, provider_meta, resolve_available_model_name,
     split_provider_qualified_model,
 };
 
@@ -212,10 +213,9 @@ pub use contracts::request;
 pub use contracts::{
     ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse, ChatSessionEvent,
     CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, ErrorKind,
-    ErrorPayload, ExecutionScope, ExecutionStats, IdResponse, IpcDaemonStatus, IpcRequest,
-    IpcStreamEvent, OkResponse, PromptResponse, ResponseEnvelope, SecretResponse, SteerResponse,
-    StreamEnvelope, StreamEventKind, StreamFrame, TASK_STREAM_EVENT, TaskStreamEvent,
-    ToolDefinition, ToolExecutionResult,
+    ErrorPayload, ExecutionScope, IdResponse, IpcDaemonStatus, IpcRequest, IpcStreamEvent,
+    OkResponse, PromptResponse, ResponseEnvelope, SecretResponse, SteerResponse, StreamEnvelope,
+    StreamFrame, ToolDefinition, ToolExecutionResult,
 };
 
 // Shared default constants
@@ -225,22 +225,16 @@ pub use defaults::{
     DEFAULT_AGENT_CACHE_FILE_MAX_ENTRIES, DEFAULT_AGENT_CACHE_PERMISSION_TTL_SECS,
     DEFAULT_AGENT_CACHE_SEARCH_MAX_ENTRIES, DEFAULT_AGENT_CACHE_SEARCH_TTL_SECS,
     DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
-    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_MAX_ITERATIONS,
-    DEFAULT_AGENT_MAX_TOOL_CALLS, DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
-    DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
-    DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
+    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS,
+    DEFAULT_AGENT_MAX_TOOL_CONCURRENCY, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
+    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
     DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
     DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
     DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
     DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
-    DEFAULT_TASK_MAX_TOOL_CALLS, DEFAULT_TASK_MESSAGE_LIST_LIMIT,
-    DEFAULT_TASK_PROGRESS_EVENT_LIMIT, DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
-    DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
-    DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES, MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES, DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES,
+    MAX_API_WEB_SEARCH_RESULTS,
 };
 
 // Cache types
 pub use cache::{AgentCache, CachedSearchResult, SearchMatch};
-
-// Shared text helpers
-pub use text::floor_char_boundary;

@@ -2,15 +2,15 @@ use anyhow::Result;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use crate::models::{ChatSession, SteerMessage};
 use crate::runtime::orchestrator::kernel::{
     ExecutionKernel, map_anyhow_error, parse_optional_metadata, require_mode_input,
 };
-use crate::runtime::task_runtime::{
+use crate::runtime::session_runner::{
     SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
 };
 use ai::StreamDisplayMode;
 use ai::agent::StreamEmitter;
+use types::{ChatSession, SteerMessage};
 use types::{ExecutionOutcome, ExecutionPlan};
 
 #[derive(Debug, Clone)]

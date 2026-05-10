@@ -1,29 +1,23 @@
+pub mod agent_validation;
 pub mod auth;
-pub(crate) mod boundary;
 pub mod config;
 pub mod daemon;
 mod encryption;
 pub mod features;
-pub mod loader;
-pub mod mcp;
-pub mod models;
 pub mod paths;
-pub mod performance;
 pub mod process;
 pub mod prompt_files;
-pub mod registry;
+mod provider_policy;
 pub mod runtime;
 pub mod secrets;
-pub mod security;
 pub mod services;
-pub mod session_import;
 pub mod session_log;
 pub mod steer;
 pub mod storage;
-mod template;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod time_utils;
+pub mod tools;
 
 pub use config::{
     AgentDefaults, AgentSettings, ApiDefaults, ApiSettings, CliConfig, ConfigDocument,
@@ -32,26 +26,19 @@ pub use config::{
     SystemConfig, SystemSection, effective_config_sources, load_cli_config, load_global_cli_config,
     write_cli_config,
 };
-pub use models::{
-    AgentExecuteResponse, AgentMeta, AgentNode, AgentSecurityConfig, AgentType, ApiKeyConfig,
-    ApprovalStatus, AskMode, BinaryRequirement, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, ChildRunListQuery,
-    CodexCliExecutionMode, CommandPattern, ContinuationConfig, EnvVarRequirement,
-    ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionDetails,
-    ExecutionMode, ExecutionStep, ExecutionStepInfo, ExecutionThread, GatingCheckResult,
-    GatingRequirements, InstallStatus, InstalledSkill, MessageExecution, ModelId, ModelMetadataDTO,
-    ModelRoutingConfig, OsType, PendingApproval, Provider, ResourceLimits, RunArtifact,
-    RunArtifactKind, RunKind, RunListQuery, RunSummary, RunTimeline, SecurityAction,
-    SecurityCheckResult, SecurityMode, SecurityPolicy, Skill, SkillAuthor, SkillDependency,
-    SkillGating, SkillManifest, SkillMeta, SkillPermission, SkillPermissions, SkillReference,
-    SkillScript, SkillSource, SkillStatus, SkillVersion, SteerMessage, SteerSource, StorageMode,
-    Task, TaskControlAction, TaskConversionResult, TaskEvent, TaskEventType, TaskMessage,
-    TaskMessageSource, TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics,
-    TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus, ToolAction, ToolCallInfo, ToolRule,
-    ValidationError, ValidationErrorResponse, VersionRequirement, encode_validation_error,
-};
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
+pub use services::agent_catalog::{AgentStorage, DEFAULT_ASSISTANT_NAME, StoredAgent};
 pub use steer::SteerRegistry;
+pub use types::{
+    AgentMeta, AgentNode, AgentType, ApiKeyConfig, ChatExecutionStatus, ChatMessage, ChatRole,
+    ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
+    ChildRunListQuery, CodexCliExecutionMode, ExecutionContainerKind, ExecutionContainerRef,
+    ExecutionContainerSummary, ExecutionStepInfo, ExecutionThread, MessageExecution, ModelId,
+    ModelMetadataDTO, ModelRoutingConfig, Provider, RunArtifact, RunArtifactKind, RunKind,
+    RunListQuery, RunSummary, RunTimeline, Skill, SkillGating, SkillMeta, SkillReference,
+    SkillScript, SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError,
+    ValidationErrorResponse, encode_validation_error,
+};
 
 use std::sync::Arc;
 use storage::Storage;
@@ -59,8 +46,7 @@ use tracing::{info, warn};
 
 /// Core application state shared between daemon-backed application modes
 ///
-/// After AgentFlow refactor, this struct focuses on:
-/// - Storage access for Agent, Skill, Trigger, and Secrets
+/// AppCore wires together local state, features, and runtime services.
 pub struct AppCore {
     pub storage: Arc<Storage>,
     pub features: Arc<features::Features>,
@@ -94,15 +80,11 @@ impl AppCore {
         let agents = storage.agents.list_agents()?;
         if agents.is_empty() {
             info!("Creating default agent...");
-            let agent_node = models::AgentNode::with_model(models::ModelId::CodexCli);
-            let _created = storage.agents.create_agent(
-                crate::storage::agent::DEFAULT_ASSISTANT_NAME.to_string(),
-                agent_node,
-            )?;
-            info!(
-                "Default agent created: {}",
-                crate::storage::agent::DEFAULT_ASSISTANT_NAME
-            );
+            let agent_node = types::AgentNode::with_model(types::ModelId::CodexCli);
+            let _created = storage
+                .agents
+                .create_agent(DEFAULT_ASSISTANT_NAME.to_string(), agent_node)?;
+            info!("Default agent created: {}", DEFAULT_ASSISTANT_NAME);
         }
         Ok(())
     }

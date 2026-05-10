@@ -1,6 +1,6 @@
-use runtime::models::{ChatRole, ChatSession, ChatTurnEventKind};
 use serde_json::Value;
-use types::{ChatSessionEvent, StreamEventKind, StreamFrame, TaskStreamEvent};
+use types::{ChatRole, ChatSession, ChatTurnEventKind};
+use types::{ChatSessionEvent, StreamFrame};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellMessage {
@@ -25,9 +25,6 @@ pub enum ShellMessage {
         call_id: String,
         success: bool,
         result: String,
-    },
-    TaskNotice {
-        content: String,
     },
     InfoNotice {
         content: String,
@@ -174,9 +171,7 @@ impl ShellMessage {
             | Self::AssistantStream { .. }
             | Self::SystemMessage { .. } => MessageGroup::Conversation,
             Self::ToolCall { .. } | Self::ToolResult { .. } => MessageGroup::ToolActivity,
-            Self::TaskNotice { .. } | Self::InfoNotice { .. } | Self::ErrorNotice { .. } => {
-                MessageGroup::RuntimeNotice
-            }
+            Self::InfoNotice { .. } | Self::ErrorNotice { .. } => MessageGroup::RuntimeNotice,
         }
     }
 }
@@ -347,14 +342,6 @@ pub fn cell_from_message(message: &ShellMessage, assistant_name: &str) -> Transc
             } else {
                 format!("Error: {}", result.trim())
             },
-            group: message.group(),
-            is_active: false,
-        },
-        ShellMessage::TaskNotice { content } => TranscriptCell {
-            kind: TranscriptCellKind::Notice,
-            title: "Task".to_string(),
-            subtitle: None,
-            body: content.clone(),
             group: message.group(),
             is_active: false,
         },
@@ -575,96 +562,15 @@ pub fn message_from_session_event(event: &ChatSessionEvent) -> Option<ShellMessa
     }
 }
 
-pub fn message_from_task_event(event: &TaskStreamEvent) -> ShellMessage {
-    let content = match &event.kind {
-        StreamEventKind::Started {
-            task_name,
-            execution_mode,
-            ..
-        } => format!(
-            "Task {} started: {task_name} via {execution_mode}",
-            event.task_id
-        ),
-        StreamEventKind::Output {
-            text,
-            is_stderr,
-            is_complete,
-        } => {
-            let stream = if *is_stderr { "stderr" } else { "stdout" };
-            let suffix = if *is_complete { "" } else { " (partial)" };
-            format!(
-                "Task {} {stream}{suffix}: {}",
-                event.task_id,
-                text.trim_end()
-            )
-        }
-        StreamEventKind::Progress {
-            phase,
-            percent,
-            details,
-        } => match (percent, details) {
-            (Some(percent), Some(details)) => {
-                format!(
-                    "Task {} progress: {phase} ({percent}%) {details}",
-                    event.task_id
-                )
-            }
-            (Some(percent), None) => {
-                format!("Task {} progress: {phase} ({percent}%)", event.task_id)
-            }
-            (None, Some(details)) => {
-                format!("Task {} progress: {phase} {details}", event.task_id)
-            }
-            (None, None) => format!("Task {} progress: {phase}", event.task_id),
-        },
-        StreamEventKind::Completed {
-            result,
-            duration_ms,
-            ..
-        } => format!(
-            "Task {} completed in {} ms: {}",
-            event.task_id,
-            duration_ms,
-            result.trim()
-        ),
-        StreamEventKind::Failed {
-            error,
-            error_code,
-            duration_ms,
-            recoverable,
-        } => match error_code {
-            Some(error_code) => format!(
-                "Task {} failed in {} ms (recoverable={}): {} [{}]",
-                event.task_id, duration_ms, recoverable, error, error_code
-            ),
-            None => format!(
-                "Task {} failed in {} ms (recoverable={}): {}",
-                event.task_id, duration_ms, recoverable, error
-            ),
-        },
-        StreamEventKind::Interrupted {
-            reason,
-            duration_ms,
-        } => format!(
-            "Task {} interrupted after {} ms: {}",
-            event.task_id, duration_ms, reason
-        ),
-        StreamEventKind::Heartbeat { elapsed_ms } => {
-            format!("Task {} heartbeat at {} ms", event.task_id, elapsed_ms)
-        }
-    };
-    ShellMessage::TaskNotice { content }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         MessageGroup, ShellMessage, TranscriptCellKind, cell_from_message,
-        message_from_session_event, message_from_stream_frame, message_from_task_event,
-        messages_from_session, transcript_cells,
+        message_from_session_event, message_from_stream_frame, messages_from_session,
+        transcript_cells,
     };
-    use runtime::models::{ChatMessage, ChatSession, ChatTurnEventKind};
-    use types::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
+    use types::{ChatMessage, ChatSession, ChatTurnEventKind};
+    use types::{ChatSessionEvent, StreamFrame};
 
     #[test]
     fn appends_and_finalizes_assistant_stream() {
@@ -1003,14 +909,6 @@ mod tests {
         assert!(cells[0].body.contains("Waiting for 2 subagents"));
         assert!(cells[0].body.contains("Output: completed 2 subagents"));
         assert!(cells[0].body.contains("- task-a: TEAM_A_OK"));
-    }
-
-    #[test]
-    fn task_progress_is_projected_to_task_notice() {
-        let event =
-            TaskStreamEvent::progress("task-1", "Compiling", Some(50), Some("main.rs".to_string()));
-        let message = message_from_task_event(&event);
-        assert!(matches!(message, ShellMessage::TaskNotice { .. }));
     }
 
     #[test]

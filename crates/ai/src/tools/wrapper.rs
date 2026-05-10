@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use types::error::Result;
 use types::tool::{Tool, ToolOutput};
-use types::wrapper::ToolWrapper;
+use types::toolset::ToolWrapper;
 
 /// Wrapper that logs tool execution and outcome to a JSONL file.
 pub struct LoggingWrapper {
@@ -111,7 +111,7 @@ mod tests {
     use super::*;
     use types::error::Result;
     use types::tool::Tool;
-    use types::wrapper::WrappedTool;
+    use types::toolset::WrappedTool;
 
     struct EchoTool;
 

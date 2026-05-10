@@ -1,4 +1,4 @@
-use crate::{AppCore, models::Secret};
+use crate::{AppCore, Secret};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 

@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
-use crate::models::{
-    ModelId, Provider, profile_provider_resolution_order, provider_access_profiles,
-    provider_allows_secret_env, provider_default_model, secret_provider_resolution_order,
+use crate::provider_policy::{
+    profile_provider_resolution_order, provider_access_profiles, provider_allows_secret_env,
+    provider_default_model, secret_provider_resolution_order,
 };
 use crate::storage::SecretStorage;
-use types::LlmProvider;
+use types::{ModelId, Provider};
 
 use super::AuthProfileManager;
 
@@ -71,6 +69,7 @@ where
     None
 }
 
+#[cfg(test)]
 fn resolve_provider_api_key(
     secret_storage: Option<&SecretStorage>,
     provider: Provider,
@@ -87,10 +86,11 @@ fn resolve_provider_api_key(
     None
 }
 
+#[cfg(test)]
 pub(crate) fn build_runtime_api_keys(
     secret_storage: Option<&SecretStorage>,
-) -> HashMap<LlmProvider, String> {
-    let mut keys = HashMap::new();
+) -> std::collections::HashMap<types::LlmProvider, String> {
+    let mut keys = std::collections::HashMap::new();
     for provider in Provider::all().iter().copied() {
         if let Some(value) = resolve_provider_api_key(secret_storage, provider) {
             keys.insert(provider.as_llm_provider(), value);
@@ -109,7 +109,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::auth::{Credential, CredentialSource, CredentialWriter};
-    use crate::models::Provider;
+    use types::Provider;
 
     use super::*;
 

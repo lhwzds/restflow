@@ -1,7 +1,6 @@
 mod cli;
 mod commands;
 mod config;
-mod daemon;
 mod error;
 mod executor;
 mod output;
@@ -13,7 +12,6 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands};
-use commands::task as task_commands;
 use runtime::paths;
 use std::io;
 use std::io::IsTerminal;
@@ -130,11 +128,6 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
-    if let Some(Commands::Import(args)) = &cli.command {
-        commands::import::run(args.clone(), cli.format)?;
-        return Ok(());
-    }
-
     if let Some(Commands::Restart(args)) = &cli.command {
         commands::restart::run(*args).await?;
         return Ok(());
@@ -145,10 +138,6 @@ async fn run() -> Result<()> {
         && commands::daemon::run_without_core(command).await?
     {
         return Ok(());
-    }
-
-    if let Some(Commands::Mcp { command }) = &cli.command {
-        return commands::mcp::run(command.clone(), cli.format).await;
     }
 
     // Commands that need direct core access.
@@ -191,17 +180,12 @@ async fn run() -> Result<()> {
             Some(Commands::Maintenance { command }) => {
                 commands::maintenance::run(exec, command, cli.format).await
             }
-            Some(Commands::Security { command }) => {
-                commands::security::run(command, cli.format).await
-            }
-            Some(Commands::Task { command }) => task_commands::run(exec, command, cli.format).await,
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),
             Some(Commands::Status) => Ok(()),
             Some(Commands::Upgrade(_)) => Ok(()),
             Some(Commands::Restart(_)) => Ok(()),
-            Some(Commands::Import(_)) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())
@@ -231,11 +215,6 @@ mod tests {
             true,
             true
         ));
-    }
-
-    #[test]
-    fn task_command_module_is_available() {
-        let _ = crate::commands::task::run;
     }
 
     #[test]

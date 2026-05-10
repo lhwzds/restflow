@@ -11,6 +11,5 @@ pub use tracker::SubagentTracker;
 
 pub use types::subagent::{
     SpawnHandle, SpawnPriority, SubagentCompletion, SubagentConfig, SubagentDefLookup,
-    SubagentDefSnapshot, SubagentDefSummary, SubagentResult, SubagentSpawner, SubagentState,
-    SubagentStatus,
+    SubagentDefSnapshot, SubagentDefSummary, SubagentResult, SubagentState, SubagentStatus,
 };

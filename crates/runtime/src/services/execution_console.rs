@@ -3,12 +3,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::models::{
+use crate::storage::Storage;
+use types::{
     ChatSession, ChatSessionSource, ChatTurn, ChatTurnEventKind, ChatTurnStatus,
     ExecutionContainerKind, ExecutionContainerSummary, ExecutionThread, RunKind, RunListQuery,
     RunSummary, RunTimeline,
 };
-use crate::storage::Storage;
 
 #[derive(Debug, Error)]
 pub enum ExecutionThreadError {

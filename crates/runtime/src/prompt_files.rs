@@ -1,30 +1,19 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const AGENTS_DIR: &str = "agents";
-const TASK_POLICY_FILE: &str = "task.md";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
 const DEFAULT_AGENT_PROMPT: &str = include_str!("../prompts/agents/default.md");
-const TASK_POLICY_PROMPT: &str = include_str!("../prompts/agents/task.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
-    ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_PROMPT)?;
     Ok(())
 }
 
 pub fn load_default_main_agent_prompt() -> Result<String> {
     Ok(DEFAULT_AGENT_PROMPT.to_string())
-}
-
-pub fn load_task_policy(task_id: Option<&str>) -> Result<String> {
-    let path = ensure_prompt_template_file(TASK_POLICY_FILE, TASK_POLICY_PROMPT)?;
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read task policy prompt: {}", path.display()))?;
-    Ok(apply_task_id_placeholder(&content, task_id))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,12 +115,6 @@ pub fn delete_agent_prompt_file_for_agent(
     Ok(())
 }
 
-fn apply_task_id_placeholder(content: &str, task_id: Option<&str>) -> String {
-    let task_id = task_id.unwrap_or("unknown");
-    let replacements = HashMap::from([("{{task_id}}", task_id), ("{{task_id}}", task_id)]);
-    crate::template::render_template_single_pass(content, &replacements)
-}
-
 fn resolve_agents_dir() -> Result<PathBuf> {
     if let Ok(dir) = std::env::var(AGENTS_DIR_ENV)
         && !dir.trim().is_empty()
@@ -147,20 +130,6 @@ pub(crate) fn ensure_agents_dir() -> Result<PathBuf> {
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create agents directory: {}", dir.display()))?;
     Ok(dir)
-}
-
-fn ensure_prompt_template_file(file_name: &str, default_content: &str) -> Result<PathBuf> {
-    let path = ensure_agents_dir()?.join(file_name);
-    if !path.exists() {
-        fs::write(&path, default_content).with_context(|| {
-            format!(
-                "Failed to write default prompt template '{}' to {}",
-                file_name,
-                path.display()
-            )
-        })?;
-    }
-    Ok(path)
 }
 
 fn validate_agent_id(agent_id: &str) -> Result<&str> {
@@ -381,27 +350,14 @@ mod tests {
     }
 
     #[test]
-    fn test_load_task_policy_replaces_task_id() {
-        let _lock = env_lock();
-        let temp = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
-
-        let content = load_task_policy(Some("task-123")).unwrap();
-        assert!(content.contains("task-123"));
-        assert!(!content.contains("{{task_id}}"));
-
-        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_ensure_prompt_templates_creates_files() {
+    fn test_ensure_prompt_templates_does_not_create_global_agent_files() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
 
         ensure_prompt_templates().unwrap();
         assert!(!temp.path().join("default.md").exists());
-        assert!(temp.path().join(TASK_POLICY_FILE).exists());
+        assert!(!temp.path().join("task.md").exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
@@ -520,23 +476,5 @@ mod tests {
         let expected = crate::paths::resolve_restflow_dir().unwrap().join("agents");
         let actual = resolve_agents_dir().unwrap();
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_apply_task_id_placeholder_prevents_double_substitution() {
-        // Test that a malicious task_id containing placeholder syntax doesn't get re-processed
-        let content = "{{task_id}} - {{task_id}}";
-        let malicious_task_id = "injected{{task_id}}"; // If double-substitution happens, this would become "injectedinjected{{task_id}}"
-        let result = apply_task_id_placeholder(content, Some(malicious_task_id));
-
-        // Should NOT perform second substitution - the {{task_id}} in the value should remain as-is
-        assert_eq!(result, "injected{{task_id}} - injected{{task_id}}");
-    }
-
-    #[test]
-    fn test_apply_task_id_placeholder_handles_none() {
-        let content = "{{task_id}} - {{task_id}}";
-        let result = apply_task_id_placeholder(content, None);
-        assert_eq!(result, "unknown - unknown");
     }
 }

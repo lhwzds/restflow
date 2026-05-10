@@ -2,15 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 
-use crate::models::{ChatSession, SteerMessage};
-use crate::runtime::task_runtime::{
-    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionExecutionResult, SessionInputMode,
-    SessionTurnRuntimeOptions,
+use crate::runtime::session_runner::{
+    AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
 };
-use ai::AgentState;
 use ai::agent::StreamEmitter;
+use types::ChatSession;
 use types::{ExecutionOutcome, ExecutionPlan};
 
 #[async_trait]
@@ -30,24 +27,6 @@ pub trait ExecutionBackend: Send + Sync {
         emitter: Option<Box<dyn StreamEmitter>>,
         options: SessionTurnRuntimeOptions,
     ) -> Result<SessionExecutionResult>;
-
-    async fn execute_task(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult>;
-
-    async fn execute_task_from_state(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        state: AgentState,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult>;
 
     async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> Result<ExecutionOutcome>;
 }
@@ -96,29 +75,6 @@ impl ExecutionBackend for AgentRuntimeExecutor {
             options,
         )
         .await
-    }
-
-    async fn execute_task(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        AgentExecutor::execute(self, agent_id, task_id, input, steer_rx, emitter).await
-    }
-
-    async fn execute_task_from_state(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        state: AgentState,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        let _ = (agent_id, task_id, state, steer_rx, emitter);
-        anyhow::bail!("task execution no longer supports persisted agent state")
     }
 
     async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> Result<ExecutionOutcome> {

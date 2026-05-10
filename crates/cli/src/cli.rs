@@ -89,12 +89,6 @@ pub enum Commands {
         command: SecretCommands,
     },
 
-    /// Security management
-    Security {
-        #[command(subcommand)]
-        command: SecurityCommands,
-    },
-
     /// Configuration
     Config {
         #[command(subcommand)]
@@ -107,12 +101,6 @@ pub enum Commands {
         command: MaintenanceCommands,
     },
 
-    /// MCP server management
-    Mcp {
-        #[command(subcommand)]
-        command: McpCommands,
-    },
-
     /// Show system information
     Info,
 
@@ -120,15 +108,6 @@ pub enum Commands {
     Session {
         #[command(subcommand)]
         command: SessionCommands,
-    },
-
-    /// Import local coding-agent history into RestFlow sessions
-    Import(ImportArgs),
-
-    /// Task management
-    Task {
-        #[command(subcommand)]
-        command: TaskCommands,
     },
 }
 
@@ -181,20 +160,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_import_command() {
-        let cli = Cli::try_parse_from(["restflow", "import", "codex", "--dry-run"])
-            .expect("parse import");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Import(super::ImportArgs {
-                source: super::ImportSourceArg::Codex,
-                dry_run: true,
-                ..
-            }))
-        ));
-    }
-
-    #[test]
     fn parses_session_list_command() {
         let cli = Cli::try_parse_from(["restflow", "session", "list"]).expect("parse session list");
         assert!(matches!(
@@ -223,10 +188,7 @@ mod tests {
         assert!(matches!(
             cli.command,
             Some(super::Commands::Daemon {
-                command: super::DaemonCommands::Start {
-                    foreground: false,
-                    mcp_port: None
-                }
+                command: super::DaemonCommands::Start { foreground: false }
             })
         ));
     }
@@ -255,34 +217,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_daemon_restart_with_foreground_and_mcp_port() {
-        let cli = Cli::try_parse_from([
-            "restflow",
-            "daemon",
-            "restart",
-            "--foreground",
-            "--mcp-port",
-            "9900",
-        ])
-        .expect("parse daemon restart options");
+    fn parses_daemon_restart_with_foreground() {
+        let cli = Cli::try_parse_from(["restflow", "daemon", "restart", "--foreground"])
+            .expect("parse daemon restart options");
         assert!(matches!(
             cli.command,
             Some(super::Commands::Daemon {
-                command: super::DaemonCommands::Restart {
-                    foreground: true,
-                    mcp_port: Some(9900)
-                }
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_task_list_command() {
-        let cli = Cli::try_parse_from(["restflow", "task", "list"]).expect("parse task list");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Task {
-                command: super::TaskCommands::List { .. }
+                command: super::DaemonCommands::Restart { foreground: true }
             })
         ));
     }
@@ -325,18 +266,6 @@ mod tests {
             cli.command,
             Some(super::Commands::Maintenance {
                 command: super::MaintenanceCommands::Cleanup
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_mcp_sync_command() {
-        let cli = Cli::try_parse_from(["restflow", "mcp", "sync", "--port", "9900"])
-            .expect("parse mcp sync");
-        assert!(matches!(
-            cli.command,
-            Some(super::Commands::Mcp {
-                command: super::McpCommands::Sync { port: 9900 }
             })
         ));
     }
@@ -402,10 +331,6 @@ pub enum DaemonCommands {
         /// Run in foreground
         #[arg(long)]
         foreground: bool,
-
-        /// MCP HTTP server port (default: 8787, MCP is always enabled)
-        #[arg(long)]
-        mcp_port: Option<u16>,
     },
 
     /// Stop daemon
@@ -419,10 +344,6 @@ pub enum DaemonCommands {
         /// Run in foreground
         #[arg(long)]
         foreground: bool,
-
-        /// MCP HTTP server port (default: 8787, MCP is always enabled)
-        #[arg(long)]
-        mcp_port: Option<u16>,
     },
 }
 
@@ -480,69 +401,6 @@ pub enum MaintenanceCommands {
     Cleanup,
 }
 
-#[derive(Subcommand)]
-pub enum SecurityCommands {
-    /// List pending approvals
-    Approvals,
-
-    /// Approve a request
-    Approve { id: String },
-
-    /// Reject a request
-    Reject { id: String },
-
-    /// Manage allowlist
-    Allowlist {
-        #[command(subcommand)]
-        action: AllowlistAction,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum AllowlistAction {
-    /// Show allowlist
-    Show,
-
-    /// Add allowlist pattern
-    Add {
-        pattern: String,
-
-        #[arg(short, long)]
-        description: Option<String>,
-    },
-
-    /// Remove allowlist pattern by index
-    Remove { index: usize },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum McpCommands {
-    /// List MCP servers
-    List,
-
-    /// Add MCP server
-    Add { name: String, command: String },
-
-    /// Remove MCP server
-    Remove { name: String },
-
-    /// Start MCP server
-    Start { name: String },
-
-    /// Stop MCP server
-    Stop { name: String },
-
-    /// Sync MCP client configuration for Codex
-    Sync {
-        /// RestFlow MCP HTTP port (default: 8787)
-        #[arg(long, default_value_t = 8787)]
-        port: u16,
-    },
-
-    /// Run the built-in MCP server over stdio
-    Serve,
-}
-
 #[derive(Subcommand, Clone)]
 pub enum SessionCommands {
     /// List all sessions
@@ -583,188 +441,5 @@ pub enum SessionCommands {
         /// Maximum number of matching sessions to return
         #[arg(short, long, default_value = "20")]
         limit: usize,
-    },
-}
-
-#[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImportSourceArg {
-    #[default]
-    All,
-    Claude,
-    Codex,
-    Opencode,
-}
-
-#[derive(Args, Clone, Debug, Default)]
-pub struct ImportArgs {
-    /// Source history to import
-    #[arg(value_enum, default_value_t = ImportSourceArg::All)]
-    pub source: ImportSourceArg,
-
-    /// Override the source root path for a single-source import
-    #[arg(long)]
-    pub path: Option<std::path::PathBuf>,
-
-    /// Only report what would be imported
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Overwrite existing RestFlow session JSONL files with the same id
-    #[arg(long)]
-    pub force: bool,
-}
-
-#[derive(Subcommand)]
-pub enum TaskCommands {
-    /// List tasks
-    List {
-        /// Filter by status: active, paused, running, completed, failed, interrupted
-        #[arg(long)]
-        status: Option<String>,
-    },
-
-    /// Show task details
-    Show {
-        /// Task ID
-        id: String,
-    },
-
-    /// Create a task
-    Create {
-        /// Display name
-        #[arg(short, long)]
-        name: String,
-
-        /// Agent ID to execute
-        #[arg(short, long)]
-        agent: String,
-
-        /// Schedule type: once, interval, cron
-        #[arg(long)]
-        schedule: String,
-
-        /// Schedule value (timestamp for once, milliseconds for interval, cron expression for cron)
-        #[arg(long)]
-        schedule_value: Option<String>,
-
-        /// Input prompt
-        #[arg(short, long)]
-        input: Option<String>,
-
-        /// Input template file
-        #[arg(long)]
-        input_template: Option<String>,
-
-        /// Timeout in seconds
-        #[arg(long)]
-        timeout: Option<u64>,
-    },
-
-    /// Convert an existing chat session into a task
-    ConvertSession {
-        /// Source chat session ID
-        session_id: String,
-
-        /// Optional task name
-        #[arg(short, long)]
-        name: Option<String>,
-
-        /// Optional input override (defaults to the latest non-empty user message in session)
-        #[arg(short, long)]
-        input: Option<String>,
-
-        /// Optional schedule type: once, interval, cron
-        #[arg(long)]
-        schedule: Option<String>,
-
-        /// Optional schedule value (required when --schedule is provided)
-        #[arg(long)]
-        schedule_value: Option<String>,
-
-        /// Optional timeout in seconds
-        #[arg(long)]
-        timeout: Option<u64>,
-
-        /// Trigger immediate run after conversion
-        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-        run_now: bool,
-    },
-
-    /// Update a task
-    Update {
-        /// Task ID
-        id: String,
-
-        #[arg(short, long)]
-        name: Option<String>,
-
-        #[arg(short, long)]
-        input: Option<String>,
-
-        #[arg(long)]
-        schedule: Option<String>,
-
-        #[arg(long)]
-        schedule_value: Option<String>,
-
-        #[arg(long)]
-        timeout: Option<u64>,
-    },
-
-    /// Delete a task
-    Delete {
-        /// Task ID
-        id: String,
-
-        /// Approval ID returned by a prior confirmation_required response
-        #[arg(long)]
-        approval_id: Option<String>,
-    },
-
-    /// Control a task (start, pause, resume, stop, run_now)
-    Control {
-        /// Task ID
-        id: String,
-
-        /// Action: start, pause, resume, stop, run_now
-        #[arg(short, long)]
-        action: String,
-
-        /// Approval ID returned by a prior confirmation_required response
-        #[arg(long)]
-        approval_id: Option<String>,
-    },
-
-    /// Show task progress
-    Progress {
-        /// Task ID
-        id: String,
-
-        /// Number of events to show
-        #[arg(short, long, default_value = "10")]
-        limit: usize,
-    },
-
-    /// Inspect persisted per-run event logs for a task
-    RunLog {
-        /// Task ID
-        id: String,
-
-        /// Specific run ID to read (use "legacy" for the old task-level log)
-        #[arg(long)]
-        run_id: Option<String>,
-
-        /// Max events to print from the end of the run log
-        #[arg(short, long, default_value = "200")]
-        limit: usize,
-    },
-
-    /// Send a message to a running task
-    Send {
-        /// Task ID
-        id: String,
-
-        /// Message content
-        message: String,
     },
 }

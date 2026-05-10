@@ -7,6 +7,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, Header
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::build_http_client;
 use crate::error::{AiError, Result};
 use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk,
@@ -14,7 +15,6 @@ use crate::llm::client::{
 };
 use crate::llm::pricing::calculate_cost;
 use crate::llm::retry::response_to_error;
-use types::http_client::build_http_client;
 
 /// Anthropic client
 pub struct AnthropicClient {

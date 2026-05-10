@@ -1,9 +1,9 @@
 //! Skill-aware tool allowlist activation helpers.
 
-use crate::models::{AgentNode, Skill};
 use crate::services::skill_mentions::parse_skill_mentions;
 use anyhow::{Result, bail};
 use std::collections::{HashMap, HashSet};
+use types::{AgentNode, Skill};
 
 use super::effective_main_agent_tool_names;
 
@@ -212,7 +212,7 @@ fn format_skill_activation_issues(issues: &[SkillActivationIssue]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::SkillSource;
+    use types::SkillSource;
 
     fn skill(id: &str, suggested_tools: &[&str]) -> Skill {
         let mut skill = Skill::new(

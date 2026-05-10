@@ -49,16 +49,8 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.system.worker_count),
     ]);
     table.add_row(vec![
-        Cell::new("system.task_timeout_seconds"),
-        Cell::new(config.system.task_timeout_seconds),
-    ]);
-    table.add_row(vec![
         Cell::new("system.stall_timeout_seconds"),
         Cell::new(config.system.stall_timeout_seconds),
-    ]);
-    table.add_row(vec![
-        Cell::new("system.task_api_timeout_seconds"),
-        Cell::new(format_optional_u64(config.system.task_api_timeout_seconds)),
     ]);
     table.add_row(vec![
         Cell::new("system.chat_response_timeout_seconds"),
@@ -73,10 +65,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     table.add_row(vec![
         Cell::new("system.chat_session_retention_days"),
         Cell::new(config.system.chat_session_retention_days),
-    ]);
-    table.add_row(vec![
-        Cell::new("system.task_retention_days"),
-        Cell::new(config.system.task_retention_days),
     ]);
     table.add_row(vec![
         Cell::new("system.log_file_retention_days"),
@@ -151,14 +139,6 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(format_optional_u64(config.agent.max_wall_clock_secs)),
     ]);
     table.add_row(vec![
-        Cell::new("agent.default_task_timeout_secs"),
-        Cell::new(config.agent.default_task_timeout_secs),
-    ]);
-    table.add_row(vec![
-        Cell::new("agent.default_max_duration_secs"),
-        Cell::new(config.agent.default_max_duration_secs),
-    ]);
-    table.add_row(vec![
         Cell::new("agent.fallback_models"),
         Cell::new(
             config
@@ -174,20 +154,8 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.api.session_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api.task_progress_event_limit"),
-        Cell::new(config.api.task_progress_event_limit),
-    ]);
-    table.add_row(vec![
-        Cell::new("api.task_message_list_limit"),
-        Cell::new(config.api.task_message_list_limit),
-    ]);
-    table.add_row(vec![
-        Cell::new("runtime.task_runner_poll_interval_ms"),
-        Cell::new(config.runtime.task_runner_poll_interval_ms),
-    ]);
-    table.add_row(vec![
-        Cell::new("runtime.task_runner_max_concurrent_tasks"),
-        Cell::new(config.runtime.task_runner_max_concurrent_tasks),
+        Cell::new("api.web_search_num_results"),
+        Cell::new(config.api.web_search_num_results),
     ]);
     table.add_row(vec![
         Cell::new("runtime.chat_max_session_history"),
@@ -238,19 +206,12 @@ async fn get_config_value(
     let value = match key {
         "system" => json!(config.system),
         "system.worker_count" => json!(config.system.worker_count),
-        "system.task_timeout_seconds" => json!(config.system.task_timeout_seconds),
         "system.stall_timeout_seconds" => json!(config.system.stall_timeout_seconds),
-        "system.task_api_timeout_seconds" => {
-            json!(config.system.task_api_timeout_seconds)
-        }
         "system.chat_response_timeout_seconds" => {
             json!(config.system.chat_response_timeout_seconds)
         }
         "system.max_retries" => json!(config.system.max_retries),
         "system.chat_session_retention_days" => json!(config.system.chat_session_retention_days),
-        "system.task_retention_days" => {
-            json!(config.system.task_retention_days)
-        }
         "system.log_file_retention_days" => json!(config.system.log_file_retention_days),
         "system.experimental_features" => json!(config.system.experimental_features),
         "agent" => json!(config.agent),
@@ -270,24 +231,11 @@ async fn get_config_value(
         "agent.prune_tool_max_chars" => json!(config.agent.prune_tool_max_chars),
         "agent.compact_preserve_tokens" => json!(config.agent.compact_preserve_tokens),
         "agent.max_wall_clock_secs" => json!(config.agent.max_wall_clock_secs),
-        "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
-        "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
         "agent.fallback_models" => json!(config.agent.fallback_models),
         "api" => json!(config.api),
         "api.session_list_limit" => json!(config.api.session_list_limit),
-        "api.task_progress_event_limit" => {
-            json!(config.api.task_progress_event_limit)
-        }
-        "api.task_message_list_limit" => {
-            json!(config.api.task_message_list_limit)
-        }
+        "api.web_search_num_results" => json!(config.api.web_search_num_results),
         "runtime" => json!(config.runtime),
-        "runtime.task_runner_poll_interval_ms" => {
-            json!(config.runtime.task_runner_poll_interval_ms)
-        }
-        "runtime.task_runner_max_concurrent_tasks" => {
-            json!(config.runtime.task_runner_max_concurrent_tasks)
-        }
         "runtime.chat_max_session_history" => {
             json!(config.runtime.chat_max_session_history)
         }
@@ -343,14 +291,8 @@ async fn set_config_value(
             "system.worker_count" => {
                 config.worker_count = parse_value(value)?;
             }
-            "system.task_timeout_seconds" => {
-                config.task_timeout_seconds = parse_value(value)?;
-            }
             "system.stall_timeout_seconds" => {
                 config.stall_timeout_seconds = parse_value(value)?;
-            }
-            "system.task_api_timeout_seconds" => {
-                config.task_api_timeout_seconds = parse_optional_u64(value)?;
             }
             "system.chat_response_timeout_seconds" => {
                 config.chat_response_timeout_seconds = parse_optional_u64(value)?;
@@ -360,9 +302,6 @@ async fn set_config_value(
             }
             "system.chat_session_retention_days" => {
                 config.chat_session_retention_days = parse_value(value)?;
-            }
-            "system.task_retention_days" => {
-                config.task_retention_days = parse_value(value)?;
             }
             "system.log_file_retention_days" => {
                 config.log_file_retention_days = parse_value(value)?;
@@ -418,29 +357,14 @@ async fn set_config_value(
             "agent.max_wall_clock_secs" => {
                 config.agent.max_wall_clock_secs = parse_optional_u64(value)?;
             }
-            "agent.default_task_timeout_secs" => {
-                config.agent.default_task_timeout_secs = parse_value(value)?;
-            }
-            "agent.default_max_duration_secs" => {
-                config.agent.default_max_duration_secs = parse_value(value)?;
-            }
             "agent.fallback_models" => {
                 config.agent.fallback_models = parse_optional_string_list(value)?;
             }
             "api.session_list_limit" => {
                 config.api_defaults.session_list_limit = parse_value(value)?;
             }
-            "api.task_progress_event_limit" => {
-                config.api_defaults.task_progress_event_limit = parse_value(value)?;
-            }
-            "api.task_message_list_limit" => {
-                config.api_defaults.task_message_list_limit = parse_value(value)?;
-            }
-            "runtime.task_runner_poll_interval_ms" => {
-                config.runtime_defaults.task_runner_poll_interval_ms = parse_value(value)?;
-            }
-            "runtime.task_runner_max_concurrent_tasks" => {
-                config.runtime_defaults.task_runner_max_concurrent_tasks = parse_value(value)?;
+            "api.web_search_num_results" => {
+                config.api_defaults.web_search_num_results = parse_value(value)?;
             }
             "runtime.chat_max_session_history" => {
                 config.runtime_defaults.chat_max_session_history = parse_value(value)?;

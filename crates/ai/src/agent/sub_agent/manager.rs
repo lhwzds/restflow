@@ -4,7 +4,7 @@ use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::ToolRegistry;
 use types::AgentOrchestrator;
 use types::ToolError;
-use types::boundary::subagent::spawn_request_from_contract;
+use types::subagent::spawn_request_from_contract;
 use types::subagent::{
     ContractRunSpawnRequest, SpawnHandle, SubagentCompletion, SubagentConfig, SubagentDefLookup,
     SubagentDefSummary, SubagentManager, SubagentState,

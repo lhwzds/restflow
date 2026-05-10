@@ -100,44 +100,44 @@ async fn process_get_available_models_returns_openai_catalog_when_secret_exists(
 
     match response {
         IpcResponse::Success(value) => {
-            let models: Vec<crate::models::ModelMetadataDTO> =
+            let models: Vec<types::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
             assert!(
                 models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::OpenAI)
+                    .any(|model| model.provider == types::Provider::OpenAI)
             );
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::Gpt5_4)
+                    .any(|model| model.model == types::ModelId::Gpt5_4)
             );
             assert!(
                 !models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::Gpt5_1)
+                    .any(|model| model.model == types::ModelId::Gpt5_1)
             );
             assert!(
                 !models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::Gpt5_2)
+                    .any(|model| model.model == types::ModelId::Gpt5_2)
             );
             assert!(
                 !models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::OpenAI
-                        && model.model == crate::models::ModelId::CodexCli)
+                    .any(|model| model.provider == types::Provider::OpenAI
+                        && model.model == types::ModelId::CodexCli)
             );
             assert!(
                 !models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::OpenCodeCli)
+                    .any(|model| model.model == types::ModelId::OpenCodeCli)
             );
             assert!(
                 models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::Codex
-                        && model.model == crate::models::ModelId::Gpt5_4Codex)
+                    .any(|model| model.provider == types::Provider::Codex
+                        && model.model == types::ModelId::Gpt5_4Codex)
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -162,22 +162,22 @@ async fn process_get_available_models_returns_minimax_m27_catalog_when_secret_ex
 
     match response {
         IpcResponse::Success(value) => {
-            let models: Vec<crate::models::ModelMetadataDTO> =
+            let models: Vec<types::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
             assert!(
                 models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::MiniMax)
+                    .any(|model| model.provider == types::Provider::MiniMax)
             );
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::MiniMaxM27)
+                    .any(|model| model.model == types::ModelId::MiniMaxM27)
             );
             assert!(
                 models
                     .iter()
-                    .any(|model| { model.model == crate::models::ModelId::MiniMaxM27Highspeed })
+                    .any(|model| { model.model == types::ModelId::MiniMaxM27Highspeed })
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -213,13 +213,13 @@ async fn process_get_available_models_returns_codex_catalog_without_secret() {
 
     match response {
         IpcResponse::Success(value) => {
-            let models: Vec<crate::models::ModelMetadataDTO> =
+            let models: Vec<types::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
             assert!(
                 models
                     .iter()
-                    .any(|model| model.provider == crate::models::Provider::Codex
-                        && model.model == crate::models::ModelId::Gpt5_4Codex)
+                    .any(|model| model.provider == types::Provider::Codex
+                        && model.model == types::ModelId::Gpt5_4Codex)
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -252,22 +252,24 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
 
     match response {
         IpcResponse::Success(value) => {
-            let models: Vec<crate::models::ModelMetadataDTO> =
+            let models: Vec<types::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
             let providers: std::collections::HashSet<_> =
                 models.iter().map(|model| model.provider).collect();
             assert_eq!(
                 providers,
                 std::collections::HashSet::from([
-                    crate::models::Provider::Codex,
-                    crate::models::Provider::OpenAI,
-                    crate::models::Provider::MiniMaxCodingPlan,
-                    crate::models::Provider::ZaiCodingPlan,
+                    types::Provider::Codex,
+                    types::Provider::OpenAI,
+                    types::Provider::MiniMaxCodingPlan,
+                    types::Provider::ZaiCodingPlan,
                 ])
             );
-            assert!(models.iter().any(|model| {
-                model.model == crate::models::ModelId::MiniMaxM25CodingPlanHighspeed
-            }));
+            assert!(
+                models
+                    .iter()
+                    .any(|model| { model.model == types::ModelId::MiniMaxM25CodingPlanHighspeed })
+            );
         }
         other => panic!("expected success response, got {other:?}"),
     }

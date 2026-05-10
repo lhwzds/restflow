@@ -13,14 +13,10 @@ pub type IpcResponse = ResponseEnvelope<Value>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::TaskStreamEvent;
 
     #[test]
     fn test_ipc_request_reexport_roundtrip() {
-        let request = IpcRequest::HandleTaskApproval {
-            id: "task-1".to_string(),
-            approved: true,
-        };
+        let request = IpcRequest::Ping;
 
         let json = serde_json::to_string(&request).unwrap();
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
@@ -91,27 +87,6 @@ mod tests {
             assert_eq!(stream_id, "stream-1");
         } else {
             panic!("Wrong variant");
-        }
-    }
-
-    #[test]
-    fn test_task_stream_frame_serialization() {
-        let event =
-            TaskStreamEvent::progress("agent-42", "progress", Some(100), Some("done".to_string()));
-        let frame = StreamFrame::Event {
-            event: IpcStreamEvent::Task(event.clone()),
-        };
-        let json = serde_json::to_string(&frame).unwrap();
-        assert!(json.contains("\"task\""));
-        let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
-
-        match parsed {
-            StreamFrame::Event {
-                event: IpcStreamEvent::Task(parsed_event),
-            } => {
-                assert_eq!(parsed_event.task_id, event.task_id);
-            }
-            _ => panic!("Wrong variant"),
         }
     }
 }

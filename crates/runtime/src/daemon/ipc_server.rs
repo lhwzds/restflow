@@ -3,22 +3,17 @@ use super::ipc_protocol::{
     MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
 };
 use super::session_events::subscribe_session_events;
-use super::subscribe_task_events;
 use crate::AgentDefaults;
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
-use crate::models::{
-    AgentNode, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-    ChatTurnEventKind, MessageExecution, ModelId, SteerMessage, SteerSource,
-};
 use crate::process::ProcessRegistry;
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
+use crate::runtime::session_runner::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::session_turn::{
     build_turn_persistence_payload, detect_voice_message, hydrate_voice_message_metadata,
     preprocess_voice_message, replace_latest_user_message_content,
 };
 use crate::runtime::subagent::StorageBackedSubagentLookup;
-use crate::runtime::task_runtime::{AgentRuntimeExecutor, SessionInputMode};
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     session::{PersistInteractiveTurnRequest, SessionService},
@@ -43,6 +38,10 @@ use tracing::{debug, error, info, warn};
 use types::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 use types::ExecutionScope;
 use types::store::ReplySender;
+use types::{
+    AgentNode, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
+    ChatTurnEventKind, MessageExecution, ModelId, SteerMessage, SteerSource,
+};
 use uuid::Uuid;
 
 #[path = "ipc_server/dispatch.rs"]
@@ -441,7 +440,6 @@ impl IpcServer {
             match serde_json::from_slice::<IpcRequest>(&buf) {
                 Ok(
                     request @ (IpcRequest::ExecuteChatSessionStream { .. }
-                    | IpcRequest::SubscribeTaskEvents { .. }
                     | IpcRequest::SubscribeSessionEvents),
                 ) => match Self::open_stream(core.clone(), request).await {
                     Ok(mut rx) => {
@@ -494,11 +492,6 @@ impl IpcServer {
             IpcRequest::ExecuteChatSessionStream { .. } => {
                 anyhow::bail!("Foreground chat streaming runs in the TUI process")
             }
-            IpcRequest::SubscribeTaskEvents {
-                task_id,
-                run_id,
-                scope,
-            } => Self::open_task_event_stream(task_id, run_id, scope).await,
             IpcRequest::SubscribeSessionEvents => Self::open_session_event_stream().await,
             other => anyhow::bail!("Unsupported streaming request: {:?}", other),
         }
@@ -639,66 +632,6 @@ impl IpcServer {
             .lock()
             .await
             .insert(stream_id.clone(), steer_tx);
-
-        Ok(rx)
-    }
-
-    async fn open_task_event_stream(
-        task_id: String,
-        run_id: Option<String>,
-        scope: Option<ExecutionScope>,
-    ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
-        let stream_id = format!("task-{}", Uuid::new_v4());
-        let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
-        let mut receiver = subscribe_task_events();
-        tx.send(StreamFrame::Start {
-            stream_id: stream_id.clone(),
-        })?;
-        let include_all = task_id.trim().is_empty() || task_id == "*";
-        tokio::spawn(async move {
-            loop {
-                let event = match receiver.recv().await {
-                    Ok(event) => event,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(
-                            skipped,
-                            task_id = %task_id,
-                            "Task event stream lagged; dropping oldest events"
-                        );
-                        continue;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        let _ = tx.send(StreamFrame::error(500, "Task event stream closed"));
-                        break;
-                    }
-                };
-
-                if !include_all && event.task_id != task_id {
-                    continue;
-                }
-                if let Some(run_id) = run_id.as_deref()
-                    && event.run_id.as_deref() != Some(run_id)
-                {
-                    continue;
-                }
-                if let Some(scope) = scope.as_ref()
-                    && event.scope.as_ref() != Some(scope)
-                {
-                    continue;
-                }
-
-                if tx
-                    .send(StreamFrame::Event {
-                        event: IpcStreamEvent::Task(event),
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-
-            debug!(stream_id = %stream_id, "Background event subscription ended");
-        });
 
         Ok(rx)
     }

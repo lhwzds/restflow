@@ -1,0 +1,197 @@
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use std::collections::BTreeMap;
+
+use crate::{ChatSessionSource, ChatTurnEvent};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunArtifactKind {
+    FinalOutput,
+    ToolOutput,
+    Report,
+    Data,
+    File,
+    Artifact,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct RunArtifact {
+    pub id: String,
+    pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    pub kind: RunArtifactKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    pub size_bytes: usize,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<BTreeMap<String, String>>,
+}
+
+impl RunArtifact {
+    pub fn has_payload(&self) -> bool {
+        self.content
+            .as_deref()
+            .is_some_and(|content| !content.trim().is_empty())
+            || self
+                .content_ref
+                .as_deref()
+                .is_some_and(|content_ref| !content_ref.trim().is_empty())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionContainerKind {
+    Workspace,
+    Task,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunKind {
+    WorkspaceRun,
+    TaskRun,
+    SubagentRun,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct ExecutionContainerSummary {
+    pub id: String,
+    pub kind: ExecutionContainerKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub session_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_channel: Option<ChatSessionSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_conversation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct ExecutionContainerRef {
+    pub kind: ExecutionContainerKind,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct RunSummary {
+    pub id: String,
+    pub kind: RunKind,
+    pub container_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run_id: Option<String>,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    pub status: String,
+    pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_channel: Option<ChatSessionSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub event_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct RunListQuery {
+    pub container: ExecutionContainerRef,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct ChildRunListQuery {
+    pub parent_run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct ExecutionThread {
+    pub focus: RunSummary,
+    pub timeline: RunTimeline,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct RunTimeline {
+    #[serde(default)]
+    pub events: Vec<ChatTurnEvent>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_types_expose_canonical_surface() {
+        let summary = RunSummary {
+            id: "run-1".to_string(),
+            kind: RunKind::TaskRun,
+            container_id: "task-1".to_string(),
+            root_run_id: Some("run-1".to_string()),
+            title: "Example Run".to_string(),
+            subtitle: None,
+            status: "completed".to_string(),
+            updated_at: 1,
+            started_at: Some(1),
+            ended_at: Some(2),
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-1".to_string()),
+            task_id: Some("task-1".to_string()),
+            parent_run_id: None,
+            agent_id: Some("agent-1".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: Some("gpt-5.4".to_string()),
+            provider: Some("openai".to_string()),
+            event_count: 3,
+        };
+        let query = RunListQuery {
+            container: ExecutionContainerRef {
+                kind: ExecutionContainerKind::Task,
+                id: "task-1".to_string(),
+            },
+        };
+        let child_query = ChildRunListQuery {
+            parent_run_id: "run-1".to_string(),
+        };
+
+        assert_eq!(summary.run_id.as_deref(), Some("run-1"));
+        assert_eq!(query.container.id, "task-1");
+        assert_eq!(child_query.parent_run_id, "run-1");
+    }
+}

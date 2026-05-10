@@ -5,28 +5,24 @@ use sha2::{Digest, Sha256};
 use types::ModelProvider as SharedModelProvider;
 use types::request::{AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest};
 
+use crate::AgentStorage;
 use crate::AppCore;
+use crate::StoredAgent;
 use crate::auth::{
     AuthManagerConfig, AuthProfileManager, provider_available as auth_provider_available,
     resolve_model_from_credentials, secret_exists,
 };
-use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDefinitionLookup;
-use crate::services::session::SessionService;
-use crate::services::task_conversion::derive_conversion_input;
-use crate::storage::agent::StoredAgent;
-use crate::storage::{AgentStorage, ConfigStorage, SecretStorage, Storage};
-use tools::ToolError;
+use crate::storage::{ConfigStorage, SecretStorage, Storage};
+use crate::tools::ToolError;
 use types::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, OperationAssessmentStatus,
 };
-use types::boundary::subagent::spawn_request_from_contract as run_spawn_request_from_contract;
-use types::store::{
-    AgentCreateRequest, AgentUpdateRequest, TaskControlRequest, TaskConvertSessionRequest,
-    TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
-};
+use types::store::{AgentCreateRequest, AgentUpdateRequest};
+use types::subagent::spawn_request_from_contract as run_spawn_request_from_contract;
 use types::subagent::{SpawnRequest as RunSpawnRequest, SubagentDefLookup as RunDefinitionLookup};
+use types::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 
 #[derive(Clone)]
 pub struct OperationAssessorAdapter {
@@ -36,7 +32,6 @@ pub struct OperationAssessorAdapter {
 #[derive(Clone)]
 struct AssessmentContext {
     secrets: SecretStorage,
-    session_service: SessionService,
     config: ConfigStorage,
     agents: AgentStorage,
 }
@@ -49,7 +44,6 @@ impl AssessmentContext {
     fn from_storage(storage: &Storage) -> Self {
         Self {
             secrets: storage.secrets.clone(),
-            session_service: SessionService::from_storage(storage),
             config: storage.config.clone(),
             agents: storage.agents.clone(),
         }
@@ -88,69 +82,6 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         assess_agent_update_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_task_create(
-        &self,
-        request: TaskCreateRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_create_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_task_convert_session(
-        &self,
-        request: TaskConvertSessionRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_convert_session_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_task_update(
-        &self,
-        request: TaskUpdateRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_update_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_task_delete(
-        &self,
-        request: TaskDeleteRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_delete_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_task_control(
-        &self,
-        request: TaskControlRequest,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_control_with_context(&self.context, request)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
-    }
-
-    async fn assess_task_template(
-        &self,
-        operation: &str,
-        intent: OperationAssessmentIntent,
-        agent_ids: Vec<String>,
-        template_mode: bool,
-    ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_task_template_with_context(
-            &self.context,
-            operation,
-            intent,
-            agent_ids,
-            template_mode,
-        )
-        .await
-        .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_subagent_spawn(
@@ -232,20 +163,6 @@ fn issue(
         field: field.map(ToOwned::to_owned),
         suggestion: suggestion.map(ToOwned::to_owned),
     }
-}
-
-fn task_storage_removed_assessment(
-    operation: impl Into<String>,
-    intent: OperationAssessmentIntent,
-) -> OperationAssessment {
-    let mut assessment = OperationAssessment::ok(operation, intent);
-    assessment.blockers.push(issue(
-        "task_storage_removed",
-        "Task storage has been removed; use session/task mode runtime state instead.",
-        None,
-        Some("Run the work through a session instead of the legacy task storage API."),
-    ));
-    finalize_assessment(assessment)
 }
 
 fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessmentIssue> {
@@ -351,7 +268,7 @@ fn build_approval_id(
 
 fn parse_agent_node(value: ContractAgentNode) -> Result<AgentNode> {
     AgentNode::try_from_contract_node(value)
-        .map_err(|errors| anyhow!(crate::models::encode_validation_error(errors)))
+        .map_err(|errors| anyhow!(types::encode_validation_error(errors)))
 }
 
 async fn load_agent(context: &AssessmentContext, id_or_prefix: &str) -> Result<StoredAgent> {
@@ -620,192 +537,6 @@ async fn assess_agent_update_with_context(
     .await
 }
 
-pub async fn assess_task_create(
-    core: &Arc<AppCore>,
-    request: TaskCreateRequest,
-) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_task_create_with_context(&context, request).await
-}
-
-async fn assess_task_create_with_context(
-    context: &AssessmentContext,
-    request: TaskCreateRequest,
-) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(context).await?;
-    let stored_agent = load_agent(context, &request.agent_id).await?;
-    assess_agent_node(
-        context,
-        &auth_manager,
-        "create_task",
-        OperationAssessmentIntent::Save,
-        &stored_agent.agent,
-        false,
-    )
-    .await
-}
-
-pub async fn assess_task_convert_session(
-    core: &Arc<AppCore>,
-    request: TaskConvertSessionRequest,
-) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_task_convert_session_with_context(&context, request).await
-}
-
-async fn assess_task_convert_session_with_context(
-    context: &AssessmentContext,
-    request: TaskConvertSessionRequest,
-) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(context).await?;
-    let session = context
-        .session_service
-        .get_session_view(&request.session_id)?
-        .ok_or_else(|| anyhow!("Session not found: {}", request.session_id))?;
-    let intent = if request.run_now.unwrap_or(false) {
-        OperationAssessmentIntent::Run
-    } else {
-        OperationAssessmentIntent::Save
-    };
-    if derive_conversion_input(request.input.clone(), &session.messages).is_none() {
-        let mut assessment = OperationAssessment::ok("convert_session_to_task", intent);
-        assessment.blockers.push(issue(
-            "missing_conversion_input",
-            "Cannot convert session: no non-empty user message found; please provide input.",
-            Some("input"),
-            Some("Provide a non-empty input value before converting the session."),
-        ));
-        return Ok(finalize_assessment(assessment));
-    }
-    let stored_agent = load_agent(context, &session.agent_id).await?;
-    let assessment = assess_agent_node(
-        context,
-        &auth_manager,
-        "convert_session_to_task",
-        intent,
-        &stored_agent.agent,
-        false,
-    )
-    .await?;
-
-    Ok(finalize_assessment_with_seed(
-        assessment,
-        Some(serde_json::json!({
-            "session_id": request.session_id,
-        })),
-    ))
-}
-
-pub async fn assess_task_update(
-    core: &Arc<AppCore>,
-    request: TaskUpdateRequest,
-) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_task_update_with_context(&context, request).await
-}
-
-async fn assess_task_update_with_context(
-    context: &AssessmentContext,
-    request: TaskUpdateRequest,
-) -> Result<OperationAssessment> {
-    let _ = (context, request);
-    Ok(task_storage_removed_assessment(
-        "update_task",
-        OperationAssessmentIntent::Save,
-    ))
-}
-
-pub async fn assess_task_delete(
-    core: &Arc<AppCore>,
-    request: TaskDeleteRequest,
-) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_task_delete_with_context(&context, request).await
-}
-
-async fn assess_task_delete_with_context(
-    context: &AssessmentContext,
-    request: TaskDeleteRequest,
-) -> Result<OperationAssessment> {
-    let _ = (context, request);
-    Ok(task_storage_removed_assessment(
-        "delete_task",
-        OperationAssessmentIntent::Save,
-    ))
-}
-
-pub async fn assess_task_control(
-    core: &Arc<AppCore>,
-    request: TaskControlRequest,
-) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_task_control_with_context(&context, request).await
-}
-
-async fn assess_task_control_with_context(
-    context: &AssessmentContext,
-    request: TaskControlRequest,
-) -> Result<OperationAssessment> {
-    let _ = (context, request);
-    Ok(task_storage_removed_assessment(
-        "control_task",
-        OperationAssessmentIntent::Run,
-    ))
-}
-
-pub async fn assess_task_template(
-    core: &Arc<AppCore>,
-    operation: &str,
-    intent: OperationAssessmentIntent,
-    agent_ids: Vec<String>,
-    template_mode: bool,
-) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_task_template_with_context(&context, operation, intent, agent_ids, template_mode).await
-}
-
-async fn assess_task_template_with_context(
-    context: &AssessmentContext,
-    operation: &str,
-    intent: OperationAssessmentIntent,
-    agent_ids: Vec<String>,
-    template_mode: bool,
-) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(context).await?;
-    let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());
-
-    for agent_id in agent_ids {
-        match load_agent(context, &agent_id).await {
-            Ok(agent) => {
-                let child = assess_agent_node(
-                    context,
-                    &auth_manager,
-                    operation,
-                    intent.clone(),
-                    &agent.agent,
-                    false,
-                )
-                .await?;
-                merge_assessment(&mut assessment, child, &format!("Agent '{}'", agent.name));
-            }
-            Err(error) => {
-                let destination = if template_mode { "template" } else { "batch" };
-                assessment.blockers.push(issue(
-                    "agent_not_found",
-                    format!(
-                        "Referenced agent '{}' for {} operation was not found: {}",
-                        agent_id, destination, error
-                    ),
-                    Some("agent_id"),
-                    Some("Choose an existing agent before continuing."),
-                ));
-            }
-        }
-    }
-
-    Ok(finalize_assessment(assessment))
-}
-
 pub async fn assess_subagent_spawn(
     core: &Arc<AppCore>,
     operation: &str,
@@ -946,11 +677,8 @@ async fn assess_run_batch_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ApiKeyConfig, ChatMessage, ModelRef};
     use crate::prompt_files;
-    use crate::services::agent::create_agent;
     use tempfile::tempdir;
-    use types::TaskConvertSessionRequest;
     use types::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
 
     struct AgentsDirEnvGuard {
@@ -971,16 +699,6 @@ mod tests {
         }
     }
 
-    fn save_chat_session(core: &AppCore, session: &crate::models::ChatSession) {
-        core.storage
-            .file_sessions
-            .write_session(
-                &crate::session_log::FileSession::from_chat_session(session),
-                true,
-            )
-            .expect("session");
-    }
-
     #[allow(clippy::await_holding_lock)]
     async fn create_test_core_isolated() -> (
         Arc<AppCore>,
@@ -999,22 +717,6 @@ mod tests {
                 .unwrap(),
         );
         (core, temp_db, temp_agents, env_guard)
-    }
-
-    fn create_test_agent_node(prompt: &str) -> AgentNode {
-        AgentNode {
-            model_ref: Some(ModelRef::from_model(ModelId::ClaudeSonnet4_5)),
-            prompt: Some(prompt.to_string()),
-            temperature: Some(0.7),
-            codex_cli_reasoning_effort: None,
-            codex_cli_execution_mode: None,
-            api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-            tools: Some(vec!["bash".to_string()]),
-            skills: None,
-            skill_variables: None,
-            skill_preflight_policy_mode: None,
-            model_routing: None,
-        }
     }
 
     #[tokio::test]
@@ -1230,262 +932,5 @@ mod tests {
         assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
         assert!(!assessment.requires_confirmation);
         assert_eq!(assessment.approval_id, None);
-    }
-
-    #[tokio::test]
-    async fn assess_task_template_allows_runtime_default_model_resolution() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        core.storage
-            .secrets
-            .set_secret("OPENAI_API_KEY", "test-openai-key", None)
-            .expect("secret should be stored");
-        let mut agent = create_test_agent_node("Run background work");
-        agent.model_ref = None;
-        agent.api_key_config = None;
-        let created = create_agent(&core, "Runtime Default Agent".to_string(), agent)
-            .await
-            .expect("agent should be created");
-
-        let assessment = assess_task_template(
-            &core,
-            "run_batch",
-            OperationAssessmentIntent::Run,
-            vec![created.id],
-            false,
-        )
-        .await
-        .expect("assessment should succeed");
-
-        assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
-        assert!(!assessment.requires_confirmation);
-        assert_eq!(assessment.approval_id, None);
-    }
-
-    #[tokio::test]
-    async fn assess_task_convert_session_defaults_run_now_to_save() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        let created = create_agent(
-            &core,
-            "Assessment Agent".to_string(),
-            create_test_agent_node("Assess conversions"),
-        )
-        .await
-        .expect("agent");
-
-        let mut session = crate::models::ChatSession::new(
-            created.id.clone(),
-            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
-        );
-        session.add_message(ChatMessage::user("Summarize this thread"));
-        save_chat_session(&core, &session);
-
-        let assessment = assess_task_convert_session(
-            &core,
-            TaskConvertSessionRequest {
-                session_id: session.id.clone(),
-                name: None,
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                resource_limits: None,
-                run_now: None,
-                preview: false,
-                approval_id: None,
-            },
-        )
-        .await
-        .expect("assessment");
-
-        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
-    }
-
-    #[tokio::test]
-    async fn assess_task_convert_session_blocks_when_input_cannot_be_derived() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        let created = create_agent(
-            &core,
-            "Assessment Agent".to_string(),
-            create_test_agent_node("Assess conversions"),
-        )
-        .await
-        .expect("agent");
-
-        let session = crate::models::ChatSession::new(
-            created.id.clone(),
-            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
-        );
-        save_chat_session(&core, &session);
-
-        let assessment = assess_task_convert_session(
-            &core,
-            TaskConvertSessionRequest {
-                session_id: session.id.clone(),
-                name: None,
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                resource_limits: None,
-                run_now: None,
-                preview: false,
-                approval_id: None,
-            },
-        )
-        .await
-        .expect("assessment");
-
-        assert_eq!(assessment.status, OperationAssessmentStatus::Block);
-        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
-        assert_eq!(assessment.blockers.len(), 1);
-        assert_eq!(assessment.blockers[0].code, "missing_conversion_input");
-    }
-
-    #[tokio::test]
-    async fn assess_task_convert_session_save_allows_model_less_agent() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        let created = create_agent(
-            &core,
-            "Warning Agent".to_string(),
-            AgentNode {
-                prompt: Some("Assess conversions".to_string()),
-                ..AgentNode::default()
-            },
-        )
-        .await
-        .expect("agent");
-
-        let mut first_session = crate::models::ChatSession::new(
-            created.id.clone(),
-            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
-        );
-        first_session.add_message(ChatMessage::user("Summarize this session"));
-        save_chat_session(&core, &first_session);
-
-        let mut second_session = crate::models::ChatSession::new(
-            created.id.clone(),
-            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
-        );
-        second_session.add_message(ChatMessage::user("Summarize this session"));
-        save_chat_session(&core, &second_session);
-
-        let first_assessment = assess_task_convert_session(
-            &core,
-            TaskConvertSessionRequest {
-                session_id: first_session.id.clone(),
-                name: None,
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                resource_limits: None,
-                run_now: None,
-                preview: false,
-                approval_id: None,
-            },
-        )
-        .await
-        .expect("first assessment");
-        let second_assessment = assess_task_convert_session(
-            &core,
-            TaskConvertSessionRequest {
-                session_id: second_session.id.clone(),
-                name: None,
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                resource_limits: None,
-                run_now: None,
-                preview: false,
-                approval_id: None,
-            },
-        )
-        .await
-        .expect("second assessment");
-
-        assert_eq!(first_assessment.status, OperationAssessmentStatus::Ok);
-        assert_eq!(second_assessment.status, OperationAssessmentStatus::Ok);
-        assert_eq!(first_assessment.approval_id, None);
-        assert_eq!(second_assessment.approval_id, None);
-    }
-
-    #[tokio::test]
-    async fn assess_task_convert_session_save_is_stable_for_model_less_agent() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        let created = create_agent(
-            &core,
-            "Warning Agent".to_string(),
-            AgentNode {
-                prompt: Some("Assess conversions".to_string()),
-                ..AgentNode::default()
-            },
-        )
-        .await
-        .expect("agent");
-
-        let mut session = crate::models::ChatSession::new(
-            created.id.clone(),
-            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
-        );
-        session.add_message(ChatMessage::user("Summarize this session"));
-        save_chat_session(&core, &session);
-
-        let request = TaskConvertSessionRequest {
-            session_id: session.id.clone(),
-            name: None,
-            schedule: None,
-            input: None,
-            timeout_secs: None,
-            resource_limits: None,
-            run_now: None,
-            preview: false,
-            approval_id: None,
-        };
-
-        let first_assessment = assess_task_convert_session(&core, request.clone())
-            .await
-            .expect("first assessment");
-        let second_assessment = assess_task_convert_session(&core, request)
-            .await
-            .expect("second assessment");
-
-        assert_eq!(first_assessment.status, OperationAssessmentStatus::Ok);
-        assert_eq!(first_assessment.approval_id, second_assessment.approval_id);
-        assert_eq!(first_assessment.approval_id, None);
-    }
-
-    #[tokio::test]
-    async fn assess_task_convert_session_adapter_uses_task_path() {
-        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-        let created = create_agent(
-            &core,
-            "Task Assessment Agent".to_string(),
-            create_test_agent_node("Assess task conversions"),
-        )
-        .await
-        .expect("agent");
-
-        let mut session = crate::models::ChatSession::new(
-            created.id.clone(),
-            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
-        );
-        session.add_message(ChatMessage::user("Summarize this task"));
-        save_chat_session(&core, &session);
-
-        let assessor = OperationAssessorAdapter::from_storage(core.storage.as_ref());
-        let assessment = assessor
-            .assess_task_convert_session(TaskConvertSessionRequest {
-                session_id: session.id.clone(),
-                name: None,
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                resource_limits: None,
-                run_now: None,
-                preview: false,
-                approval_id: None,
-            })
-            .await
-            .expect("task assessment");
-
-        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
-        assert_eq!(assessment.operation, "convert_session_to_task");
     }
 }

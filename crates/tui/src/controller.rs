@@ -2,11 +2,11 @@ use anyhow::{Result, bail};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
-use runtime::models::{
+use runtime::StoredAgent;
+use types::{
     ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary,
-    SkillSource, TaskSchedule, TaskSpec,
+    SkillSource,
 };
-use runtime::storage::agent::StoredAgent;
 
 use super::daemon_client::TuiDaemonClient;
 use super::event_loop::AppEvent;
@@ -14,7 +14,7 @@ use super::reducer::{ShellAction, ShellEffect};
 use super::slash_command::{SLASH_COMMAND_SPECS, SlashCommand};
 use super::state::{
     AppState, ModelPickerCategory, ModelPickerItem, OverlayState, PendingSessionState,
-    ProviderPickerItem, SkillManagerSelection, SkillPickerItem, TaskPickerItem, WorkPickerItem,
+    ProviderPickerItem, SkillManagerSelection, SkillPickerItem, WorkPickerItem,
     build_work_picker_items,
 };
 
@@ -74,14 +74,6 @@ impl ShellController {
         self.client.spawn_session_events(tx)
     }
 
-    pub fn spawn_task_events(
-        &self,
-        task_id: String,
-        tx: mpsc::UnboundedSender<AppEvent>,
-    ) -> tokio::task::JoinHandle<()> {
-        self.client.spawn_task_events(task_id, tx)
-    }
-
     pub async fn execute_effect(
         &self,
         effect: ShellEffect,
@@ -99,9 +91,6 @@ impl ShellController {
                 self.submit_message_effect(state, message, stream_id, tx)
                     .await?;
                 Ok(Vec::new())
-            }
-            ShellEffect::CreateTaskGoal { message } => {
-                self.create_task_goal_actions(state, message).await
             }
             ShellEffect::SteerMessage {
                 session_id,
@@ -148,9 +137,7 @@ impl ShellController {
         } else {
             state.thread.child_runs.clone()
         };
-        let tasks = self.task_items().await.unwrap_or_default();
-
-        if refreshed_state_is_unchanged(state, &sessions, &runs, &child_runs, &tasks) {
+        if refreshed_state_is_unchanged(state, &sessions, &runs, &child_runs) {
             return Ok(Vec::new());
         }
 
@@ -158,7 +145,6 @@ impl ShellController {
             sessions,
             runs,
             child_runs,
-            tasks,
         }];
 
         Ok(actions)
@@ -298,9 +284,6 @@ impl ShellController {
                         text: "/new".to_string(),
                     }]);
                 }
-                if matches!(spec.command, "/task") {
-                    return self.task_picker_actions().await;
-                }
                 if matches!(spec.command, "/skill") {
                     return self.skill_picker_actions().await;
                 }
@@ -339,20 +322,6 @@ impl ShellController {
                     runs,
                     child_runs,
                     status: format!("Opened session {session_id}"),
-                }])
-            }
-            Some(OverlayState::TaskPicker { .. }) => {
-                let Some(task_id) = state.selected_task_id().map(str::to_string) else {
-                    return Ok(Vec::new());
-                };
-                Ok(vec![ShellAction::OpenTaskActionPicker { task_id }])
-            }
-            Some(OverlayState::TaskActionPicker { .. }) => {
-                let Some((task_id, action)) = state.selected_task_action() else {
-                    return Ok(Vec::new());
-                };
-                Ok(vec![ShellAction::SubmitText {
-                    text: format!("/task {action} {task_id}"),
                 }])
             }
             Some(OverlayState::SkillManager { .. }) => {
@@ -479,69 +448,6 @@ impl ShellController {
         }])
     }
 
-    async fn create_task_goal_actions(
-        &self,
-        state: &AppState,
-        message: String,
-    ) -> Result<Vec<ShellAction>> {
-        if !self.client.daemon_running().await {
-            self.client.start_daemon().await?;
-        }
-
-        let session = match state.current_session() {
-            Some(_) => None,
-            None => {
-                let agent_id = state
-                    .pending_session
-                    .as_ref()
-                    .map(|session| session.agent_id.as_str())
-                    .or(state.default_agent_id.as_deref());
-                let Some(agent_id) = agent_id else {
-                    bail!("No default agent configured. Create one before creating a task.");
-                };
-                Some(
-                    self.client
-                        .create_session_for_agent(
-                            agent_id,
-                            state
-                                .pending_session
-                                .as_ref()
-                                .map(|session| session.model.as_str()),
-                        )
-                        .await?,
-                )
-            }
-        };
-        let bound_session = session.as_ref().or_else(|| state.current_session());
-        let Some(bound_session) = bound_session else {
-            bail!("No session available for task binding.");
-        };
-        let task = self
-            .client
-            .create_task(TaskSpec {
-                name: task_name_from_goal(&message),
-                agent_id: bound_session.agent_id.clone(),
-                chat_session_id: Some(bound_session.id.clone()),
-                description: None,
-                input: Some(message.clone()),
-                input_template: None,
-                schedule: TaskSchedule::Once {
-                    run_at: chrono::Utc::now().timestamp_millis(),
-                },
-                execution_mode: None,
-                timeout_secs: None,
-                resource_limits: None,
-                prerequisites: Vec::new(),
-                continuation: None,
-            })
-            .await?;
-        Ok(vec![ShellAction::TaskGoalCreated {
-            task: Box::new(task),
-            session: session.map(Box::new),
-            status: "Task goal created.".to_string(),
-        }])
-    }
-
     async fn slash_command_actions(
         &self,
         state: &AppState,
@@ -581,7 +487,6 @@ impl ShellController {
             SlashCommand::Help => Ok(vec![ShellAction::OpenHelpOverlay]),
             SlashCommand::ListSessions => self.session_picker_actions().await,
             SlashCommand::ListSkills => self.skill_picker_actions().await,
-            SlashCommand::ListTasks => self.task_picker_actions().await,
             SlashCommand::ListModels => self.provider_picker_actions(state).await,
             SlashCommand::ListModelsForProvider { provider } => {
                 match self
@@ -599,16 +504,7 @@ impl ShellController {
             }
             SlashCommand::ListRuns => self.list_runs_inline_actions(state).await,
             SlashCommand::SwitchModel { model } => self.switch_model_actions(state, model).await,
-            SlashCommand::TaskControl { action, task_id } => {
-                let task = self.client.control_task(&task_id, action.as_str()).await?;
-                Ok(vec![ShellAction::TaskControlCompleted {
-                    task_id: task.id,
-                    status: format!("{:?}", task.status),
-                }])
-            }
-            SlashCommand::OpenRun { run_id } => {
-                self.open_run_or_latest_task_run_actions(&run_id).await
-            }
+            SlashCommand::OpenRun { run_id } => self.open_run_id_actions(&run_id).await,
         }
     }
 
@@ -626,16 +522,6 @@ impl ShellController {
             "Select a session to resume".to_string()
         };
         Ok(vec![ShellAction::SessionPickerLoaded { sessions, status }])
-    }
-
-    async fn task_picker_actions(&self) -> Result<Vec<ShellAction>> {
-        let tasks = self.task_items().await?;
-        let status = if tasks.is_empty() {
-            "No tasks available.".to_string()
-        } else {
-            "Select a task".to_string()
-        };
-        Ok(vec![ShellAction::TaskPickerLoaded { tasks, status }])
     }
 
     async fn skill_picker_actions(&self) -> Result<Vec<ShellAction>> {
@@ -844,10 +730,6 @@ impl ShellController {
     }
 
     async fn list_runs_inline_actions(&self, state: &AppState) -> Result<Vec<ShellAction>> {
-        let tasks = self
-            .task_items()
-            .await
-            .unwrap_or_else(|_| state.tasks.clone());
         let runs = if let Some(session_id) = state.current_session_id() {
             self.client
                 .list_runs_for_session(session_id)
@@ -857,39 +739,21 @@ impl ShellController {
             state.thread.runs.clone()
         };
         let child_runs = self.child_runs_for_runs(&runs).await;
-        let items = build_work_picker_items(&tasks, &runs, &child_runs);
+        let items = build_work_picker_items(&runs, &child_runs);
         let status = if items.is_empty() {
-            "No active work, runs, or background tasks.".to_string()
+            "No active runs.".to_string()
         } else {
             "Work picker opened.".to_string()
         };
 
         Ok(vec![ShellAction::RunPickerLoaded {
-            tasks,
             runs,
             child_runs,
             status,
         }])
     }
 
-    async fn task_items(&self) -> Result<Vec<TaskPickerItem>> {
-        let mut items = Vec::new();
-        for task in self.client.list_tasks().await? {
-            let latest_run_id = self
-                .client
-                .list_runs_for_task(&task.id)
-                .await
-                .ok()
-                .and_then(|runs| latest_run_id(&runs));
-            items.push(task_item_from_task(task, latest_run_id));
-        }
-        Ok(items)
-    }
-
-    async fn child_runs_for_runs(
-        &self,
-        runs: &[runtime::models::RunSummary],
-    ) -> Vec<runtime::models::RunSummary> {
+    async fn child_runs_for_runs(&self, runs: &[types::RunSummary]) -> Vec<types::RunSummary> {
         let mut child_runs = Vec::new();
         for run in runs {
             let Some(run_id) = run.run_id.as_deref() else {
@@ -916,36 +780,8 @@ impl ShellController {
         item: WorkPickerItem,
     ) -> Result<Vec<ShellAction>> {
         match item {
-            WorkPickerItem::BackgroundTask {
-                task_id,
-                latest_run_id,
-                ..
-            } => {
-                if let Some(run_id) = latest_run_id {
-                    return self.open_run_id_actions(&run_id).await;
-                }
-                Ok(vec![ShellAction::OpenTaskActionPicker { task_id }])
-            }
             WorkPickerItem::Run { run_id, .. } => self.open_run_id_actions(&run_id).await,
         }
-    }
-
-    async fn open_run_or_latest_task_run_actions(
-        &self,
-        identifier: &str,
-    ) -> Result<Vec<ShellAction>> {
-        let run_error = match self.open_run_id_actions(identifier).await {
-            Ok(actions) => return Ok(actions),
-            Err(error) => error,
-        };
-
-        if let Ok(runs) = self.client.list_runs_for_task(identifier).await
-            && let Some(run_id) = latest_run_id(&runs)
-        {
-            return self.open_run_id_actions(&run_id).await;
-        }
-
-        Err(run_error)
     }
 
     async fn open_run_id_actions(&self, run_id: &str) -> Result<Vec<ShellAction>> {
@@ -973,14 +809,10 @@ impl ShellController {
 fn refreshed_state_is_unchanged(
     state: &AppState,
     sessions: &[ChatSessionSummary],
-    runs: &[runtime::models::RunSummary],
-    child_runs: &[runtime::models::RunSummary],
-    tasks: &[TaskPickerItem],
+    runs: &[types::RunSummary],
+    child_runs: &[types::RunSummary],
 ) -> bool {
     if state.sessions != sessions {
-        return false;
-    }
-    if state.tasks != tasks {
         return false;
     }
     if state.current_session_id().is_some() {
@@ -999,49 +831,6 @@ fn should_refresh_session_list(state: &AppState) -> bool {
 
 fn should_refresh_child_runs(state: &AppState) -> bool {
     (!state.is_streaming && state.active_turn.is_none()) || state.activity.has_subagent_activity()
-}
-
-fn latest_run_id(runs: &[RunSummary]) -> Option<String> {
-    runs.iter()
-        .max_by(|left, right| {
-            left.updated_at
-                .cmp(&right.updated_at)
-                .then_with(|| left.id.cmp(&right.id))
-        })
-        .and_then(|run| run.run_id.clone())
-}
-
-fn task_item_from_task(
-    task: runtime::models::Task,
-    latest_run_id: Option<String>,
-) -> TaskPickerItem {
-    TaskPickerItem {
-        task_id: task.id,
-        name: task.name,
-        status: format!("{:?}", task.status),
-        next_run_at: task.next_run_at,
-        latest_run_id,
-    }
-}
-
-fn task_name_from_goal(goal: &str) -> String {
-    let first_line = goal
-        .lines()
-        .find_map(|line| {
-            let trimmed = line.trim();
-            (!trimmed.is_empty()).then_some(trimmed)
-        })
-        .unwrap_or("Task goal");
-    let mut chars = first_line.chars();
-    let mut name: String = chars.by_ref().take(60).collect();
-    if chars.next().is_some() {
-        name.push_str("...");
-    }
-    if name.is_empty() {
-        "Task goal".to_string()
-    } else {
-        name
-    }
 }
 
 fn filter_resume_sessions(
@@ -1427,11 +1216,9 @@ mod tests {
         should_refresh_session_list, start_daemon_error_actions,
     };
     use crate::reducer::ShellAction;
-    use crate::state::{AppState, ModelPickerCategory, OverlayState, TaskPickerItem};
-    use runtime::models::{
-        ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
-    };
+    use crate::state::{AppState, ModelPickerCategory, OverlayState};
     use std::collections::HashSet;
+    use types::{ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO};
 
     #[test]
     fn start_daemon_error_stays_inside_shell() {
@@ -1448,20 +1235,12 @@ mod tests {
     fn unchanged_refresh_state_can_skip_render_action() {
         let mut state = AppState::empty();
         state.sessions = vec![session_summary_with_messages("session-1", "Chat", 2)];
-        state.tasks = vec![TaskPickerItem {
-            task_id: "task-1".to_string(),
-            name: "Daily digest".to_string(),
-            status: "Active".to_string(),
-            next_run_at: Some(10),
-            latest_run_id: None,
-        }];
 
         assert!(refreshed_state_is_unchanged(
             &state,
             &state.sessions,
             &[],
             &[],
-            &state.tasks,
         ));
     }
 
@@ -1471,13 +1250,7 @@ mod tests {
         state.sessions = vec![session_summary_with_messages("session-1", "Chat", 2)];
         let refreshed = vec![session_summary_with_messages("session-1", "Chat", 3)];
 
-        assert!(!refreshed_state_is_unchanged(
-            &state,
-            &refreshed,
-            &[],
-            &[],
-            &state.tasks,
-        ));
+        assert!(!refreshed_state_is_unchanged(&state, &refreshed, &[], &[],));
     }
 
     #[test]

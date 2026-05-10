@@ -1,8 +1,8 @@
 //! SkillProvider implementation for the skrun-managed skill catalog.
 
-use crate::models::Skill;
 use skrun::{ArtifactKind, SkillArtifact};
 use std::path::PathBuf;
+use types::Skill;
 use types::skill::{SkillContent, SkillInfo, SkillProvider, SkillSource};
 
 const SKRUN_TOOL_NAME: &str = "run_skill";

@@ -6,5 +6,5 @@ pub mod orchestrator;
 pub use kernel::{ExecutionBackend, ExecutionKernel};
 pub use orchestrator::{
     AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
-    OrchestratingAgentExecutor, TracedInteractiveExecutionResult,
+    TracedInteractiveExecutionResult,
 };

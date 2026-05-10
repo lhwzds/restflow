@@ -1,4 +1,4 @@
-use crate::models::{Skill, SkillStatus};
+use types::{Skill, SkillStatus};
 
 /// Match result for a skill trigger phrase.
 #[derive(Debug, Clone, PartialEq, Eq)]

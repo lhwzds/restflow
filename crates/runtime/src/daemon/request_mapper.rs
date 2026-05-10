@@ -1,12 +1,46 @@
-pub use crate::boundary::codec::{from_contract, to_contract};
-pub(crate) use crate::boundary::error::{invalid_request_response, invalid_validation_response};
+use anyhow::Context;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
+use crate::daemon::IpcResponse;
+use types::{ValidationError, ValidationErrorResponse};
+
+pub fn to_contract<T, U>(value: T) -> anyhow::Result<U>
+where
+    T: Serialize,
+    U: DeserializeOwned,
+{
+    let encoded =
+        serde_json::to_value(value).context("failed to serialize core request payload")?;
+    serde_json::from_value(encoded).context("failed to decode contract request payload")
+}
+
+pub fn from_contract<T, U>(value: T) -> anyhow::Result<U>
+where
+    T: Serialize,
+    U: DeserializeOwned,
+{
+    let encoded =
+        serde_json::to_value(value).context("failed to serialize contract request payload")?;
+    serde_json::from_value(encoded).context("failed to decode core request payload")
+}
+
+pub(crate) fn invalid_request_response(error: anyhow::Error) -> IpcResponse {
+    IpcResponse::error(400, format!("Invalid request payload: {error:#}"))
+}
+
+pub(crate) fn invalid_validation_response(errors: Vec<ValidationError>) -> IpcResponse {
+    let details = serde_json::to_value(ValidationErrorResponse::new(errors))
+        .expect("validation error response should serialize");
+    IpcResponse::error_with_details(400, "Validation failed", Some(details))
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::daemon::IpcResponse;
-    use crate::models::{Skill, SkillSource};
     use serde::{Deserialize, Serialize};
+    use types::{Skill, SkillSource};
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct CorePayload {
@@ -87,7 +121,7 @@ mod tests {
 
     #[test]
     fn invalid_validation_response_encodes_structured_details() {
-        let response = invalid_validation_response(vec![crate::models::ValidationError::new(
+        let response = invalid_validation_response(vec![types::ValidationError::new(
             "model_ref.provider",
             "unknown provider 'bad'",
         )]);

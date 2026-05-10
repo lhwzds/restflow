@@ -6,23 +6,21 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::models::{ChatSession, SteerMessage};
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
-use crate::runtime::orchestrator::modes::{interactive, subagent, task};
-use crate::runtime::task_runtime::{
-    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionInputMode,
-    SessionTurnRuntimeOptions,
+use crate::runtime::orchestrator::modes::{interactive, subagent};
+use crate::runtime::session_runner::{
+    AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions,
 };
-use ai::AgentState;
 use ai::StreamDisplayMode;
 use ai::agent::{NullEmitter, StreamEmitter};
 use types::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
+use types::{ChatSession, SteerMessage};
 
 #[derive(Debug)]
 pub struct TracedInteractiveExecutionResult {
     pub turn_id: String,
     pub duration_ms: u64,
-    pub execution: crate::runtime::task_runtime::SessionExecutionResult,
+    pub execution: crate::runtime::session_runner::SessionExecutionResult,
 }
 
 pub struct InteractiveSessionRequest<'a> {
@@ -198,50 +196,6 @@ impl AgentOrchestratorImpl {
             execution,
         })
     }
-
-    pub async fn run_task_execution(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        task::run_with_request(
-            self.kernel.as_ref(),
-            task::TaskExecutionRequest {
-                agent_id: agent_id.to_string(),
-                task_id: task_id.map(ToOwned::to_owned),
-                input: input.map(ToOwned::to_owned),
-                steer_rx,
-                emitter,
-                state: None,
-            },
-        )
-        .await
-    }
-
-    pub async fn run_task_execution_from_state(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        state: AgentState,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        task::run_with_request(
-            self.kernel.as_ref(),
-            task::TaskExecutionRequest {
-                agent_id: agent_id.to_string(),
-                task_id: task_id.map(ToOwned::to_owned),
-                input: None,
-                steer_rx,
-                emitter,
-                state: Some(state),
-            },
-        )
-        .await
-    }
 }
 
 #[async_trait]
@@ -252,46 +206,12 @@ impl AgentOrchestrator for AgentOrchestratorImpl {
             types::ExecutionMode::Interactive => {
                 interactive::run_plan(self.kernel.as_ref(), plan).await
             }
-            types::ExecutionMode::Background => task::run_plan(self.kernel.as_ref(), plan).await,
+            types::ExecutionMode::Background => Err(ToolError::InvalidInput(
+                "background task execution has been removed; use an interactive session or subagent"
+                    .to_string(),
+            )),
             types::ExecutionMode::Subagent => subagent::run_plan(self.kernel.as_ref(), plan).await,
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct OrchestratingAgentExecutor {
-    orchestrator: Arc<AgentOrchestratorImpl>,
-}
-
-impl OrchestratingAgentExecutor {
-    pub fn new(orchestrator: Arc<AgentOrchestratorImpl>) -> Self {
-        Self { orchestrator }
-    }
-
-    pub fn from_runtime_executor(executor: AgentRuntimeExecutor) -> Self {
-        Self::new(Arc::new(AgentOrchestratorImpl::from_runtime_executor(
-            executor,
-        )))
-    }
-
-    pub fn orchestrator(&self) -> Arc<AgentOrchestratorImpl> {
-        self.orchestrator.clone()
-    }
-}
-
-#[async_trait]
-impl AgentExecutor for OrchestratingAgentExecutor {
-    async fn execute(
-        &self,
-        agent_id: &str,
-        task_id: Option<&str>,
-        input: Option<&str>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> Result<ExecutionResult> {
-        self.orchestrator
-            .run_task_execution(agent_id, task_id, input, steer_rx, emitter)
-            .await
     }
 }
 
@@ -301,14 +221,11 @@ mod tests {
 
     use anyhow::Result;
     use async_trait::async_trait;
-    use tokio::sync::mpsc;
 
-    use crate::models::{ChatSession, ModelId, SteerMessage};
     use crate::runtime::orchestrator::kernel::ExecutionBackend;
-    use crate::runtime::task_runtime::{ExecutionResult, SessionExecutionResult, SessionInputMode};
-    use ai::AgentState;
+    use crate::runtime::session_runner::{SessionExecutionResult, SessionInputMode};
     use ai::agent::StreamEmitter;
-    use ai::llm::Message;
+    use types::{ChatSession, ModelId};
     use types::{ExecutionMode, ExecutionPlan, InlineSubagentConfig};
 
     use super::*;
@@ -316,7 +233,6 @@ mod tests {
     #[derive(Default)]
     struct MockBackend {
         session: Mutex<Option<ChatSession>>,
-        last_background: Mutex<Vec<String>>,
     }
 
     #[async_trait]
@@ -346,46 +262,6 @@ mod tests {
                 ModelId::CodexCli,
             );
             Ok(result)
-        }
-
-        async fn execute_task(
-            &self,
-            agent_id: &str,
-            task_id: Option<&str>,
-            _input: Option<&str>,
-            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-            _emitter: Option<Box<dyn StreamEmitter>>,
-        ) -> Result<ExecutionResult> {
-            self.last_background
-                .lock()
-                .expect("background lock")
-                .push(format!("{}:{}", agent_id, task_id.unwrap_or_default()));
-            Ok(ExecutionResult::success(
-                "background-output".to_string(),
-                vec![Message::assistant("done".to_string())],
-            ))
-        }
-
-        async fn execute_task_from_state(
-            &self,
-            agent_id: &str,
-            task_id: Option<&str>,
-            _state: AgentState,
-            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-            _emitter: Option<Box<dyn StreamEmitter>>,
-        ) -> Result<ExecutionResult> {
-            self.last_background
-                .lock()
-                .expect("background lock")
-                .push(format!(
-                    "resume:{}:{}",
-                    agent_id,
-                    task_id.unwrap_or_default()
-                ));
-            Ok(ExecutionResult::success(
-                "resumed-output".to_string(),
-                vec![Message::assistant("resumed".to_string())],
-            ))
         }
 
         async fn execute_subagent_plan(&self, _plan: ExecutionPlan) -> Result<ExecutionOutcome> {
@@ -454,28 +330,6 @@ mod tests {
                 ))
             }
 
-            async fn execute_task(
-                &self,
-                _agent_id: &str,
-                _task_id: Option<&str>,
-                _input: Option<&str>,
-                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-                _emitter: Option<Box<dyn StreamEmitter>>,
-            ) -> Result<ExecutionResult> {
-                unreachable!("background path not used")
-            }
-
-            async fn execute_task_from_state(
-                &self,
-                _agent_id: &str,
-                _task_id: Option<&str>,
-                _state: AgentState,
-                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-                _emitter: Option<Box<dyn StreamEmitter>>,
-            ) -> Result<ExecutionResult> {
-                unreachable!("background resume path not used")
-            }
-
             async fn execute_subagent_plan(
                 &self,
                 _plan: ExecutionPlan,
@@ -507,29 +361,6 @@ mod tests {
             error,
             InteractiveExecutionError::Timeout { timeout_secs: 0 }
         ));
-    }
-
-    #[tokio::test]
-    async fn run_background_executor_delegates_through_orchestrator() {
-        let backend = Arc::new(MockBackend::default());
-        let executor =
-            OrchestratingAgentExecutor::new(Arc::new(AgentOrchestratorImpl::new(backend.clone())));
-
-        let result = executor
-            .execute("agent-a", Some("task-1"), Some("run"), None, None)
-            .await
-            .expect("task execution should succeed");
-
-        assert!(result.success);
-        assert_eq!(result.output, "background-output");
-        assert_eq!(
-            backend
-                .last_background
-                .lock()
-                .expect("background lock")
-                .as_slice(),
-            ["agent-a:task-1"]
-        );
     }
 
     #[tokio::test]

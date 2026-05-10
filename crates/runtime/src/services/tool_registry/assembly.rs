@@ -1,5 +1,5 @@
 use super::*;
-use tools::FileConfig;
+use crate::tools::FileConfig;
 use types::AgentOperationAssessor;
 
 /// Create the daemon-owned minimal tool registry.
@@ -32,7 +32,7 @@ pub fn create_tool_registry_with_assessor(
     let security_agent_id = agent_id.as_deref().unwrap_or(DEFAULT_SECURITY_AGENT_ID);
     builder = register_bash_execution_tool(
         builder,
-        tools::BashConfig {
+        crate::tools::BashConfig {
             timeout_secs: agent_defaults.bash_timeout_secs,
             ..Default::default()
         },
@@ -62,7 +62,7 @@ pub fn create_tool_registry_with_assessor(
     };
 
     let mut run_skill_tool =
-        tools::RunSkillTool::new().with_root(crate::services::skills::skill_catalog_root()?);
+        crate::tools::RunSkillTool::new().with_root(crate::services::skills::skill_catalog_root()?);
     if let Some(gate) = security_gate.clone() {
         run_skill_tool =
             run_skill_tool.with_security(gate, security_agent_id, DEFAULT_SECURITY_TASK_ID);

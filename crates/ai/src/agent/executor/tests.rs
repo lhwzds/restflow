@@ -901,7 +901,6 @@ async fn test_runtime_policy_tools_skip_generic_reviewer() {
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: Some("runtime-parent"),
-                    chat_session_id: None,
                     model: None,
                     provider: None,
                 },
@@ -1414,7 +1413,7 @@ async fn test_run_via_stream_matches_run_direct() {
     let direct = direct_executor.run(config.clone()).await.unwrap();
     let mut emitter = CapturingEmitter::new();
     let streamed = streaming_executor
-        .execute_streaming(config, &mut emitter)
+        .run_streaming_with_emitter(config, &mut emitter)
         .await
         .unwrap();
 
@@ -1426,7 +1425,7 @@ async fn test_run_via_stream_matches_run_direct() {
 
 #[tokio::test]
 #[allow(deprecated)]
-async fn test_backward_compat_execute_streaming_emits_complete() {
+async fn test_run_streaming_with_emitter_emits_complete() {
     let response = CompletionResponse {
         content: Some("done".to_string()),
         tool_calls: vec![],
@@ -1441,7 +1440,7 @@ async fn test_backward_compat_execute_streaming_emits_complete() {
     let mut emitter = CapturingEmitter::new();
 
     let result = executor
-        .execute_streaming(AgentConfig::new("compat"), &mut emitter)
+        .run_streaming_with_emitter(AgentConfig::new("compat"), &mut emitter)
         .await
         .unwrap();
 
@@ -1482,14 +1481,14 @@ async fn test_stream_display_mode_controls_delta_flush_granularity() {
     let mut streaming_emitter = CapturingEmitter::new();
 
     buffered_executor
-        .execute_streaming(
+        .run_streaming_with_emitter(
             AgentConfig::new("buffered").with_stream_display_mode(StreamDisplayMode::Buffered),
             &mut buffered_emitter,
         )
         .await
         .unwrap();
     streaming_executor
-        .execute_streaming(
+        .run_streaming_with_emitter(
             AgentConfig::new("streaming").with_stream_display_mode(StreamDisplayMode::Streaming),
             &mut streaming_emitter,
         )
@@ -1905,29 +1904,6 @@ impl Tool for SpawnSubagentBatchCaptureTool {
     }
 }
 
-/// A task-management-shaped tool that returns input as output so tests can
-/// verify session_id injection for promote_to_background.
-struct PromoteTaskCaptureTool;
-
-#[async_trait]
-impl Tool for PromoteTaskCaptureTool {
-    fn name(&self) -> &str {
-        "manage_tasks"
-    }
-
-    fn description(&self) -> &str {
-        "Capture manage_tasks input payload"
-    }
-
-    fn parameters_schema(&self) -> Value {
-        serde_json::json!({"type": "object"})
-    }
-
-    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
-        Ok(ToolOutput::success(input))
-    }
-}
-
 struct SubagentReadCaptureTool {
     tool_name: &'static str,
 }
@@ -2268,7 +2244,6 @@ async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: Some("exec-parent-1"),
-                    chat_session_id: None,
                     model: None,
                     provider: None,
                 },
@@ -2324,7 +2299,6 @@ async fn test_spawn_subagent_batch_injects_default_model_for_temporary_specs() {
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: None,
-                    chat_session_id: None,
                     model: Some("zai-coding-plan-glm-5-1"),
                     provider: Some("zai-coding-plan"),
                 },
@@ -2392,7 +2366,6 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: Some("runtime-parent"),
-                    chat_session_id: None,
                     model: None,
                     provider: None,
                 },
@@ -2444,7 +2417,6 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_parent_run_id()
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: Some("runtime-parent"),
-                    chat_session_id: None,
                     model: None,
                     provider: None,
                 },
@@ -2463,104 +2435,6 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_parent_run_id()
     let start_arguments = emitter.start_arguments.lock().await;
     let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
     assert_eq!(start_payload["parent_run_id"], "runtime-parent");
-}
-
-#[tokio::test]
-async fn test_promote_to_background_injects_chat_session_id() {
-    let mut tools = ToolRegistry::new();
-    tools.register(PromoteTaskCaptureTool);
-
-    let llm = Arc::new(MockLlmClient::new(vec![]));
-    let executor = AgentExecutor::new(llm, Arc::new(tools));
-
-    let calls = vec![ToolCall {
-        id: "promote_call".to_string(),
-        name: "manage_tasks".to_string(),
-        arguments: serde_json::json!({
-            "operation": "promote_to_background",
-            "name": "Promoted Task"
-        }),
-    }];
-
-    let mut emitter = ToolStartCaptureEmitter::new();
-    let results = executor
-        .execute_tools_parallel(
-            &calls,
-            &mut emitter,
-            ToolExecutionOptions {
-                tool_timeout: Duration::from_secs(5),
-                yolo_mode: false,
-                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
-                invocation: ToolInvocationContext {
-                    parent_run_id: None,
-                    chat_session_id: Some("session-main-1"),
-                    model: None,
-                    provider: None,
-                },
-                reviewer: None,
-                review_messages: &[],
-            },
-        )
-        .await;
-
-    assert_eq!(results.len(), 1);
-    let (_, result) = &results[0];
-    let output = result
-        .as_ref()
-        .unwrap_or_else(|e| panic!("promote_call should succeed: {e}"));
-    assert_eq!(output.result["session_id"], "session-main-1");
-
-    let start_arguments = emitter.start_arguments.lock().await;
-    assert_eq!(start_arguments.len(), 1);
-    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
-    assert_eq!(start_payload["session_id"], "session-main-1");
-}
-
-#[tokio::test]
-async fn test_promote_to_background_overrides_explicit_session_id() {
-    let mut tools = ToolRegistry::new();
-    tools.register(PromoteTaskCaptureTool);
-
-    let llm = Arc::new(MockLlmClient::new(vec![]));
-    let executor = AgentExecutor::new(llm, Arc::new(tools));
-
-    let calls = vec![ToolCall {
-        id: "promote_call".to_string(),
-        name: "manage_tasks".to_string(),
-        arguments: serde_json::json!({
-            "operation": "promote_to_background",
-            "session_id": "session-explicit",
-            "name": "Promoted Task"
-        }),
-    }];
-
-    let mut emitter = NullEmitter;
-    let results = executor
-        .execute_tools_parallel(
-            &calls,
-            &mut emitter,
-            ToolExecutionOptions {
-                tool_timeout: Duration::from_secs(5),
-                yolo_mode: false,
-                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
-                invocation: ToolInvocationContext {
-                    parent_run_id: None,
-                    chat_session_id: Some("session-main-1"),
-                    model: None,
-                    provider: None,
-                },
-                reviewer: None,
-                review_messages: &[],
-            },
-        )
-        .await;
-
-    assert_eq!(results.len(), 1);
-    let (_, result) = &results[0];
-    let output = result
-        .as_ref()
-        .unwrap_or_else(|e| panic!("promote_call should succeed: {e}"));
-    assert_eq!(output.result["session_id"], "session-main-1");
 }
 
 #[tokio::test]
@@ -2589,7 +2463,6 @@ async fn test_list_subagents_injects_parent_run_id() {
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: Some("parent-run-1"),
-                    chat_session_id: None,
                     model: None,
                     provider: None,
                 },
@@ -2639,7 +2512,6 @@ async fn test_wait_subagents_overrides_explicit_parent_run_id() {
                 max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
                 invocation: ToolInvocationContext {
                     parent_run_id: Some("runtime-parent"),
-                    chat_session_id: None,
                     model: None,
                     provider: None,
                 },
@@ -2793,7 +2665,7 @@ async fn executor_streaming_round_trips_reasoning_content_in_next_request() {
     let mut emitter = CapturingEmitter::new();
 
     let result = executor
-        .execute_streaming(
+        .run_streaming_with_emitter(
             AgentConfig::new("test streaming reasoning").with_max_iterations(5),
             &mut emitter,
         )

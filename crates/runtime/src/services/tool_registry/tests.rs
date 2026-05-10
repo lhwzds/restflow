@@ -234,9 +234,6 @@ fn test_create_tool_registry() {
     }
     assert!(!registry.has("manage_ops"));
     assert!(!registry.has("manage_agents"));
-    assert!(!registry.has("manage_tasks"));
-    assert!(!registry.has("manage_marketplace"));
-    assert!(!registry.has("security_query"));
     assert!(!registry.has("manage_sessions"));
     assert!(!registry.has("save_artifact"));
 }
@@ -413,11 +410,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
     let db_path = dir.path().join("manage-agents-tools.db");
     let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
         .expect("storage should be created");
-    let allowlist = vec![
-        "manage_agents".to_string(),
-        "manage_tasks".to_string(),
-        "security_query".to_string(),
-    ];
+    let allowlist = vec!["manage_agents".to_string()];
     let registry = crate::runtime::agent::tools::registry_from_allowlist(
         Some(&allowlist),
         None,
@@ -488,15 +481,13 @@ fn test_agent_store_adapter_crud_flow() {
             .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(agent_storage, secret_storage, known_tools);
-    let base_node = crate::models::AgentNode {
-        model_ref: Some(crate::models::ModelRef::from_model(
-            crate::models::ModelId::ClaudeSonnet4_5,
-        )),
+    let base_node = types::AgentNode {
+        model_ref: Some(types::ModelRef::from_model(types::ModelId::ClaudeSonnet4_5)),
         prompt: Some("You are a testing assistant".to_string()),
         temperature: Some(0.3),
         codex_cli_reasoning_effort: None,
         codex_cli_execution_mode: None,
-        api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
+        api_key_config: Some(types::ApiKeyConfig::Direct("test-key".to_string())),
         tools: Some(vec!["manage_agents".to_string()]),
         skills: None,
         skill_variables: None,
@@ -606,89 +597,6 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     )
     .expect_err("expected validation error");
     assert!(err.to_string().contains("validation_error"));
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn test_marketplace_tool_list_and_uninstall() {
-    let dir = tempdir().expect("temp dir should be created");
-    let db_path = dir.path().join("marketplace-tool.db");
-    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
-        .expect("storage should be created");
-    let allowlist = vec!["manage_marketplace".to_string()];
-    let registry = crate::runtime::agent::tools::registry_from_allowlist(
-        Some(&allowlist),
-        None,
-        None,
-        Some(&storage),
-        None,
-        None,
-        Some(dir.path()),
-    )
-    .unwrap();
-
-    let listed = registry
-        .execute_safe(
-            "manage_marketplace",
-            json!({ "operation": "list_installed" }),
-        )
-        .await
-        .unwrap();
-    assert!(listed.success);
-    assert_eq!(listed.result.as_array().map(|items| items.len()), Some(0));
-
-    let delete_error = registry
-        .execute_safe(
-            "manage_marketplace",
-            json!({ "operation": "uninstall", "id": "marketplace-skill" }),
-        )
-        .await
-        .expect_err("uninstall should report skrun guidance as a tool error");
-    assert!(
-        delete_error.to_string().contains("skrun"),
-        "unexpected error: {delete_error}"
-    );
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn test_security_query_tool_show_policy_and_check_permission() {
-    let dir = tempdir().expect("temp dir should be created");
-    let db_path = dir.path().join("security-query.db");
-    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
-        .expect("storage should be created");
-    let allowlist = vec!["security_query".to_string()];
-    let registry = crate::runtime::agent::tools::registry_from_allowlist(
-        Some(&allowlist),
-        None,
-        None,
-        Some(&storage),
-        None,
-        None,
-        Some(dir.path()),
-    )
-    .unwrap();
-
-    let summary = registry
-        .execute_safe("security_query", json!({ "operation": "list_permissions" }))
-        .await
-        .unwrap();
-    assert!(summary.success);
-    assert!(summary.result["allowlist_count"].as_u64().unwrap_or(0) > 0);
-
-    let check = registry
-        .execute_safe(
-            "security_query",
-            json!({
-                "operation": "check_permission",
-                "tool_name": "manage_marketplace",
-                "operation_name": "install",
-                "target": "skill-id",
-                "summary": "Install skill"
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(check.success);
-    assert!(check.result.get("allowed").is_some());
 }
 
 #[tokio::test(flavor = "current_thread")]

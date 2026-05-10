@@ -3,11 +3,6 @@
 //! The JSONL transcript is the durable session source of truth. Each session is
 //! stored as one file under `~/.restflow/sessions/YYYY/MM/DD/<session-id>.jsonl`.
 
-use crate::models::chat_session::{
-    ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession,
-    ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, ChatTurn, ChatTurnEvent,
-    ChatTurnEventKind, ChatTurnStatus, MessageExecution,
-};
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,6 +13,11 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use types::{
+    ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession,
+    ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, ChatTurn, ChatTurnEvent,
+    ChatTurnEventKind, ChatTurnStatus, MessageExecution,
+};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -1337,8 +1337,8 @@ fn event_text(event: &SessionLogEvent) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::chat_session::ExecutionStepInfo;
     use tempfile::tempdir;
+    use types::ExecutionStepInfo;
 
     #[test]
     fn writes_and_reads_one_jsonl_session() {

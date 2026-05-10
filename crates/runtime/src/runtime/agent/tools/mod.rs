@@ -21,13 +21,13 @@ use self::assembly::{
 use crate::services::adapters::*;
 use crate::storage::Storage;
 use types::SubagentManager;
-use types::security::SecurityGate;
 use types::skill::SkillProvider;
+use types::tool::SecurityGate;
 
 // Re-export tool types from tools
-pub use tools::impls::{
+pub use crate::tools::impls::{
     BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool, RunSkillTool,
-    SpawnSubagentTool, SpawnTool, ToolRegistryBuilder, WaitSubagentsTool, default_registry,
+    SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool, default_registry,
 };
 
 pub use ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
@@ -208,13 +208,6 @@ pub fn registry_from_allowlist_with_security_gate(
     let mut builder = ToolRegistryBuilder::new();
     let mut allow_file = false;
     let mut allow_file_write = false;
-    let effective_config = storage.and_then(|value| {
-        value
-            .config
-            .get_effective_config_for_workspace(workspace_root)
-            .ok()
-    });
-
     /// Register a storage-backed tool, warning if storage is unavailable.
     macro_rules! with_storage {
         ($storage:expr, $tool_name:expr, $builder:ident, |$s:ident| $body:expr) => {
@@ -249,16 +242,6 @@ pub fn registry_from_allowlist_with_security_gate(
             "write" => {
                 allow_file = true;
                 allow_file_write = true;
-            }
-            "security_query" => {
-                let provider = if let Some(storage) = storage {
-                    Arc::new(SecurityQueryProviderAdapter::with_config_storage(Arc::new(
-                        storage.config.clone(),
-                    )))
-                } else {
-                    Arc::new(SecurityQueryProviderAdapter::new())
-                };
-                builder = builder.with_security_query(provider);
             }
             "patch" => {
                 builder = builder.with_patch_and_base_dir(workspace_root.map(Path::to_path_buf));
@@ -301,22 +284,6 @@ pub fn registry_from_allowlist_with_security_gate(
 
             // --- Storage-backed tools ---
             tool_name if tool_name == "manage_agents" => {}
-            "manage_marketplace" => {
-                if storage.is_some() {
-                    let registry_defaults = effective_config
-                        .as_ref()
-                        .map(|config| config.registry_defaults.clone())
-                        .unwrap_or_default();
-                    builder = builder.with_marketplace(Arc::new(
-                        MarketplaceStoreAdapter::new_with_defaults(registry_defaults),
-                    ));
-                } else {
-                    warn!(
-                        tool_name = "manage_marketplace",
-                        "Storage unavailable, skipping"
-                    );
-                }
-            }
             "manage_ops" => {
                 builder = builder.with_ops(Arc::new(OpsProviderAdapter::new()));
             }
@@ -469,7 +436,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 registry.register_arc(tool);
             }
         }
-        registry.register(tools::BatchTool::new(registry_arc));
+        registry.register(crate::tools::BatchTool::new(registry_arc));
     }
 
     #[cfg(any(test, feature = "test-utils"))]
@@ -494,7 +461,6 @@ mod tests {
     };
     use crate::prompt_files;
     use crate::storage::Storage;
-    use crate::test_support::RestflowTestEnv;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -530,40 +496,14 @@ mod tests {
         assert!(!names.contains(&"discord".to_string()));
         assert!(!names.contains(&"slack".to_string()));
         assert!(!names.contains(&"skill".to_string()));
-        assert!(!names.contains(&"manage_tasks".to_string()));
         assert!(!names.contains(&"manage_agents".to_string()));
         assert!(!names.contains(&"manage_sessions".to_string()));
-        assert!(!names.contains(&"manage_marketplace".to_string()));
         assert!(!names.contains(&"manage_triggers".to_string()));
         assert!(!names.contains(&"manage_ops".to_string()));
         assert!(!names.contains(&"manage_memory".to_string()));
         assert!(!names.contains(&"manage_config".to_string()));
         assert!(!names.contains(&"manage_secrets".to_string()));
         assert!(!names.contains(&"task_list".to_string()));
-    }
-
-    #[test]
-    fn test_manage_tasks_tool_not_registered_with_storage() {
-        let state = RestflowTestEnv::new();
-        let db_path = state.db_path("registry-tools.db");
-        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-            .expect("storage should be created");
-        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
-
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
-                .unwrap();
-        assert!(!registry.has("manage_tasks"));
-        assert!(registry.has("manage_agents"));
-    }
-
-    #[test]
-    fn test_manage_tasks_tool_skipped_without_storage() {
-        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
-        assert!(!registry.has("manage_tasks"));
-        assert!(!registry.has("manage_agents"));
     }
 
     #[test]
@@ -621,18 +561,12 @@ mod tests {
         let db_path = dir.path().join("platform-tools.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
-        let names = vec![
-            "manage_marketplace".to_string(),
-            "manage_ops".to_string(),
-            "security_query".to_string(),
-        ];
+        let names = vec!["manage_ops".to_string()];
 
         let registry =
             registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
                 .unwrap();
-        assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_ops"));
-        assert!(registry.has("security_query"));
     }
 
     #[test]
@@ -645,7 +579,6 @@ mod tests {
         assert!(!tools.iter().any(|name| name == "transcribe"));
         assert!(!tools.iter().any(|name| name == "vision"));
         assert!(!tools.iter().any(|name| name == "switch_model"));
-        assert!(!tools.iter().any(|name| name == "security_query"));
     }
 
     #[tokio::test]

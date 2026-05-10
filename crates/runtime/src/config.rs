@@ -15,16 +15,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS, DEFAULT_AGENT_BASH_TIMEOUT_SECS,
     DEFAULT_AGENT_BROWSER_TIMEOUT_SECS, DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
-    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_MAX_ITERATIONS,
-    DEFAULT_AGENT_MAX_TOOL_CALLS, DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
-    DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
-    DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
+    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS,
+    DEFAULT_AGENT_MAX_TOOL_CONCURRENCY, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
+    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
     DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
     DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
     DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
     DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
-    DEFAULT_TASK_MESSAGE_LIST_LIMIT, DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
-    DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
     MAX_API_WEB_SEARCH_RESULTS,
 };
 
@@ -35,11 +32,9 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 
 // Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
-const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 1800; // 30 minutes
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
-const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_AUDIT_EVENT_RETENTION_DAYS: u32 = 7;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
@@ -80,15 +75,11 @@ impl CliConfig {
 #[serde(default)]
 pub struct SystemSection {
     pub worker_count: usize,
-    pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
-    #[serde(default)]
-    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub task_retention_days: u32,
     pub audit_event_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
@@ -98,13 +89,10 @@ impl Default for SystemSection {
     fn default() -> Self {
         Self {
             worker_count: DEFAULT_WORKER_COUNT,
-            task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
@@ -116,13 +104,10 @@ impl From<&SystemConfig> for SystemSection {
     fn from(config: &SystemConfig) -> Self {
         Self {
             worker_count: config.worker_count,
-            task_timeout_seconds: config.task_timeout_seconds,
             stall_timeout_seconds: config.stall_timeout_seconds,
-            task_api_timeout_seconds: config.task_api_timeout_seconds,
             chat_response_timeout_seconds: config.chat_response_timeout_seconds,
             max_retries: config.max_retries,
             chat_session_retention_days: config.chat_session_retention_days,
-            task_retention_days: config.task_retention_days,
             audit_event_retention_days: config.audit_event_retention_days,
             log_file_retention_days: config.log_file_retention_days,
             experimental_features: config.experimental_features.clone(),
@@ -157,13 +142,10 @@ impl ConfigDocument {
     pub fn system_config(&self) -> SystemConfig {
         SystemConfig {
             worker_count: self.system.worker_count,
-            task_timeout_seconds: self.system.task_timeout_seconds,
             stall_timeout_seconds: self.system.stall_timeout_seconds,
-            task_api_timeout_seconds: self.system.task_api_timeout_seconds,
             chat_response_timeout_seconds: self.system.chat_response_timeout_seconds,
             max_retries: self.system.max_retries,
             chat_session_retention_days: self.system.chat_session_retention_days,
-            task_retention_days: self.system.task_retention_days,
             audit_event_retention_days: self.system.audit_event_retention_days,
             log_file_retention_days: self.system.log_file_retention_days,
             experimental_features: self.system.experimental_features.clone(),
@@ -233,10 +215,6 @@ pub struct AgentDefaults {
     ///
     /// `None` disables wall-clock timeout for foreground agent runs.
     pub max_wall_clock_secs: Option<u64>,
-    /// Default timeout for task execution in seconds.
-    pub default_task_timeout_secs: u64,
-    /// Default max duration for task resource limits in seconds.
-    pub default_max_duration_secs: u64,
     /// Fallback models for cross-provider failover (manually configured).
     /// Only used when primary model fails - does not auto-discover providers.
     /// Format: model names as strings (e.g., ["glm-4.7", "claude-sonnet-4-5"])
@@ -268,8 +246,6 @@ impl Default for AgentDefaults {
             prune_tool_max_chars: DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
             compact_preserve_tokens: DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
             max_wall_clock_secs: None,
-            default_task_timeout_secs: DEFAULT_AGENT_TASK_TIMEOUT_SECS,
-            default_max_duration_secs: DEFAULT_AGENT_MAX_DURATION_SECS,
             fallback_models: None,
         }
     }
@@ -369,18 +345,6 @@ impl AgentDefaults {
                 MIN_TIMEOUT_SECONDS
             ));
         }
-        if self.default_task_timeout_secs < MIN_TIMEOUT_SECONDS {
-            return Err(anyhow::anyhow!(
-                "agent.default_task_timeout_secs must be at least {} seconds",
-                MIN_TIMEOUT_SECONDS
-            ));
-        }
-        if self.default_max_duration_secs < MIN_TIMEOUT_SECONDS {
-            return Err(anyhow::anyhow!(
-                "agent.default_max_duration_secs must be at least {} seconds",
-                MIN_TIMEOUT_SECONDS
-            ));
-        }
         Ok(())
     }
 }
@@ -391,10 +355,6 @@ impl AgentDefaults {
 pub struct ApiDefaults {
     /// Default `chat_session_list` result limit.
     pub session_list_limit: u32,
-    /// Default event limit for task progress queries.
-    pub task_progress_event_limit: usize,
-    /// Default message list limit for tasks.
-    pub task_message_list_limit: usize,
     /// Default result count for `web_search`.
     pub web_search_num_results: usize,
 }
@@ -406,8 +366,6 @@ impl Default for ApiDefaults {
     fn default() -> Self {
         Self {
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
-            task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
-            task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
         }
     }
@@ -417,16 +375,6 @@ impl ApiDefaults {
     fn validate(&self) -> Result<()> {
         if self.session_list_limit == 0 {
             return Err(anyhow::anyhow!("api.session_list_limit must be at least 1"));
-        }
-        if self.task_progress_event_limit == 0 {
-            return Err(anyhow::anyhow!(
-                "api.task_progress_event_limit must be at least 1"
-            ));
-        }
-        if self.task_message_list_limit == 0 {
-            return Err(anyhow::anyhow!(
-                "api.task_message_list_limit must be at least 1"
-            ));
         }
         if self.web_search_num_results == 0 {
             return Err(anyhow::anyhow!(
@@ -447,10 +395,6 @@ impl ApiDefaults {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct RuntimeDefaults {
-    /// Task runner poll interval in milliseconds.
-    pub task_runner_poll_interval_ms: u64,
-    /// Maximum concurrent tasks for the task runner.
-    pub task_runner_max_concurrent_tasks: usize,
     /// Maximum session history kept for channel chat sessions.
     pub chat_max_session_history: usize,
 }
@@ -461,8 +405,6 @@ pub type RuntimeSettings = RuntimeDefaults;
 impl Default for RuntimeDefaults {
     fn default() -> Self {
         Self {
-            task_runner_poll_interval_ms: DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
-            task_runner_max_concurrent_tasks: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
             chat_max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
         }
     }
@@ -470,16 +412,6 @@ impl Default for RuntimeDefaults {
 
 impl RuntimeDefaults {
     fn validate(&self) -> Result<()> {
-        if self.task_runner_poll_interval_ms == 0 {
-            return Err(anyhow::anyhow!(
-                "runtime.task_runner_poll_interval_ms must be at least 1"
-            ));
-        }
-        if self.task_runner_max_concurrent_tasks == 0 {
-            return Err(anyhow::anyhow!(
-                "runtime.task_runner_max_concurrent_tasks must be at least 1"
-            ));
-        }
         if self.chat_max_session_history == 0 {
             return Err(anyhow::anyhow!(
                 "runtime.chat_max_session_history must be at least 1"
@@ -532,14 +464,7 @@ impl RegistryDefaults {
 #[serde(default)]
 pub struct SystemConfig {
     pub worker_count: usize,
-    pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
-    /// Default timeout for API task execution in seconds.
-    ///
-    /// `None` disables timeout by default. Individual tasks may still configure
-    /// their own `timeout_secs` and resource limits.
-    #[serde(default)]
-    pub task_api_timeout_seconds: Option<u64>,
     /// Timeout for interactive channel chat responses in seconds.
     ///
     /// `None` disables timeout for chat dispatching.
@@ -547,7 +472,6 @@ pub struct SystemConfig {
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub task_retention_days: u32,
     /// Retention period for execution audit events.
     /// 0 = keep forever, otherwise delete events older than N days.
     pub audit_event_retention_days: u32,
@@ -573,13 +497,10 @@ impl Default for SystemConfig {
     fn default() -> Self {
         Self {
             worker_count: DEFAULT_WORKER_COUNT,
-            task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
@@ -601,25 +522,9 @@ impl SystemConfig {
             ));
         }
 
-        if self.task_timeout_seconds < MIN_TIMEOUT_SECONDS {
-            return Err(anyhow::anyhow!(
-                "Task timeout must be at least {} seconds",
-                MIN_TIMEOUT_SECONDS
-            ));
-        }
-
         if self.stall_timeout_seconds < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
                 "Stall timeout must be at least {} seconds",
-                MIN_TIMEOUT_SECONDS
-            ));
-        }
-
-        if let Some(timeout_secs) = self.task_api_timeout_seconds
-            && timeout_secs < MIN_TIMEOUT_SECONDS
-        {
-            return Err(anyhow::anyhow!(
-                "Background API timeout must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
             ));
         }
@@ -642,13 +547,6 @@ impl SystemConfig {
         {
             return Err(anyhow::anyhow!(
                 "Chat session retention must be 0 (forever) or at least {} day",
-                MIN_RETENTION_DAYS
-            ));
-        }
-
-        if self.task_retention_days < MIN_RETENTION_DAYS {
-            return Err(anyhow::anyhow!(
-                "Task retention must be at least {} day",
                 MIN_RETENTION_DAYS
             ));
         }
@@ -828,8 +726,6 @@ struct AgentDefaultsOverride {
     pub compact_preserve_tokens: Option<usize>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub max_wall_clock_secs: Option<Option<u64>>,
-    pub default_task_timeout_secs: Option<u64>,
-    pub default_max_duration_secs: Option<u64>,
     #[serde(
         default,
         deserialize_with = "deserialize_optional_string_list_override"
@@ -893,12 +789,6 @@ impl AgentDefaultsOverride {
         if let Some(value) = self.max_wall_clock_secs {
             agent.max_wall_clock_secs = value;
         }
-        if let Some(value) = self.default_task_timeout_secs {
-            agent.default_task_timeout_secs = value;
-        }
-        if let Some(value) = self.default_max_duration_secs {
-            agent.default_max_duration_secs = value;
-        }
         if let Some(value) = self.fallback_models.clone() {
             agent.fallback_models = value;
         }
@@ -909,10 +799,6 @@ impl AgentDefaultsOverride {
 #[serde(default, deny_unknown_fields)]
 struct ApiDefaultsOverride {
     pub session_list_limit: Option<u32>,
-    pub task_progress_event_limit: Option<usize>,
-    pub task_message_list_limit: Option<usize>,
-    pub background_progress_event_limit: Option<usize>,
-    pub background_message_list_limit: Option<usize>,
     pub web_search_num_results: Option<usize>,
 }
 
@@ -920,18 +806,6 @@ impl ApiDefaultsOverride {
     fn apply_to(&self, api_defaults: &mut ApiDefaults) {
         if let Some(value) = self.session_list_limit {
             api_defaults.session_list_limit = value;
-        }
-        if let Some(value) = self.background_progress_event_limit {
-            api_defaults.task_progress_event_limit = value;
-        }
-        if let Some(value) = self.background_message_list_limit {
-            api_defaults.task_message_list_limit = value;
-        }
-        if let Some(value) = self.task_progress_event_limit {
-            api_defaults.task_progress_event_limit = value;
-        }
-        if let Some(value) = self.task_message_list_limit {
-            api_defaults.task_message_list_limit = value;
         }
         if let Some(value) = self.web_search_num_results {
             api_defaults.web_search_num_results = value;
@@ -942,27 +816,11 @@ impl ApiDefaultsOverride {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RuntimeDefaultsOverride {
-    pub task_runner_poll_interval_ms: Option<u64>,
-    pub task_runner_max_concurrent_tasks: Option<usize>,
-    pub background_runner_poll_interval_ms: Option<u64>,
-    pub background_runner_max_concurrent_tasks: Option<usize>,
     pub chat_max_session_history: Option<usize>,
 }
 
 impl RuntimeDefaultsOverride {
     fn apply_to(&self, runtime_defaults: &mut RuntimeDefaults) {
-        if let Some(value) = self.background_runner_poll_interval_ms {
-            runtime_defaults.task_runner_poll_interval_ms = value;
-        }
-        if let Some(value) = self.background_runner_max_concurrent_tasks {
-            runtime_defaults.task_runner_max_concurrent_tasks = value;
-        }
-        if let Some(value) = self.task_runner_poll_interval_ms {
-            runtime_defaults.task_runner_poll_interval_ms = value;
-        }
-        if let Some(value) = self.task_runner_max_concurrent_tasks {
-            runtime_defaults.task_runner_max_concurrent_tasks = value;
-        }
         if let Some(value) = self.chat_max_session_history {
             runtime_defaults.chat_max_session_history = value;
         }
@@ -991,17 +849,11 @@ impl RegistryDefaultsOverride {
 #[serde(default, deny_unknown_fields)]
 struct SystemSectionOverride {
     pub worker_count: Option<usize>,
-    pub task_timeout_seconds: Option<u64>,
     pub stall_timeout_seconds: Option<u64>,
-    #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
-    pub task_api_timeout_seconds: Option<Option<u64>>,
-    pub background_api_timeout_seconds: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub chat_response_timeout_seconds: Option<Option<u64>>,
     pub max_retries: Option<u32>,
     pub chat_session_retention_days: Option<u32>,
-    pub task_retention_days: Option<u32>,
-    pub background_task_retention_days: Option<u32>,
     pub audit_event_retention_days: Option<u32>,
     pub log_file_retention_days: Option<u32>,
     pub experimental_features: Option<Vec<String>>,
@@ -1012,17 +864,8 @@ impl SystemSectionOverride {
         if let Some(value) = self.worker_count {
             config.worker_count = value;
         }
-        if let Some(value) = self.task_timeout_seconds {
-            config.task_timeout_seconds = value;
-        }
         if let Some(value) = self.stall_timeout_seconds {
             config.stall_timeout_seconds = value;
-        }
-        if let Some(value) = self.background_api_timeout_seconds {
-            config.task_api_timeout_seconds = Some(value);
-        }
-        if let Some(value) = self.task_api_timeout_seconds {
-            config.task_api_timeout_seconds = value;
         }
         if let Some(value) = self.chat_response_timeout_seconds {
             config.chat_response_timeout_seconds = value;
@@ -1032,12 +875,6 @@ impl SystemSectionOverride {
         }
         if let Some(value) = self.chat_session_retention_days {
             config.chat_session_retention_days = value;
-        }
-        if let Some(value) = self.background_task_retention_days {
-            config.task_retention_days = value;
-        }
-        if let Some(value) = self.task_retention_days {
-            config.task_retention_days = value;
         }
         if let Some(value) = self.audit_event_retention_days {
             config.audit_event_retention_days = value;
@@ -1645,8 +1482,6 @@ mod tests {
 
         let config = config.unwrap();
         assert_eq!(config.worker_count, DEFAULT_WORKER_COUNT);
-        assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
-        assert_eq!(config.task_api_timeout_seconds, None);
         assert_eq!(config.chat_response_timeout_seconds, None);
         assert_eq!(
             config.agent.browser_timeout_secs,
@@ -1687,22 +1522,6 @@ mod tests {
             DEFAULT_API_WEB_SEARCH_RESULTS
         );
         assert_eq!(
-            config.api_defaults.task_progress_event_limit,
-            DEFAULT_TASK_PROGRESS_EVENT_LIMIT
-        );
-        assert_eq!(
-            config.api_defaults.task_message_list_limit,
-            DEFAULT_TASK_MESSAGE_LIST_LIMIT
-        );
-        assert_eq!(
-            config.runtime_defaults.task_runner_poll_interval_ms,
-            DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS
-        );
-        assert_eq!(
-            config.runtime_defaults.task_runner_max_concurrent_tasks,
-            DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS
-        );
-        assert_eq!(
             config.runtime_defaults.chat_max_session_history,
             DEFAULT_CHAT_MAX_SESSION_HISTORY
         );
@@ -1722,13 +1541,10 @@ mod tests {
 
         let new_config = SystemConfig {
             worker_count: 8,
-            task_timeout_seconds: 600,
             stall_timeout_seconds: 600,
-            task_api_timeout_seconds: Some(3600),
             chat_response_timeout_seconds: Some(900),
             max_retries: 5,
             chat_session_retention_days: 45,
-            task_retention_days: 14,
             experimental_features: vec!["plan_mode".to_string()],
             ..Default::default()
         };
@@ -1737,20 +1553,16 @@ mod tests {
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.worker_count, 8);
-        assert_eq!(retrieved.task_timeout_seconds, 600);
     }
 
     #[test]
     fn test_config_validation() {
         let valid_config = SystemConfig {
             worker_count: 2,
-            task_timeout_seconds: 30,
             stall_timeout_seconds: 30,
-            task_api_timeout_seconds: Some(1200),
             chat_response_timeout_seconds: Some(300),
             max_retries: 1,
             chat_session_retention_days: 30,
-            task_retention_days: 7,
             experimental_features: vec!["websocket_transport".to_string()],
             ..Default::default()
         };
@@ -1760,7 +1572,6 @@ mod tests {
     #[test]
     fn test_optional_timeouts_allow_none() {
         let config = SystemConfig {
-            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             ..Default::default()
         };
@@ -1979,33 +1790,19 @@ mod tests {
         let file = write_override_file(
             r#"[system]
 worker_count = 42
-task_retention_days = 10
 "#,
         );
         let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.worker_count, 42);
-        assert_eq!(effective.task_retention_days, 10);
     }
 
     #[test]
-    fn test_effective_config_accepts_deprecated_background_and_sandbox_keys() {
+    fn test_effective_config_accepts_deprecated_sandbox_keys() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"[system]
-background_api_timeout_seconds = 3600
-background_task_retention_days = 14
-
-[api]
-background_progress_event_limit = 10
-background_message_list_limit = 50
-
-[runtime]
-background_runner_poll_interval_ms = 15000
-background_runner_max_concurrent_tasks = 8
-
-[cli.sandbox]
+            r#"[cli.sandbox]
 enabled = false
 
 [cli.sandbox.env]
@@ -2020,19 +1817,7 @@ max_output_bytes = 1048576
         );
         let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
 
-        let effective = ctx.storage.get_effective_config().unwrap();
-        assert_eq!(effective.task_api_timeout_seconds, Some(3600));
-        assert_eq!(effective.task_retention_days, 14);
-        assert_eq!(effective.api_defaults.task_progress_event_limit, 10);
-        assert_eq!(effective.api_defaults.task_message_list_limit, 50);
-        assert_eq!(
-            effective.runtime_defaults.task_runner_poll_interval_ms,
-            15000
-        );
-        assert_eq!(
-            effective.runtime_defaults.task_runner_max_concurrent_tasks,
-            8
-        );
+        ctx.storage.get_effective_config().unwrap();
     }
 
     #[test]
@@ -2108,10 +1893,7 @@ worker_count = 11
     fn test_partial_agent_override() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"[system]
-task_timeout_seconds = 9999
-
-[agent]
+            r#"[agent]
 python_timeout_secs = 45
 llm_timeout_secs = 660
 browser_timeout_secs = 240
@@ -2125,7 +1907,6 @@ fallback_models = ["alpha", "beta"]
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
-        assert_eq!(effective.task_timeout_seconds, 9999);
         assert_eq!(effective.agent.python_timeout_secs, 45);
         assert_eq!(effective.agent.llm_timeout_secs, Some(660));
         assert_eq!(effective.agent.browser_timeout_secs, 240);
@@ -2158,8 +1939,6 @@ web_search_num_results = 7
         let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[runtime]
-task_runner_poll_interval_ms = 15000
-task_runner_max_concurrent_tasks = 8
 chat_max_session_history = 42
 
 [registry]
@@ -2170,14 +1949,6 @@ marketplace_cache_ttl_secs = 450
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
-        assert_eq!(
-            effective.runtime_defaults.task_runner_poll_interval_ms,
-            15000
-        );
-        assert_eq!(
-            effective.runtime_defaults.task_runner_max_concurrent_tasks,
-            8
-        );
         assert_eq!(effective.runtime_defaults.chat_max_session_history, 42);
         assert_eq!(effective.registry_defaults.github_cache_ttl_secs, 900);
         assert_eq!(effective.registry_defaults.marketplace_cache_ttl_secs, 450);
@@ -2281,27 +2052,16 @@ session_list_limit = 33
     fn test_api_round_trip() {
         let ctx = setup_test_storage();
         let mut config = ctx.storage.get_config().unwrap().unwrap();
-        assert_eq!(config.api_defaults.task_progress_event_limit, 10);
-        assert_eq!(config.api_defaults.task_message_list_limit, 50);
-        config.api_defaults.task_progress_event_limit = 12;
-        config.api_defaults.task_message_list_limit = 60;
+        assert_eq!(config.api_defaults.web_search_num_results, 5);
+        config.api_defaults.web_search_num_results = 6;
         ctx.storage.update_config(config).unwrap();
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
-        assert_eq!(retrieved.api_defaults.task_progress_event_limit, 12);
-        assert_eq!(retrieved.api_defaults.task_message_list_limit, 60);
+        assert_eq!(retrieved.api_defaults.web_search_num_results, 6);
     }
 
     #[test]
     fn test_invalid_api_settings_rejected() {
-        let mut config = SystemConfig::default();
-        config.api_defaults.task_progress_event_limit = 0;
-        assert!(config.validate().is_err());
-
-        let mut config = SystemConfig::default();
-        config.api_defaults.task_message_list_limit = 0;
-        assert!(config.validate().is_err());
-
         let mut config = SystemConfig::default();
         config.api_defaults.web_search_num_results = MAX_API_WEB_SEARCH_RESULTS + 1;
         assert!(config.validate().is_err());
@@ -2309,14 +2069,6 @@ session_list_limit = 33
 
     #[test]
     fn test_invalid_runtime_channel_and_registry_defaults_rejected() {
-        let mut config = SystemConfig::default();
-        config.runtime_defaults.task_runner_poll_interval_ms = 0;
-        assert!(config.validate().is_err());
-
-        let mut config = SystemConfig::default();
-        config.runtime_defaults.task_runner_max_concurrent_tasks = 0;
-        assert!(config.validate().is_err());
-
         let mut config = SystemConfig::default();
         config.runtime_defaults.chat_max_session_history = 0;
         assert!(config.validate().is_err());

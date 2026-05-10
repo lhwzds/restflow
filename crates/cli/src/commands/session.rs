@@ -7,7 +7,7 @@ use crate::cli::SessionCommands;
 use crate::commands::utils::{format_timestamp, short_id};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use runtime::models::chat_session::ChatRole;
+use types::ChatRole;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,

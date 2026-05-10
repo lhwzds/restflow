@@ -2,10 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ToolError;
-use crate::store::{
-    AgentCreateRequest, AgentUpdateRequest, TaskControlRequest, TaskConvertSessionRequest,
-    TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
-};
+use crate::store::{AgentCreateRequest, AgentUpdateRequest};
 use crate::subagent::ContractRunSpawnRequest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -106,15 +103,6 @@ fn build_approval_id(assessment: &OperationAssessment) -> String {
     format!("{hash:016x}")
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum TaskCommandOutcome<T> {
-    Preview { assessment: OperationAssessment },
-    Blocked { assessment: OperationAssessment },
-    ConfirmationRequired { assessment: OperationAssessment },
-    Executed { result: T },
-}
-
 #[async_trait]
 pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_agent_create(
@@ -125,39 +113,6 @@ pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_agent_update(
         &self,
         request: AgentUpdateRequest,
-    ) -> Result<OperationAssessment, ToolError>;
-
-    async fn assess_task_create(
-        &self,
-        request: TaskCreateRequest,
-    ) -> Result<OperationAssessment, ToolError>;
-
-    async fn assess_task_convert_session(
-        &self,
-        request: TaskConvertSessionRequest,
-    ) -> Result<OperationAssessment, ToolError>;
-
-    async fn assess_task_update(
-        &self,
-        request: TaskUpdateRequest,
-    ) -> Result<OperationAssessment, ToolError>;
-
-    async fn assess_task_delete(
-        &self,
-        request: TaskDeleteRequest,
-    ) -> Result<OperationAssessment, ToolError>;
-
-    async fn assess_task_control(
-        &self,
-        request: TaskControlRequest,
-    ) -> Result<OperationAssessment, ToolError>;
-
-    async fn assess_task_template(
-        &self,
-        operation: &str,
-        intent: OperationAssessmentIntent,
-        agent_ids: Vec<String>,
-        template_mode: bool,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_subagent_spawn(

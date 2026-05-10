@@ -10,19 +10,19 @@ description = "Shared trait definitions and core abstractions for RestFlow"
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml = "0.9"
 tokio.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
+uuid.workspace = true
 
 # Crate-specific
 thiserror = "2.0"
 url = "2.5"
-reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"], optional = true }
-specta = { version = "=2.0.0-rc.23", features = ["derive"] }
+specta = { version = "=2.0.0-rc.23", features = ["derive", "serde_json"] }
 
 [features]
 default = []
-http-client = ["dep:reqwest"]
 specta = []
 
 [lints.rust]

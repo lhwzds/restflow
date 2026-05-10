@@ -10,7 +10,6 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use types::ToolOutput;
-use types::store::is_task_management_tool_name;
 
 use crate::agent::reviewer::{ToolCallReviewer, ToolReviewRequest};
 use crate::agent::stream::StreamEmitter;
@@ -79,7 +78,6 @@ fn serialize_tool_output_for_emitter(output: &ToolOutput) -> String {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ToolInvocationContext<'a> {
     pub parent_run_id: Option<&'a str>,
-    pub chat_session_id: Option<&'a str>,
     pub model: Option<&'a str>,
     pub provider: Option<&'a str>,
 }
@@ -108,7 +106,6 @@ impl AgentExecutor {
     fn uses_runtime_policy(tool_name: &str) -> bool {
         Self::is_subagent_spawn_tool(tool_name)
             || matches!(tool_name, "wait_subagents" | "list_subagents")
-            || is_task_management_tool_name(tool_name)
     }
 
     fn inject_spawn_parent_run_id(tool_name: &str, args: &mut Value, parent_run_id: Option<&str>) {
@@ -164,29 +161,6 @@ impl AgentExecutor {
             map.insert("model".to_string(), Value::String(model.to_string()));
             map.insert("provider".to_string(), Value::String(provider.to_string()));
         }
-    }
-
-    fn inject_promote_session_id(tool_name: &str, args: &mut Value, chat_session_id: Option<&str>) {
-        if !is_task_management_tool_name(tool_name) {
-            return;
-        }
-        let Some(chat_session_id) = chat_session_id else {
-            return;
-        };
-        let Some(map) = args.as_object_mut() else {
-            return;
-        };
-        let operation = map
-            .get("operation")
-            .and_then(Value::as_str)
-            .map(|value| value.trim().to_ascii_lowercase());
-        if operation.as_deref() != Some("promote_to_background") {
-            return;
-        }
-        map.insert(
-            "session_id".to_string(),
-            Value::String(chat_session_id.to_string()),
-        );
     }
 
     fn inject_subagent_parent_scope(
@@ -416,7 +390,6 @@ impl AgentExecutor {
                 context.model,
                 context.provider,
             );
-            Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let arguments = serde_json::to_string(&args).unwrap_or_default();
             emitter
@@ -440,7 +413,6 @@ impl AgentExecutor {
                 context.model,
                 context.provider,
             );
-            Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();

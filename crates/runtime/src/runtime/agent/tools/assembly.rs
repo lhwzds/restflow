@@ -2,19 +2,20 @@ use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 use super::SUBAGENT_TOOL_NAMES;
+use crate::AgentStorage;
 use crate::services::adapters::AgentStoreAdapter;
 use crate::services::operation_assessment::OperationAssessorAdapter;
+use crate::storage::SecretStorage;
 use crate::storage::Storage;
-use crate::storage::{AgentStorage, SecretStorage};
-use tools::{
+use crate::tools::{
     BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool, SpawnSubagentTool,
     ToolRegistryBuilder, WaitSubagentsTool,
 };
 use types::AgentOperationAssessor;
 use types::SubagentManager;
-use types::registry::ToolRegistry;
-use types::security::SecurityGate;
 use types::store::AgentStore;
+use types::tool::SecurityGate;
+use types::toolset::ToolRegistry;
 
 pub(crate) struct AgentCrudComponents {
     pub known_tools: Arc<RwLock<HashSet<String>>>,

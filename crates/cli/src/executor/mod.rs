@@ -1,15 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use runtime::Secret;
+use runtime::StoredAgent;
 use runtime::daemon::is_daemon_available;
-use runtime::models::{
-    AgentNode, ChatSession, ChatSessionSummary, RunListQuery, RunSummary, RunTimeline, Secret,
-    Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
-};
 use runtime::paths;
 use runtime::storage::SystemConfig;
-use runtime::storage::agent::StoredAgent;
 use std::sync::Arc;
-use types::{CleanupReportResponse, request::TaskFromSessionRequest};
+use types::CleanupReportResponse;
+use types::{AgentNode, ChatSession, ChatSessionSummary, Skill};
 
 #[cfg(test)]
 pub mod direct;
@@ -73,32 +71,6 @@ pub trait CommandExecutor: Send + Sync {
         skill_id: Option<String>,
     ) -> Result<ChatSession>;
     async fn delete_session(&self, id: &str) -> Result<bool>;
-
-    // Task operations
-    async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>>;
-    async fn get_task(&self, id: &str) -> Result<Task>;
-    async fn create_task(&self, spec: TaskSpec) -> Result<Task>;
-    async fn convert_session_to_task(
-        &self,
-        request: TaskFromSessionRequest,
-    ) -> Result<TaskConversionResult>;
-    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task>;
-    async fn delete_task(
-        &self,
-        id: &str,
-        approval_id: Option<&str>,
-    ) -> Result<types::DeleteWithIdResponse>;
-    async fn control_task(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-        approval_id: Option<&str>,
-    ) -> Result<Task>;
-    async fn get_task_progress(&self, id: &str, event_limit: Option<usize>)
-    -> Result<TaskProgress>;
-    async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;
-    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
-    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline>;
 }
 
 pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {

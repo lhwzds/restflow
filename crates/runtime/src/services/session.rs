@@ -1,16 +1,17 @@
+use crate::AgentStorage;
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
-use crate::models::{
-    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
-    ChatTurnEventKind, MessageExecution, ModelId,
-};
 use crate::runtime::session_turn::hydrate_voice_message_metadata;
 use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
 use crate::session_log::{FileSession, FileSessionStore};
-use crate::storage::{AgentStorage, Storage};
+use crate::storage::Storage;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use tracing::warn;
+use types::{
+    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
+    ChatTurnEventKind, MessageExecution, ModelId,
+};
 
 #[derive(Clone)]
 pub struct SessionService {
@@ -852,9 +853,9 @@ fn replace_latest_user_message_content(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::MessageExecution;
     use crate::storage::Storage;
     use tempfile::tempdir;
+    use types::MessageExecution;
 
     fn setup() -> (Arc<Storage>, SessionService, ChatSession) {
         let dir = tempdir().unwrap();
@@ -938,7 +939,7 @@ mod tests {
                 Some("run digest"),
                 "digest complete",
                 execution.clone(),
-                "task_runtime",
+                "session_runner",
             )
             .unwrap();
 

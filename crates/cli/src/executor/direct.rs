@@ -4,21 +4,15 @@ use std::sync::Arc;
 
 use crate::executor::CommandExecutor;
 use crate::setup;
-use runtime::models::{
-    AgentNode, ChatSession, ChatSessionSummary, RunListQuery, RunSummary, RunTimeline, Task,
-    TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
-};
+use runtime::StoredAgent;
 use runtime::services::{
-    agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
-    secrets as secrets_service, session::SessionService, skills as skills_service,
+    agent as agent_service, config as config_service, secrets as secrets_service,
+    session::SessionService, skills as skills_service,
 };
 use runtime::storage::SystemConfig;
-use runtime::storage::agent::StoredAgent;
-use runtime::{
-    AppCore,
-    models::{Secret, Skill},
-};
-use types::{CleanupReportResponse, request::TaskFromSessionRequest};
+use runtime::{AppCore, Secret};
+use types::{AgentNode, ChatSession, ChatSessionSummary};
+use types::{CleanupReportResponse, Skill};
 /// Test-only executor used by command unit tests.
 pub struct DirectExecutor {
     core: Arc<AppCore>,
@@ -166,67 +160,6 @@ impl CommandExecutor for DirectExecutor {
 
     async fn delete_session(&self, id: &str) -> Result<bool> {
         SessionService::from_storage(&self.core.storage).delete_session(id)
-    }
-
-    // Task operations - require daemon
-    async fn list_tasks(&self, _status: Option<String>) -> Result<Vec<Task>> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn get_task(&self, _id: &str) -> Result<Task> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn create_task(&self, _spec: TaskSpec) -> Result<Task> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn convert_session_to_task(
-        &self,
-        _request: TaskFromSessionRequest,
-    ) -> Result<TaskConversionResult> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn update_task(&self, _id: &str, _patch: TaskPatch) -> Result<Task> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn delete_task(
-        &self,
-        _id: &str,
-        _approval_id: Option<&str>,
-    ) -> Result<types::DeleteWithIdResponse> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn control_task(
-        &self,
-        _id: &str,
-        _action: TaskControlAction,
-        _approval_id: Option<&str>,
-    ) -> Result<Task> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn get_task_progress(
-        &self,
-        _id: &str,
-        _event_limit: Option<usize>,
-    ) -> Result<TaskProgress> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn send_task_message(&self, _id: &str, _message: &str) -> Result<()> {
-        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn list_runs(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
-        ExecutionConsoleService::from_storage(&self.core.storage).list_runs(&query)
-    }
-
-    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline> {
-        ExecutionConsoleService::from_storage(&self.core.storage).get_execution_run_timeline(run_id)
     }
 }
 

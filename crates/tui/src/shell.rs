@@ -10,9 +10,9 @@ use crossterm::style::{
 use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use runtime::models::SkillSource;
-use runtime::models::{ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus};
 use serde_json::Value;
+use types::SkillSource;
+use types::{ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus};
 
 use crate::render::render_shell_bottom_viewport;
 use crate::scrollback::ScrollbackWriter;
@@ -458,7 +458,7 @@ fn active_turn_projection_start_index(state: &AppState, cells: &[TranscriptCell]
             })
     });
     let projected_by_pending_legacy_message = session.messages.last().is_some_and(|message| {
-        message.role == runtime::models::ChatRole::User && message.content.trim_end() == active_user
+        message.role == types::ChatRole::User && message.content.trim_end() == active_user
     });
     if !projected_by_running_turn && !projected_by_pending_legacy_message {
         return None;
@@ -560,10 +560,6 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
         return Some(lines);
     }
 
-    if let Some(lines) = build_task_picker_lines(state, width, max_rows) {
-        return Some(lines);
-    }
-
     if let Some(lines) = build_run_picker_lines(state, width, max_rows) {
         return Some(lines);
     }
@@ -581,10 +577,6 @@ fn build_overlay_lines(state: &AppState, width: u16, max_rows: u16) -> Option<Ve
     }
 
     if let Some(lines) = build_skill_detail_lines(state, width, max_rows) {
-        return Some(lines);
-    }
-
-    if let Some(lines) = build_task_action_picker_lines(state, width) {
         return Some(lines);
     }
 
@@ -731,72 +723,6 @@ fn build_session_picker_lines(
     Some(lines)
 }
 
-fn build_task_picker_lines(
-    state: &AppState,
-    width: u16,
-    max_rows: u16,
-) -> Option<Vec<Line<'static>>> {
-    let Some(crate::state::OverlayState::TaskPicker { selected }) = state.overlay.as_ref() else {
-        return None;
-    };
-
-    let mut lines = vec![Line::from(vec![
-        Span::styled("Tasks", tool_title_style()),
-        Span::styled("  Up/Down select, Enter actions, Esc close", muted_style()),
-    ])];
-    if state.tasks.is_empty() {
-        lines.push(styled_line("  No tasks available.", muted_style()));
-        return Some(lines);
-    }
-
-    let visible_capacity = (max_rows as usize).saturating_sub(1).max(1);
-    let rows_per_task = 2usize;
-    let visible_tasks = (visible_capacity / rows_per_task).max(1);
-    let selected_index = (*selected).min(state.tasks.len().saturating_sub(1));
-    let start = selected_index
-        .saturating_sub(visible_tasks / 2)
-        .min(state.tasks.len().saturating_sub(visible_tasks));
-    let end = (start + visible_tasks).min(state.tasks.len());
-
-    for (index, task) in state.tasks[start..end].iter().enumerate() {
-        let index = start + index;
-        let is_selected = index == selected_index;
-        let marker = if is_selected { "› " } else { "  " };
-        let title_style = if is_selected {
-            tool_title_style()
-        } else {
-            Style::default().add_modifier(Modifier::BOLD)
-        };
-        let title = Line::from(vec![
-            Span::styled(
-                marker,
-                if is_selected {
-                    tool_title_style()
-                } else {
-                    muted_style()
-                },
-            ),
-            Span::styled(task.name.clone(), title_style),
-            Span::styled(format!(" · {}", task.status), muted_style()),
-        ]);
-        lines.extend(wrap_styled_line(title, width));
-        let id_line = Line::from(vec![
-            Span::styled("    id: ", muted_style()),
-            Span::styled(task.task_id.clone(), muted_style()),
-        ]);
-        lines.extend(wrap_styled_line(id_line, width));
-    }
-
-    if end < state.tasks.len() {
-        lines.push(styled_line(
-            format!("  ... {} more", state.tasks.len() - end),
-            muted_style(),
-        ));
-    }
-    lines.truncate(max_rows as usize);
-    Some(lines)
-}
-
 fn build_run_picker_lines(
     state: &AppState,
     width: u16,
@@ -812,10 +738,7 @@ fn build_run_picker_lines(
         Span::styled("  Up/Down select, Enter open, Esc close", muted_style()),
     ])];
     if items.is_empty() {
-        lines.push(styled_line(
-            "  No active work, runs, or background tasks.",
-            muted_style(),
-        ));
+        lines.push(styled_line("  No active runs.", muted_style()));
         return Some(lines);
     }
 
@@ -837,83 +760,36 @@ fn build_run_picker_lines(
         } else {
             Style::default().add_modifier(Modifier::BOLD)
         };
-        match item {
-            WorkPickerItem::BackgroundTask {
-                task_id,
-                title,
-                status,
-                latest_run_id,
-                next_run_at,
-                ..
-            } => {
-                let next_run = next_run_at
-                    .map(|value| format!(" · next {value}"))
-                    .unwrap_or_default();
-                lines.extend(wrap_styled_line(
-                    Line::from(vec![
-                        Span::styled(
-                            marker,
-                            if is_selected {
-                                tool_title_style()
-                            } else {
-                                muted_style()
-                            },
-                        ),
-                        Span::styled("background task · ", muted_style()),
-                        Span::styled(title.clone(), title_style),
-                        Span::styled(format!(" · {status}{next_run}"), muted_style()),
-                    ]),
-                    width,
-                ));
-                lines.extend(wrap_styled_line(
-                    Line::from(vec![
-                        Span::styled("    id: ", muted_style()),
-                        Span::styled(task_id.clone(), muted_style()),
-                    ]),
-                    width,
-                ));
-                if let Some(run_id) = latest_run_id {
-                    lines.extend(wrap_styled_line(
-                        Line::from(vec![
-                            Span::styled("    run: ", muted_style()),
-                            Span::styled(run_id.clone(), muted_style()),
-                        ]),
-                        width,
-                    ));
-                }
-            }
-            WorkPickerItem::Run {
-                run_id,
-                kind,
-                title,
-                status,
-                ..
-            } => {
-                lines.extend(wrap_styled_line(
-                    Line::from(vec![
-                        Span::styled(
-                            marker,
-                            if is_selected {
-                                tool_title_style()
-                            } else {
-                                muted_style()
-                            },
-                        ),
-                        Span::styled(format!("{} · ", work_run_kind_label(*kind)), muted_style()),
-                        Span::styled(title.clone(), title_style),
-                        Span::styled(format!(" · {status}"), muted_style()),
-                    ]),
-                    width,
-                ));
-                lines.extend(wrap_styled_line(
-                    Line::from(vec![
-                        Span::styled("    run: ", muted_style()),
-                        Span::styled(run_id.clone(), muted_style()),
-                    ]),
-                    width,
-                ));
-            }
-        }
+        let WorkPickerItem::Run {
+            run_id,
+            kind,
+            title,
+            status,
+            ..
+        } = item;
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        tool_title_style()
+                    } else {
+                        muted_style()
+                    },
+                ),
+                Span::styled(format!("{} · ", work_run_kind_label(*kind)), muted_style()),
+                Span::styled(title.clone(), title_style),
+                Span::styled(format!(" · {status}"), muted_style()),
+            ]),
+            width,
+        ));
+        lines.extend(wrap_styled_line(
+            Line::from(vec![
+                Span::styled("    run: ", muted_style()),
+                Span::styled(run_id.clone(), muted_style()),
+            ]),
+            width,
+        ));
     }
 
     if end < items.len() {
@@ -1314,50 +1190,6 @@ fn build_skill_detail_lines(
     }
 
     lines.truncate(max_rows as usize);
-    Some(lines)
-}
-
-fn build_task_action_picker_lines(state: &AppState, width: u16) -> Option<Vec<Line<'static>>> {
-    let Some(crate::state::OverlayState::TaskActionPicker { task_id, selected }) =
-        state.overlay.as_ref()
-    else {
-        return None;
-    };
-
-    let actions = [
-        ("pause", "Pause task scheduling"),
-        ("resume", "Resume task scheduling"),
-        ("stop", "Interrupt current/future execution"),
-    ];
-    let mut lines = vec![Line::from(vec![
-        Span::styled("Task actions", tool_title_style()),
-        Span::styled("  Up/Down select, Enter run, Esc close", muted_style()),
-    ])];
-    lines.push(styled_line(format!("  task: {task_id}"), muted_style()));
-    for (index, (action, description)) in actions.iter().enumerate() {
-        let selected = index == *selected;
-        let line = Line::from(vec![
-            Span::styled(
-                if selected { "› " } else { "  " },
-                if selected {
-                    tool_title_style()
-                } else {
-                    muted_style()
-                },
-            ),
-            Span::styled(
-                format!("/task {action}"),
-                if selected {
-                    tool_title_style()
-                } else {
-                    Style::default().add_modifier(Modifier::BOLD)
-                },
-            ),
-            Span::styled("  ", muted_style()),
-            Span::styled(*description, muted_style()),
-        ]);
-        lines.extend(wrap_styled_line(line, width));
-    }
     Some(lines)
 }
 
@@ -2525,23 +2357,13 @@ fn footer_status_line(state: &AppState) -> String {
             .map(|pending_session| pending_session.model_label())
             .unwrap_or_else(|| state.status.clone()),
     };
-    append_background_footer(mode_prefixed_footer(state.input_mode, base), state)
-}
-
-fn append_background_footer(base: String, state: &AppState) -> String {
-    if let Some(work) = state.background_work.footer_label() {
-        if base.trim().is_empty() {
-            return work;
-        }
-        return format!("{base} · {work}");
-    }
-    base
+    mode_prefixed_footer(state.input_mode, base)
 }
 
 fn mode_prefixed_footer(mode: crate::state::InputMode, base: String) -> String {
     match mode {
         crate::state::InputMode::Chat => base,
-        crate::state::InputMode::Plan | crate::state::InputMode::Task => {
+        crate::state::InputMode::Plan => {
             if base.trim().is_empty() {
                 mode.label().to_string()
             } else {
@@ -2555,7 +2377,6 @@ fn placeholder_line(mode: crate::state::InputMode, inner_width: u16) -> Line<'st
     let placeholder = match mode {
         crate::state::InputMode::Chat => "Type your message or use /help",
         crate::state::InputMode::Plan => "Plan mode: describe the plan",
-        crate::state::InputMode::Task => "Task mode: describe a background goal",
     };
     styled_line(truncate_to_width(placeholder, inner_width), muted_style())
 }
@@ -2990,14 +2811,14 @@ mod tests {
     use crate::slash_command::SLASH_COMMAND_SPECS;
     use crate::state::{
         AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem, PendingSessionState,
-        ProviderPickerItem, SkillPickerItem, TaskPickerItem,
+        ProviderPickerItem, SkillPickerItem,
     };
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
-    use runtime::models::{
+    use types::StreamFrame;
+    use types::{
         ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEvent, ChatTurnEventKind,
         ExecutionThread, RunKind, RunSummary, RunTimeline, Skill, SkillSource,
     };
-    use types::{StreamFrame, TaskStreamEvent};
 
     fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
@@ -4045,7 +3866,7 @@ mod tests {
         assert!(!rendered.iter().any(|line| line.contains("/stop")));
         assert!(rendered.iter().any(|line| line.contains("/resume")));
         assert!(rendered.iter().any(|line| line.contains("/skill")));
-        assert!(rendered.iter().any(|line| line.contains("/task")));
+        assert!(!rendered.iter().any(|line| line.contains("/task")));
         assert!(
             !rendered
                 .iter()
@@ -4164,62 +3985,11 @@ mod tests {
     }
 
     #[test]
-    fn task_picker_lists_tasks_and_actions() {
-        let mut state = AppState::empty();
-        state.tasks = vec![TaskPickerItem {
-            task_id: "task-1".to_string(),
-            name: "Daily digest".to_string(),
-            status: "Active".to_string(),
-            next_run_at: None,
-            latest_run_id: None,
-        }];
-        state.open_task_picker();
-
-        let lines = build_transient_lines(&state, 80, 8);
-        let text = line_texts(&lines).join("\n");
-        assert!(text.contains("Tasks"));
-        assert!(text.contains("Daily digest"));
-        assert!(text.contains("task-1"));
-
-        state.open_task_action_picker("task-1");
-        let lines = build_transient_lines(&state, 80, 8);
-        let text = line_texts(&lines).join("\n");
-        assert!(text.contains("Task actions"));
-        assert!(text.contains("/task pause"));
-        assert!(text.contains("/task resume"));
-        assert!(text.contains("/task stop"));
-    }
-
-    #[test]
-    fn message_viewport_shows_background_tasks_and_subagent_runs() {
+    fn message_viewport_shows_subagent_runs() {
         let mut state = AppState::empty();
         state.push_local_user_message("coordinate live work".to_string());
         state.apply_stream_frame(StreamFrame::Start {
             stream_id: "run-1".to_string(),
-        });
-        state.apply_task_event(TaskStreamEvent::started(
-            "task-1",
-            "Daily digest",
-            "agent-1",
-            "api",
-        ));
-        state.apply_stream_frame(StreamFrame::ToolCall {
-            id: "call-task".to_string(),
-            name: "manage_tasks".to_string(),
-            arguments: serde_json::json!({"operation":"promote_to_background"}),
-        });
-        state.apply_stream_frame(StreamFrame::ToolResult {
-            id: "call-task".to_string(),
-            success: true,
-            result: serde_json::json!({
-                "status": "executed",
-                "result": {
-                    "task": {
-                        "id": "task-1"
-                    }
-                }
-            })
-            .to_string(),
         });
         state.set_session_runs_and_child_runs(
             vec![RunSummary {
@@ -4270,77 +4040,11 @@ mod tests {
 
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
-        assert!(!text.contains("Background work"));
-        assert!(!text.contains("Daily digest"));
         assert!(text.contains("Subagents"));
         assert!(text.contains("Subagent run"));
         assert!(text.contains("child-1"));
         assert!(!text.contains("Workspace run"));
         assert!(!text.contains("Open a run with"));
-    }
-
-    #[test]
-    fn message_viewport_hides_unrelated_background_task_after_manage_tasks_call() {
-        let mut state = AppState::empty();
-        state.push_local_user_message("create a background task".to_string());
-        state.tasks = vec![
-            TaskPickerItem {
-                task_id: "task-1".to_string(),
-                name: "Created task".to_string(),
-                status: "Active".to_string(),
-                next_run_at: None,
-                latest_run_id: Some("run-task-1".to_string()),
-            },
-            TaskPickerItem {
-                task_id: "task-2".to_string(),
-                name: "Unrelated task".to_string(),
-                status: "Active".to_string(),
-                next_run_at: None,
-                latest_run_id: Some("run-task-2".to_string()),
-            },
-        ];
-        state.apply_stream_frame(StreamFrame::ToolCall {
-            id: "call-task".to_string(),
-            name: "manage_tasks".to_string(),
-            arguments: serde_json::json!({"operation":"create","name":"Created task"}),
-        });
-        state.apply_stream_frame(StreamFrame::ToolResult {
-            id: "call-task".to_string(),
-            success: true,
-            result: serde_json::json!({
-                "status": "executed",
-                "result": {
-                    "id": "task-1"
-                }
-            })
-            .to_string(),
-        });
-
-        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-
-        assert!(text.contains("create a background task"));
-        assert!(text.contains("Tool · manage_tasks"));
-        assert!(text.contains("task-1"));
-        assert!(!text.contains("Unrelated task"));
-    }
-
-    #[test]
-    fn message_viewport_hides_background_tasks_unrelated_to_current_turn() {
-        let mut state = AppState::empty();
-        state.push_local_user_message("edit a file".to_string());
-        state.tasks = vec![TaskPickerItem {
-            task_id: "task-1".to_string(),
-            name: "Daily digest".to_string(),
-            status: "Active".to_string(),
-            next_run_at: None,
-            latest_run_id: Some("run-task-1".to_string()),
-        }];
-
-        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-
-        assert!(!text.contains("Current turn activity"));
-        assert!(!text.contains("background task"));
-        assert!(!text.contains("Daily digest"));
     }
 
     #[test]
@@ -4381,89 +4085,8 @@ mod tests {
     }
 
     #[test]
-    fn message_viewport_keeps_task_stream_activity_outside_message_panel() {
-        let mut state = AppState::empty();
-        state.push_local_user_message("run a background check".to_string());
-        state.apply_task_event(TaskStreamEvent::progress(
-            "task-1",
-            "Compiling",
-            Some(50),
-            Some("main.rs".to_string()),
-        ));
-
-        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-        let stable = super::build_stable_history_cells(&state);
-
-        assert!(text.is_empty());
-        assert!(footer_status_line(&state).contains("Work 1 running"));
-        assert!(stable.is_empty());
-        assert!(state.runtime_cells.is_empty());
-    }
-
-    #[test]
-    fn message_viewport_hides_task_stream_activity_when_agent_is_idle() {
-        let mut state = AppState::empty();
-        state.apply_task_event(TaskStreamEvent::progress(
-            "task-1",
-            "Compiling",
-            Some(50),
-            Some("main.rs".to_string()),
-        ));
-
-        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-
-        assert!(text.is_empty());
-        assert!(state.activity.live_cells().is_empty());
-        assert!(footer_status_line(&state).contains("Work 1 running"));
-        assert!(state.runtime_cells.is_empty());
-    }
-
-    #[test]
-    fn terminal_task_notice_is_persisted_when_task_finishes() {
-        let mut state = AppState::empty();
-        state.push_local_user_message("run build task".to_string());
-        state.apply_task_event(TaskStreamEvent::started(
-            "task-1", "Build", "agent-1", "api",
-        ));
-        assert!(footer_status_line(&state).contains("Work 1 running"));
-
-        state.apply_task_event(TaskStreamEvent::completed("task-1", "Done", 1200));
-
-        let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
-        assert!(text.is_empty());
-        assert!(state.activity.live_cells().is_empty());
-        assert!(footer_status_line(&state).contains("Work 1 done"));
-        assert!(!state.runtime_cells.is_empty());
-        assert!(
-            state.runtime_cells[0]
-                .cell
-                .body
-                .contains("Task task-1 completed")
-        );
-        assert!(state.status.contains("completed"));
-    }
-
-    #[test]
-    fn next_user_message_clears_completed_work_footer() {
-        let mut state = AppState::empty();
-        state.apply_task_event(TaskStreamEvent::completed("task-1", "Done", 1200));
-        assert!(footer_status_line(&state).contains("Work 1 done"));
-
-        state.push_local_user_message("continue".to_string());
-
-        assert!(!footer_status_line(&state).contains("Work"));
-    }
-
-    #[test]
     fn message_viewport_hides_work_notice_when_agent_is_idle() {
         let mut state = AppState::empty();
-        state.tasks = vec![TaskPickerItem {
-            task_id: "task-1".to_string(),
-            name: "Daily digest".to_string(),
-            status: "Active".to_string(),
-            next_run_at: None,
-            latest_run_id: None,
-        }];
         state.set_session_runs_and_child_runs(
             Vec::new(),
             vec![RunSummary {
@@ -4493,7 +4116,6 @@ mod tests {
         let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
 
         assert!(!text.contains("Activity"));
-        assert!(!text.contains("Daily digest"));
         assert!(!text.contains("subagent run"));
     }
 

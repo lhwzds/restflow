@@ -20,7 +20,7 @@ pub use agent::context_manager::{CompactStats, ContextManagerConfig, PruneStats,
 pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, ExecutionStep,
     ResourceLimits, ResourceUsage, StreamDisplayMode, SubagentDeps, SubagentExecutionBridge,
-    SubagentManagerImpl, SubagentSpawner,
+    SubagentManagerImpl,
 };
 pub use error::{AiError, Result};
 pub use llm::{

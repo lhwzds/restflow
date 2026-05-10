@@ -1,9 +1,5 @@
-//! Storage layer with typed wrappers around RestFlow persistence.
-//!
-//! This module provides type-safe access to the storage layer by wrapping
-//! lower-level persistence APIs with Rust types from our models.
+//! Storage aggregation for local files plus short-lived secret storage.
 
-pub mod agent;
 pub mod redb_lease;
 
 use anyhow::Result;
@@ -16,15 +12,12 @@ pub use crate::{
     effective_config_sources, load_cli_config, load_global_cli_config, write_cli_config,
 };
 
-pub use agent::AgentStorage;
 pub use redb_lease::RedbLeaseProvider;
 
+use crate::AgentStorage;
 use crate::session_log::FileSessionStore;
 
-/// Central storage manager that initializes all storage subsystems.
-///
-/// Provides typed access to all storage components through wrapper types
-/// that convert between Rust models and byte-level storage.
+/// Central storage manager for file-backed local state and secrets.
 pub struct Storage {
     #[cfg(test)]
     db_path: PathBuf,

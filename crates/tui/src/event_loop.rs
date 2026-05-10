@@ -12,7 +12,7 @@ use super::reducer::{ShellAction, ShellEffect, reduce};
 use super::shell::ShellRenderer;
 use super::state::AppState;
 
-use types::{ChatSessionEvent, StreamFrame, TaskStreamEvent};
+use types::{ChatSessionEvent, StreamFrame};
 
 const MAX_BATCHED_INPUT_EVENTS: usize = 64;
 const RENDER_FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -22,7 +22,6 @@ const TYPING_ANIMATION_INTERVAL: Duration = Duration::from_millis(250);
 pub enum AppEvent {
     StreamFrame(StreamFrame),
     SessionEvent(ChatSessionEvent),
-    TaskEvent(TaskStreamEvent),
     Error(String),
 }
 
@@ -74,7 +73,6 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
     } else {
         Some(controller.spawn_session_events(tx.clone()))
     };
-    let mut selected_task_stream: Option<(String, tokio::task::JoinHandle<()>)> = None;
     let mut pending_terminal_events = VecDeque::new();
     let mut pending_events = VecDeque::new();
     let mut render_request = RenderRequest::full();
@@ -234,14 +232,10 @@ pub async fn run_event_loop(controller: ShellController, mut state: AppState) ->
             }
         }
 
-        sync_task_subscription(&controller, &state, &tx, &mut selected_task_stream);
         sync_session_subscription(&controller, &state, &tx, &mut session_stream_handle);
     }
 
     if let Some(handle) = session_stream_handle.take() {
-        handle.abort();
-    }
-    if let Some((_, handle)) = selected_task_stream.take() {
         handle.abort();
     }
 
@@ -319,7 +313,6 @@ fn app_event_to_action(event: AppEvent) -> ShellAction {
     match event {
         AppEvent::StreamFrame(frame) => ShellAction::StreamFrame(frame),
         AppEvent::SessionEvent(event) => ShellAction::SessionEvent(event),
-        AppEvent::TaskEvent(event) => ShellAction::TaskEvent(event),
         AppEvent::Error(message) => ShellAction::Error(message),
     }
 }
@@ -429,35 +422,6 @@ fn effect_requires_pre_render(effect: &ShellEffect) -> bool {
 fn should_refresh_active_from_animation(state: &AppState, last_refresh: Instant) -> bool {
     (state.is_streaming || state.active_turn.is_some())
         && last_refresh.elapsed() >= Duration::from_secs(1)
-}
-
-fn sync_task_subscription(
-    controller: &ShellController,
-    state: &AppState,
-    tx: &mpsc::UnboundedSender<AppEvent>,
-    slot: &mut Option<(String, tokio::task::JoinHandle<()>)>,
-) {
-    let desired = state.focused_task_stream_id().map(ToOwned::to_owned);
-    match (slot.as_ref().map(|(id, _)| id.clone()), desired) {
-        (Some(current), Some(desired)) if current == desired => {}
-        (current, Some(desired)) => {
-            if current.is_some()
-                && let Some((_, handle)) = slot.take()
-            {
-                handle.abort();
-            }
-            *slot = Some((
-                desired.clone(),
-                controller.spawn_task_events(desired, tx.clone()),
-            ));
-        }
-        (Some(_), None) => {
-            if let Some((_, handle)) = slot.take() {
-                handle.abort();
-            }
-        }
-        (None, None) => {}
-    }
 }
 
 fn sync_session_subscription(

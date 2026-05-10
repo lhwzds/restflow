@@ -29,7 +29,7 @@ struct ToolRegistrySubagentBackend {
 
 #[async_trait::async_trait]
 impl ExecutionBackend for ToolRegistrySubagentBackend {
-    fn load_chat_session(&self, session_id: &str) -> anyhow::Result<crate::models::ChatSession> {
+    fn load_chat_session(&self, session_id: &str) -> anyhow::Result<types::ChatSession> {
         anyhow::bail!(
             "Chat session loading is not supported in service subagent backend: {session_id}"
         )
@@ -37,36 +37,14 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
 
     async fn execute_interactive_session_turn(
         &self,
-        _session: &mut crate::models::ChatSession,
+        _session: &mut types::ChatSession,
         _user_input: &str,
         _max_history: usize,
         _input_mode: crate::runtime::SessionInputMode,
         _emitter: Option<Box<dyn StreamEmitter>>,
-        _options: crate::runtime::task_runtime::SessionTurnRuntimeOptions,
+        _options: crate::runtime::session_runner::SessionTurnRuntimeOptions,
     ) -> anyhow::Result<crate::runtime::SessionExecutionResult> {
         anyhow::bail!("Interactive execution is not supported in service subagent backend")
-    }
-
-    async fn execute_task(
-        &self,
-        _agent_id: &str,
-        _task_id: Option<&str>,
-        _input: Option<&str>,
-        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
-        _emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> anyhow::Result<crate::runtime::ExecutionResult> {
-        anyhow::bail!("Task execution is not supported in service subagent backend")
-    }
-
-    async fn execute_task_from_state(
-        &self,
-        _agent_id: &str,
-        _task_id: Option<&str>,
-        _state: AgentState,
-        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
-        _emitter: Option<Box<dyn StreamEmitter>>,
-    ) -> anyhow::Result<crate::runtime::ExecutionResult> {
-        anyhow::bail!("Background resume is not supported in service subagent backend")
     }
 
     async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> anyhow::Result<ExecutionOutcome> {

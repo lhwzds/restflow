@@ -6,9 +6,6 @@ pub const DEFAULT_AGENT_MAX_ITERATIONS: usize = 100;
 /// Default maximum tool calls per agent run.
 pub const DEFAULT_AGENT_MAX_TOOL_CALLS: usize = 200;
 
-/// Default maximum tool calls per task run.
-pub const DEFAULT_TASK_MAX_TOOL_CALLS: usize = 100;
-
 /// Default timeout (seconds) for the executor wrapper around tool calls.
 pub const DEFAULT_AGENT_TOOL_TIMEOUT_SECS: u64 = 300;
 
@@ -36,12 +33,6 @@ pub const DEFAULT_MAX_PARALLEL_SUBAGENTS: usize = 200;
 /// Default sub-agent nesting depth.
 pub const DEFAULT_SUBAGENT_MAX_DEPTH: usize = 1;
 
-/// Default timeout (seconds) for task execution.
-pub const DEFAULT_AGENT_TASK_TIMEOUT_SECS: u64 = 1800;
-
-/// Default maximum execution duration (seconds) for tasks.
-pub const DEFAULT_AGENT_MAX_DURATION_SECS: u64 = 1800;
-
 /// Default TTL (seconds) for finished process sessions.
 pub const DEFAULT_PROCESS_SESSION_TTL_SECS: u64 = 30 * 60;
 
@@ -65,18 +56,6 @@ pub const DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES: usize = 100_000;
 
 /// Default maximum bytes loaded from a single workspace instruction file.
 pub const DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES: usize = 50_000;
-
-/// Default event limit for task progress queries.
-pub const DEFAULT_TASK_PROGRESS_EVENT_LIMIT: usize = 10;
-
-/// Default message list limit for tasks.
-pub const DEFAULT_TASK_MESSAGE_LIST_LIMIT: usize = 50;
-
-/// Default task runner poll interval in milliseconds.
-pub const DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS: u64 = 30_000;
-
-/// Default maximum concurrent task runner tasks.
-pub const DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS: usize = 5;
 
 /// Default maximum chat session history preserved for channel conversations.
 pub const DEFAULT_CHAT_MAX_SESSION_HISTORY: usize = 20;

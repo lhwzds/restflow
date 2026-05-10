@@ -10,11 +10,9 @@ use crate::defaults::*;
 // ── Local constants ──────────────────────────────────────────────────
 
 const DEFAULT_WORKER_COUNT: usize = 4;
-const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 1800;
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
-const DEFAULT_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
 
@@ -46,15 +44,11 @@ impl Default for CliConfig {
 #[serde(default)]
 pub struct SystemSection {
     pub worker_count: usize,
-    pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
-    #[serde(default)]
-    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub task_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
 }
@@ -63,13 +57,10 @@ impl Default for SystemSection {
     fn default() -> Self {
         Self {
             worker_count: DEFAULT_WORKER_COUNT,
-            task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
         }
@@ -80,13 +71,10 @@ impl From<&SystemConfig> for SystemSection {
     fn from(config: &SystemConfig) -> Self {
         Self {
             worker_count: config.worker_count,
-            task_timeout_seconds: config.task_timeout_seconds,
             stall_timeout_seconds: config.stall_timeout_seconds,
-            task_api_timeout_seconds: config.task_api_timeout_seconds,
             chat_response_timeout_seconds: config.chat_response_timeout_seconds,
             max_retries: config.max_retries,
             chat_session_retention_days: config.chat_session_retention_days,
-            task_retention_days: config.task_retention_days,
             log_file_retention_days: config.log_file_retention_days,
             experimental_features: config.experimental_features.clone(),
         }
@@ -116,8 +104,6 @@ pub struct AgentDefaults {
     pub prune_tool_max_chars: usize,
     pub compact_preserve_tokens: usize,
     pub max_wall_clock_secs: Option<u64>,
-    pub default_task_timeout_secs: u64,
-    pub default_max_duration_secs: u64,
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
 }
@@ -144,8 +130,6 @@ impl Default for AgentDefaults {
             prune_tool_max_chars: DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
             compact_preserve_tokens: DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
             max_wall_clock_secs: None,
-            default_task_timeout_secs: DEFAULT_AGENT_TASK_TIMEOUT_SECS,
-            default_max_duration_secs: DEFAULT_AGENT_MAX_DURATION_SECS,
             fallback_models: None,
         }
     }
@@ -158,8 +142,6 @@ impl Default for AgentDefaults {
 #[serde(default)]
 pub struct ApiDefaults {
     pub session_list_limit: u32,
-    pub task_progress_event_limit: usize,
-    pub task_message_list_limit: usize,
     pub web_search_num_results: usize,
 }
 
@@ -169,8 +151,6 @@ impl Default for ApiDefaults {
     fn default() -> Self {
         Self {
             session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
-            task_progress_event_limit: DEFAULT_TASK_PROGRESS_EVENT_LIMIT,
-            task_message_list_limit: DEFAULT_TASK_MESSAGE_LIST_LIMIT,
             web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
         }
     }
@@ -182,8 +162,6 @@ impl Default for ApiDefaults {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(default)]
 pub struct RuntimeDefaults {
-    pub task_runner_poll_interval_ms: u64,
-    pub task_runner_max_concurrent_tasks: usize,
     pub chat_max_session_history: usize,
 }
 
@@ -192,8 +170,6 @@ pub type RuntimeSettings = RuntimeDefaults;
 impl Default for RuntimeDefaults {
     fn default() -> Self {
         Self {
-            task_runner_poll_interval_ms: DEFAULT_TASK_RUNNER_POLL_INTERVAL_MS,
-            task_runner_max_concurrent_tasks: DEFAULT_TASK_RUNNER_MAX_CONCURRENT_TASKS,
             chat_max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
         }
     }
@@ -227,15 +203,11 @@ impl Default for RegistryDefaults {
 #[serde(default)]
 pub struct SystemConfig {
     pub worker_count: usize,
-    pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
-    #[serde(default)]
-    pub task_api_timeout_seconds: Option<u64>,
     #[serde(default)]
     pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
-    pub task_retention_days: u32,
     pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
     #[serde(default)]
@@ -252,13 +224,10 @@ impl Default for SystemConfig {
     fn default() -> Self {
         Self {
             worker_count: DEFAULT_WORKER_COUNT,
-            task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            task_api_timeout_seconds: None,
             chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-            task_retention_days: DEFAULT_TASK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
             agent: AgentSettings::default(),
@@ -299,13 +268,10 @@ impl ConfigDocument {
     pub fn system_config(&self) -> SystemConfig {
         SystemConfig {
             worker_count: self.system.worker_count,
-            task_timeout_seconds: self.system.task_timeout_seconds,
             stall_timeout_seconds: self.system.stall_timeout_seconds,
-            task_api_timeout_seconds: self.system.task_api_timeout_seconds,
             chat_response_timeout_seconds: self.system.chat_response_timeout_seconds,
             max_retries: self.system.max_retries,
             chat_session_retention_days: self.system.chat_session_retention_days,
-            task_retention_days: self.system.task_retention_days,
             log_file_retention_days: self.system.log_file_retention_days,
             experimental_features: self.system.experimental_features.clone(),
             agent: self.agent.clone(),
