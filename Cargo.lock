@@ -1686,8 +1686,10 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "llm"
 version = "0.4.2"
 dependencies = [
+ "anyhow",
  "async-stream",
  "async-trait",
+ "chrono",
  "dirs",
  "futures",
  "once_cell",

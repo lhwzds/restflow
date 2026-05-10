@@ -4567,6 +4567,840 @@ mod retry {
     }
 }
 
+mod operation_retry {
+    //! Operation-level retry state for agent/session execution.
+
+    use serde::{Deserialize, Serialize};
+    use std::time::Duration;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ClassifiedErrorKind {
+        Authentication,
+        RateLimited,
+        Timeout,
+        Validation,
+        Unknown,
+    }
+
+    /// Configuration for operation-level retry.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct RetryConfig {
+        /// Maximum number of retry attempts (0 = no retries).
+        pub max_retries: u32,
+        /// Initial delay between retries in seconds.
+        pub initial_delay_secs: u64,
+        /// Maximum delay between retries in seconds.
+        pub max_delay_secs: u64,
+        /// Multiplier for exponential backoff.
+        pub backoff_multiplier: f64,
+        /// Whether to add deterministic jitter to delays.
+        pub jitter_enabled: bool,
+        /// Maximum jitter as a fraction of delay.
+        pub jitter_factor: f64,
+    }
+
+    impl Default for RetryConfig {
+        fn default() -> Self {
+            Self {
+                max_retries: 3,
+                initial_delay_secs: 60,
+                max_delay_secs: 3600,
+                backoff_multiplier: 2.0,
+                jitter_enabled: true,
+                jitter_factor: 0.25,
+            }
+        }
+    }
+
+    impl RetryConfig {
+        pub fn new(max_retries: u32, initial_delay_secs: u64) -> Self {
+            Self {
+                max_retries,
+                initial_delay_secs,
+                ..Default::default()
+            }
+        }
+
+        pub fn no_retries() -> Self {
+            Self {
+                max_retries: 0,
+                ..Default::default()
+            }
+        }
+
+        pub fn aggressive() -> Self {
+            Self {
+                max_retries: 5,
+                initial_delay_secs: 30,
+                max_delay_secs: 1800,
+                backoff_multiplier: 1.5,
+                jitter_enabled: true,
+                jitter_factor: 0.2,
+            }
+        }
+
+        pub fn conservative() -> Self {
+            Self {
+                max_retries: 2,
+                initial_delay_secs: 120,
+                max_delay_secs: 7200,
+                backoff_multiplier: 3.0,
+                jitter_enabled: true,
+                jitter_factor: 0.3,
+            }
+        }
+    }
+
+    /// Retry state for one operation.
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    pub struct RetryState {
+        pub attempt: u32,
+        pub last_error: Option<String>,
+        pub next_retry_at: Option<i64>,
+        pub last_failure_at: Option<i64>,
+        pub total_failures: u32,
+    }
+
+    impl RetryState {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn should_retry(&self, config: &RetryConfig, error: &str) -> bool {
+            self.attempt < config.max_retries && is_transient_error(error)
+        }
+
+        pub fn calculate_delay(&self, config: &RetryConfig) -> Duration {
+            let base_delay = config.initial_delay_secs as f64
+                * config.backoff_multiplier.powi(self.attempt as i32);
+            let capped_delay = base_delay.min(config.max_delay_secs as f64);
+            let final_delay = if config.jitter_enabled {
+                let jitter_range = capped_delay * config.jitter_factor;
+                let jitter = jitter_range * ((self.attempt as f64 * 0.37).sin().abs());
+                capped_delay + jitter
+            } else {
+                capped_delay
+            };
+
+            Duration::from_secs(final_delay as u64)
+        }
+
+        pub fn record_failure(&mut self, error: &str, config: &RetryConfig) {
+            let now = chrono::Utc::now().timestamp_millis();
+
+            self.attempt += 1;
+            self.total_failures += 1;
+            self.last_error = Some(error.to_string());
+            self.last_failure_at = Some(now);
+
+            if self.attempt < config.max_retries && is_transient_error(error) {
+                let delay = self.calculate_delay(config);
+                self.next_retry_at = Some(now + delay.as_millis() as i64);
+            } else {
+                self.next_retry_at = None;
+            }
+        }
+
+        pub fn is_retry_due(&self) -> bool {
+            self.next_retry_at
+                .is_some_and(|retry_at| chrono::Utc::now().timestamp_millis() >= retry_at)
+        }
+
+        pub fn time_until_retry(&self) -> Option<i64> {
+            self.next_retry_at
+                .map(|retry_at| (retry_at - chrono::Utc::now().timestamp_millis()).max(0))
+        }
+
+        pub fn reset(&mut self) {
+            self.attempt = 0;
+            self.last_error = None;
+            self.next_retry_at = None;
+            self.last_failure_at = None;
+        }
+
+        pub fn is_exhausted(&self, config: &RetryConfig) -> bool {
+            self.attempt >= config.max_retries
+        }
+
+        pub fn status_string(&self, config: &RetryConfig) -> String {
+            if self.attempt == 0 {
+                return "Not retried".to_string();
+            }
+
+            if self.is_exhausted(config) {
+                return format!(
+                    "Exhausted ({}/{} retries, {} total failures)",
+                    self.attempt, config.max_retries, self.total_failures
+                );
+            }
+
+            match self.time_until_retry() {
+                Some(ms) if ms > 0 => {
+                    let secs = ms / 1000;
+                    format!(
+                        "Retry {}/{} in {}s",
+                        self.attempt + 1,
+                        config.max_retries,
+                        secs
+                    )
+                }
+                _ => format!("Retry {}/{} ready", self.attempt + 1, config.max_retries),
+            }
+        }
+    }
+
+    /// Categorize an operation error for logging and metrics.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ErrorCategory {
+        Transient,
+        AuthError,
+        ClientError,
+        NotFound,
+        Unknown,
+    }
+
+    impl ErrorCategory {
+        pub fn from_error(error: &str) -> Self {
+            let lower = error.to_lowercase();
+            if lower.contains("404") || lower.contains("not found") {
+                return Self::NotFound;
+            }
+
+            match classify_error(error) {
+                ClassifiedErrorKind::Authentication => Self::AuthError,
+                ClassifiedErrorKind::RateLimited | ClassifiedErrorKind::Timeout => Self::Transient,
+                ClassifiedErrorKind::Validation => Self::ClientError,
+                ClassifiedErrorKind::Unknown => Self::Unknown,
+            }
+        }
+
+        pub fn should_retry(&self) -> bool {
+            matches!(self, Self::Transient)
+        }
+    }
+
+    pub fn is_transient_error(error: &str) -> bool {
+        matches!(
+            classify_error(error),
+            ClassifiedErrorKind::RateLimited | ClassifiedErrorKind::Timeout
+        )
+    }
+
+    pub(crate) fn is_authentication_error(error: &str) -> bool {
+        matches!(classify_error(error), ClassifiedErrorKind::Authentication)
+    }
+
+    fn classify_error(error: &str) -> ClassifiedErrorKind {
+        let lower = error.to_lowercase();
+
+        if contains_any(
+            &lower,
+            &[
+                "unauthorized",
+                "forbidden",
+                "authentication",
+                "auth failed",
+                "invalid api key",
+                "invalid token",
+                "api key",
+                "api_key",
+                "secret",
+                "credential",
+                "401",
+                "403",
+                "billing",
+            ],
+        ) {
+            return ClassifiedErrorKind::Authentication;
+        }
+
+        if contains_any(
+            &lower,
+            &[
+                "rate limit",
+                "rate-limit",
+                "too many requests",
+                "retry after",
+                "retry-after",
+                "quota",
+                "429",
+            ],
+        ) {
+            return ClassifiedErrorKind::RateLimited;
+        }
+
+        if contains_any(
+            &lower,
+            &[
+                "timeout",
+                "timed out",
+                "connection refused",
+                "connection reset",
+                "connection aborted",
+                "broken pipe",
+                "transport error",
+                "connection closed",
+                "network error",
+                "network unreachable",
+                "error sending request",
+                "request failed",
+                "temporary failure",
+                "temporarily unavailable",
+                "service unavailable",
+                "internal server error",
+                "500",
+                "503",
+                "504",
+                "502",
+                "bad gateway",
+                "gateway timeout",
+                "overloaded",
+                "capacity",
+                "please try again",
+            ],
+        ) {
+            return ClassifiedErrorKind::Timeout;
+        }
+
+        if contains_any(
+            &lower,
+            &[
+                "bad request",
+                "invalid request",
+                "validation error",
+                "invalid model",
+                "model not found",
+                "configuration error",
+                "not found",
+                "404",
+                "400",
+            ],
+        ) {
+            return ClassifiedErrorKind::Validation;
+        }
+
+        ClassifiedErrorKind::Unknown
+    }
+
+    fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+        needles.iter().any(|needle| haystack.contains(needle))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn detects_transient_errors() {
+            assert!(is_transient_error("Connection timeout"));
+            assert!(is_transient_error("Rate limit exceeded"));
+            assert!(is_transient_error("503 Service Unavailable"));
+            assert!(is_transient_error("error sending request for url"));
+            assert!(!is_transient_error("401 Unauthorized"));
+            assert!(!is_transient_error("Invalid API key"));
+            assert!(!is_transient_error("404 Not Found"));
+        }
+
+        #[test]
+        fn records_retry_state() {
+            let config = RetryConfig::default();
+            let mut state = RetryState::new();
+            state.record_failure("Connection timeout", &config);
+
+            assert_eq!(state.attempt, 1);
+            assert_eq!(state.total_failures, 1);
+            assert!(state.next_retry_at.is_some());
+
+            state.reset();
+            assert_eq!(state.attempt, 0);
+            assert_eq!(state.total_failures, 1);
+        }
+
+        #[test]
+        fn categorizes_errors() {
+            assert_eq!(
+                ErrorCategory::from_error("Connection timeout"),
+                ErrorCategory::Transient
+            );
+            assert_eq!(
+                ErrorCategory::from_error("401 Unauthorized"),
+                ErrorCategory::AuthError
+            );
+            assert_eq!(
+                ErrorCategory::from_error("404 Not Found"),
+                ErrorCategory::NotFound
+            );
+            assert!(ErrorCategory::Transient.should_retry());
+            assert!(!ErrorCategory::ClientError.should_retry());
+        }
+    }
+}
+
+mod failover {
+    //! Model failover policy for agent/session execution.
+
+    use anyhow::Result;
+    use serde::{Deserialize, Serialize};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use tracing::{debug, info, warn};
+    use types::{ModelId, Provider};
+
+    use super::operation_retry::is_authentication_error;
+
+    /// Configuration for model failover.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct FailoverConfig {
+        pub primary: ModelId,
+        pub fallbacks: Vec<ModelId>,
+        pub cooldown_secs: u64,
+        pub failure_threshold: u32,
+        pub auto_recover: bool,
+    }
+
+    impl Default for FailoverConfig {
+        fn default() -> Self {
+            Self {
+                primary: ModelId::ClaudeSonnet4_5,
+                fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
+                cooldown_secs: 300,
+                failure_threshold: 3,
+                auto_recover: true,
+            }
+        }
+    }
+
+    impl FailoverConfig {
+        pub fn with_primary(primary: ModelId) -> Self {
+            let fallbacks = if primary.is_cli_model() {
+                vec![]
+            } else if primary == ModelId::ClaudeOpus4_6 {
+                vec![ModelId::ClaudeSonnet4_5]
+            } else {
+                Self::default().fallbacks
+            };
+            Self {
+                primary,
+                fallbacks,
+                ..Default::default()
+            }
+        }
+
+        pub fn with_fallbacks(primary: ModelId, fallbacks: Vec<ModelId>) -> Self {
+            Self {
+                primary,
+                fallbacks,
+                ..Default::default()
+            }
+        }
+
+        pub fn build_smart(
+            primary: ModelId,
+            _available_providers: &HashSet<Provider>,
+            manual_fallbacks: Option<Vec<ModelId>>,
+        ) -> Self {
+            if primary.is_cli_model() {
+                return Self {
+                    primary,
+                    fallbacks: vec![],
+                    ..Default::default()
+                };
+            }
+
+            let mut fallbacks = Vec::new();
+            let mut seen = HashSet::new();
+            seen.insert(primary);
+
+            let mut current = primary;
+            while let Some(fallback) = current.same_provider_fallback() {
+                if seen.insert(fallback) {
+                    fallbacks.push(fallback);
+                }
+                current = fallback;
+            }
+
+            if let Some(manual) = manual_fallbacks {
+                for model in manual {
+                    if seen.insert(model) {
+                        fallbacks.push(model);
+                    }
+                }
+            }
+
+            Self {
+                primary,
+                fallbacks,
+                ..Default::default()
+            }
+        }
+
+        pub fn all_models(&self) -> Vec<ModelId> {
+            let mut models = vec![self.primary];
+            models.extend(self.fallbacks.iter().copied());
+            models
+        }
+
+        pub fn contains(&self, model: ModelId) -> bool {
+            self.primary == model || self.fallbacks.contains(&model)
+        }
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct ModelHealth {
+        consecutive_failures: u32,
+        total_failures: u32,
+        total_successes: u32,
+        cooldown_until: Option<i64>,
+        last_error: Option<String>,
+        last_failure_at: Option<i64>,
+        last_success_at: Option<i64>,
+    }
+
+    impl ModelHealth {
+        fn is_available(&self, now: i64) -> bool {
+            self.cooldown_until.is_none_or(|until| now >= until)
+        }
+
+        fn remaining_cooldown_ms(&self, now: i64) -> Option<i64> {
+            self.cooldown_until
+                .and_then(|until| (until - now).gt(&0).then_some(until - now))
+        }
+
+        fn success_rate(&self) -> f64 {
+            let total = self.total_successes + self.total_failures;
+            if total == 0 {
+                1.0
+            } else {
+                self.total_successes as f64 / total as f64
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ModelStatus {
+        pub model: ModelId,
+        pub available: bool,
+        pub consecutive_failures: u32,
+        pub success_rate: f64,
+        pub cooldown_remaining_secs: Option<u64>,
+        pub last_error: Option<String>,
+    }
+
+    pub struct FailoverManager {
+        config: FailoverConfig,
+        health: Arc<RwLock<HashMap<ModelId, ModelHealth>>>,
+    }
+
+    impl FailoverManager {
+        pub fn new(config: FailoverConfig) -> Self {
+            Self {
+                config,
+                health: Arc::new(RwLock::new(HashMap::new())),
+            }
+        }
+
+        pub fn with_defaults() -> Self {
+            Self::new(FailoverConfig::default())
+        }
+
+        pub async fn get_available_model(&self) -> Option<ModelId> {
+            let health = self.health.read().await;
+            let now = chrono::Utc::now().timestamp_millis();
+
+            if self.is_model_available(&health, self.config.primary, now) {
+                return Some(self.config.primary);
+            }
+
+            debug!(
+                "Primary model {:?} unavailable, checking fallbacks",
+                self.config.primary
+            );
+
+            for &model in &self.config.fallbacks {
+                if self.is_model_available(&health, model, now) {
+                    info!("Failing over to model {:?}", model);
+                    return Some(model);
+                }
+            }
+
+            warn!("All models are in cooldown or unavailable");
+            None
+        }
+
+        pub async fn get_model_or_fallback(&self, preferred: ModelId) -> Option<ModelId> {
+            let health = self.health.read().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            if self.is_model_available(&health, preferred, now) {
+                return Some(preferred);
+            }
+            drop(health);
+            self.get_available_model().await
+        }
+
+        fn is_model_available(
+            &self,
+            health: &HashMap<ModelId, ModelHealth>,
+            model: ModelId,
+            now: i64,
+        ) -> bool {
+            health
+                .get(&model)
+                .map(|model_health| model_health.is_available(now))
+                .unwrap_or(true)
+        }
+
+        pub async fn record_success(&self, model: ModelId) {
+            let mut health = self.health.write().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            let entry = health.entry(model).or_default();
+            entry.consecutive_failures = 0;
+            entry.total_successes += 1;
+            entry.last_success_at = Some(now);
+            if self.config.auto_recover {
+                entry.cooldown_until = None;
+            }
+        }
+
+        pub async fn record_failure(&self, model: ModelId) {
+            self.record_failure_with_error(model, None).await
+        }
+
+        pub async fn record_failure_with_error(&self, model: ModelId, error: Option<&str>) {
+            let mut health = self.health.write().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            let entry = health.entry(model).or_default();
+            entry.consecutive_failures += 1;
+            entry.total_failures += 1;
+            entry.last_failure_at = Some(now);
+            if let Some(error) = error {
+                entry.last_error = Some(error.to_string());
+            }
+
+            if entry.consecutive_failures >= self.config.failure_threshold {
+                entry.cooldown_until = Some(now + (self.config.cooldown_secs * 1000) as i64);
+                warn!(
+                    "Model {:?} placed in cooldown for {}s after {} consecutive failures",
+                    model, self.config.cooldown_secs, entry.consecutive_failures
+                );
+            }
+        }
+
+        pub async fn clear_cooldown(&self, model: ModelId) {
+            let mut health = self.health.write().await;
+            if let Some(entry) = health.get_mut(&model) {
+                entry.cooldown_until = None;
+                entry.consecutive_failures = 0;
+                info!("Manually cleared cooldown for model {:?}", model);
+            }
+        }
+
+        pub async fn force_cooldown(&self, model: ModelId) {
+            let mut health = self.health.write().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            let entry = health.entry(model).or_default();
+            entry.cooldown_until = Some(now + (self.config.cooldown_secs * 1000) as i64);
+            info!(
+                "Manually placed model {:?} in cooldown for {}s",
+                model, self.config.cooldown_secs
+            );
+        }
+
+        pub async fn get_all_status(&self) -> Vec<ModelStatus> {
+            let health = self.health.read().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            self.config
+                .all_models()
+                .into_iter()
+                .map(|model| self.model_status(&health, model, now))
+                .collect()
+        }
+
+        pub async fn get_status(&self, model: ModelId) -> ModelStatus {
+            let health = self.health.read().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            self.model_status(&health, model, now)
+        }
+
+        fn model_status(
+            &self,
+            health: &HashMap<ModelId, ModelHealth>,
+            model: ModelId,
+            now: i64,
+        ) -> ModelStatus {
+            match health.get(&model) {
+                Some(model_health) => ModelStatus {
+                    model,
+                    available: model_health.is_available(now),
+                    consecutive_failures: model_health.consecutive_failures,
+                    success_rate: model_health.success_rate(),
+                    cooldown_remaining_secs: model_health
+                        .remaining_cooldown_ms(now)
+                        .map(|ms| (ms / 1000) as u64),
+                    last_error: model_health.last_error.clone(),
+                },
+                None => ModelStatus {
+                    model,
+                    available: true,
+                    consecutive_failures: 0,
+                    success_rate: 1.0,
+                    cooldown_remaining_secs: None,
+                    last_error: None,
+                },
+            }
+        }
+
+        pub async fn reset(&self) {
+            self.health.write().await.clear();
+            info!("Failover manager reset - all models marked healthy");
+        }
+
+        pub fn config(&self) -> &FailoverConfig {
+            &self.config
+        }
+
+        pub async fn any_available(&self) -> bool {
+            self.get_available_model().await.is_some()
+        }
+
+        pub async fn available_count(&self) -> usize {
+            let health = self.health.read().await;
+            let now = chrono::Utc::now().timestamp_millis();
+            self.config
+                .all_models()
+                .iter()
+                .filter(|&&model| self.is_model_available(&health, model, now))
+                .count()
+        }
+    }
+
+    pub async fn execute_with_failover<F, Fut, T>(
+        manager: &FailoverManager,
+        mut execute_fn: F,
+    ) -> Result<(T, ModelId)>
+    where
+        F: FnMut(ModelId) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let mut last_error = None;
+
+        for model in manager.config().all_models() {
+            let status = manager.get_status(model).await;
+            if !status.available {
+                debug!("Skipping model {:?} (in cooldown)", model);
+                continue;
+            }
+
+            match execute_fn(model).await {
+                Ok(result) => {
+                    manager.record_success(model).await;
+                    return Ok((result, model));
+                }
+                Err(error) => {
+                    let error_str = error.to_string();
+                    if is_authentication_error(&error_str) {
+                        warn!("Model {:?} auth error (skipping): {}", model, error_str);
+                        manager.force_cooldown(model).await;
+                    } else {
+                        warn!("Model {:?} failed: {}", model, error_str);
+                        manager
+                            .record_failure_with_error(model, Some(&error_str))
+                            .await;
+                    }
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("No models available")))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn test_config() -> FailoverConfig {
+            FailoverConfig {
+                primary: ModelId::ClaudeSonnet4_5,
+                fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
+                cooldown_secs: 60,
+                failure_threshold: 2,
+                auto_recover: true,
+            }
+        }
+
+        #[tokio::test]
+        async fn falls_back_when_primary_is_in_cooldown() {
+            let manager = FailoverManager::new(test_config());
+            manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+            manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+
+            assert_eq!(manager.get_available_model().await, Some(ModelId::Gpt5));
+        }
+
+        #[tokio::test]
+        async fn execute_uses_first_successful_model() {
+            let manager = FailoverManager::new(test_config());
+            let result = execute_with_failover(&manager, |model| async move {
+                if model == ModelId::Gpt5 {
+                    Ok("fallback success")
+                } else {
+                    Err(anyhow::anyhow!("primary failed"))
+                }
+            })
+            .await
+            .unwrap();
+
+            assert_eq!(result, ("fallback success", ModelId::Gpt5));
+        }
+
+        #[tokio::test]
+        async fn auth_errors_skip_to_next_model() {
+            let config = FailoverConfig {
+                primary: ModelId::ClaudeSonnet4_5,
+                fallbacks: vec![ModelId::Gpt5],
+                cooldown_secs: 60,
+                failure_threshold: 3,
+                auto_recover: true,
+            };
+            let manager = FailoverManager::new(config);
+            let result = execute_with_failover(&manager, |model| async move {
+                if model == ModelId::ClaudeSonnet4_5 {
+                    Err(anyhow::anyhow!("No API key configured for provider"))
+                } else {
+                    Ok("success")
+                }
+            })
+            .await
+            .unwrap();
+
+            assert_eq!(result, ("success", ModelId::Gpt5));
+            assert!(!manager.get_status(ModelId::ClaudeSonnet4_5).await.available);
+        }
+
+        #[test]
+        fn smart_config_uses_same_provider_and_manual_fallbacks() {
+            let mut providers = HashSet::new();
+            providers.insert(Provider::Anthropic);
+            let config = FailoverConfig::build_smart(
+                ModelId::ClaudeSonnet4_5,
+                &providers,
+                Some(vec![ModelId::Gpt5]),
+            );
+
+            assert!(config.fallbacks.contains(&ModelId::ClaudeHaiku4_5));
+            assert!(config.fallbacks.contains(&ModelId::Gpt5));
+        }
+
+        #[test]
+        fn cli_models_disable_fallbacks() {
+            let providers = HashSet::new();
+            let config = FailoverConfig::build_smart(ModelId::CodexCli, &providers, None);
+            assert!(config.fallbacks.is_empty());
+        }
+    }
+}
+
 mod swappable {
     //! Swappable LLM wrapper for dynamic model switching
 
@@ -4720,9 +5554,11 @@ pub use client::{
 };
 pub use error::{AiError, Result};
 pub use factory::{DefaultLlmClientFactory, LlmClientFactory};
+pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 pub use http::{AnthropicClient, DeepSeekClient, OpenAIClient};
 #[cfg(any(test, feature = "test-utils"))]
 pub use mock_client::{MockLlmClient, MockStep, MockStepKind};
+pub use operation_retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use retry::{LlmRetryConfig, RetryingLlmClient};
 pub use swappable::SwappableLlm;
 pub use switcher::LlmSwitcherImpl;
