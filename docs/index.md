@@ -2,6 +2,7 @@
 title: RestFlow Documentation
 covers:
   - README.md
+  - README.zh-CN.md
   - Cargo.toml
   - Cargo.lock
   - Makefile

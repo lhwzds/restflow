@@ -1,5 +1,5 @@
 {
-  "commit": "762faae8a3187efde81d11d4b0a2f866951bdccf",
+  "commit": "f4e93ceea5861cd62784756e97f4cabfb8baae35",
   "docs": {
     "docs/agent.md": {
       "covers": ["crates/agent/Cargo.toml", "crates/agent/README.md", "crates/agent/src/lib.rs"],
@@ -47,12 +47,13 @@
       }
     },
     "docs/index.md": {
-      "covers": ["README.md", "Cargo.toml", "Cargo.lock", "Makefile", "examples/skrun/**/*.py", "homebrew-tap-template/**/*.md", "homebrew-tap-template/**/*.rb", "homebrew-tap-template/**/*.yml", "npm/scripts/**/*.js"],
+      "covers": ["README.md", "README.zh-CN.md", "Cargo.toml", "Cargo.lock", "Makefile", "examples/skrun/**/*.py", "homebrew-tap-template/**/*.md", "homebrew-tap-template/**/*.rb", "homebrew-tap-template/**/*.yml", "npm/scripts/**/*.js"],
       "files": {
         "Cargo.lock": "1e6d163163b6aa4c",
         "Cargo.toml": "1896467daaf30392",
         "Makefile": "e447f51217120cea",
-        "README.md": "52296c4dce0c73ed",
+        "README.md": "edb15a35bcdcf403",
+        "README.zh-CN.md": "af656b52638f0fc7",
         "examples/skrun/_lib/common.py": "94b1694644757ff9",
         "examples/skrun/browser-automation/run.py": "7775cb19048ebf82",
         "examples/skrun/discord-send/run.py": "22a58654901d7cba",

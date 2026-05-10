@@ -1,8 +1,8 @@
 # RestFlow
 
-**A local agent CLI with executable skills.**
+**带可执行 skills 的本地 agent CLI。**
 
-[简体中文](./README.zh-CN.md)
+[English](./README.md)
 
 [![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
 [![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
@@ -11,26 +11,25 @@
 
 ---
 
-## What RestFlow Is
+## RestFlow 是什么
 
-RestFlow is a local agent CLI with a terminal-first interface and an external
-executable skill boundary.
+RestFlow 是一个本地 agent CLI，核心界面是终端和 TUI，并通过外部可执行
+skill 扩展能力。
 
-- **Skill Binary**: package one reusable AI capability as a portable executable unit
-- **Agent Binary**: compile one agent with its model, tools, policy, and behavior into a runnable unit
+- **Skill Binary**：把一个可复用 AI 能力打包成可移植的可执行单元
+- **Agent Binary**：把模型、工具、策略和行为绑定成一个可运行的 agent
 
-The runtime center is the Rust agent loop plus TUI. Specialized external
-capabilities are packaged and run through `skrun`.
+核心运行时是 Rust agent loop 和 TUI。更专门的外部能力通过 `skrun` 打包和运行。
 
-In practice, this means RestFlow is a local command-line agent system:
+实际使用上，RestFlow 是一个本地命令行 agent 系统：
 
 - agents
 - skills
 - executable skill runs
 
-## Quick Start
+## 快速开始
 
-### Install
+### 安装
 
 **Homebrew**
 
@@ -44,31 +43,31 @@ brew install lhwzds/tap/restflow
 npm install -g restflow-cli
 ```
 
-**From source**
+**源码安装**
 
 ```bash
 cargo install --git https://github.com/lhwzds/restflow --package cli
 ```
 
-### Start the daemon
+### 启动后台托管进程
 
 ```bash
 restflow daemon start
 ```
 
-### Add a model credential
+### 添加模型凭据
 
 ```bash
 restflow secret set OPENAI_API_KEY sk-xxx
 ```
 
-### Open the TUI
+### 打开 TUI
 
 ```bash
 restflow
 ```
 
-## Links
+## 链接
 
 - Site: [restflow.ai](https://restflow.ai)
 - Docs: [restflow.ai/docs](https://restflow.ai/docs/)
