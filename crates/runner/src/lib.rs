@@ -17,129 +17,126 @@ mod runtime {
             //! assembly functions (`registry_from_allowlist`) that combine tools with
             //! storage-backed services from `runtime`.
 
-            pub(crate) mod assembly {
-                use std::collections::HashSet;
-                use std::sync::{Arc, RwLock};
+            use std::collections::HashSet;
+            use std::sync::RwLock;
 
-                use super::SUBAGENT_TOOL_NAMES;
-                use ::tools::{
-                    BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool,
-                    SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
-                };
-                use restflow_core::AgentStorage;
-                use restflow_core::services::adapters::AgentStoreAdapter;
-                use restflow_core::storage::SecretStorage;
-                use types::SubagentManager;
-                use types::store::AgentStore;
-                use types::tool::SecurityGate;
-                use types::toolset::ToolRegistry;
+            use ::tools::{
+                BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool,
+                SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
+            };
+            use restflow_core::AgentStorage;
+            use restflow_core::services::adapters::AgentStoreAdapter;
+            use restflow_core::storage::SecretStorage;
+            use types::SubagentManager;
+            use types::store::AgentStore;
+            use types::tool::SecurityGate;
+            use types::toolset::ToolRegistry;
 
-                pub(crate) struct AgentCrudComponents {
-                    pub known_tools: Arc<RwLock<HashSet<String>>>,
-                    pub store: Arc<dyn AgentStore>,
+            pub(crate) struct AgentCrudComponents {
+                pub known_tools: Arc<RwLock<HashSet<String>>>,
+                pub store: Arc<dyn AgentStore>,
+            }
+
+            pub(crate) fn register_bash_execution_tool(
+                mut builder: ToolRegistryBuilder,
+                config: BashConfig,
+                security_gate: Option<Arc<dyn SecurityGate>>,
+                agent_id: &str,
+                task_id: &str,
+            ) -> ToolRegistryBuilder {
+                if let Some(gate) = security_gate {
+                    builder.registry.register(
+                        config
+                            .into_bash_tool()
+                            .with_security(gate, agent_id, task_id),
+                    );
+                } else {
+                    builder = builder.with_bash(config);
+                }
+                builder
+            }
+
+            pub(crate) fn register_file_execution_tool(
+                mut builder: ToolRegistryBuilder,
+                config: FileConfig,
+                security_gate: Option<Arc<dyn SecurityGate>>,
+                agent_id: &str,
+                task_id: &str,
+            ) -> ToolRegistryBuilder {
+                if let Some(gate) = security_gate.clone() {
+                    let tool = config
+                        .into_file_tool_with_tracker(builder.tracker())
+                        .with_security(gate, agent_id, task_id);
+                    builder.registry.register(tool);
+                } else {
+                    builder = builder.with_file(config);
                 }
 
-                pub(crate) fn register_bash_execution_tool(
-                    mut builder: ToolRegistryBuilder,
-                    config: BashConfig,
-                    security_gate: Option<Arc<dyn SecurityGate>>,
-                    agent_id: &str,
-                    task_id: &str,
-                ) -> ToolRegistryBuilder {
-                    if let Some(gate) = security_gate {
-                        builder.registry.register(
-                            config
-                                .into_bash_tool()
-                                .with_security(gate, agent_id, task_id),
-                        );
-                    } else {
-                        builder = builder.with_bash(config);
+                builder
+            }
+
+            pub(crate) fn populate_known_tools_from_registry(
+                known_tools: &Arc<RwLock<HashSet<String>>>,
+                registry: &ToolRegistry,
+            ) {
+                if let Ok(mut known) = known_tools.write() {
+                    *known = registry
+                        .list()
+                        .into_iter()
+                        .map(|name| name.to_string())
+                        .collect::<HashSet<_>>();
+                    for name in [
+                        "bash",
+                        "file",
+                        "edit",
+                        "multiedit",
+                        "patch",
+                        "glob",
+                        "grep",
+                        "load_skill",
+                        "run_skill",
+                        "manage_agents",
+                    ] {
+                        known.insert(name.to_string());
                     }
-                    builder
-                }
-
-                pub(crate) fn register_file_execution_tool(
-                    mut builder: ToolRegistryBuilder,
-                    config: FileConfig,
-                    security_gate: Option<Arc<dyn SecurityGate>>,
-                    agent_id: &str,
-                    task_id: &str,
-                ) -> ToolRegistryBuilder {
-                    if let Some(gate) = security_gate.clone() {
-                        let tool = config
-                            .into_file_tool_with_tracker(builder.tracker())
-                            .with_security(gate, agent_id, task_id);
-                        builder.registry.register(tool);
-                    } else {
-                        builder = builder.with_file(config);
-                    }
-
-                    builder
-                }
-
-                pub(crate) fn populate_known_tools_from_registry(
-                    known_tools: &Arc<RwLock<HashSet<String>>>,
-                    registry: &ToolRegistry,
-                ) {
-                    if let Ok(mut known) = known_tools.write() {
-                        *known = registry
-                            .list()
-                            .into_iter()
-                            .map(|name| name.to_string())
-                            .collect::<HashSet<_>>();
-                        for name in [
-                            "bash",
-                            "file",
-                            "edit",
-                            "multiedit",
-                            "patch",
-                            "glob",
-                            "grep",
-                            "load_skill",
-                            "run_skill",
-                            "manage_agents",
-                        ] {
-                            known.insert(name.to_string());
-                        }
-                        for name in SUBAGENT_TOOL_NAMES {
-                            known.insert((*name).to_string());
-                        }
+                    for name in SUBAGENT_TOOL_NAMES {
+                        known.insert((*name).to_string());
                     }
                 }
+            }
 
-                pub(crate) fn build_agent_crud_components(
-                    agent_storage: AgentStorage,
-                    secret_storage: SecretStorage,
-                ) -> AgentCrudComponents {
-                    let known_tools = Arc::new(RwLock::new(HashSet::new()));
-                    let store: Arc<dyn AgentStore> = Arc::new(AgentStoreAdapter::new(
-                        agent_storage,
-                        secret_storage,
-                        known_tools.clone(),
-                    ));
-                    AgentCrudComponents { known_tools, store }
+            pub(crate) fn build_agent_crud_components(
+                agent_storage: AgentStorage,
+                secret_storage: SecretStorage,
+            ) -> AgentCrudComponents {
+                let known_tools = Arc::new(RwLock::new(HashSet::new()));
+                let store: Arc<dyn AgentStore> = Arc::new(AgentStoreAdapter::new(
+                    agent_storage,
+                    secret_storage,
+                    known_tools.clone(),
+                ));
+                AgentCrudComponents { known_tools, store }
+            }
+
+            pub(crate) fn register_management_tools(
+                mut builder: ToolRegistryBuilder,
+                agent_store: Option<Arc<dyn AgentStore>>,
+            ) -> ToolRegistryBuilder {
+                if let Some(agent_store) = agent_store {
+                    builder = builder.with_agent_crud(agent_store);
                 }
 
-                pub(crate) fn register_management_tools(
-                    mut builder: ToolRegistryBuilder,
-                    agent_store: Option<Arc<dyn AgentStore>>,
-                ) -> ToolRegistryBuilder {
-                    if let Some(agent_store) = agent_store {
-                        builder = builder.with_agent_crud(agent_store);
-                    }
+                builder
+            }
 
-                    builder
-                }
-
-                pub(crate) fn register_subagent_management_tools(
-                    registry: &mut ToolRegistry,
-                    manager: Arc<dyn SubagentManager>,
-                ) {
-                    registry.register(SpawnSubagentTool::new(manager.clone()));
-                    registry.register(SpawnSubagentBatchTool::new(manager.clone()));
-                    registry.register(WaitSubagentsTool::new(manager.clone()));
-                    registry.register(ListSubagentsTool::new(manager));
-                }
+            pub(crate) fn register_subagent_management_tools(
+                registry: &mut ToolRegistry,
+                manager: Arc<dyn SubagentManager>,
+            ) {
+                registry.register(SpawnSubagentTool::new(manager.clone()));
+                registry.register(SpawnSubagentBatchTool::new(manager.clone()));
+                registry.register(WaitSubagentsTool::new(manager.clone()));
+                registry.register(ListSubagentsTool::new(manager));
             }
             pub mod skill_activation {
                 //! Skill-aware tool allowlist activation helpers.
@@ -539,22 +536,15 @@ mod runtime {
             use std::sync::{Mutex, OnceLock};
             use tracing::{debug, warn};
 
-            use self::assembly::{
-                build_agent_crud_components, populate_known_tools_from_registry,
-                register_bash_execution_tool, register_file_execution_tool,
-                register_management_tools, register_subagent_management_tools,
-            };
             use restflow_core::services::adapters::*;
             use restflow_core::storage::Storage;
-            use types::SubagentManager;
             use types::skill::SkillProvider;
-            use types::tool::SecurityGate;
 
-            use ::tools::impls::{BashConfig, FileConfig, RunSkillTool, ToolRegistryBuilder};
+            use ::tools::impls::RunSkillTool;
 
+            use ::agent::tools::SecretResolver;
             #[cfg(any(test, feature = "test-utils"))]
             use ::agent::tools::Tool;
-            use ::agent::tools::{SecretResolver, ToolRegistry};
             const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
             const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
@@ -1384,80 +1374,121 @@ mod runtime {
         }
     }
     pub mod orchestrator {
-        pub mod kernel {
-            use std::sync::Arc;
+        use std::path::PathBuf;
+        use std::sync::Arc;
+        use std::time::Instant;
 
-            use anyhow::Result;
-            use async_trait::async_trait;
+        use anyhow::Result;
+        use async_trait::async_trait;
+        use tokio::sync::mpsc;
 
-            use crate::runtime::session_runner::{
-                AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode,
-                SessionTurnRuntimeOptions,
-            };
-            use ::agent::agent::StreamEmitter;
-            use types::ChatSession;
-            use types::{ExecutionOutcome, ExecutionPlan};
+        use crate::runtime::executor::{
+            AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode,
+            SessionTurnRuntimeOptions,
+        };
+        use ::agent::StreamDisplayMode;
+        use ::agent::agent::{NullEmitter, StreamEmitter};
+        use types::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
+        use types::{ChatSession, SteerMessage};
 
-            #[async_trait]
-            pub trait ExecutionBackend: Send + Sync {
-                fn load_chat_session(&self, session_id: &str) -> Result<ChatSession>;
+        #[derive(Debug, Clone)]
+        pub struct InteractiveExecutionResult {
+            pub session: ChatSession,
+            pub execution: SessionExecutionResult,
+            pub outcome: ExecutionOutcome,
+        }
 
-                fn prepare_interactive_session(&self, _session: &mut ChatSession) -> Result<()> {
-                    Ok(())
+        #[derive(Debug)]
+        pub struct TracedInteractiveExecutionResult {
+            pub turn_id: String,
+            pub duration_ms: u64,
+            pub execution: SessionExecutionResult,
+        }
+
+        pub struct InteractiveSessionRequest<'a> {
+            pub session: &'a mut ChatSession,
+            pub user_input: &'a str,
+            pub max_history: usize,
+            pub input_mode: SessionInputMode,
+            pub run_id: String,
+            pub timeout_secs: Option<u64>,
+            pub emitter: Option<Box<dyn StreamEmitter>>,
+            pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            pub stream_display_mode: StreamDisplayMode,
+            pub workspace_root: Option<PathBuf>,
+        }
+
+        #[derive(Debug)]
+        pub enum InteractiveExecutionError {
+            Timeout { timeout_secs: u64 },
+            Execution(anyhow::Error),
+        }
+
+        impl std::fmt::Display for InteractiveExecutionError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    Self::Timeout { timeout_secs } => {
+                        write!(f, "execution timed out after {} seconds", timeout_secs)
+                    }
+                    Self::Execution(error) => write!(f, "{error}"),
                 }
+            }
+        }
 
-                async fn execute_interactive_session_turn(
-                    &self,
-                    session: &mut ChatSession,
-                    user_input: &str,
-                    max_history: usize,
-                    input_mode: SessionInputMode,
-                    emitter: Option<Box<dyn StreamEmitter>>,
-                    options: SessionTurnRuntimeOptions,
-                ) -> Result<SessionExecutionResult>;
+        impl std::error::Error for InteractiveExecutionError {}
 
-                async fn execute_subagent_plan(
-                    &self,
-                    plan: ExecutionPlan,
-                ) -> Result<ExecutionOutcome>;
+        #[derive(Clone)]
+        pub struct AgentOrchestratorImpl {
+            executor: Arc<AgentRuntimeExecutor>,
+        }
+
+        impl AgentOrchestratorImpl {
+            pub fn new(executor: AgentRuntimeExecutor) -> Self {
+                Self {
+                    executor: Arc::new(executor),
+                }
             }
 
-            #[derive(Clone)]
-            pub struct ExecutionKernel {
-                backend: Arc<dyn ExecutionBackend>,
+            pub fn from_runtime_executor(executor: AgentRuntimeExecutor) -> Self {
+                Self::new(executor)
             }
 
-            impl ExecutionKernel {
-                pub fn new(backend: Arc<dyn ExecutionBackend>) -> Self {
-                    Self { backend }
-                }
-
-                pub fn backend(&self) -> Arc<dyn ExecutionBackend> {
-                    self.backend.clone()
-                }
+            pub async fn run_interactive_session_turn(
+                &self,
+                session: &mut ChatSession,
+                user_input: &str,
+                max_history: usize,
+                input_mode: SessionInputMode,
+                emitter: Option<Box<dyn StreamEmitter>>,
+                steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            ) -> Result<InteractiveExecutionResult> {
+                self.run_interactive_session_turn_with_options(
+                    session,
+                    user_input,
+                    max_history,
+                    input_mode,
+                    emitter,
+                    SessionTurnRuntimeOptions {
+                        steer_rx,
+                        stream_display_mode: StreamDisplayMode::Buffered,
+                        workspace_root: None,
+                    },
+                )
+                .await
             }
 
-            #[async_trait]
-            impl ExecutionBackend for AgentRuntimeExecutor {
-                fn load_chat_session(&self, session_id: &str) -> Result<ChatSession> {
-                    self.load_chat_session(session_id)
-                }
-
-                fn prepare_interactive_session(&self, session: &mut ChatSession) -> Result<()> {
-                    let _ = self.resolve_stored_agent_for_session(session)?;
-                    Ok(())
-                }
-
-                async fn execute_interactive_session_turn(
-                    &self,
-                    session: &mut ChatSession,
-                    user_input: &str,
-                    max_history: usize,
-                    input_mode: SessionInputMode,
-                    emitter: Option<Box<dyn StreamEmitter>>,
-                    options: SessionTurnRuntimeOptions,
-                ) -> Result<SessionExecutionResult> {
-                    self.execute_session_turn_with_emitter_and_steer(
+            async fn run_interactive_session_turn_with_options(
+                &self,
+                session: &mut ChatSession,
+                user_input: &str,
+                max_history: usize,
+                input_mode: SessionInputMode,
+                emitter: Option<Box<dyn StreamEmitter>>,
+                options: SessionTurnRuntimeOptions,
+            ) -> Result<InteractiveExecutionResult> {
+                let execution = self
+                    .executor
+                    .execute_session_turn_with_emitter_and_steer(
                         session,
                         user_input,
                         max_history,
@@ -1465,381 +1496,53 @@ mod runtime {
                         emitter,
                         options,
                     )
-                    .await
-                }
-
-                async fn execute_subagent_plan(
-                    &self,
-                    plan: ExecutionPlan,
-                ) -> Result<ExecutionOutcome> {
-                    self.execute_subagent_plan(plan).await
-                }
-            }
-
-            pub fn parse_optional_metadata<T: serde::de::DeserializeOwned>(
-                plan: &types::ExecutionPlan,
-                field: &str,
-            ) -> std::result::Result<Option<T>, types::ToolError> {
-                let Some(metadata) = plan.metadata.as_ref() else {
-                    return Ok(None);
-                };
-                let Some(value) = metadata.get(field) else {
-                    return Ok(None);
+                    .await?;
+                let outcome = ExecutionOutcome {
+                    success: true,
+                    text: Some(execution.output.clone()),
+                    iterations: Some(execution.iterations),
+                    model: Some(execution.final_model.as_serialized_str().to_string()),
+                    metadata: Some(serde_json::json!({
+                        "chat_session_id": session.id,
+                        "resolved_agent_id": session.agent_id,
+                    })),
+                    ..ExecutionOutcome::default()
                 };
 
-                serde_json::from_value(value.clone())
-                    .map(Some)
-                    .map_err(|error| {
-                        types::ToolError::Tool(format!("Invalid '{field}' metadata: {error}"))
-                    })
+                Ok(InteractiveExecutionResult {
+                    session: session.clone(),
+                    execution,
+                    outcome,
+                })
             }
 
-            pub fn require_mode_input<'a>(
-                plan: &'a types::ExecutionPlan,
-                field: &'static str,
-            ) -> std::result::Result<&'a str, types::ToolError> {
-                plan.input
-                    .as_deref()
-                    .filter(|value| !value.trim().is_empty())
-                    .ok_or_else(|| {
-                        types::ToolError::Tool(format!(
-                            "Execution plan requires non-empty '{field}'."
-                        ))
-                    })
-            }
+            pub async fn run_traced_interactive_session_turn(
+                &self,
+                request: InteractiveSessionRequest<'_>,
+            ) -> std::result::Result<TracedInteractiveExecutionResult, InteractiveExecutionError>
+            {
+                let InteractiveSessionRequest {
+                    session,
+                    user_input,
+                    max_history,
+                    input_mode,
+                    run_id,
+                    timeout_secs,
+                    emitter,
+                    steer_rx,
+                    stream_display_mode,
+                    workspace_root,
+                } = request;
+                self.executor
+                    .resolve_stored_agent_for_session(session)
+                    .map_err(InteractiveExecutionError::Execution)?;
 
-            pub fn map_anyhow_error(error: anyhow::Error) -> types::ToolError {
-                types::ToolError::Tool(error.to_string())
-            }
-        }
-        pub mod modes {
-            pub mod interactive {
-                use anyhow::Result;
-                use tokio::sync::mpsc;
-
-                use crate::runtime::orchestrator::kernel::{
-                    ExecutionKernel, map_anyhow_error, parse_optional_metadata, require_mode_input,
-                };
-                use crate::runtime::session_runner::{
-                    SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
-                };
-                use ::agent::StreamDisplayMode;
-                use ::agent::agent::StreamEmitter;
-                use types::{ChatSession, SteerMessage};
-                use types::{ExecutionOutcome, ExecutionPlan};
-
-                #[derive(Debug, Clone)]
-                pub struct InteractiveExecutionResult {
-                    pub session: ChatSession,
-                    pub execution: SessionExecutionResult,
-                    pub outcome: ExecutionOutcome,
-                }
-
-                pub async fn run_with_session(
-                    kernel: &ExecutionKernel,
-                    session: &mut ChatSession,
-                    user_input: &str,
-                    max_history: usize,
-                    input_mode: SessionInputMode,
-                    emitter: Option<Box<dyn StreamEmitter>>,
-                    steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-                ) -> Result<InteractiveExecutionResult> {
-                    run_with_session_options(
-                        kernel,
-                        session,
-                        user_input,
-                        max_history,
-                        input_mode,
-                        emitter,
-                        SessionTurnRuntimeOptions {
-                            steer_rx,
-                            stream_display_mode: StreamDisplayMode::Buffered,
-                            workspace_root: None,
-                        },
-                    )
-                    .await
-                }
-
-                pub async fn run_with_session_options(
-                    kernel: &ExecutionKernel,
-                    session: &mut ChatSession,
-                    user_input: &str,
-                    max_history: usize,
-                    input_mode: SessionInputMode,
-                    emitter: Option<Box<dyn StreamEmitter>>,
-                    options: SessionTurnRuntimeOptions,
-                ) -> Result<InteractiveExecutionResult> {
-                    let execution = kernel
-                        .backend()
-                        .execute_interactive_session_turn(
-                            session,
-                            user_input,
-                            max_history,
-                            input_mode,
-                            emitter,
-                            options,
-                        )
-                        .await?;
-                    let outcome = ExecutionOutcome {
-                        success: true,
-                        text: Some(execution.output.clone()),
-                        iterations: Some(execution.iterations),
-                        model: Some(execution.final_model.as_serialized_str().to_string()),
-                        metadata: Some(serde_json::json!({
-                            "chat_session_id": session.id,
-                            "resolved_agent_id": session.agent_id,
-                        })),
-                        ..ExecutionOutcome::default()
-                    };
-
-                    Ok(InteractiveExecutionResult {
-                        session: session.clone(),
-                        execution,
-                        outcome,
-                    })
-                }
-
-                pub async fn run_plan(
-                    kernel: &ExecutionKernel,
-                    plan: ExecutionPlan,
-                ) -> std::result::Result<ExecutionOutcome, types::ToolError> {
-                    let session_id = plan.chat_session_id.as_deref().ok_or_else(|| {
-                        types::ToolError::Tool(
-                            "Interactive execution requires 'chat_session_id'.".to_string(),
-                        )
-                    })?;
-                    let mut session = kernel
-                        .backend()
-                        .load_chat_session(session_id)
-                        .map_err(map_anyhow_error)?;
-                    let input = require_mode_input(&plan, "input")?;
-                    let max_history = parse_optional_metadata::<usize>(&plan, "max_history")?
-                        .unwrap_or(types::DEFAULT_CHAT_MAX_SESSION_HISTORY);
-                    let input_mode =
-                        parse_optional_metadata::<SessionInputModeWrapper>(&plan, "input_mode")?
-                            .map(Into::into)
-                            .unwrap_or(SessionInputMode::EphemeralInput);
-
-                    run_with_session(
-                        kernel,
-                        &mut session,
-                        input,
-                        max_history,
-                        input_mode,
-                        None,
-                        None,
-                    )
-                    .await
-                    .map(|result| result.outcome)
-                    .map_err(map_anyhow_error)
-                }
-
-                #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-                #[serde(rename_all = "snake_case")]
-                enum SessionInputModeWrapper {
-                    PersistedInSession,
-                    EphemeralInput,
-                }
-
-                impl From<SessionInputModeWrapper> for SessionInputMode {
-                    fn from(value: SessionInputModeWrapper) -> Self {
-                        match value {
-                            SessionInputModeWrapper::PersistedInSession => {
-                                SessionInputMode::PersistedInSession
-                            }
-                            SessionInputModeWrapper::EphemeralInput => {
-                                SessionInputMode::EphemeralInput
-                            }
-                        }
-                    }
-                }
-            }
-            pub mod subagent {
-                use crate::runtime::orchestrator::kernel::{ExecutionKernel, map_anyhow_error};
-                use types::{ExecutionOutcome, ExecutionPlan};
-
-                pub async fn run_plan(
-                    kernel: &ExecutionKernel,
-                    plan: ExecutionPlan,
-                ) -> std::result::Result<ExecutionOutcome, types::ToolError> {
-                    kernel
-                        .backend()
-                        .execute_subagent_plan(plan)
-                        .await
-                        .map_err(map_anyhow_error)
-                }
-            }
-        }
-        #[allow(clippy::module_inception)]
-        pub mod orchestrator {
-            use std::path::PathBuf;
-            use std::sync::Arc;
-            use std::time::Instant;
-
-            use anyhow::Result;
-            use async_trait::async_trait;
-            use tokio::sync::mpsc;
-
-            use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
-            use crate::runtime::orchestrator::modes::{interactive, subagent};
-            use crate::runtime::session_runner::{
-                AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions,
-            };
-            use ::agent::StreamDisplayMode;
-            use ::agent::agent::{NullEmitter, StreamEmitter};
-            use types::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
-            use types::{ChatSession, SteerMessage};
-
-            #[derive(Debug)]
-            pub struct TracedInteractiveExecutionResult {
-                pub turn_id: String,
-                pub duration_ms: u64,
-                pub execution: crate::runtime::session_runner::SessionExecutionResult,
-            }
-
-            pub struct InteractiveSessionRequest<'a> {
-                pub session: &'a mut ChatSession,
-                pub user_input: &'a str,
-                pub max_history: usize,
-                pub input_mode: SessionInputMode,
-                pub run_id: String,
-                pub timeout_secs: Option<u64>,
-                pub emitter: Option<Box<dyn StreamEmitter>>,
-                pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-                pub stream_display_mode: StreamDisplayMode,
-                pub workspace_root: Option<PathBuf>,
-            }
-
-            #[derive(Debug)]
-            pub enum InteractiveExecutionError {
-                Timeout { timeout_secs: u64 },
-                Execution(anyhow::Error),
-            }
-
-            impl std::fmt::Display for InteractiveExecutionError {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    match self {
-                        Self::Timeout { timeout_secs } => {
-                            write!(f, "execution timed out after {} seconds", timeout_secs)
-                        }
-                        Self::Execution(error) => write!(f, "{error}"),
-                    }
-                }
-            }
-
-            impl std::error::Error for InteractiveExecutionError {}
-
-            #[derive(Clone)]
-            pub struct AgentOrchestratorImpl {
-                kernel: Arc<ExecutionKernel>,
-            }
-
-            impl AgentOrchestratorImpl {
-                pub fn new(backend: Arc<dyn ExecutionBackend>) -> Self {
-                    Self {
-                        kernel: Arc::new(ExecutionKernel::new(backend)),
-                    }
-                }
-
-                pub fn from_runtime_executor(executor: AgentRuntimeExecutor) -> Self {
-                    Self::new(Arc::new(executor))
-                }
-
-                pub async fn run_interactive_session_turn(
-                    &self,
-                    session: &mut ChatSession,
-                    user_input: &str,
-                    max_history: usize,
-                    input_mode: SessionInputMode,
-                    emitter: Option<Box<dyn StreamEmitter>>,
-                    steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-                ) -> Result<interactive::InteractiveExecutionResult> {
-                    interactive::run_with_session(
-                        self.kernel.as_ref(),
-                        session,
-                        user_input,
-                        max_history,
-                        input_mode,
-                        emitter,
-                        steer_rx,
-                    )
-                    .await
-                }
-
-                async fn run_interactive_session_turn_with_options(
-                    &self,
-                    session: &mut ChatSession,
-                    user_input: &str,
-                    max_history: usize,
-                    input_mode: SessionInputMode,
-                    emitter: Option<Box<dyn StreamEmitter>>,
-                    options: SessionTurnRuntimeOptions,
-                ) -> Result<interactive::InteractiveExecutionResult> {
-                    interactive::run_with_session_options(
-                        self.kernel.as_ref(),
-                        session,
-                        user_input,
-                        max_history,
-                        input_mode,
-                        emitter,
-                        options,
-                    )
-                    .await
-                }
-
-                pub async fn run_traced_interactive_session_turn(
-                    &self,
-                    request: InteractiveSessionRequest<'_>,
-                ) -> std::result::Result<TracedInteractiveExecutionResult, InteractiveExecutionError>
-                {
-                    let InteractiveSessionRequest {
-                        session,
-                        user_input,
-                        max_history,
-                        input_mode,
-                        run_id,
-                        timeout_secs,
-                        emitter,
-                        steer_rx,
-                        stream_display_mode,
-                        workspace_root,
-                    } = request;
-                    self.kernel
-                        .backend()
-                        .prepare_interactive_session(session)
-                        .map_err(InteractiveExecutionError::Execution)?;
-
-                    let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
-                    let traced_emitter: Box<dyn StreamEmitter> = inner_emitter;
-
-                    let started_at = Instant::now();
-                    let execution_result = if let Some(timeout_secs) = timeout_secs {
-                        match tokio::time::timeout(
-                            tokio::time::Duration::from_secs(timeout_secs),
-                            self.run_interactive_session_turn_with_options(
-                                session,
-                                user_input,
-                                max_history,
-                                input_mode,
-                                Some(traced_emitter),
-                                SessionTurnRuntimeOptions {
-                                    steer_rx,
-                                    stream_display_mode,
-                                    workspace_root,
-                                },
-                            ),
-                        )
-                        .await
-                        {
-                            Ok(result) => result.map_err(InteractiveExecutionError::Execution),
-                            Err(_) => {
-                                let duration_ms = started_at.elapsed().as_millis() as u64;
-                                let error = InteractiveExecutionError::Timeout { timeout_secs };
-                                let _ = duration_ms;
-                                return Err(error);
-                            }
-                        }
-                    } else {
+                let traced_emitter: Box<dyn StreamEmitter> =
+                    emitter.unwrap_or_else(|| Box::new(NullEmitter));
+                let started_at = Instant::now();
+                let execution_result = if let Some(timeout_secs) = timeout_secs {
+                    match tokio::time::timeout(
+                        tokio::time::Duration::from_secs(timeout_secs),
                         self.run_interactive_session_turn_with_options(
                             session,
                             user_input,
@@ -1851,246 +1554,179 @@ mod runtime {
                                 stream_display_mode,
                                 workspace_root,
                             },
-                        )
-                        .await
-                        .map_err(InteractiveExecutionError::Execution)
-                    };
+                        ),
+                    )
+                    .await
+                    {
+                        Ok(result) => result.map_err(InteractiveExecutionError::Execution),
+                        Err(_) => return Err(InteractiveExecutionError::Timeout { timeout_secs }),
+                    }
+                } else {
+                    self.run_interactive_session_turn_with_options(
+                        session,
+                        user_input,
+                        max_history,
+                        input_mode,
+                        Some(traced_emitter),
+                        SessionTurnRuntimeOptions {
+                            steer_rx,
+                            stream_display_mode,
+                            workspace_root,
+                        },
+                    )
+                    .await
+                    .map_err(InteractiveExecutionError::Execution)
+                };
 
-                    let execution = match execution_result {
-                        Ok(result) => result.execution,
-                        Err(error) => {
-                            return Err(error);
-                        }
-                    };
+                let execution = execution_result?.execution;
+                let duration_ms = started_at.elapsed().as_millis() as u64;
 
-                    let duration_ms = started_at.elapsed().as_millis() as u64;
-
-                    Ok(TracedInteractiveExecutionResult {
-                        turn_id: run_id,
-                        duration_ms,
-                        execution,
-                    })
-                }
+                Ok(TracedInteractiveExecutionResult {
+                    turn_id: run_id,
+                    duration_ms,
+                    execution,
+                })
             }
 
-            #[async_trait]
-            impl AgentOrchestrator for AgentOrchestratorImpl {
-                async fn run(
-                    &self,
-                    plan: ExecutionPlan,
-                ) -> std::result::Result<ExecutionOutcome, ToolError> {
-                    plan.validate()?;
-                    match plan.mode.clone().expect("validated mode") {
-                        types::ExecutionMode::Interactive => {
-                            interactive::run_plan(self.kernel.as_ref(), plan).await
-                        }
-                        types::ExecutionMode::Subagent => {
-                            subagent::run_plan(self.kernel.as_ref(), plan).await
-                        }
-                    }
+            async fn run_interactive_plan(
+                &self,
+                plan: ExecutionPlan,
+            ) -> std::result::Result<ExecutionOutcome, ToolError> {
+                let session_id = plan.chat_session_id.as_deref().ok_or_else(|| {
+                    ToolError::Tool("Interactive execution requires 'chat_session_id'.".to_string())
+                })?;
+                let mut session = self
+                    .executor
+                    .load_chat_session(session_id)
+                    .map_err(map_anyhow_error)?;
+                let input = require_mode_input(&plan, "input")?;
+                let max_history = parse_optional_metadata::<usize>(&plan, "max_history")?
+                    .unwrap_or(types::DEFAULT_CHAT_MAX_SESSION_HISTORY);
+                let input_mode =
+                    parse_optional_metadata::<SessionInputModeWrapper>(&plan, "input_mode")?
+                        .map(Into::into)
+                        .unwrap_or(SessionInputMode::EphemeralInput);
+
+                self.run_interactive_session_turn(
+                    &mut session,
+                    input,
+                    max_history,
+                    input_mode,
+                    None,
+                    None,
+                )
+                .await
+                .map(|result| result.outcome)
+                .map_err(map_anyhow_error)
+            }
+        }
+
+        #[async_trait]
+        impl AgentOrchestrator for AgentOrchestratorImpl {
+            async fn run(
+                &self,
+                plan: ExecutionPlan,
+            ) -> std::result::Result<ExecutionOutcome, ToolError> {
+                plan.validate()?;
+                match plan.mode.clone().expect("validated mode") {
+                    types::ExecutionMode::Interactive => self.run_interactive_plan(plan).await,
+                    types::ExecutionMode::Subagent => self
+                        .executor
+                        .execute_subagent_plan(plan)
+                        .await
+                        .map_err(map_anyhow_error),
                 }
             }
+        }
 
-            #[cfg(test)]
-            mod tests {
-                use std::sync::{Arc, Mutex};
+        fn parse_optional_metadata<T: serde::de::DeserializeOwned>(
+            plan: &ExecutionPlan,
+            field: &str,
+        ) -> std::result::Result<Option<T>, ToolError> {
+            let Some(metadata) = plan.metadata.as_ref() else {
+                return Ok(None);
+            };
+            let Some(value) = metadata.get(field) else {
+                return Ok(None);
+            };
 
-                use anyhow::Result;
-                use async_trait::async_trait;
+            serde_json::from_value(value.clone())
+                .map(Some)
+                .map_err(|error| ToolError::Tool(format!("Invalid '{field}' metadata: {error}")))
+        }
 
-                use crate::runtime::orchestrator::kernel::ExecutionBackend;
-                use crate::runtime::session_runner::{SessionExecutionResult, SessionInputMode};
-                use ::agent::agent::StreamEmitter;
-                use types::{ChatSession, ModelId};
-                use types::{ExecutionMode, ExecutionPlan, InlineSubagentConfig};
+        fn require_mode_input<'a>(
+            plan: &'a ExecutionPlan,
+            field: &'static str,
+        ) -> std::result::Result<&'a str, ToolError> {
+            plan.input
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    ToolError::Tool(format!("Execution plan requires non-empty '{field}'."))
+                })
+        }
 
-                use super::*;
+        fn map_anyhow_error(error: anyhow::Error) -> ToolError {
+            ToolError::Tool(error.to_string())
+        }
 
-                #[derive(Default)]
-                struct MockBackend {
-                    session: Mutex<Option<ChatSession>>,
-                }
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum SessionInputModeWrapper {
+            PersistedInSession,
+            EphemeralInput,
+        }
 
-                #[async_trait]
-                impl ExecutionBackend for MockBackend {
-                    fn load_chat_session(&self, _session_id: &str) -> Result<ChatSession> {
-                        self.session
-                            .lock()
-                            .expect("session lock")
-                            .clone()
-                            .ok_or_else(|| anyhow::anyhow!("missing session"))
+        impl From<SessionInputModeWrapper> for SessionInputMode {
+            fn from(value: SessionInputModeWrapper) -> Self {
+                match value {
+                    SessionInputModeWrapper::PersistedInSession => {
+                        SessionInputMode::PersistedInSession
                     }
-
-                    async fn execute_interactive_session_turn(
-                        &self,
-                        session: &mut ChatSession,
-                        _user_input: &str,
-                        _max_history: usize,
-                        _input_mode: SessionInputMode,
-                        _emitter: Option<Box<dyn StreamEmitter>>,
-                        _options: SessionTurnRuntimeOptions,
-                    ) -> Result<SessionExecutionResult> {
-                        session.agent_id = "fallback-agent".to_string();
-                        let result = SessionExecutionResult::new(
-                            "interactive-output".to_string(),
-                            3,
-                            "gpt-5.3-codex".to_string(),
-                            ModelId::CodexCli,
-                        );
-                        Ok(result)
-                    }
-
-                    async fn execute_subagent_plan(
-                        &self,
-                        _plan: ExecutionPlan,
-                    ) -> Result<ExecutionOutcome> {
-                        Ok(ExecutionOutcome {
-                            success: true,
-                            text: Some("subagent-output".to_string()),
-                            ..ExecutionOutcome::default()
-                        })
-                    }
+                    SessionInputModeWrapper::EphemeralInput => SessionInputMode::EphemeralInput,
                 }
+            }
+        }
 
-                #[tokio::test]
-                async fn run_interactive_session_turn_updates_session_and_result() {
-                    let backend = Arc::new(MockBackend::default());
-                    let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
-                    backend
-                        .session
-                        .lock()
-                        .expect("session lock")
-                        .replace(session.clone());
-                    let orchestrator = AgentOrchestratorImpl::new(backend);
+        #[cfg(test)]
+        mod tests {
+            use super::*;
 
-                    let result = orchestrator
-                        .run_interactive_session_turn(
-                            &mut session,
-                            "hello",
-                            20,
-                            SessionInputMode::EphemeralInput,
-                            None,
-                            None,
-                        )
-                        .await
-                        .expect("interactive run should succeed");
+            #[test]
+            fn require_mode_input_rejects_blank_input() {
+                let plan = ExecutionPlan {
+                    input: Some("  ".to_string()),
+                    ..ExecutionPlan::default()
+                };
+                let error = require_mode_input(&plan, "input").expect_err("blank input fails");
+                assert!(error.to_string().contains("non-empty 'input'"));
+            }
 
-                    assert_eq!(session.agent_id, "fallback-agent");
-                    assert_eq!(result.execution.output, "interactive-output");
-                    assert_eq!(result.outcome.iterations, Some(3));
-                    assert_eq!(result.outcome.model.as_deref(), Some("gpt-5.3-codex"));
-                }
-                #[tokio::test]
-                async fn run_traced_interactive_session_turn_returns_timeout_error() {
-                    #[derive(Default)]
-                    struct SlowBackend;
+            #[test]
+            fn parse_optional_metadata_reads_input_mode() {
+                let plan = ExecutionPlan {
+                    metadata: Some(serde_json::json!({
+                        "input_mode": "persisted_in_session",
+                        "max_history": 12
+                    })),
+                    ..ExecutionPlan::default()
+                };
 
-                    #[async_trait]
-                    impl ExecutionBackend for SlowBackend {
-                        fn load_chat_session(&self, _session_id: &str) -> Result<ChatSession> {
-                            Ok(ChatSession::new("agent-a".to_string(), "gpt-5".to_string()))
-                        }
+                let mode = parse_optional_metadata::<SessionInputModeWrapper>(&plan, "input_mode")
+                    .expect("metadata should parse")
+                    .map(SessionInputMode::from);
+                let max_history = parse_optional_metadata::<usize>(&plan, "max_history")
+                    .expect("metadata should parse");
 
-                        async fn execute_interactive_session_turn(
-                            &self,
-                            _session: &mut ChatSession,
-                            _user_input: &str,
-                            _max_history: usize,
-                            _input_mode: SessionInputMode,
-                            _emitter: Option<Box<dyn StreamEmitter>>,
-                            _options: SessionTurnRuntimeOptions,
-                        ) -> Result<SessionExecutionResult> {
-                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                            Ok(SessionExecutionResult::new(
-                                "too-late".to_string(),
-                                1,
-                                "gpt-5".to_string(),
-                                ModelId::Gpt5,
-                            ))
-                        }
-
-                        async fn execute_subagent_plan(
-                            &self,
-                            _plan: ExecutionPlan,
-                        ) -> Result<ExecutionOutcome> {
-                            unreachable!("subagent path not used")
-                        }
-                    }
-
-                    let orchestrator = AgentOrchestratorImpl::new(Arc::new(SlowBackend));
-                    let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
-
-                    let error = orchestrator
-                        .run_traced_interactive_session_turn(InteractiveSessionRequest {
-                            session: &mut session,
-                            user_input: "hello",
-                            max_history: 20,
-                            input_mode: SessionInputMode::EphemeralInput,
-                            run_id: "run-timeout".to_string(),
-                            timeout_secs: Some(0),
-                            emitter: None,
-                            steer_rx: None,
-                            stream_display_mode: StreamDisplayMode::Buffered,
-                            workspace_root: None,
-                        })
-                        .await
-                        .expect_err("interactive run should time out");
-
-                    assert!(matches!(
-                        error,
-                        InteractiveExecutionError::Timeout { timeout_secs: 0 }
-                    ));
-                }
-
-                #[tokio::test]
-                async fn run_plan_dispatches_interactive_mode() {
-                    let backend = Arc::new(MockBackend::default());
-                    let session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
-                    let session_id = session.id.clone();
-                    backend
-                        .session
-                        .lock()
-                        .expect("session lock")
-                        .replace(session);
-                    let orchestrator = AgentOrchestratorImpl::new(backend);
-
-                    let outcome = orchestrator
-                        .run(ExecutionPlan {
-                            mode: Some(ExecutionMode::Interactive),
-                            agent_id: Some("agent-a".to_string()),
-                            chat_session_id: Some(session_id),
-                            input: Some("hello".to_string()),
-                            ..ExecutionPlan::default()
-                        })
-                        .await
-                        .expect("interactive plan should succeed");
-
-                    assert!(outcome.success);
-                    assert_eq!(outcome.text.as_deref(), Some("interactive-output"));
-                }
-
-                #[tokio::test]
-                async fn run_plan_dispatches_subagent_mode() {
-                    let orchestrator = AgentOrchestratorImpl::new(Arc::new(MockBackend::default()));
-
-                    let outcome = orchestrator
-                        .run(ExecutionPlan {
-                            mode: Some(ExecutionMode::Subagent),
-                            input: Some("task".to_string()),
-                            inline_subagent: Some(InlineSubagentConfig::default()),
-                            ..ExecutionPlan::default()
-                        })
-                        .await
-                        .expect("subagent mode should delegate");
-
-                    assert_eq!(outcome.text.as_deref(), Some("subagent-output"));
-                }
+                assert_eq!(mode, Some(SessionInputMode::PersistedInSession));
+                assert_eq!(max_history, Some(12));
             }
         }
     }
     #[allow(dead_code)]
-    pub mod session_runner {
-        //! Agent session runtime module.
+    pub mod executor {
+        //! Agent turn executor module.
         //!
         //! This module owns the runtime-side session execution path. Delegated
         //! sub-agent execution remains an `agent` capability injected into this runtime
@@ -2107,7 +1743,7 @@ mod runtime {
         //! # Usage
         //!
         //! ```ignore
-        //! use runner::runtime::session_runner::AgentRuntimeExecutor;
+        //! use runner::runtime::executor::AgentRuntimeExecutor;
         //!
         //! // For API-based execution:
         //! let executor = Arc::new(AgentRuntimeExecutor::new(
@@ -2461,7 +2097,7 @@ mod runtime {
                 }
             }
         }
-        pub mod executor {
+        pub mod turn {
             //! Agent/session executor implementation.
             //!
             //! This module provides `AgentRuntimeExecutor`, which implements the
@@ -2474,7 +2110,7 @@ mod runtime {
             use std::time::Duration;
 
             use crate::runtime::execution_context::ExecutionContext;
-            use crate::runtime::orchestrator::orchestrator::AgentOrchestratorImpl;
+            use crate::runtime::orchestrator::AgentOrchestratorImpl;
             use ::agent::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
             use ::agent::llm::Message;
             use ::agent::{
@@ -5176,7 +4812,7 @@ mod runtime {
                 // covered by integration tests in the daemon transport stack
             }
         }
-        pub use executor::{AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions};
+        pub use turn::{AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions};
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum ExecutionErrorKind {
             Authentication,
@@ -5895,8 +5531,8 @@ mod runtime {
 }
 
 pub use runtime::agent::build_agent_system_prompt;
-pub use runtime::orchestrator::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
-pub use runtime::session_runner::SessionExecutionResult;
-pub use runtime::session_runner::executor::{AgentRuntimeExecutor, SessionInputMode};
+pub use runtime::executor::SessionExecutionResult;
+pub use runtime::executor::turn::{AgentRuntimeExecutor, SessionInputMode};
+pub use runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 pub use runtime::session_turn::build_turn_persistence_payload;
 pub use runtime::subagent::definition::StorageBackedSubagentLookup;
