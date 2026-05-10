@@ -1,6 +1,6 @@
 # RestFlow
 
-**Make your agent binary. Make your workflow binary. Make your skill binary.**
+**A local agent CLI with executable skills.**
 
 [![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
 [![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
@@ -11,18 +11,16 @@
 
 ## What RestFlow Is
 
-RestFlow is a local agent framework with a terminal-first interface and an
-external executable skill boundary.
+RestFlow is a local agent CLI with a terminal-first interface and an external
+executable skill boundary.
 
 - **Skill Binary**: package one reusable AI capability as a portable executable unit
 - **Agent Binary**: compile one agent with its model, tools, policy, and behavior into a runnable unit
-- **Workflow Binary**: compose multiple skills and agents into a fixed executable flow
 
-The runtime center is the Rust agent framework plus TUI. Specialized external
+The runtime center is the Rust agent loop plus TUI. Specialized external
 capabilities are packaged and run through `skrun`.
 
-In practice, this means RestFlow is not just "an AI chat app" or "a workflow editor".
-It is building toward a portable execution system for AI work:
+In practice, this means RestFlow is a local command-line agent system:
 
 - agents
 - skills
@@ -53,114 +51,23 @@ cargo install --git https://github.com/lhwzds/restflow --package cli
 ### Start the daemon
 
 ```bash
-restflow daemon start --foreground
+restflow daemon start
 ```
 
 ### Add a model credential
 
 ```bash
 restflow secret set OPENAI_API_KEY sk-xxx
-# or
-restflow secret set ANTHROPIC_API_KEY sk-ant-xxx
 ```
 
-### Optional: connect external coding agents
+### Open the TUI
 
 ```bash
-# Sync RestFlow MCP to Codex
-restflow mcp codex sync
+restflow
 ```
-
-## Product Model
-
-RestFlow organizes AI work into three product layers:
-
-### Skill Binary
-
-The smallest reusable unit.
-
-- encapsulates one AI capability
-- can carry instructions, dependencies, and executable behavior
-- is designed to be shareable, installable, and runnable
-
-### Agent Binary
-
-A packaged AI worker.
-
-- binds model, tools, runtime policy, and attached skills
-- is intended to run as a stable executable unit
-- is the main building block for real task execution
-
-### Workflow Binary
-
-A compiled execution flow.
-
-- composes multiple skills and agents
-- encodes a fixed execution order
-- is intended for reproducible AI workflows and multi-step automation
-
-## Runtime Architecture
-
-RestFlow is not a split frontend/backend app. It is a Rust runtime and TUI:
-
-- `types` owns the shared public data model
-- `llm` owns model client adapters
-- `agent` owns the agent loop and turn execution
-- `tools` owns built-in tool implementations
-- `core` owns local file-backed state, secrets, and runtime services
-- `runner` owns foreground and background run orchestration
-- `daemon` owns background task hosting
-- `cli` and `tui` are the local user surfaces
-- Python capabilities live outside the core runtime as skrun-compatible examples
-- `skrun` owns external executable tool examples and installed skill runs
-
-Execution naming follows one canonical model:
-
-- `Agent`: capability and identity
-- `Task`: schedulable unit of work assigned to an agent
-- `Run`: one execution of a task
-- `Sub-agent`: delegated execution spawned within a run
-
-See the local task/run domain reference for the current design:
-
-- [docs/TASK_RUN_DOMAIN_MODEL.md](./docs/TASK_RUN_DOMAIN_MODEL.md)
-
-## Current State
-
-RestFlow now focuses on the minimal runtime foundation:
-
-- foreground TUI execution
-- daemon-hosted background execution
-- minimal tool execution
-- skill discovery through `load_skill`
-- executable skill runs through `run_skill`
-- MCP/HTTP/IPC surfaces
-
-The product direction from here is to raise these runtime capabilities into first-class,
-portable artifacts:
-
-- skill binaries
-- agent binaries
-- workflow binaries
 
 ## Links
 
 - Site: [restflow.ai](https://restflow.ai)
 - Docs: [restflow.ai/docs](https://restflow.ai/docs/)
 - Releases: [GitHub Releases](https://github.com/lhwzds/restflow/releases/latest)
-
-## Development
-
-```bash
-# Rust workspace
-cargo check
-
-# local daemon
-make run
-```
-
-Default MCP HTTP endpoint:
-
-```text
-http://localhost:8787/mcp
-```
