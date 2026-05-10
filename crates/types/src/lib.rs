@@ -611,167 +611,6 @@ pub mod agent {
     }
 }
 
-pub mod assessment {
-    use async_trait::async_trait;
-    use serde::{Deserialize, Serialize};
-
-    use crate::error::ToolError;
-    use crate::store::{AgentCreateRequest, AgentUpdateRequest};
-    use crate::subagent::ContractRunSpawnRequest;
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    #[serde(rename_all = "snake_case")]
-    pub enum OperationAssessmentStatus {
-        Ok,
-        Warning,
-        Block,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    #[serde(rename_all = "snake_case")]
-    pub enum OperationAssessmentIntent {
-        Save,
-        Run,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    pub struct AssessmentModelRef {
-        pub provider: String,
-        pub model: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    pub struct OperationAssessmentIssue {
-        pub code: String,
-        pub message: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub field: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub suggestion: Option<String>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    pub struct OperationAssessment {
-        pub operation: String,
-        pub intent: OperationAssessmentIntent,
-        pub status: OperationAssessmentStatus,
-        pub requires_confirmation: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub approval_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub effective_model_ref: Option<AssessmentModelRef>,
-        #[serde(default)]
-        pub warnings: Vec<OperationAssessmentIssue>,
-        #[serde(default)]
-        pub blockers: Vec<OperationAssessmentIssue>,
-    }
-
-    impl OperationAssessment {
-        pub fn ok(operation: impl Into<String>, intent: OperationAssessmentIntent) -> Self {
-            Self {
-                operation: operation.into(),
-                intent,
-                status: OperationAssessmentStatus::Ok,
-                requires_confirmation: false,
-                approval_id: None,
-                effective_model_ref: None,
-                warnings: Vec::new(),
-                blockers: Vec::new(),
-            }
-        }
-
-        pub fn warning_with_confirmation(
-            operation: impl Into<String>,
-            intent: OperationAssessmentIntent,
-            warnings: Vec<OperationAssessmentIssue>,
-        ) -> Self {
-            let mut assessment = Self {
-                operation: operation.into(),
-                intent,
-                status: OperationAssessmentStatus::Warning,
-                requires_confirmation: true,
-                approval_id: None,
-                effective_model_ref: None,
-                warnings,
-                blockers: Vec::new(),
-            };
-            assessment.approval_id = Some(build_approval_id(&assessment));
-            assessment
-        }
-    }
-
-    fn build_approval_id(assessment: &OperationAssessment) -> String {
-        let payload = serde_json::json!({
-            "operation": assessment.operation,
-            "intent": assessment.intent,
-            "effective_model_ref": assessment.effective_model_ref,
-            "warnings": assessment.warnings,
-            "blockers": assessment.blockers,
-        });
-        let encoded = serde_json::to_vec(&payload).unwrap_or_default();
-        let mut hash = 0xcbf29ce484222325u64;
-        for byte in encoded {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x100000001b3);
-        }
-        format!("{hash:016x}")
-    }
-
-    #[async_trait]
-    pub trait AgentOperationAssessor: Send + Sync {
-        async fn assess_agent_create(
-            &self,
-            request: AgentCreateRequest,
-        ) -> Result<OperationAssessment, ToolError>;
-
-        async fn assess_agent_update(
-            &self,
-            request: AgentUpdateRequest,
-        ) -> Result<OperationAssessment, ToolError>;
-
-        async fn assess_subagent_spawn(
-            &self,
-            operation: &str,
-            request: ContractRunSpawnRequest,
-            template_mode: bool,
-        ) -> Result<OperationAssessment, ToolError>;
-
-        async fn assess_subagent_batch(
-            &self,
-            operation: &str,
-            requests: Vec<ContractRunSpawnRequest>,
-            template_mode: bool,
-        ) -> Result<OperationAssessment, ToolError>;
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn operation_assessment_serializes_with_approval_id() {
-            let assessment = OperationAssessment::warning_with_confirmation(
-                "delete_task",
-                OperationAssessmentIntent::Save,
-                vec![OperationAssessmentIssue {
-                    code: "warning".to_string(),
-                    message: "Needs approval".to_string(),
-                    field: None,
-                    suggestion: None,
-                }],
-            );
-
-            let payload = serde_json::to_value(&assessment).expect("serialize assessment");
-            assert!(
-                payload
-                    .get("approval_id")
-                    .and_then(|value| value.as_str())
-                    .is_some()
-            );
-        }
-    }
-}
-
 pub mod cache {
     //! Caching abstractions for agent tools.
     //!
@@ -2145,7 +1984,6 @@ pub mod config_types {
         pub bash_timeout_secs: u64,
         pub python_timeout_secs: u64,
         pub browser_timeout_secs: u64,
-        pub process_session_ttl_secs: u64,
         pub approval_timeout_secs: u64,
         pub max_iterations: usize,
         pub max_depth: usize,
@@ -2171,7 +2009,6 @@ pub mod config_types {
                 bash_timeout_secs: DEFAULT_AGENT_BASH_TIMEOUT_SECS,
                 python_timeout_secs: DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
                 browser_timeout_secs: DEFAULT_AGENT_BROWSER_TIMEOUT_SECS,
-                process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
                 approval_timeout_secs: DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS,
                 max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
                 max_depth: DEFAULT_SUBAGENT_MAX_DEPTH,
@@ -2379,9 +2216,6 @@ pub mod defaults {
 
     /// Default sub-agent nesting depth.
     pub const DEFAULT_SUBAGENT_MAX_DEPTH: usize = 1;
-
-    /// Default TTL (seconds) for finished process sessions.
-    pub const DEFAULT_PROCESS_SESSION_TTL_SECS: u64 = 30 * 60;
 
     /// Default maximum length of tool results kept in agent context.
     pub const DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH: usize = 4_000;
@@ -4583,8 +4417,6 @@ pub mod run {
     use serde::{Deserialize, Serialize};
     use specta::Type;
 
-    use crate::ChatTurnEvent;
-
     #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
     #[serde(rename_all = "snake_case")]
     pub enum ExecutionContainerKind {
@@ -4659,18 +4491,6 @@ pub mod run {
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
     pub struct RunListQuery {
         pub container: ExecutionContainerRef,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
-    pub struct ExecutionThread {
-        pub focus: RunSummary,
-        pub timeline: RunTimeline,
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
-    pub struct RunTimeline {
-        #[serde(default)]
-        pub events: Vec<ChatTurnEvent>,
     }
 
     #[cfg(test)]
@@ -5257,14 +5077,6 @@ pub mod session {
             self.provider = provider;
             self.model = normalized_model;
             self.updated_at = chrono::Utc::now().timestamp_millis();
-        }
-
-        pub fn hydrate_provider_from_model(&mut self) -> bool {
-            let (provider, normalized_model) = Self::resolve_model_identity(&self.model);
-            let changed = self.provider != provider || self.model != normalized_model;
-            self.provider = provider;
-            self.model = normalized_model;
-            changed
         }
 
         /// Create a new chat session with a custom name.
@@ -5935,8 +5747,6 @@ pub mod skill {
         pub kind: Option<String>,
         #[serde(default)]
         pub executable: bool,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub triggers: Vec<String>,
         pub content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub folder_path: Option<String>,
@@ -5986,7 +5796,6 @@ pub mod skill {
                 tags,
                 kind: None,
                 executable: false,
-                triggers: Vec::new(),
                 content,
                 folder_path: None,
                 suggested_tools: Vec::new(),
@@ -6034,11 +5843,6 @@ pub mod skill {
                 name: self.name.clone(),
                 description: self.description.clone(),
                 tags: self.tags.clone(),
-                triggers: if self.triggers.is_empty() {
-                    None
-                } else {
-                    Some(self.triggers.clone())
-                },
                 suggested_tools: if self.suggested_tools.is_empty() {
                     None
                 } else {
@@ -6099,7 +5903,6 @@ pub mod skill {
                 content,
             );
             skill.suggested_tools = frontmatter.suggested_tools.unwrap_or_default();
-            skill.triggers = frontmatter.triggers.unwrap_or_default();
             skill.scripts = frontmatter.scripts.unwrap_or_default();
             skill.references = frontmatter.references.unwrap_or_default();
             skill.gating = frontmatter.gating;
@@ -6127,8 +5930,6 @@ pub mod skill {
         pub description: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tags: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub triggers: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub suggested_tools: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -6492,7 +6293,7 @@ pub mod store {
     use std::pin::Pin;
 
     use crate::contracts::request::AgentNode as ContractAgentNode;
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use serde_json::Value;
 
     use crate::config_types::ConfigDocument;
@@ -6572,45 +6373,6 @@ pub mod store {
         fn delete_session(&self, id: &str) -> Result<Value>;
         fn search_sessions(&self, query: SessionSearchQuery) -> Result<Value>;
         fn cleanup_sessions(&self) -> Result<Value>;
-    }
-
-    // ── ProcessManager ───────────────────────────────────────────────────
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ProcessSessionInfo {
-        pub session_id: String,
-        pub command: String,
-        pub cwd: Option<String>,
-        pub started_at: i64,
-        pub status: String,
-        pub exit_code: Option<i32>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ProcessPollResult {
-        pub session_id: String,
-        pub output: String,
-        pub status: String,
-        pub exit_code: Option<i32>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ProcessLog {
-        pub session_id: String,
-        pub output: String,
-        pub offset: usize,
-        pub limit: usize,
-        pub total: usize,
-        pub truncated: bool,
-    }
-
-    pub trait ProcessManager: Send + Sync {
-        fn spawn(&self, command: String, cwd: Option<String>) -> anyhow::Result<String>;
-        fn poll(&self, session_id: &str) -> anyhow::Result<ProcessPollResult>;
-        fn write(&self, session_id: &str, data: &str) -> anyhow::Result<()>;
-        fn kill(&self, session_id: &str) -> anyhow::Result<()>;
-        fn list(&self) -> anyhow::Result<Vec<ProcessSessionInfo>>;
-        fn log(&self, session_id: &str, offset: usize, limit: usize) -> anyhow::Result<ProcessLog>;
     }
 
     // ── ReplySender ──────────────────────────────────────────────────────
@@ -8373,12 +8135,6 @@ pub mod contracts {
             ListRuns {
                 query: RunListQuery,
             },
-            GetExecutionRunThread {
-                run_id: String,
-            },
-            GetExecutionRunTimeline {
-                run_id: String,
-            },
             SubscribeSessionEvents,
             SwitchSessionModel {
                 session_id: String,
@@ -8678,8 +8434,6 @@ pub mod contracts {
             pub name: String,
             pub description: Option<String>,
             pub tags: Option<Vec<String>>,
-            #[serde(default, skip_serializing_if = "Vec::is_empty")]
-            pub triggers: Vec<String>,
             pub content: String,
             #[serde(skip_serializing_if = "Option::is_none")]
             pub folder_path: Option<String>,
@@ -8737,7 +8491,6 @@ pub mod contracts {
             pub bash_timeout_secs: u64,
             pub python_timeout_secs: u64,
             pub browser_timeout_secs: u64,
-            pub process_session_ttl_secs: u64,
             pub approval_timeout_secs: u64,
             #[serde(default)]
             pub auto_review_tools: bool,
@@ -9509,13 +9262,9 @@ pub use agent::{
     AgentMeta, AgentNode, AgentType, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig,
     SkillPreflightPolicyMode,
 };
-pub use assessment::{
-    AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
-    OperationAssessmentIssue, OperationAssessmentStatus,
-};
 pub use run::{
-    ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionThread,
-    RunKind, RunListQuery, RunSummary, RunTimeline,
+    ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, RunKind,
+    RunListQuery, RunSummary,
 };
 pub use session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
@@ -9547,9 +9296,8 @@ pub use skill::{
 
 // Store traits
 pub use store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, ConfigStore, OpsProvider, ProcessLog,
-    ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, ConfigStore, OpsProvider, ReplySender,
+    SecretStore, SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
 };
 
 pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan};
@@ -9692,10 +9440,9 @@ pub use defaults::{
     DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
     DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
     DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
-    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
-    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
-    DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES, DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES,
-    MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS, DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
+    DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES, MAX_API_WEB_SEARCH_RESULTS,
 };
 
 // Cache types

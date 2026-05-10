@@ -294,7 +294,6 @@ pub mod daemon {
             IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent, MAX_MESSAGE_SIZE,
             StreamFrame, ToolDefinition, ToolExecutionResult,
         };
-        use crate::RunTimeline;
         use crate::StoredAgent;
         use crate::daemon::request_mapper::to_contract;
         use crate::session_events::ChatSessionEvent;
@@ -699,14 +698,6 @@ pub mod daemon {
                 self.request_typed(IpcRequest::ListRuns { query }).await
             }
 
-            pub async fn get_execution_run_timeline(
-                &mut self,
-                run_id: String,
-            ) -> Result<RunTimeline> {
-                self.request_typed(IpcRequest::GetExecutionRunTimeline { run_id })
-                    .await
-            }
-
             pub async fn build_agent_system_prompt(
                 &mut self,
                 agent_node: AgentNode,
@@ -826,7 +817,6 @@ pub mod daemon {
                 fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<types::ExecutionScope>) -> bool;
                 fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
                 fn list_runs(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
-                fn get_execution_run_timeline(&mut self, _run_id: String) -> crate::RunTimeline;
                 fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> String;
                 fn init_python(&mut self) -> bool;
                 fn get_available_tool_definitions(&mut self) -> Vec<ToolDefinition>;
@@ -1075,13 +1065,9 @@ pub mod daemon {
         };
         use crate::AgentDefaults;
         use crate::AppCore;
-        use crate::process::ProcessRegistry;
         use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
         use crate::runtime::session_runner::{AgentRuntimeExecutor, SessionInputMode};
-        use crate::runtime::session_turn::{
-            build_turn_persistence_payload, detect_voice_message, hydrate_voice_message_metadata,
-            preprocess_voice_message, replace_latest_user_message_content,
-        };
+        use crate::runtime::session_turn::build_turn_persistence_payload;
         use crate::runtime::subagent::StorageBackedSubagentLookup;
         use crate::services::{
             agent as agent_service, config as config_service, secrets as secrets_service,
@@ -1125,33 +1111,13 @@ pub mod daemon {
             };
             use crate::daemon::tool_result_mapper::to_tool_execution_result;
             use crate::provider_policy::provider_display_order;
-            use crate::services::execution_console::{
-                ExecutionConsoleService, ExecutionThreadError,
-            };
-            use crate::services::operation_assessment::{
-                assess_agent_create, assess_agent_update, assessment_summary,
-            };
-            use serde_json::json;
-            use types::request::{AgentNode as ContractAgentNode, WireModelRef};
-            use types::store::{AgentCreateRequest, AgentUpdateRequest};
+            use crate::services::execution_console::ExecutionConsoleService;
+            use types::request::WireModelRef;
             use types::{
-                ArchiveResponse, CancelResponse, CleanupReportResponse, DeleteResponse, ErrorKind,
-                ModelMetadataDTO, OkResponse, OperationAssessment, PromptResponse, Provider,
-                SecretResponse, SteerResponse,
+                ArchiveResponse, CancelResponse, CleanupReportResponse, DeleteResponse,
+                ModelMetadataDTO, OkResponse, PromptResponse, Provider, SecretResponse,
+                SteerResponse,
             };
-
-            fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
-                json!({ "assessment": assessment })
-            }
-
-            fn blocked_assessment_response(assessment: OperationAssessment) -> IpcResponse {
-                IpcResponse::error_payload(types::ErrorPayload::with_kind(
-                    400,
-                    ErrorKind::Validation,
-                    assessment_summary(&assessment),
-                    Some(assessment_details(&assessment)),
-                ))
-            }
 
             fn is_catalog_model(model: ModelId) -> bool {
                 !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
@@ -1206,23 +1172,6 @@ pub mod daemon {
                 models
             }
 
-            fn map_execution_thread_response(
-                result: std::result::Result<types::ExecutionThread, ExecutionThreadError>,
-            ) -> IpcResponse {
-                match result {
-                    Ok(thread) => IpcResponse::success(thread),
-                    Err(ExecutionThreadError::InvalidQuery) => {
-                        IpcResponse::error(400, ExecutionThreadError::InvalidQuery.to_string())
-                    }
-                    Err(ExecutionThreadError::RunNotFound(_)) => {
-                        IpcResponse::not_found("ExecutionThread")
-                    }
-                    Err(ExecutionThreadError::Internal(err)) => {
-                        IpcResponse::error(500, err.to_string())
-                    }
-                }
-            }
-
             fn message_for_role(role: ChatRole, content: String) -> ChatMessage {
                 let mut message = match role {
                     ChatRole::User => ChatMessage::user(content),
@@ -1240,7 +1189,6 @@ pub mod daemon {
                         status: ChatExecutionStatus::Completed,
                     });
                 }
-                hydrate_voice_message_metadata(&mut message);
                 message
             }
 
@@ -1260,7 +1208,6 @@ pub mod daemon {
                         status: ChatExecutionStatus::Completed,
                     });
                 }
-                hydrate_voice_message_metadata(&mut message);
                 session.add_message(message);
                 if session.name == "New Chat" && session.messages.len() == 1 {
                     session.auto_name_from_first_message();
@@ -1302,22 +1249,6 @@ pub mod daemon {
                     name: String,
                     agent: types::AgentNode,
                 ) -> IpcResponse {
-                    let assessment = match assess_agent_create(
-                        core,
-                        AgentCreateRequest {
-                            name: name.clone(),
-                            agent: ContractAgentNode::from(agent.clone()),
-                        },
-                    )
-                    .await
-                    {
-                        Ok(assessment) => assessment,
-                        Err(err) => return IpcResponse::error(500, err.to_string()),
-                    };
-                    if !assessment.blockers.is_empty() {
-                        return blocked_assessment_response(assessment);
-                    }
-
                     match agent_service::create_agent(core, name, agent).await {
                         Ok(agent) => IpcResponse::success(agent),
                         Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1330,23 +1261,6 @@ pub mod daemon {
                     name: Option<String>,
                     agent: Option<types::AgentNode>,
                 ) -> IpcResponse {
-                    let assessment = match assess_agent_update(
-                        core,
-                        AgentUpdateRequest {
-                            id: id.clone(),
-                            name: name.clone(),
-                            agent: agent.clone().map(ContractAgentNode::from),
-                        },
-                    )
-                    .await
-                    {
-                        Ok(assessment) => assessment,
-                        Err(err) => return IpcResponse::error(500, err.to_string()),
-                    };
-                    if !assessment.blockers.is_empty() {
-                        return blocked_assessment_response(assessment);
-                    }
-
                     match agent_service::update_agent(core, &id, name, agent).await {
                         Ok(agent) => IpcResponse::success(agent),
                         Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1512,19 +1426,6 @@ pub mod daemon {
                         Ok(sessions) => IpcResponse::success(sessions),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     }
-                }
-
-                pub(super) async fn handle_get_execution_run_thread(
-                    core: &Arc<AppCore>,
-                    run_id: String,
-                ) -> IpcResponse {
-                    let run_id = run_id.trim().to_string();
-                    if run_id.is_empty() {
-                        return IpcResponse::error(400, "run_id is required");
-                    }
-
-                    let service = ExecutionConsoleService::from_storage(&core.storage);
-                    map_execution_thread_response(service.get_execution_run_thread(&run_id))
                 }
 
                 pub(super) async fn handle_list_sessions(core: &Arc<AppCore>) -> IpcResponse {
@@ -1800,21 +1701,6 @@ pub mod daemon {
                     IpcResponse::success(messages)
                 }
 
-                pub(super) async fn handle_get_execution_run_timeline(
-                    core: &Arc<AppCore>,
-                    run_id: String,
-                ) -> IpcResponse {
-                    let run_id = run_id.trim();
-                    if run_id.is_empty() {
-                        return IpcResponse::error(400, "run_id is required");
-                    }
-                    let service = ExecutionConsoleService::from_storage(&core.storage);
-                    match service.get_execution_run_timeline(run_id) {
-                        Ok(timeline) => IpcResponse::success(timeline),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    }
-                }
-
                 pub(super) async fn handle_subscribe_session_events_unsupported() -> IpcResponse {
                     IpcResponse::error(-3, "Session event streaming requires stream mode")
                 }
@@ -2066,12 +1952,6 @@ pub mod daemon {
                             Ok(query) => Self::handle_list_runs(core, query).await,
                             Err(err) => invalid_request_response(err),
                         },
-                        IpcRequest::GetExecutionRunThread { run_id } => {
-                            Self::handle_get_execution_run_thread(core, run_id).await
-                        }
-                        IpcRequest::GetExecutionRunTimeline { run_id } => {
-                            Self::handle_get_execution_run_timeline(core, run_id).await
-                        }
                         IpcRequest::SubscribeSessionEvents => {
                             Self::handle_subscribe_session_events_unsupported().await
                         }
@@ -2112,7 +1992,6 @@ pub mod daemon {
         #[path = "ipc_server/runtime.rs"]
         mod runtime {
             use super::*;
-            use crate::services::operation_assessment::OperationAssessorAdapter;
             use ::agent::StreamDisplayMode;
             use thiserror::Error;
 
@@ -2122,8 +2001,6 @@ pub mod daemon {
                 SessionNotFound,
                 #[error("No user message found in session")]
                 MissingUserMessage,
-                #[error("Voice transcription failed: {0}")]
-                VoicePreprocessFailed(String),
                 #[error("Interactive execution completed without assistant output")]
                 EmptyAssistantOutput,
                 #[error(transparent)]
@@ -2135,7 +2012,6 @@ pub mod daemon {
                     match self {
                         Self::SessionNotFound => 404,
                         Self::MissingUserMessage => 400,
-                        Self::VoicePreprocessFailed(_) => 400,
                         Self::EmptyAssistantOutput => 500,
                         Self::Internal(_) => 500,
                     }
@@ -2155,11 +2031,10 @@ pub mod daemon {
             pub(super) fn create_runtime_tool_registry_with_assessment(
                 core: &Arc<AppCore>,
             ) -> anyhow::Result<::agent::tools::ToolRegistry> {
-                crate::services::tool_registry::create_tool_registry_with_assessor(
+                crate::services::tool_registry::create_tool_registry(
                     core.storage.config.clone(),
                     None,
                     None,
-                    Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
                 )
             }
 
@@ -2224,14 +2099,9 @@ pub mod daemon {
                     core.storage.agents.clone(),
                 ));
                 let subagent_config = subagent_config_from_defaults(&agent_defaults);
-                let process_registry = Arc::new(
-                    ProcessRegistry::new()
-                        .with_ttl_seconds(agent_defaults.process_session_ttl_secs),
-                );
 
                 AgentRuntimeExecutor::new(
                     core.storage.clone(),
-                    process_registry,
                     subagent_tracker,
                     subagent_definitions,
                     subagent_config,
@@ -2441,37 +2311,8 @@ pub mod daemon {
                         .map(|msg| msg.content.clone())
                         .ok_or(ExecuteChatSessionError::MissingUserMessage)?,
                 };
-                let mut persisted_input = input.clone();
-                let mut agent_input = input.clone();
-                if let Some(descriptor) = detect_voice_message(&input, None, None) {
-                    let normalized_input = descriptor.persisted_content(None);
-                    match preprocess_voice_message(&core.storage, &descriptor).await {
-                        Ok(result) => {
-                            persisted_input = result.persisted_input;
-                            agent_input = result.agent_input;
-                        }
-                        Err(error) => {
-                            if explicit_user_input.is_some() {
-                                persist_ipc_user_message_if_needed(
-                                    core,
-                                    &mut session,
-                                    explicit_user_input,
-                                    &normalized_input,
-                                )?;
-                            } else if replace_latest_user_message_content(
-                                &mut session,
-                                &input,
-                                &normalized_input,
-                            ) {
-                                SessionService::from_storage(&core.storage)
-                                    .save_existing_session(&session, "ipc")?;
-                            }
-                            return Err(ExecuteChatSessionError::VoicePreprocessFailed(
-                                error.to_string(),
-                            ));
-                        }
-                    }
-                }
+                let persisted_input = input.clone();
+                let agent_input = input.clone();
 
                 if explicit_user_input.is_some() {
                     persist_ipc_user_message_if_needed(
@@ -2480,13 +2321,6 @@ pub mod daemon {
                         explicit_user_input,
                         &persisted_input,
                     )?;
-                } else if replace_latest_user_message_content(
-                    &mut session,
-                    &input,
-                    &persisted_input,
-                ) {
-                    SessionService::from_storage(&core.storage)
-                        .save_existing_session(&session, "ipc")?;
                 }
                 record_turn_user_message_in_session_store(
                     core,
@@ -2537,13 +2371,6 @@ pub mod daemon {
                     exec_result.iterations,
                 );
 
-                if final_persisted_input != original_persisted_input {
-                    replace_latest_user_message_content(
-                        &mut session,
-                        &original_persisted_input,
-                        &final_persisted_input,
-                    );
-                }
                 let buffered_replies = {
                     let mut guard = reply_buffer.lock().await;
                     std::mem::take(&mut *guard)
@@ -2721,9 +2548,7 @@ pub mod daemon {
                     return Ok(());
                 }
 
-                let mut message = ChatMessage::user(persisted_input);
-                hydrate_voice_message_metadata(&mut message);
-                session.add_message(message);
+                session.add_message(ChatMessage::user(persisted_input));
                 if session.name == "New Chat" && session.messages.len() == 1 {
                     session.auto_name_from_first_message();
                 }
@@ -3863,31 +3688,6 @@ pub mod daemon {
                 use super::*;
                 use types::ChatTurnStatus;
 
-                fn assert_execution_thread_error(
-                    response: IpcResponse,
-                    expected_code: i32,
-                    expected_message: &str,
-                ) {
-                    match response {
-                        IpcResponse::Error(error) => {
-                            assert_eq!(error.code, expected_code);
-                            assert_eq!(error.message, expected_message);
-                        }
-                        other => panic!("expected error response, got {other:?}"),
-                    }
-                }
-
-                fn chat_session_with_completed_turn(
-                    agent_id: &str,
-                    model: &str,
-                    turn_id: &str,
-                ) -> ChatSession {
-                    let mut session = ChatSession::new(agent_id.to_string(), model.to_string());
-                    session.record_turn_user_message(turn_id, "hello");
-                    session.complete_turn_with_assistant_message(turn_id, "done");
-                    session
-                }
-
                 fn save_chat_session(core: &AppCore, session: &ChatSession) {
                     core.storage
                         .file_sessions
@@ -3905,99 +3705,6 @@ pub mod daemon {
                         .unwrap()
                         .expect("session")
                         .to_chat_session()
-                }
-
-                #[tokio::test]
-                async fn get_execution_run_thread_returns_not_found_for_missing_run() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::GetExecutionRunThread {
-                            run_id: "missing-run".to_string(),
-                        },
-                    )
-                    .await;
-
-                    assert_execution_thread_error(response, 404, "ExecutionThread not found");
-                }
-
-                #[tokio::test]
-                async fn get_execution_run_thread_returns_bad_request_for_blank_run_id() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::GetExecutionRunThread {
-                            run_id: "   ".to_string(),
-                        },
-                    )
-                    .await;
-
-                    assert_execution_thread_error(response, 400, "run_id is required");
-                }
-
-                #[tokio::test]
-                async fn get_execution_run_thread_returns_existing_run_thread() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
-                    let session_id = session.id.clone();
-                    save_chat_session(&core, &session);
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::GetExecutionRunThread {
-                            run_id: "run-1".to_string(),
-                        },
-                    )
-                    .await;
-
-                    match response {
-                        IpcResponse::Success(value) => {
-                            let thread: crate::ExecutionThread =
-                                serde_json::from_value(value).expect("execution thread");
-                            assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
-                            assert_eq!(
-                                thread.focus.session_id.as_deref(),
-                                Some(session_id.as_str())
-                            );
-                            assert_eq!(thread.timeline.events.len(), 2);
-                        }
-                        other => panic!("expected success response, got {other:?}"),
-                    }
-                }
-
-                #[tokio::test]
-                async fn get_execution_run_auxiliary_requests_return_empty_payloads() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let session = chat_session_with_completed_turn("agent-1", "gpt-5", "run-1");
-                    save_chat_session(&core, &session);
-
-                    let timeline_response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::GetExecutionRunTimeline {
-                            run_id: "run-1".to_string(),
-                        },
-                    )
-                    .await;
-                    match timeline_response {
-                        IpcResponse::Success(value) => {
-                            let timeline: crate::RunTimeline =
-                                serde_json::from_value(value).expect("execution timeline");
-                            assert_eq!(timeline.events.len(), 2);
-                        }
-                        other => panic!("expected timeline success response, got {other:?}"),
-                    }
                 }
 
                 #[test]
@@ -4100,35 +3807,6 @@ pub mod daemon {
 
                     let stored = load_chat_session(&core, &session.id);
                     assert_eq!(stored.name, "hello from ipc");
-                }
-
-                #[tokio::test]
-                async fn persist_ipc_user_message_if_needed_hydrates_voice_metadata() {
-                    let (core, _temp) = create_test_core().await;
-                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-                    save_chat_session(&core, &session);
-
-                    persist_ipc_user_message_if_needed(
-                        &core,
-                        &mut session,
-                        Some("[Voice message]"),
-                        "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm\n\n[Transcript]\nhello from audio",
-                    )
-                    .unwrap();
-
-                    let stored = load_chat_session(&core, &session.id);
-                    let user = stored.messages.last().expect("voice message");
-                    assert_eq!(user.role, ChatRole::User);
-                    assert_eq!(
-                        user.media.as_ref().map(|media| media.file_path.as_str()),
-                        Some("/tmp/voice.webm")
-                    );
-                    assert_eq!(
-                        user.transcript
-                            .as_ref()
-                            .map(|transcript| transcript.text.as_str()),
-                        Some("hello from audio")
-                    );
                 }
 
                 #[test]

@@ -1,130 +1,3 @@
-pub mod agent_validation {
-    use std::sync::Arc;
-
-    use types::{AgentNode, ApiKeyConfig, ValidationError};
-
-    use crate::AppCore;
-
-    /// Validate agent fields that require runtime/storage lookups.
-    pub async fn validate_agent_node_async(
-        agent: &AgentNode,
-        core: &Arc<AppCore>,
-    ) -> Result<(), Vec<ValidationError>> {
-        let mut errors = Vec::new();
-
-        let tool_registry = match crate::services::tool_registry::create_tool_registry(
-            core.storage.config.clone(),
-            None,
-            None,
-        ) {
-            Ok(registry) => registry,
-            Err(err) => {
-                errors.push(ValidationError::new(
-                    "tools",
-                    format!("Failed to create tool registry: {err}"),
-                ));
-                return Err(errors);
-            }
-        };
-
-        if let Some(tools) = &agent.tools {
-            for tool_name in tools {
-                let normalized = tool_name.trim();
-                if normalized.is_empty() {
-                    errors.push(ValidationError::new("tools", "tool name must not be empty"));
-                    continue;
-                }
-                if !tool_registry.has(normalized) {
-                    errors.push(ValidationError::new(
-                        "tools",
-                        format!("unknown tool: {}", normalized),
-                    ));
-                }
-            }
-        }
-
-        if let Some(skills) = &agent.skills {
-            for skill_id in skills {
-                let normalized = skill_id.trim();
-                if normalized.is_empty() {
-                    errors.push(ValidationError::new("skills", "skill ID must not be empty"));
-                    continue;
-                }
-                match crate::services::skills::skill_exists_in_catalog(normalized) {
-                    Ok(true) => {}
-                    Ok(false) => errors.push(ValidationError::new(
-                        "skills",
-                        format!("unknown skill: {}", normalized),
-                    )),
-                    Err(err) => errors.push(ValidationError::new(
-                        "skills",
-                        format!("failed to verify skill '{}': {}", normalized, err),
-                    )),
-                }
-            }
-        }
-
-        if let Some(ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
-            let normalized = secret_name.trim();
-            if !normalized.is_empty() {
-                match core.storage.secrets.has_available_secret(normalized) {
-                    Ok(true) => {}
-                    Ok(false) => errors.push(ValidationError::new(
-                        "api_key_config",
-                        format!("secret not found in storage: {}", normalized),
-                    )),
-                    Err(err) => errors.push(ValidationError::new(
-                        "api_key_config",
-                        format!("failed to verify secret '{}': {}", normalized, err),
-                    )),
-                }
-            }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::test_support::RestflowTestEnv;
-
-        #[cfg(unix)]
-        #[tokio::test(flavor = "current_thread")]
-        async fn accepts_team_skill() {
-            let env = RestflowTestEnv::new();
-            let previous_skrun_root = std::env::var_os("SKRUN_SKILLS_DIR");
-            let skills_root = env.root().join("skrun-skills");
-            let artifact = skrun::SkillArtifact::markdown("team", "Team", "0.1.0", "# Team");
-            skrun::save_artifact(skills_root.join("team"), &artifact).unwrap();
-            unsafe { std::env::set_var("SKRUN_SKILLS_DIR", &skills_root) };
-            let core = Arc::new(
-                AppCore::new(env.db_path("agent-skill.db").to_str().unwrap())
-                    .await
-                    .unwrap(),
-            );
-            let node = AgentNode {
-                skills: Some(vec!["team".to_string()]),
-                ..AgentNode::new()
-            };
-
-            let result = validate_agent_node_async(&node, &core).await;
-            unsafe {
-                if let Some(value) = previous_skrun_root {
-                    std::env::set_var("SKRUN_SKILLS_DIR", value);
-                } else {
-                    std::env::remove_var("SKRUN_SKILLS_DIR");
-                }
-            }
-
-            assert!(result.is_ok(), "unexpected validation errors: {result:?}");
-        }
-    }
-}
 pub mod config {
     //! System configuration storage.
 
@@ -148,8 +21,7 @@ pub mod config {
         DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_WEB_SEARCH_RESULTS,
         DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
         DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
-        DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH,
-        DEFAULT_SUBAGENT_TIMEOUT_SECS, MAX_API_WEB_SEARCH_RESULTS,
+        DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS, MAX_API_WEB_SEARCH_RESULTS,
     };
 
     const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
@@ -162,7 +34,6 @@ pub mod config {
     const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
     const DEFAULT_MAX_RETRIES: u32 = 3;
     const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
-    const DEFAULT_AUDIT_EVENT_RETENTION_DAYS: u32 = 7;
     const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
     const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
     const MIN_RETENTION_DAYS: u32 = 1;
@@ -207,7 +78,6 @@ pub mod config {
         pub chat_response_timeout_seconds: Option<u64>,
         pub max_retries: u32,
         pub chat_session_retention_days: u32,
-        pub audit_event_retention_days: u32,
         pub log_file_retention_days: u32,
         pub experimental_features: Vec<String>,
     }
@@ -220,7 +90,6 @@ pub mod config {
                 chat_response_timeout_seconds: None,
                 max_retries: DEFAULT_MAX_RETRIES,
                 chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-                audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
                 log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
                 experimental_features: Vec::new(),
             }
@@ -235,7 +104,6 @@ pub mod config {
                 chat_response_timeout_seconds: config.chat_response_timeout_seconds,
                 max_retries: config.max_retries,
                 chat_session_retention_days: config.chat_session_retention_days,
-                audit_event_retention_days: config.audit_event_retention_days,
                 log_file_retention_days: config.log_file_retention_days,
                 experimental_features: config.experimental_features.clone(),
             }
@@ -273,7 +141,6 @@ pub mod config {
                 chat_response_timeout_seconds: self.system.chat_response_timeout_seconds,
                 max_retries: self.system.max_retries,
                 chat_session_retention_days: self.system.chat_session_retention_days,
-                audit_event_retention_days: self.system.audit_event_retention_days,
                 log_file_retention_days: self.system.log_file_retention_days,
                 experimental_features: self.system.experimental_features.clone(),
                 agent: self.agent.clone(),
@@ -314,8 +181,6 @@ pub mod config {
         pub python_timeout_secs: u64,
         /// Default timeout for browser tool execution in seconds.
         pub browser_timeout_secs: u64,
-        /// TTL for finished process sessions in seconds.
-        pub process_session_ttl_secs: u64,
         /// Default approval timeout for security checks in seconds.
         pub approval_timeout_secs: u64,
         /// Whether to run an auxiliary LLM review before tool execution.
@@ -360,7 +225,6 @@ pub mod config {
                 bash_timeout_secs: DEFAULT_AGENT_BASH_TIMEOUT_SECS,
                 python_timeout_secs: DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
                 browser_timeout_secs: DEFAULT_AGENT_BROWSER_TIMEOUT_SECS,
-                process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
                 approval_timeout_secs: DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS,
                 auto_review_tools: false,
                 max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
@@ -409,12 +273,6 @@ pub mod config {
             if self.browser_timeout_secs < MIN_TIMEOUT_SECONDS {
                 return Err(anyhow::anyhow!(
                     "agent.browser_timeout_secs must be at least {} seconds",
-                    MIN_TIMEOUT_SECONDS
-                ));
-            }
-            if self.process_session_ttl_secs < MIN_TIMEOUT_SECONDS {
-                return Err(anyhow::anyhow!(
-                    "agent.process_session_ttl_secs must be at least {} seconds",
                     MIN_TIMEOUT_SECONDS
                 ));
             }
@@ -599,9 +457,6 @@ pub mod config {
         pub chat_response_timeout_seconds: Option<u64>,
         pub max_retries: u32,
         pub chat_session_retention_days: u32,
-        /// Retention period for execution audit events.
-        /// 0 = keep forever, otherwise delete events older than N days.
-        pub audit_event_retention_days: u32,
         /// Retention period for daemon and event log files on disk.
         /// 0 = keep forever, otherwise delete files older than N days.
         pub log_file_retention_days: u32,
@@ -628,7 +483,6 @@ pub mod config {
                 chat_response_timeout_seconds: None,
                 max_retries: DEFAULT_MAX_RETRIES,
                 chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
-                audit_event_retention_days: DEFAULT_AUDIT_EVENT_RETENTION_DAYS,
                 log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
                 experimental_features: Vec::new(),
                 agent: AgentSettings::default(),
@@ -674,15 +528,6 @@ pub mod config {
             {
                 return Err(anyhow::anyhow!(
                     "Chat session retention must be 0 (forever) or at least {} day",
-                    MIN_RETENTION_DAYS
-                ));
-            }
-
-            if self.audit_event_retention_days != 0
-                && self.audit_event_retention_days < MIN_RETENTION_DAYS
-            {
-                return Err(anyhow::anyhow!(
-                    "Audit event retention must be 0 (forever) or at least {} day",
                     MIN_RETENTION_DAYS
                 ));
             }
@@ -841,7 +686,6 @@ pub mod config {
         pub bash_timeout_secs: Option<u64>,
         pub python_timeout_secs: Option<u64>,
         pub browser_timeout_secs: Option<u64>,
-        pub process_session_ttl_secs: Option<u64>,
         pub approval_timeout_secs: Option<u64>,
         pub auto_review_tools: Option<bool>,
         pub max_iterations: Option<usize>,
@@ -878,9 +722,6 @@ pub mod config {
             }
             if let Some(value) = self.browser_timeout_secs {
                 agent.browser_timeout_secs = value;
-            }
-            if let Some(value) = self.process_session_ttl_secs {
-                agent.process_session_ttl_secs = value;
             }
             if let Some(value) = self.approval_timeout_secs {
                 agent.approval_timeout_secs = value;
@@ -983,7 +824,6 @@ pub mod config {
         pub chat_response_timeout_seconds: Option<Option<u64>>,
         pub max_retries: Option<u32>,
         pub chat_session_retention_days: Option<u32>,
-        pub audit_event_retention_days: Option<u32>,
         pub log_file_retention_days: Option<u32>,
         pub experimental_features: Option<Vec<String>>,
     }
@@ -1004,9 +844,6 @@ pub mod config {
             }
             if let Some(value) = self.chat_session_retention_days {
                 config.chat_session_retention_days = value;
-            }
-            if let Some(value) = self.audit_event_retention_days {
-                config.audit_event_retention_days = value;
             }
             if let Some(value) = self.log_file_retention_days {
                 config.log_file_retention_days = value;
@@ -1619,10 +1456,6 @@ pub mod config {
             );
             assert_eq!(config.agent.max_depth, DEFAULT_SUBAGENT_MAX_DEPTH);
             assert_eq!(
-                config.agent.process_session_ttl_secs,
-                DEFAULT_PROCESS_SESSION_TTL_SECS
-            );
-            assert_eq!(
                 config.agent.approval_timeout_secs,
                 DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS
             );
@@ -1782,10 +1615,6 @@ pub mod config {
                 DEFAULT_AGENT_BROWSER_TIMEOUT_SECS
             );
             assert_eq!(
-                config.agent.process_session_ttl_secs,
-                DEFAULT_PROCESS_SESSION_TTL_SECS
-            );
-            assert_eq!(
                 config.agent.approval_timeout_secs,
                 DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS
             );
@@ -1798,7 +1627,6 @@ pub mod config {
             config.agent.max_wall_clock_secs = Some(3_600);
             config.agent.max_parallel_subagents = 25;
             config.agent.browser_timeout_secs = 180;
-            config.agent.process_session_ttl_secs = 7_200;
             config.agent.approval_timeout_secs = 450;
             config.agent.auto_review_tools = true;
             ctx.storage.update_config(config).unwrap();
@@ -1811,7 +1639,6 @@ pub mod config {
             assert_eq!(retrieved.agent.max_wall_clock_secs, Some(3_600));
             assert_eq!(retrieved.agent.max_parallel_subagents, 25);
             assert_eq!(retrieved.agent.browser_timeout_secs, 180);
-            assert_eq!(retrieved.agent.process_session_ttl_secs, 7_200);
             assert_eq!(retrieved.agent.approval_timeout_secs, 450);
             assert!(retrieved.agent.auto_review_tools);
         }
@@ -1895,10 +1722,6 @@ pub mod config {
 
             let mut config = SystemConfig::default();
             config.agent.browser_timeout_secs = 5;
-            assert!(config.validate().is_err());
-
-            let mut config = SystemConfig::default();
-            config.agent.process_session_ttl_secs = 5;
             assert!(config.validate().is_err());
 
             let mut config = SystemConfig::default();
@@ -2027,7 +1850,6 @@ pub mod config {
     python_timeout_secs = 45
     llm_timeout_secs = 660
     browser_timeout_secs = 240
-    process_session_ttl_secs = 5400
     approval_timeout_secs = 420
     auto_review_tools = true
     max_wall_clock_secs = 7200
@@ -2040,7 +1862,6 @@ pub mod config {
             assert_eq!(effective.agent.python_timeout_secs, 45);
             assert_eq!(effective.agent.llm_timeout_secs, Some(660));
             assert_eq!(effective.agent.browser_timeout_secs, 240);
-            assert_eq!(effective.agent.process_session_ttl_secs, 5400);
             assert_eq!(effective.agent.approval_timeout_secs, 420);
             assert!(effective.agent.auto_review_tools);
             assert_eq!(effective.agent.max_wall_clock_secs, Some(7200));
@@ -2728,1139 +2549,6 @@ pub mod paths {
             let path = daemon_lock_path().unwrap();
             assert!(path.ends_with("daemon.lock"));
             assert!(path.parent().unwrap().ends_with(".restflow"));
-        }
-    }
-}
-pub mod process {
-    use crate::time_utils;
-    use anyhow::Result;
-    use dashmap::DashMap;
-    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-    use std::io::{Read, Write};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-    use types::DEFAULT_PROCESS_SESSION_TTL_SECS;
-    use uuid::Uuid;
-
-    use types::store::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo};
-
-    mod session {
-        use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
-        use std::io::Write;
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::{Arc, Mutex};
-        use std::time::{Duration, Instant};
-
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub enum ProcessSessionSource {
-            User,
-            #[default]
-            Agent,
-        }
-
-        #[derive(Debug, Clone, Default)]
-        pub struct ProcessSessionMetadata {
-            pub agent_id: Option<String>,
-        }
-
-        pub trait ProcessOutputListener: Send + Sync {
-            fn on_output(&self, session_id: &str, data: &str);
-            fn on_closed(&self, session_id: &str);
-        }
-
-        #[derive(Debug, Default)]
-        pub struct SessionOutput {
-            pub pending: String,
-            pub aggregated: String,
-        }
-
-        pub struct ProcessSession {
-            pub id: String,
-            pub command: String,
-            pub cwd: Option<String>,
-            pub started_at: i64,
-            pub source: ProcessSessionSource,
-            pub metadata: ProcessSessionMetadata,
-            pub writer: Mutex<Box<dyn Write + Send>>,
-            pub master: Mutex<Box<dyn MasterPty + Send>>,
-            pub output: Arc<Mutex<SessionOutput>>,
-            pub output_listener: Option<Arc<dyn ProcessOutputListener>>,
-            pub child: Mutex<Box<dyn Child + Send + Sync>>,
-            pub killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
-            exit_status: Mutex<Option<ExitStatus>>,
-            read_closed: AtomicBool,
-        }
-
-        impl std::fmt::Debug for ProcessSession {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_struct("ProcessSession")
-                    .field("id", &self.id)
-                    .field("command", &self.command)
-                    .field("cwd", &self.cwd)
-                    .field("started_at", &self.started_at)
-                    .finish_non_exhaustive()
-            }
-        }
-
-        impl ProcessSession {
-            #[allow(clippy::too_many_arguments)]
-            pub fn new(
-                id: String,
-                command: String,
-                cwd: Option<String>,
-                started_at: i64,
-                source: ProcessSessionSource,
-                metadata: ProcessSessionMetadata,
-                writer: Box<dyn Write + Send>,
-                master: Box<dyn MasterPty + Send>,
-                output: Arc<Mutex<SessionOutput>>,
-                output_listener: Option<Arc<dyn ProcessOutputListener>>,
-                child: Box<dyn Child + Send + Sync>,
-            ) -> Self {
-                let killer = child.clone_killer();
-                Self {
-                    id,
-                    command,
-                    cwd,
-                    started_at,
-                    source,
-                    metadata,
-                    writer: Mutex::new(writer),
-                    master: Mutex::new(master),
-                    output,
-                    output_listener,
-                    child: Mutex::new(child),
-                    killer: Mutex::new(killer),
-                    exit_status: Mutex::new(None),
-                    read_closed: AtomicBool::new(false),
-                }
-            }
-
-            /// Kill the process
-            pub fn kill(&self) -> anyhow::Result<()> {
-                let mut killer = self
-                    .killer
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
-                killer.kill()?;
-                Ok(())
-            }
-
-            /// Wait for process exit status to become available.
-            pub fn wait_for_exit(&self, timeout: Duration) -> anyhow::Result<Option<ExitStatus>> {
-                if let Some(status) = self.exit_status() {
-                    return Ok(Some(status));
-                }
-
-                let deadline = Instant::now() + timeout;
-                let mut backoff_ms = 10u64;
-                loop {
-                    if let Some(status) = self.try_update_exit_status()? {
-                        return Ok(Some(status));
-                    }
-
-                    if Instant::now() >= deadline {
-                        return Ok(None);
-                    }
-
-                    std::thread::sleep(Duration::from_millis(backoff_ms));
-                    backoff_ms = (backoff_ms.saturating_mul(2)).min(200);
-                }
-            }
-
-            /// Terminate process and best-effort reap child status.
-            pub fn terminate_and_reap(
-                &self,
-                timeout: Duration,
-            ) -> anyhow::Result<Option<ExitStatus>> {
-                self.kill()?;
-                self.wait_for_exit(timeout)
-            }
-
-            pub fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-                let master = self
-                    .master
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
-                master.resize(size)?;
-                Ok(())
-            }
-
-            pub fn emit_output(&self, data: &str) {
-                if let Some(listener) = self.output_listener.as_ref() {
-                    listener.on_output(&self.id, data);
-                }
-            }
-
-            pub fn emit_closed(&self) {
-                if let Some(listener) = self.output_listener.as_ref() {
-                    listener.on_closed(&self.id);
-                }
-            }
-
-            pub fn mark_read_closed(&self) {
-                self.read_closed.store(true, Ordering::Release);
-            }
-
-            pub fn read_closed(&self) -> bool {
-                self.read_closed.load(Ordering::Acquire)
-            }
-
-            pub fn exit_status(&self) -> Option<ExitStatus> {
-                self.exit_status
-                    .lock()
-                    .ok()
-                    .and_then(|status| status.clone())
-            }
-
-            pub fn set_exit_status(&self, status: ExitStatus) {
-                if let Ok(mut guard) = self.exit_status.lock() {
-                    *guard = Some(status);
-                }
-            }
-
-            pub fn try_update_exit_status(&self) -> anyhow::Result<Option<ExitStatus>> {
-                if self.exit_status().is_some() {
-                    return Ok(self.exit_status());
-                }
-
-                let mut child = self
-                    .child
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
-                if let Some(status) = child.try_wait()? {
-                    self.set_exit_status(status.clone());
-                    return Ok(Some(status));
-                }
-                Ok(None)
-            }
-        }
-
-        #[derive(Debug, Clone)]
-        pub struct FinishedSession {
-            pub id: String,
-            pub command: String,
-            pub cwd: Option<String>,
-            pub started_at: i64,
-            pub finished_at: i64,
-            pub exit_code: Option<i32>,
-            pub output: String,
-        }
-    }
-
-    pub use session::{
-        FinishedSession, ProcessOutputListener, ProcessSession, ProcessSessionMetadata,
-        ProcessSessionSource, SessionOutput,
-    };
-
-    const DEFAULT_MAX_OUTPUT_BYTES: usize = 1_000_000;
-    const CLEANUP_INTERVAL_SECONDS: u64 = 60;
-    const SESSION_REAP_TIMEOUT: Duration = Duration::from_secs(2);
-    const DEFAULT_PTY_SIZE: PtySize = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-
-    #[derive(Clone)]
-    pub struct ProcessSpawnOptions {
-        pub session_id: Option<String>,
-        pub cwd: Option<String>,
-        pub source: ProcessSessionSource,
-        pub metadata: ProcessSessionMetadata,
-        pub pty_size: PtySize,
-        pub output_listener: Option<Arc<dyn ProcessOutputListener>>,
-    }
-
-    impl Default for ProcessSpawnOptions {
-        fn default() -> Self {
-            Self {
-                session_id: None,
-                cwd: None,
-                source: ProcessSessionSource::default(),
-                metadata: ProcessSessionMetadata::default(),
-                pty_size: DEFAULT_PTY_SIZE,
-                output_listener: None,
-            }
-        }
-    }
-
-    #[derive(Clone, Default)]
-    pub struct ProcessShellOptions {
-        pub spawn: ProcessSpawnOptions,
-        pub startup_command: Option<String>,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct ProcessRegistry {
-        sessions: Arc<DashMap<String, Arc<ProcessSession>>>,
-        finished: Arc<DashMap<String, FinishedSession>>,
-        max_output_bytes: usize,
-        ttl_seconds: Arc<AtomicU64>,
-    }
-
-    impl Default for ProcessRegistry {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl ProcessRegistry {
-        pub fn new() -> Self {
-            let registry = Self {
-                sessions: Arc::new(DashMap::new()),
-                finished: Arc::new(DashMap::new()),
-                max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
-                ttl_seconds: Arc::new(AtomicU64::new(DEFAULT_PROCESS_SESSION_TTL_SECS)),
-            };
-
-            registry.spawn_cleanup_task();
-            registry
-        }
-
-        pub fn with_max_output(mut self, max_output_bytes: usize) -> Self {
-            self.max_output_bytes = max_output_bytes;
-            self
-        }
-
-        pub fn with_ttl_seconds(self, ttl_seconds: u64) -> Self {
-            self.set_ttl_seconds(ttl_seconds);
-            self
-        }
-
-        pub fn set_ttl_seconds(&self, ttl_seconds: u64) -> u64 {
-            self.ttl_seconds.swap(ttl_seconds, Ordering::Relaxed)
-        }
-
-        pub fn ttl_seconds(&self) -> u64 {
-            self.ttl_seconds.load(Ordering::Relaxed)
-        }
-
-        fn spawn_cleanup_task(&self) {
-            let sessions = self.sessions.clone();
-            let finished = self.finished.clone();
-            let ttl_seconds = self.ttl_seconds.clone();
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    loop {
-                        tokio::time::sleep(Duration::from_secs(CLEANUP_INTERVAL_SECONDS)).await;
-                        Self::run_maintenance_once(&sessions, &finished, &ttl_seconds);
-                    }
-                });
-            } else {
-                tracing::warn!("No Tokio runtime found for process cleanup task");
-            }
-        }
-
-        fn run_maintenance_once(
-            sessions: &DashMap<String, Arc<ProcessSession>>,
-            finished: &DashMap<String, FinishedSession>,
-            ttl_seconds: &AtomicU64,
-        ) {
-            let completed: Vec<(Arc<ProcessSession>, Option<i32>)> = sessions
-                .iter()
-                .filter_map(|entry| {
-                    let session = entry.value().clone();
-                    match session.try_update_exit_status() {
-                        Ok(Some(status)) => Some((session, Some(status.exit_code() as i32))),
-                        Ok(None) => None,
-                        Err(error) => {
-                            tracing::warn!(
-                                session_id = %entry.key(),
-                                error = %error,
-                                "Failed to poll process exit status during cleanup"
-                            );
-                            None
-                        }
-                    }
-                })
-                .collect();
-
-            for (session, exit_code) in completed {
-                // Always finalize completed sessions during maintenance, even without active pollers.
-                Self::finalize_session_maps(sessions, finished, session, exit_code);
-            }
-
-            let now = current_timestamp_ms();
-            let ttl = ttl_seconds.load(Ordering::Relaxed);
-            Self::cleanup_expired_finished_sessions(finished, now, ttl);
-        }
-
-        fn run_maintenance(&self) {
-            Self::run_maintenance_once(&self.sessions, &self.finished, &self.ttl_seconds);
-        }
-
-        fn build_shell_command(command: &str) -> CommandBuilder {
-            #[cfg(target_os = "windows")]
-            {
-                let mut cmd = CommandBuilder::new("cmd.exe");
-                cmd.args(["/C", command]);
-                cmd
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-                let mut cmd = CommandBuilder::new(shell);
-                cmd.args(["-c", command]);
-                cmd
-            }
-        }
-
-        fn append_output(output: &mut SessionOutput, data: &str, max_bytes: usize) {
-            output.pending.push_str(data);
-            output.aggregated.push_str(data);
-
-            if output.pending.len() > max_bytes {
-                let target = max_bytes * 9 / 10;
-                let keep_from = output.pending.len().saturating_sub(target);
-                let start = Self::nearest_char_boundary_forward(&output.pending, keep_from);
-                output.pending = output.pending[start..].to_string();
-            }
-
-            if output.aggregated.len() > max_bytes {
-                let target = max_bytes * 9 / 10;
-                let keep_from = output.aggregated.len().saturating_sub(target);
-                let start = Self::nearest_char_boundary_forward(&output.aggregated, keep_from);
-                output.aggregated = output.aggregated[start..].to_string();
-            }
-        }
-
-        fn nearest_char_boundary_forward(text: &str, index: usize) -> usize {
-            let mut pos = index.min(text.len());
-            while pos < text.len() && !text.is_char_boundary(pos) {
-                pos += 1;
-            }
-            pos
-        }
-
-        fn slice_utf8(text: &str, offset: usize, limit: usize) -> String {
-            if text.is_empty() {
-                return String::new();
-            }
-            let mut start = offset.min(text.len());
-            while start > 0 && !text.is_char_boundary(start) {
-                start -= 1;
-            }
-            let mut end = start.saturating_add(limit).min(text.len());
-            while end < text.len() && !text.is_char_boundary(end) {
-                end += 1;
-            }
-            text[start..end].to_string()
-        }
-
-        fn is_truncated(total: usize, offset: usize, limit: usize) -> bool {
-            offset.saturating_add(limit) < total
-        }
-
-        fn take_pending(output: &Arc<Mutex<SessionOutput>>) -> String {
-            if let Ok(mut guard) = output.lock() {
-                let pending = guard.pending.clone();
-                guard.pending.clear();
-                return pending;
-            }
-            String::new()
-        }
-
-        fn session_status(exit_code: Option<i32>) -> String {
-            match exit_code {
-                None => "running".to_string(),
-                Some(0) => "completed".to_string(),
-                Some(_) => "failed".to_string(),
-            }
-        }
-
-        fn finalize_session(&self, session: Arc<ProcessSession>, exit_code: Option<i32>) {
-            Self::finalize_session_maps(&self.sessions, &self.finished, session, exit_code);
-        }
-
-        fn finalize_session_maps(
-            sessions: &DashMap<String, Arc<ProcessSession>>,
-            finished: &DashMap<String, FinishedSession>,
-            session: Arc<ProcessSession>,
-            exit_code: Option<i32>,
-        ) {
-            let output = session
-                .output
-                .lock()
-                .map(|o| o.aggregated.clone())
-                .unwrap_or_default();
-            let finished_record = FinishedSession {
-                id: session.id.clone(),
-                command: session.command.clone(),
-                cwd: session.cwd.clone(),
-                started_at: session.started_at,
-                finished_at: current_timestamp_ms(),
-                exit_code,
-                output,
-            };
-            sessions.remove(&session.id);
-            finished.insert(session.id.clone(), finished_record);
-        }
-
-        fn cleanup_expired_finished_sessions(
-            finished: &DashMap<String, FinishedSession>,
-            now_ms: i64,
-            ttl_seconds: u64,
-        ) {
-            let expired: Vec<String> = finished
-                .iter()
-                .filter_map(|entry| {
-                    if is_ttl_expired(now_ms, entry.finished_at, ttl_seconds) {
-                        Some(entry.key().clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for session_id in expired {
-                finished.remove(&session_id);
-            }
-        }
-
-        fn create_reader_thread(
-            session: Arc<ProcessSession>,
-            mut reader: Box<dyn Read + Send>,
-            max_output: usize,
-        ) {
-            thread::spawn(move || {
-                let mut buf = [0u8; 4096];
-                let mut incomplete_utf8: Vec<u8> = Vec::new();
-                loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => {
-                            if !incomplete_utf8.is_empty() {
-                                let data = String::from_utf8_lossy(&incomplete_utf8).to_string();
-                                if let Ok(mut output) = session.output.lock() {
-                                    Self::append_output(&mut output, &data, max_output);
-                                }
-                                session.emit_output(&data);
-                            }
-                            session.emit_closed();
-                            session.mark_read_closed();
-                            break;
-                        }
-                        Ok(n) => {
-                            let mut bytes = std::mem::take(&mut incomplete_utf8);
-                            bytes.extend_from_slice(&buf[..n]);
-                            let valid_up_to = find_utf8_boundary(&bytes);
-                            if valid_up_to > 0 {
-                                let data =
-                                    String::from_utf8_lossy(&bytes[..valid_up_to]).to_string();
-                                if let Ok(mut output) = session.output.lock() {
-                                    Self::append_output(&mut output, &data, max_output);
-                                }
-                                session.emit_output(&data);
-                            }
-                            if valid_up_to < bytes.len() {
-                                incomplete_utf8 = bytes[valid_up_to..].to_vec();
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "Process output read error");
-                            session.emit_closed();
-                            session.mark_read_closed();
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-
-        pub fn spawn(&self, command: &str, cwd: Option<String>) -> Result<String> {
-            let options = ProcessSpawnOptions {
-                cwd,
-                source: ProcessSessionSource::Agent,
-                ..Default::default()
-            };
-            self.spawn_with_options(command, options)
-        }
-
-        pub fn spawn_with_options(
-            &self,
-            command: &str,
-            options: ProcessSpawnOptions,
-        ) -> Result<String> {
-            self.run_maintenance();
-
-            let pty_system = native_pty_system();
-            let pair = pty_system.openpty(options.pty_size)?;
-
-            let mut cmd = Self::build_shell_command(command);
-            if let Some(cwd) = options.cwd.as_ref() {
-                cmd.cwd(cwd);
-            }
-            cmd.env("TERM", "xterm-256color");
-
-            let child = pair.slave.spawn_command(cmd)?;
-            let writer = pair.master.take_writer()?;
-            let reader = pair.master.try_clone_reader()?;
-
-            let session_id = options
-                .session_id
-                .unwrap_or_else(|| Uuid::new_v4().to_string());
-            let output = Arc::new(Mutex::new(SessionOutput::default()));
-            let session = Arc::new(ProcessSession::new(
-                session_id.clone(),
-                command.to_string(),
-                options.cwd.clone(),
-                current_timestamp_ms(),
-                options.source,
-                options.metadata,
-                writer,
-                pair.master,
-                output.clone(),
-                options.output_listener,
-                child,
-            ));
-
-            Self::create_reader_thread(session.clone(), reader, self.max_output_bytes);
-
-            self.sessions.insert(session_id.clone(), session);
-            Ok(session_id)
-        }
-
-        pub fn spawn_shell(&self, shell: &str, options: ProcessShellOptions) -> Result<String> {
-            self.run_maintenance();
-
-            let pty_system = native_pty_system();
-            let pair = pty_system.openpty(options.spawn.pty_size)?;
-
-            let mut cmd = CommandBuilder::new(shell);
-            if let Some(cwd) = options.spawn.cwd.as_ref() {
-                cmd.cwd(cwd);
-            }
-            cmd.env("TERM", "xterm-256color");
-
-            let child = pair.slave.spawn_command(cmd)?;
-            let mut writer = pair.master.take_writer()?;
-            let reader = pair.master.try_clone_reader()?;
-
-            if let Some(startup) = options.startup_command.as_ref()
-                && !startup.is_empty()
-            {
-                std::thread::sleep(Duration::from_millis(100));
-                let _ = writer.write_all(format!("{}\n", startup).as_bytes());
-                let _ = writer.flush();
-            }
-
-            let session_id = options
-                .spawn
-                .session_id
-                .unwrap_or_else(|| Uuid::new_v4().to_string());
-            let output = Arc::new(Mutex::new(SessionOutput::default()));
-            let session = Arc::new(ProcessSession::new(
-                session_id.clone(),
-                shell.to_string(),
-                options.spawn.cwd.clone(),
-                current_timestamp_ms(),
-                options.spawn.source,
-                options.spawn.metadata,
-                writer,
-                pair.master,
-                output.clone(),
-                options.spawn.output_listener,
-                child,
-            ));
-
-            Self::create_reader_thread(session.clone(), reader, self.max_output_bytes);
-
-            self.sessions.insert(session_id.clone(), session);
-            Ok(session_id)
-        }
-
-        pub fn poll(&self, session_id: &str) -> Result<ProcessPollResult> {
-            self.run_maintenance();
-
-            if let Some(session) = self.sessions.get(session_id) {
-                let session = session.value().clone();
-                let _ = session.try_update_exit_status();
-                let pending = Self::take_pending(&session.output);
-                let exit_code = session
-                    .exit_status()
-                    .map(|status| status.exit_code() as i32);
-                let status = Self::session_status(exit_code);
-
-                if exit_code.is_some() && session.read_closed() {
-                    self.finalize_session(session, exit_code);
-                }
-
-                return Ok(ProcessPollResult {
-                    session_id: session_id.to_string(),
-                    output: pending,
-                    status,
-                    exit_code,
-                });
-            }
-
-            if let Some(finished) = self.finished.get(session_id) {
-                let exit_code = finished.exit_code;
-                return Ok(ProcessPollResult {
-                    session_id: session_id.to_string(),
-                    output: String::new(),
-                    status: Self::session_status(exit_code),
-                    exit_code,
-                });
-            }
-
-            anyhow::bail!("Session not found: {}", session_id)
-        }
-
-        pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
-            self.run_maintenance();
-
-            let session = self
-                .sessions
-                .get(session_id)
-                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
-            let mut writer = session
-                .writer
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
-            writer.write_all(data.as_bytes())?;
-            writer.flush()?;
-            Ok(())
-        }
-
-        pub fn resize(&self, session_id: &str, size: PtySize) -> Result<()> {
-            self.run_maintenance();
-
-            let session = self
-                .sessions
-                .get(session_id)
-                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
-            session.resize(size)?;
-            Ok(())
-        }
-
-        pub fn kill(&self, session_id: &str) -> Result<()> {
-            self.run_maintenance();
-
-            let session = self
-                .sessions
-                .get(session_id)
-                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?
-                .value()
-                .clone();
-
-            if let Err(error) = session.terminate_and_reap(SESSION_REAP_TIMEOUT) {
-                let reaped =
-                    session.try_update_exit_status()?.is_some() || session.exit_status().is_some();
-                if !reaped {
-                    return Err(error);
-                }
-            }
-
-            let exit_code = session
-                .exit_status()
-                .map(|status| status.exit_code() as i32);
-            if exit_code.is_some() && session.read_closed() {
-                self.finalize_session(session, exit_code);
-            }
-
-            Ok(())
-        }
-
-        pub fn get_output_buffer(&self, session_id: &str) -> Option<String> {
-            self.run_maintenance();
-
-            self.sessions
-                .get(session_id)
-                .and_then(|session| session.output.lock().ok().map(|o| o.aggregated.clone()))
-        }
-
-        pub fn remove_session(&self, session_id: &str) -> Option<String> {
-            self.run_maintenance();
-
-            if let Some((_, session)) = self.sessions.remove(session_id) {
-                let _ = session.terminate_and_reap(SESSION_REAP_TIMEOUT);
-                let _ = session.try_update_exit_status();
-                let output = session
-                    .output
-                    .lock()
-                    .ok()
-                    .map(|o| o.aggregated.clone())
-                    .unwrap_or_default();
-                let exit_code = session
-                    .exit_status()
-                    .map(|status| status.exit_code() as i32);
-                Self::finalize_session_maps(&self.sessions, &self.finished, session, exit_code);
-                return Some(output);
-            }
-
-            if let Some(finished) = self.finished.get(session_id) {
-                return Some(finished.output.clone());
-            }
-
-            None
-        }
-
-        pub fn list_session_ids_by_source(&self, source: ProcessSessionSource) -> Vec<String> {
-            self.run_maintenance();
-
-            self.sessions
-                .iter()
-                .filter_map(|entry| {
-                    let session = entry.value();
-                    if session.source == source {
-                        Some(session.id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        }
-
-        pub fn has_session(&self, session_id: &str) -> bool {
-            self.run_maintenance();
-            self.sessions.contains_key(session_id)
-        }
-
-        pub fn list(&self) -> Vec<ProcessSessionInfo> {
-            self.run_maintenance();
-
-            let mut items: Vec<ProcessSessionInfo> = self
-                .sessions
-                .iter()
-                .map(|entry| {
-                    let session = entry.value();
-                    let exit_code = session
-                        .exit_status()
-                        .map(|status| status.exit_code() as i32);
-                    ProcessSessionInfo {
-                        session_id: session.id.clone(),
-                        command: session.command.clone(),
-                        cwd: session.cwd.clone(),
-                        started_at: session.started_at,
-                        status: Self::session_status(exit_code),
-                        exit_code,
-                    }
-                })
-                .collect();
-
-            for entry in self.finished.iter() {
-                items.push(ProcessSessionInfo {
-                    session_id: entry.id.clone(),
-                    command: entry.command.clone(),
-                    cwd: entry.cwd.clone(),
-                    started_at: entry.started_at,
-                    status: Self::session_status(entry.exit_code),
-                    exit_code: entry.exit_code,
-                });
-            }
-
-            items
-        }
-
-        pub fn get_log(&self, session_id: &str, offset: usize, limit: usize) -> Result<ProcessLog> {
-            self.run_maintenance();
-
-            if let Some(session) = self.sessions.get(session_id) {
-                let output = session
-                    .output
-                    .lock()
-                    .map(|o| o.aggregated.clone())
-                    .unwrap_or_default();
-                let total = output.len();
-                let slice = Self::slice_utf8(&output, offset, limit);
-                return Ok(ProcessLog {
-                    session_id: session_id.to_string(),
-                    output: slice,
-                    offset,
-                    limit,
-                    total,
-                    truncated: Self::is_truncated(total, offset, limit),
-                });
-            }
-
-            if let Some(finished) = self.finished.get(session_id) {
-                let total = finished.output.len();
-                let slice = Self::slice_utf8(&finished.output, offset, limit);
-                return Ok(ProcessLog {
-                    session_id: session_id.to_string(),
-                    output: slice,
-                    offset,
-                    limit,
-                    total,
-                    truncated: Self::is_truncated(total, offset, limit),
-                });
-            }
-
-            anyhow::bail!("Session not found: {}", session_id)
-        }
-    }
-
-    impl ProcessManager for ProcessRegistry {
-        fn spawn(&self, command: String, cwd: Option<String>) -> Result<String> {
-            Self::spawn(self, &command, cwd)
-        }
-
-        fn poll(&self, session_id: &str) -> Result<ProcessPollResult> {
-            Self::poll(self, session_id)
-        }
-
-        fn write(&self, session_id: &str, data: &str) -> Result<()> {
-            Self::write(self, session_id, data)
-        }
-
-        fn kill(&self, session_id: &str) -> Result<()> {
-            Self::kill(self, session_id)
-        }
-
-        fn list(&self) -> Result<Vec<ProcessSessionInfo>> {
-            Ok(Self::list(self))
-        }
-
-        fn log(&self, session_id: &str, offset: usize, limit: usize) -> Result<ProcessLog> {
-            Self::get_log(self, session_id, offset, limit)
-        }
-    }
-
-    fn current_timestamp_ms() -> i64 {
-        time_utils::now_ms()
-    }
-
-    fn ttl_seconds_to_millis(ttl_seconds: u64) -> i64 {
-        Duration::from_secs(ttl_seconds)
-            .as_millis()
-            .min(i64::MAX as u128) as i64
-    }
-
-    fn is_ttl_expired(now_ms: i64, finished_at_ms: i64, ttl_seconds: u64) -> bool {
-        now_ms.saturating_sub(finished_at_ms) > ttl_seconds_to_millis(ttl_seconds)
-    }
-
-    fn find_utf8_boundary(bytes: &[u8]) -> usize {
-        match std::str::from_utf8(bytes) {
-            Ok(_) => bytes.len(),
-            Err(e) => e.valid_up_to(),
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        #[allow(unused_imports)]
-        use super::*;
-
-        /// Test spawning a process and polling its output.
-        /// Ignored in CI due to PTY reader thread cleanup issues that can cause hangs.
-        /// Run manually with: cargo test --package runtime process::tests::test_spawn_and_poll -- --ignored
-        #[cfg(unix)]
-        #[tokio::test]
-        #[ignore]
-        async fn test_spawn_and_poll() {
-            let registry = ProcessRegistry::new();
-            let session_id = registry.spawn("echo hello", None).unwrap();
-            tokio::time::sleep(Duration::from_millis(100)).await;
-
-            let result = registry.poll(&session_id).unwrap();
-            assert!(result.output.contains("hello"));
-            assert!(result.status == "completed" || result.status == "running");
-        }
-
-        /// Test interactive process with stdin/stdout.
-        /// Ignored in CI due to PTY reader thread cleanup issues that can cause hangs.
-        /// Run manually with: cargo test --package runtime process::tests::test_interactive_process -- --ignored
-        #[cfg(unix)]
-        #[tokio::test]
-        #[ignore]
-        async fn test_interactive_process() {
-            let registry = ProcessRegistry::new();
-            let session_id = registry.spawn("cat", None).unwrap();
-            registry.write(&session_id, "ping\n").unwrap();
-            tokio::time::sleep(Duration::from_millis(100)).await;
-
-            let result = registry.poll(&session_id).unwrap();
-            assert!(result.output.contains("ping"));
-            registry.kill(&session_id).unwrap();
-        }
-
-        /// Test killing a running process session.
-        /// Ignored in CI due to PTY reader thread cleanup issues that can cause hangs.
-        /// Run manually with: cargo test --package runtime process::tests::test_kill_session -- --ignored
-        #[cfg(unix)]
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        #[ignore]
-        async fn test_kill_session() {
-            let test_future = async {
-                let registry = ProcessRegistry::new();
-                let session_id = registry.spawn("sleep 5", None).unwrap();
-                registry.kill(&session_id).unwrap();
-
-                // Wait for process to terminate with polling
-                for _ in 0..50 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    let result = registry.poll(&session_id).unwrap();
-                    if result.status != "running" {
-                        assert!(
-                            result.status == "failed" || result.status == "completed",
-                            "Unexpected status: {}",
-                            result.status
-                        );
-                        return;
-                    }
-                }
-                panic!("Process did not terminate after kill within 5 seconds");
-            };
-
-            tokio::time::timeout(Duration::from_secs(10), test_future)
-                .await
-                .expect("test_kill_session timed out after 10 seconds");
-        }
-
-        #[test]
-        fn test_append_output_keeps_utf8_boundaries() {
-            let mut output = SessionOutput::default();
-            let data = "前缀😀后缀".repeat(64);
-
-            ProcessRegistry::append_output(&mut output, &data, 128);
-
-            assert!(std::str::from_utf8(output.pending.as_bytes()).is_ok());
-            assert!(std::str::from_utf8(output.aggregated.as_bytes()).is_ok());
-            assert!(!output.pending.is_empty());
-            assert!(!output.aggregated.is_empty());
-        }
-
-        #[test]
-        fn test_is_truncated_handles_large_offset_without_overflow() {
-            let truncated = ProcessRegistry::is_truncated(10, usize::MAX - 2, 10);
-            assert!(!truncated);
-        }
-
-        #[test]
-        fn test_with_ttl_seconds_updates_shared_ttl_for_cleanup_worker() {
-            let registry = ProcessRegistry::new().with_ttl_seconds(120);
-            assert_eq!(registry.ttl_seconds(), 120);
-
-            let _ = registry.clone().with_ttl_seconds(5);
-            assert_eq!(registry.ttl_seconds(), 5);
-        }
-
-        #[test]
-        fn test_set_ttl_seconds_updates_long_lived_registry_in_place() {
-            let registry = Arc::new(ProcessRegistry::new().with_ttl_seconds(90));
-            assert_eq!(registry.ttl_seconds(), 90);
-
-            let old = registry.set_ttl_seconds(15);
-            assert_eq!(old, 90);
-            assert_eq!(registry.ttl_seconds(), 15);
-
-            let old_from_clone = registry.clone().set_ttl_seconds(7);
-            assert_eq!(old_from_clone, 15);
-            assert_eq!(registry.ttl_seconds(), 7);
-        }
-
-        #[test]
-        fn test_cleanup_uses_updated_ttl_seconds_value_behaviorally() {
-            let registry = ProcessRegistry::new().with_ttl_seconds(2);
-            let session_id = "finished-session".to_string();
-            registry.finished.insert(
-                session_id.clone(),
-                FinishedSession {
-                    id: session_id.clone(),
-                    command: "echo done".to_string(),
-                    cwd: None,
-                    started_at: 0,
-                    finished_at: 1_000,
-                    exit_code: Some(0),
-                    output: "done".to_string(),
-                },
-            );
-
-            let now = 2_500;
-            ProcessRegistry::cleanup_expired_finished_sessions(
-                &registry.finished,
-                now,
-                registry.ttl_seconds(),
-            );
-            assert!(
-                registry.finished.contains_key(&session_id),
-                "Session should stay when elapsed <= updated TTL"
-            );
-
-            let _ = registry.clone().with_ttl_seconds(1);
-            ProcessRegistry::cleanup_expired_finished_sessions(
-                &registry.finished,
-                now,
-                registry.ttl_seconds(),
-            );
-            assert!(
-                !registry.finished.contains_key(&session_id),
-                "Session should be removed once elapsed > updated TTL"
-            );
-        }
-
-        #[test]
-        fn test_opportunistic_maintenance_cleans_expired_finished_without_worker() {
-            let registry = ProcessRegistry::new().with_ttl_seconds(1);
-            let session_id = "expired-finished".to_string();
-            let now = current_timestamp_ms();
-            registry.finished.insert(
-                session_id.clone(),
-                FinishedSession {
-                    id: session_id.clone(),
-                    command: "echo done".to_string(),
-                    cwd: None,
-                    started_at: now - 6_000,
-                    finished_at: now - 5_000,
-                    exit_code: Some(0),
-                    output: "done".to_string(),
-                },
-            );
-
-            assert!(registry.finished.contains_key(&session_id));
-            let _ = registry.list();
-            assert!(
-                !registry.finished.contains_key(&session_id),
-                "Expired finished session should be cleaned during foreground maintenance"
-            );
-        }
-
-        #[test]
-        fn test_runtime_ttl_update_applies_to_existing_finished_sessions_without_restart() {
-            let registry = ProcessRegistry::new().with_ttl_seconds(2);
-            let session_id = "dynamic-ttl-finished".to_string();
-            let now = current_timestamp_ms();
-            registry.finished.insert(
-                session_id.clone(),
-                FinishedSession {
-                    id: session_id.clone(),
-                    command: "echo done".to_string(),
-                    cwd: None,
-                    started_at: now - 2_000,
-                    finished_at: now - 1_200,
-                    exit_code: Some(0),
-                    output: "done".to_string(),
-                },
-            );
-
-            let _ = registry.list();
-            assert!(
-                registry.finished.contains_key(&session_id),
-                "Session should stay when TTL is larger than elapsed lifetime"
-            );
-
-            registry.set_ttl_seconds(1);
-            let _ = registry.list();
-            assert!(
-                !registry.finished.contains_key(&session_id),
-                "Session should expire after runtime TTL update without recreating registry"
-            );
-        }
-
-        #[test]
-        fn test_ttl_expiry_boundary_is_strict_greater_than() {
-            assert!(
-                !is_ttl_expired(2_000, 1_000, 1),
-                "Elapsed == TTL should not expire"
-            );
-            assert!(
-                is_ttl_expired(2_001, 1_000, 1),
-                "Elapsed > TTL should expire"
-            );
         }
     }
 }
@@ -5340,6 +4028,191 @@ pub mod secrets {
     }
 }
 pub mod services {
+    pub mod agent_validation {
+        use std::collections::HashSet;
+        use std::sync::{Arc, RwLock};
+
+        use types::{AgentNode, ApiKeyConfig, ValidationError};
+
+        use crate::AppCore;
+        use crate::storage::SecretStorage;
+
+        /// Validate agent fields that require runtime/storage lookups.
+        pub async fn validate_agent_node_for_core(
+            agent: &AgentNode,
+            core: &Arc<AppCore>,
+        ) -> Result<(), Vec<ValidationError>> {
+            let tool_registry = match crate::services::tool_registry::create_tool_registry(
+                core.storage.config.clone(),
+                None,
+                None,
+            ) {
+                Ok(registry) => registry,
+                Err(err) => {
+                    return Err(vec![ValidationError::new(
+                        "tools",
+                        format!("Failed to create tool registry: {err}"),
+                    )]);
+                }
+            };
+            validate_agent_node_with_tools(
+                agent,
+                |tool| tool_registry.has(tool),
+                &core.storage.secrets,
+            )
+        }
+
+        pub fn validate_agent_node_with_known_tools(
+            agent: &AgentNode,
+            known_tools: &Arc<RwLock<HashSet<String>>>,
+            secrets: &SecretStorage,
+        ) -> Result<(), Vec<ValidationError>> {
+            validate_agent_node_with_tools(
+                agent,
+                |tool| {
+                    known_tools
+                        .read()
+                        .map(|set| set.contains(tool))
+                        .unwrap_or(false)
+                },
+                secrets,
+            )
+        }
+
+        fn validate_agent_node_with_tools(
+            agent: &AgentNode,
+            tool_exists: impl Fn(&str) -> bool,
+            secrets: &SecretStorage,
+        ) -> Result<(), Vec<ValidationError>> {
+            let mut errors = Vec::new();
+            validate_tools(agent, &tool_exists, &mut errors);
+            validate_skills(agent, &mut errors);
+            validate_secret_reference(agent, secrets, &mut errors);
+
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors)
+            }
+        }
+
+        fn validate_tools(
+            agent: &AgentNode,
+            tool_exists: &impl Fn(&str) -> bool,
+            errors: &mut Vec<ValidationError>,
+        ) {
+            let Some(tools) = &agent.tools else {
+                return;
+            };
+            for tool_name in tools {
+                let normalized = tool_name.trim();
+                if normalized.is_empty() {
+                    errors.push(ValidationError::new("tools", "tool name must not be empty"));
+                    continue;
+                }
+                if !tool_exists(normalized) && !is_subagent_tool_name(normalized) {
+                    errors.push(ValidationError::new(
+                        "tools",
+                        format!("unknown tool: {}", normalized),
+                    ));
+                }
+            }
+        }
+
+        fn validate_skills(agent: &AgentNode, errors: &mut Vec<ValidationError>) {
+            let Some(skills) = &agent.skills else {
+                return;
+            };
+            for skill_id in skills {
+                let normalized = skill_id.trim();
+                if normalized.is_empty() {
+                    errors.push(ValidationError::new("skills", "skill ID must not be empty"));
+                    continue;
+                }
+                match crate::services::skills::skill_exists_in_catalog(normalized) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(ValidationError::new(
+                        "skills",
+                        format!("unknown skill: {}", normalized),
+                    )),
+                    Err(err) => errors.push(ValidationError::new(
+                        "skills",
+                        format!("failed to verify skill '{}': {}", normalized, err),
+                    )),
+                }
+            }
+        }
+
+        fn validate_secret_reference(
+            agent: &AgentNode,
+            secrets: &SecretStorage,
+            errors: &mut Vec<ValidationError>,
+        ) {
+            let Some(ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config else {
+                return;
+            };
+            let normalized = secret_name.trim();
+            if normalized.is_empty() {
+                return;
+            }
+            match secrets.has_available_secret(normalized) {
+                Ok(true) => {}
+                Ok(false) => errors.push(ValidationError::new(
+                    "api_key_config",
+                    format!("secret not found in storage: {}", normalized),
+                )),
+                Err(err) => errors.push(ValidationError::new(
+                    "api_key_config",
+                    format!("failed to verify secret '{}': {}", normalized, err),
+                )),
+            }
+        }
+
+        fn is_subagent_tool_name(name: &str) -> bool {
+            matches!(
+                name,
+                "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents"
+            )
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+            use crate::test_support::RestflowTestEnv;
+
+            #[cfg(unix)]
+            #[tokio::test(flavor = "current_thread")]
+            async fn accepts_team_skill() {
+                let env = RestflowTestEnv::new();
+                let previous_skrun_root = std::env::var_os("SKRUN_SKILLS_DIR");
+                let skills_root = env.root().join("skrun-skills");
+                let artifact = skrun::SkillArtifact::markdown("team", "Team", "0.1.0", "# Team");
+                skrun::save_artifact(skills_root.join("team"), &artifact).unwrap();
+                unsafe { std::env::set_var("SKRUN_SKILLS_DIR", &skills_root) };
+                let core = Arc::new(
+                    AppCore::new(env.db_path("agent-skill.db").to_str().unwrap())
+                        .await
+                        .unwrap(),
+                );
+                let node = AgentNode {
+                    skills: Some(vec!["team".to_string()]),
+                    ..AgentNode::new()
+                };
+
+                let result = validate_agent_node_for_core(&node, &core).await;
+                unsafe {
+                    if let Some(value) = previous_skrun_root {
+                        std::env::set_var("SKRUN_SKILLS_DIR", value);
+                    } else {
+                        std::env::remove_var("SKRUN_SKILLS_DIR");
+                    }
+                }
+
+                assert!(result.is_ok(), "unexpected validation errors: {result:?}");
+            }
+        }
+    }
+
     pub mod adapters {
         //! Storage-backed adapter implementations for tool traits.
         //!
@@ -5351,6 +4224,7 @@ pub mod services {
             //! AgentStore adapter backed by AgentStorage.
 
             use crate::AgentStorage;
+            use crate::services::agent_validation::validate_agent_node_with_known_tools;
             use crate::storage::SecretStorage;
             use crate::tools::ToolError;
             use serde_json::{Value, json};
@@ -5391,92 +4265,9 @@ pub mod services {
                         return Err(ToolError::Tool(types::encode_validation_error(errors)));
                     }
 
-                    let mut errors = Vec::new();
-                    if let Some(tools) = &agent.tools {
-                        for tool_name in tools {
-                            let normalized = tool_name.trim();
-                            if normalized.is_empty() {
-                                errors.push(types::ValidationError::new(
-                                    "tools",
-                                    "tool name must not be empty",
-                                ));
-                                continue;
-                            }
-                            let is_known = self
-                                .known_tools
-                                .read()
-                                .map(|set| set.contains(normalized))
-                                .unwrap_or(false);
-                            if !is_known && !is_subagent_tool_name(normalized) {
-                                errors.push(types::ValidationError::new(
-                                    "tools",
-                                    format!("unknown tool: {}", normalized),
-                                ));
-                            }
-                        }
-                    }
-
-                    if let Some(skills) = &agent.skills {
-                        let skill_ids: Vec<&str> = skills
-                            .iter()
-                            .map(|s| s.trim())
-                            .filter(|s| {
-                                if s.is_empty() {
-                                    errors.push(types::ValidationError::new(
-                                        "skills",
-                                        "skill ID must not be empty",
-                                    ));
-                                    false
-                                } else {
-                                    true
-                                }
-                            })
-                            .collect();
-                        for id in skill_ids {
-                            match crate::services::skills::skill_exists_in_catalog(id) {
-                                Ok(true) => {}
-                                Ok(false) => errors.push(types::ValidationError::new(
-                                    "skills",
-                                    format!("unknown skill: {}", id),
-                                )),
-                                Err(err) => errors.push(types::ValidationError::new(
-                                    "skills",
-                                    format!("failed to verify skill '{}': {}", id, err),
-                                )),
-                            }
-                        }
-                    }
-
-                    if let Some(types::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
-                        let normalized = secret_name.trim();
-                        if !normalized.is_empty() {
-                            match self.secrets.has_available_secret(normalized) {
-                                Ok(true) => {}
-                                Ok(false) => errors.push(types::ValidationError::new(
-                                    "api_key_config",
-                                    format!("secret not found in storage: {}", normalized),
-                                )),
-                                Err(err) => errors.push(types::ValidationError::new(
-                                    "api_key_config",
-                                    format!("failed to verify secret '{}': {}", normalized, err),
-                                )),
-                            }
-                        }
-                    }
-
-                    if errors.is_empty() {
-                        Ok(())
-                    } else {
-                        Err(ToolError::Tool(types::encode_validation_error(errors)))
-                    }
+                    validate_agent_node_with_known_tools(agent, &self.known_tools, &self.secrets)
+                        .map_err(|errors| ToolError::Tool(types::encode_validation_error(errors)))
                 }
-            }
-
-            fn is_subagent_tool_name(name: &str) -> bool {
-                matches!(
-                    name,
-                    "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents"
-                )
             }
 
             impl AgentStore for AgentStoreAdapter {
@@ -6649,8 +5440,8 @@ pub mod services {
 
         use crate::{
             AppCore,
-            agent_validation::validate_agent_node_async,
             services::agent_catalog::{DEFAULT_ASSISTANT_NAME, StoredAgent},
+            services::agent_validation::validate_agent_node_for_core,
             services::session::SessionService,
         };
         use anyhow::{Context, Result};
@@ -6760,7 +5551,7 @@ pub mod services {
             if let Err(errors) = agent.validate() {
                 anyhow::bail!(encode_validation_error(errors));
             }
-            if let Err(errors) = validate_agent_node_async(agent, core).await {
+            if let Err(errors) = validate_agent_node_for_core(agent, core).await {
                 anyhow::bail!(encode_validation_error(errors));
             }
             Ok(())
@@ -8460,25 +7251,12 @@ pub mod services {
     pub mod execution_console {
         use std::sync::Arc;
 
-        use anyhow::Result;
-        use thiserror::Error;
-
         use crate::storage::Storage;
+        use anyhow::Result;
         use types::{
             ChatSession, ChatTurn, ChatTurnEventKind, ChatTurnStatus, ExecutionContainerKind,
-            ExecutionContainerSummary, ExecutionThread, RunKind, RunListQuery, RunSummary,
-            RunTimeline,
+            ExecutionContainerSummary, RunKind, RunListQuery, RunSummary,
         };
-
-        #[derive(Debug, Error)]
-        pub enum ExecutionThreadError {
-            #[error("execution thread query requires run_id")]
-            InvalidQuery,
-            #[error("run '{0}' not found")]
-            RunNotFound(String),
-            #[error(transparent)]
-            Internal(#[from] anyhow::Error),
-        }
 
         #[derive(Clone)]
         pub struct ExecutionConsoleService {
@@ -8536,61 +7314,6 @@ pub mod services {
                         Ok(runs)
                     }
                 }
-            }
-
-            pub fn get_execution_run_thread(
-                &self,
-                run_id: &str,
-            ) -> std::result::Result<ExecutionThread, ExecutionThreadError> {
-                let summary = self.find_run(run_id)?;
-                let timeline = self.timeline_for_run(run_id)?;
-                Ok(ExecutionThread {
-                    focus: summary,
-                    timeline,
-                })
-            }
-
-            pub fn get_execution_run_timeline(&self, run_id: &str) -> Result<RunTimeline> {
-                let _ = self.find_run(run_id)?;
-                self.timeline_for_run(run_id).map_err(Into::into)
-            }
-
-            fn find_run(
-                &self,
-                run_id: &str,
-            ) -> std::result::Result<RunSummary, ExecutionThreadError> {
-                let run_id = run_id.trim();
-                if run_id.is_empty() {
-                    return Err(ExecutionThreadError::InvalidQuery);
-                }
-
-                for session in self.list_sessions()? {
-                    if let Some(turn) = session.turns.iter().find(|turn| turn.id == run_id) {
-                        return Ok(workspace_run_summary(&session, turn));
-                    }
-                }
-
-                Err(ExecutionThreadError::RunNotFound(run_id.to_string()))
-            }
-
-            fn timeline_for_run(
-                &self,
-                run_id: &str,
-            ) -> std::result::Result<RunTimeline, ExecutionThreadError> {
-                let run_id = run_id.trim();
-                if run_id.is_empty() {
-                    return Err(ExecutionThreadError::InvalidQuery);
-                }
-
-                for session in self.list_sessions()? {
-                    if let Some(turn) = session.turns.iter().find(|turn| turn.id == run_id) {
-                        return Ok(RunTimeline {
-                            events: turn.events.clone(),
-                        });
-                    }
-                }
-
-                Err(ExecutionThreadError::RunNotFound(run_id.to_string()))
             }
 
             fn list_sessions(&self) -> Result<Vec<ChatSession>> {
@@ -8665,916 +7388,6 @@ pub mod services {
                 "Untitled run".to_string()
             } else {
                 value.to_string()
-            }
-        }
-    }
-    pub mod operation_assessment {
-        use std::sync::Arc;
-
-        use anyhow::{Result, anyhow};
-        use sha2::{Digest, Sha256};
-        use types::ModelProvider as SharedModelProvider;
-        use types::request::{
-            AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest,
-        };
-
-        use crate::AgentStorage;
-        use crate::AppCore;
-        use crate::StoredAgent;
-        use crate::provider_policy::resolve_model_from_available_secrets;
-        use crate::storage::{ConfigStorage, SecretStorage, Storage};
-        use crate::tools::ToolError;
-        use types::assessment::{
-            AgentOperationAssessor, AssessmentModelRef, OperationAssessment,
-            OperationAssessmentIntent, OperationAssessmentIssue, OperationAssessmentStatus,
-        };
-        use types::store::{AgentCreateRequest, AgentUpdateRequest};
-        use types::subagent::spawn_request_from_contract as run_spawn_request_from_contract;
-        use types::subagent::{SpawnRequest as RunSpawnRequest, SubagentDefSummary};
-        use types::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
-
-        #[derive(Clone)]
-        pub struct OperationAssessorAdapter {
-            context: AssessmentContext,
-        }
-
-        #[derive(Clone)]
-        struct AssessmentContext {
-            secrets: SecretStorage,
-            config: ConfigStorage,
-            agents: AgentStorage,
-        }
-
-        impl AssessmentContext {
-            fn from_core(core: &Arc<AppCore>) -> Self {
-                Self::from_storage(core.storage.as_ref())
-            }
-
-            fn from_storage(storage: &Storage) -> Self {
-                Self {
-                    secrets: storage.secrets.clone(),
-                    config: storage.config.clone(),
-                    agents: storage.agents.clone(),
-                }
-            }
-        }
-
-        impl OperationAssessorAdapter {
-            pub fn new(core: Arc<AppCore>) -> Self {
-                Self {
-                    context: AssessmentContext::from_core(&core),
-                }
-            }
-
-            pub fn from_storage(storage: &Storage) -> Self {
-                Self {
-                    context: AssessmentContext::from_storage(storage),
-                }
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl AgentOperationAssessor for OperationAssessorAdapter {
-            async fn assess_agent_create(
-                &self,
-                request: AgentCreateRequest,
-            ) -> std::result::Result<OperationAssessment, ToolError> {
-                assess_agent_create_with_context(&self.context, request)
-                    .await
-                    .map_err(|error| ToolError::Tool(error.to_string()))
-            }
-
-            async fn assess_agent_update(
-                &self,
-                request: AgentUpdateRequest,
-            ) -> std::result::Result<OperationAssessment, ToolError> {
-                assess_agent_update_with_context(&self.context, request)
-                    .await
-                    .map_err(|error| ToolError::Tool(error.to_string()))
-            }
-
-            async fn assess_subagent_spawn(
-                &self,
-                operation: &str,
-                request: ContractRunSpawnRequest,
-                template_mode: bool,
-            ) -> std::result::Result<OperationAssessment, ToolError> {
-                assess_run_spawn_with_context(&self.context, operation, request, template_mode)
-                    .await
-                    .map_err(|error| ToolError::Tool(error.to_string()))
-            }
-
-            async fn assess_subagent_batch(
-                &self,
-                operation: &str,
-                requests: Vec<ContractRunSpawnRequest>,
-                template_mode: bool,
-            ) -> std::result::Result<OperationAssessment, ToolError> {
-                assess_run_batch_with_context(&self.context, operation, requests, template_mode)
-                    .await
-                    .map_err(|error| ToolError::Tool(error.to_string()))
-            }
-        }
-
-        pub fn assessment_requires_confirmation(assessment: &OperationAssessment) -> bool {
-            assessment.status == OperationAssessmentStatus::Warning
-                && assessment.requires_confirmation
-        }
-
-        pub fn ensure_assessment_confirmed(
-            assessment: &OperationAssessment,
-            approval_id: Option<&str>,
-        ) -> Result<()> {
-            if !assessment_requires_confirmation(assessment) {
-                return Ok(());
-            }
-
-            let expected = assessment
-                .approval_id
-                .as_deref()
-                .ok_or_else(|| anyhow!("confirmation required"))?;
-            let provided = approval_id
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| anyhow!("confirmation required"))?;
-            if provided != expected {
-                return Err(anyhow!("invalid confirmation token"));
-            }
-            Ok(())
-        }
-
-        pub fn assessment_summary(assessment: &OperationAssessment) -> String {
-            let issues = match assessment.status {
-                OperationAssessmentStatus::Block => &assessment.blockers,
-                OperationAssessmentStatus::Warning => &assessment.warnings,
-                OperationAssessmentStatus::Ok => return "Operation is ready".to_string(),
-            };
-            let summary = issues
-                .iter()
-                .map(|issue| issue.message.clone())
-                .collect::<Vec<_>>()
-                .join("; ");
-            if summary.is_empty() {
-                "Operation requires confirmation".to_string()
-            } else {
-                summary
-            }
-        }
-
-        fn issue(
-            code: impl Into<String>,
-            message: impl Into<String>,
-            field: Option<&str>,
-            suggestion: Option<&str>,
-        ) -> OperationAssessmentIssue {
-            OperationAssessmentIssue {
-                code: code.into(),
-                message: message.into(),
-                field: field.map(ToOwned::to_owned),
-                suggestion: suggestion.map(ToOwned::to_owned),
-            }
-        }
-
-        fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessmentIssue> {
-            errors
-                .into_iter()
-                .map(|error| OperationAssessmentIssue {
-                    code: "validation_error".to_string(),
-                    message: error.message,
-                    field: Some(error.field),
-                    suggestion: None,
-                })
-                .collect()
-        }
-
-        fn agent_has_local_credential(context: &AssessmentContext, agent: &AgentNode) -> bool {
-            match agent.api_key_config.as_ref() {
-                Some(ApiKeyConfig::Direct(value)) => !value.trim().is_empty(),
-                Some(ApiKeyConfig::Secret(secret_name)) => context
-                    .secrets
-                    .has_available_secret(secret_name)
-                    .unwrap_or(false),
-                None => false,
-            }
-        }
-
-        fn provider_is_available(context: &AssessmentContext, provider: Provider) -> bool {
-            provider.api_key_env().is_none()
-                || provider
-                    .api_key_env_candidates()
-                    .any(|key| context.secrets.has_available_secret(key).unwrap_or(false))
-        }
-
-        fn resolve_model_from_stored_credentials(context: &AssessmentContext) -> Option<ModelId> {
-            resolve_model_from_available_secrets(|key| {
-                context.secrets.has_available_secret(key).unwrap_or(false)
-            })
-        }
-
-        fn to_assessment_model_ref(model_ref: ModelRef) -> AssessmentModelRef {
-            AssessmentModelRef {
-                provider: model_ref.provider.as_canonical_str().to_string(),
-                model: model_ref.model.as_serialized_str().to_string(),
-            }
-        }
-
-        fn finalize_assessment(assessment: OperationAssessment) -> OperationAssessment {
-            finalize_assessment_with_seed(assessment, None)
-        }
-
-        fn finalize_assessment_with_seed(
-            mut assessment: OperationAssessment,
-            confirmation_seed: Option<serde_json::Value>,
-        ) -> OperationAssessment {
-            if !assessment.blockers.is_empty() {
-                assessment.status = OperationAssessmentStatus::Block;
-                assessment.requires_confirmation = false;
-                assessment.approval_id = None;
-                return assessment;
-            }
-
-            if !assessment.warnings.is_empty() {
-                assessment.status = OperationAssessmentStatus::Warning;
-                assessment.requires_confirmation = true;
-                assessment.approval_id =
-                    Some(build_approval_id(&assessment, confirmation_seed.as_ref()));
-                return assessment;
-            }
-
-            assessment.status = OperationAssessmentStatus::Ok;
-            assessment.requires_confirmation = false;
-            assessment.approval_id = None;
-            assessment
-        }
-
-        fn build_approval_id(
-            assessment: &OperationAssessment,
-            confirmation_seed: Option<&serde_json::Value>,
-        ) -> String {
-            let payload = serde_json::json!({
-                "operation": assessment.operation,
-                "intent": assessment.intent,
-                "effective_model_ref": assessment.effective_model_ref,
-                "warnings": assessment.warnings,
-                "blockers": assessment.blockers,
-                "confirmation_seed": confirmation_seed,
-            });
-            let encoded = serde_json::to_vec(&payload).unwrap_or_default();
-            let mut hasher = Sha256::new();
-            hasher.update(encoded);
-            hex::encode(hasher.finalize())
-        }
-
-        fn parse_agent_node(value: ContractAgentNode) -> Result<AgentNode> {
-            AgentNode::try_from_contract_node(value)
-                .map_err(|errors| anyhow!(types::encode_validation_error(errors)))
-        }
-
-        async fn load_agent(
-            context: &AssessmentContext,
-            id_or_prefix: &str,
-        ) -> Result<StoredAgent> {
-            let trimmed = id_or_prefix.trim();
-            let resolved_id = if trimmed.eq_ignore_ascii_case("default") {
-                context.agents.resolve_default_agent_id()?
-            } else {
-                context.agents.resolve_existing_agent_id(trimmed)?
-            };
-            context
-                .agents
-                .get_agent(resolved_id.clone())?
-                .ok_or_else(|| anyhow!("Agent not found: {resolved_id}"))
-        }
-
-        fn normalize_run_spawn_request(
-            context: &AssessmentContext,
-            request: ContractRunSpawnRequest,
-        ) -> Result<RunSpawnRequest> {
-            let available_agents = context
-                .agents
-                .list_agents()?
-                .into_iter()
-                .map(|agent| SubagentDefSummary {
-                    id: agent.id,
-                    name: agent.name,
-                    description: "File-backed agent".to_string(),
-                    tags: Vec::new(),
-                })
-                .collect::<Vec<_>>();
-            run_spawn_request_from_contract(&available_agents, request)
-                .map_err(|error| anyhow!(error.to_string()))
-        }
-
-        async fn validate_agent_async(
-            context: &AssessmentContext,
-            agent: &AgentNode,
-        ) -> std::result::Result<(), Vec<ValidationError>> {
-            let mut errors = Vec::new();
-
-            let tool_registry = match crate::services::tool_registry::create_tool_registry(
-                context.config.clone(),
-                None,
-                None,
-            ) {
-                Ok(registry) => registry,
-                Err(err) => {
-                    errors.push(ValidationError::new(
-                        "tools",
-                        format!("Failed to create tool registry: {err}"),
-                    ));
-                    return Err(errors);
-                }
-            };
-
-            if let Some(tools) = &agent.tools {
-                for tool_name in tools {
-                    let normalized = tool_name.trim();
-                    if normalized.is_empty() {
-                        errors.push(ValidationError::new("tools", "tool name must not be empty"));
-                        continue;
-                    }
-                    if !tool_registry.has(normalized) && !is_subagent_tool_name(normalized) {
-                        errors.push(ValidationError::new(
-                            "tools",
-                            format!("unknown tool: {}", normalized),
-                        ));
-                    }
-                }
-            }
-
-            if let Some(skills) = &agent.skills {
-                for skill_id in skills {
-                    let normalized = skill_id.trim();
-                    if normalized.is_empty() {
-                        errors.push(ValidationError::new("skills", "skill ID must not be empty"));
-                        continue;
-                    }
-                    match crate::services::skills::skill_exists_in_catalog(normalized) {
-                        Ok(true) => {}
-                        Ok(false) => errors.push(ValidationError::new(
-                            "skills",
-                            format!("unknown skill: {}", normalized),
-                        )),
-                        Err(err) => errors.push(ValidationError::new(
-                            "skills",
-                            format!("failed to verify skill '{}': {}", normalized, err),
-                        )),
-                    }
-                }
-            }
-
-            if let Some(ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
-                let normalized = secret_name.trim();
-                if !normalized.is_empty() {
-                    match context.secrets.has_available_secret(normalized) {
-                        Ok(true) => {}
-                        Ok(false) => errors.push(ValidationError::new(
-                            "api_key_config",
-                            format!("secret not found in storage: {}", normalized),
-                        )),
-                        Err(err) => errors.push(ValidationError::new(
-                            "api_key_config",
-                            format!("failed to verify secret '{}': {}", normalized, err),
-                        )),
-                    }
-                }
-            }
-
-            if errors.is_empty() {
-                Ok(())
-            } else {
-                Err(errors)
-            }
-        }
-
-        fn is_subagent_tool_name(name: &str) -> bool {
-            matches!(
-                name,
-                "spawn_subagent" | "spawn_subagent_batch" | "wait_subagents" | "list_subagents"
-            )
-        }
-
-        async fn assess_agent_node(
-            context: &AssessmentContext,
-            operation: &str,
-            intent: OperationAssessmentIntent,
-            agent: &AgentNode,
-            subagent_parent_fallback: bool,
-        ) -> Result<OperationAssessment> {
-            let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());
-
-            if let Err(errors) = agent.validate() {
-                assessment.blockers.extend(issues_from_validation(errors));
-            }
-            if let Err(errors) = validate_agent_async(context, agent).await {
-                assessment.blockers.extend(issues_from_validation(errors));
-            }
-
-            if !assessment.blockers.is_empty() {
-                return Ok(finalize_assessment(assessment));
-            }
-
-            if let Some(model_ref) = agent.resolved_model_ref() {
-                assessment.effective_model_ref = Some(to_assessment_model_ref(model_ref));
-                if !provider_is_available(context, model_ref.provider)
-                    && !agent_has_local_credential(context, agent)
-                {
-                    let current_issue = issue(
-                        "provider_unavailable",
-                        format!(
-                            "Provider '{}' is not configured in the current environment.",
-                            model_ref.provider.as_canonical_str()
-                        ),
-                        Some("model_ref.provider"),
-                        Some("Configure a compatible API key before running."),
-                    );
-                    match intent {
-                        OperationAssessmentIntent::Save => assessment.warnings.push(current_issue),
-                        OperationAssessmentIntent::Run => assessment.blockers.push(current_issue),
-                    }
-                }
-                return Ok(finalize_assessment(assessment));
-            }
-
-            if subagent_parent_fallback {
-                if matches!(intent, OperationAssessmentIntent::Save) {
-                    assessment.warnings.push(issue(
-                        "inherits_parent_model",
-                        "No explicit model is configured. This sub-agent run will inherit the parent runtime model.",
-                        Some("model_ref"),
-                        Some("Set model_ref when you need deterministic provider behavior."),
-                    ));
-                }
-                return Ok(finalize_assessment(assessment));
-            }
-
-            if matches!(intent, OperationAssessmentIntent::Save) {
-                return Ok(finalize_assessment(assessment));
-            }
-
-            match resolve_model_from_stored_credentials(context) {
-                Some(model) => {
-                    let model_ref = ModelRef::from_model(model);
-                    assessment.effective_model_ref = Some(to_assessment_model_ref(model_ref));
-                }
-                None => {
-                    let current_issue = issue(
-                        "auto_model_unresolved",
-                        "No explicit model is configured and no compatible credential is currently available.",
-                        Some("model_ref"),
-                        Some("Set model_ref or configure a compatible API key."),
-                    );
-                    match intent {
-                        OperationAssessmentIntent::Save => assessment.warnings.push(current_issue),
-                        OperationAssessmentIntent::Run => assessment.blockers.push(current_issue),
-                    }
-                }
-            }
-
-            Ok(finalize_assessment(assessment))
-        }
-
-        fn merge_assessment(
-            target: &mut OperationAssessment,
-            child: OperationAssessment,
-            context_prefix: &str,
-        ) {
-            if target.effective_model_ref.is_none() {
-                target.effective_model_ref = child.effective_model_ref;
-            }
-            target
-                .warnings
-                .extend(child.warnings.into_iter().map(|mut issue| {
-                    issue.message = format!("{context_prefix}: {}", issue.message);
-                    issue
-                }));
-            target
-                .blockers
-                .extend(child.blockers.into_iter().map(|mut issue| {
-                    issue.message = format!("{context_prefix}: {}", issue.message);
-                    issue
-                }));
-        }
-
-        pub async fn assess_agent_create(
-            core: &Arc<AppCore>,
-            request: AgentCreateRequest,
-        ) -> Result<OperationAssessment> {
-            let context = AssessmentContext::from_core(core);
-            assess_agent_create_with_context(&context, request).await
-        }
-
-        async fn assess_agent_create_with_context(
-            context: &AssessmentContext,
-            request: AgentCreateRequest,
-        ) -> Result<OperationAssessment> {
-            let agent = parse_agent_node(request.agent)?;
-            assess_agent_node(
-                context,
-                "create_agent",
-                OperationAssessmentIntent::Save,
-                &agent,
-                false,
-            )
-            .await
-        }
-
-        pub async fn assess_agent_update(
-            core: &Arc<AppCore>,
-            request: AgentUpdateRequest,
-        ) -> Result<OperationAssessment> {
-            let context = AssessmentContext::from_core(core);
-            assess_agent_update_with_context(&context, request).await
-        }
-
-        async fn assess_agent_update_with_context(
-            context: &AssessmentContext,
-            request: AgentUpdateRequest,
-        ) -> Result<OperationAssessment> {
-            let Some(agent_value) = request.agent else {
-                return Ok(OperationAssessment::ok(
-                    "update_agent",
-                    OperationAssessmentIntent::Save,
-                ));
-            };
-            let agent = parse_agent_node(agent_value)?;
-            assess_agent_node(
-                context,
-                "update_agent",
-                OperationAssessmentIntent::Save,
-                &agent,
-                false,
-            )
-            .await
-        }
-
-        pub async fn assess_subagent_spawn(
-            core: &Arc<AppCore>,
-            operation: &str,
-            request: ContractRunSpawnRequest,
-            template_mode: bool,
-        ) -> Result<OperationAssessment> {
-            let context = AssessmentContext::from_core(core);
-            assess_run_spawn_with_context(&context, operation, request, template_mode).await
-        }
-
-        async fn assess_run_spawn_with_context(
-            context: &AssessmentContext,
-            operation: &str,
-            request: ContractRunSpawnRequest,
-            template_mode: bool,
-        ) -> Result<OperationAssessment> {
-            let request = normalize_run_spawn_request(context, request)?;
-            let intent = if template_mode {
-                OperationAssessmentIntent::Save
-            } else {
-                OperationAssessmentIntent::Run
-            };
-
-            if let (Some(model), Some(provider)) = (
-                request
-                    .model
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty()),
-                request
-                    .model_provider
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty()),
-            ) {
-                let normalized_model = ModelId::normalize_model_id(model)
-                    .ok_or_else(|| anyhow!("Unsupported model identifier: {}", model))?;
-                let requested_provider = SharedModelProvider::parse_alias(provider)
-                    .map(Provider::from_model_provider)
-                    .ok_or_else(|| anyhow!("Unsupported provider identifier: {}", provider))?;
-                let resolved_model =
-                    ModelId::for_provider_and_model(requested_provider, &normalized_model)
-                        .ok_or_else(|| {
-                            anyhow!("Unsupported model identifier: {}", normalized_model)
-                        })?;
-                let model_ref = ModelRef::from_model(resolved_model);
-                let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());
-                assessment.effective_model_ref = Some(to_assessment_model_ref(model_ref));
-
-                if model_ref.provider != requested_provider {
-                    assessment.blockers.push(issue(
-                        "model_provider_mismatch",
-                        format!(
-                            "Model '{}' does not belong to provider '{}'.",
-                            resolved_model.as_serialized_str(),
-                            requested_provider.as_canonical_str()
-                        ),
-                        Some("provider"),
-                        Some("Choose a model that belongs to the selected provider."),
-                    ));
-                    return Ok(finalize_assessment(assessment));
-                }
-
-                if !provider_is_available(context, requested_provider) {
-                    let current_issue = issue(
-                        "provider_unavailable",
-                        format!(
-                            "Provider '{}' is not configured in the current environment.",
-                            requested_provider.as_canonical_str()
-                        ),
-                        Some("provider"),
-                        Some("Configure a compatible API key before running."),
-                    );
-                    match intent {
-                        OperationAssessmentIntent::Save => assessment.warnings.push(current_issue),
-                        OperationAssessmentIntent::Run => assessment.blockers.push(current_issue),
-                    }
-                }
-
-                return Ok(finalize_assessment(assessment));
-            }
-
-            if let Some(agent_id) = request.agent_id.as_deref() {
-                let stored_agent = load_agent(context, agent_id).await?;
-                return assess_agent_node(context, operation, intent, &stored_agent.agent, true)
-                    .await;
-            }
-
-            let mut assessment = OperationAssessment::ok(operation.to_string(), intent);
-            if matches!(assessment.intent, OperationAssessmentIntent::Save) {
-                assessment.warnings.push(issue(
-                    "inherits_parent_model",
-                    "This temporary sub-agent run has no explicit model and will inherit the parent runtime model.",
-                    Some("model_ref"),
-                    Some("Set model_ref to make this sub-agent run deterministic."),
-                ));
-            }
-            Ok(finalize_assessment(assessment))
-        }
-
-        pub async fn assess_subagent_batch(
-            core: &Arc<AppCore>,
-            operation: &str,
-            requests: Vec<ContractRunSpawnRequest>,
-            template_mode: bool,
-        ) -> Result<OperationAssessment> {
-            let context = AssessmentContext::from_core(core);
-            assess_run_batch_with_context(&context, operation, requests, template_mode).await
-        }
-
-        async fn assess_run_batch_with_context(
-            context: &AssessmentContext,
-            operation: &str,
-            requests: Vec<ContractRunSpawnRequest>,
-            template_mode: bool,
-        ) -> Result<OperationAssessment> {
-            let intent = if template_mode {
-                OperationAssessmentIntent::Save
-            } else {
-                OperationAssessmentIntent::Run
-            };
-            let mut assessment = OperationAssessment::ok(operation.to_string(), intent);
-
-            for (index, request) in requests.into_iter().enumerate() {
-                let child =
-                    assess_run_spawn_with_context(context, operation, request, template_mode)
-                        .await?;
-                merge_assessment(&mut assessment, child, &format!("Worker {}", index + 1));
-            }
-
-            Ok(finalize_assessment(assessment))
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-            use crate::test_support::RestflowTestEnv;
-            use types::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
-
-            async fn create_test_core_isolated() -> (Arc<AppCore>, RestflowTestEnv) {
-                let env = RestflowTestEnv::new();
-                let db_path = env.db_path("test.db");
-                let core = Arc::new(
-                    AppCore::new(db_path.to_str().expect("db path"))
-                        .await
-                        .unwrap(),
-                );
-                (core, env)
-            }
-
-            #[tokio::test]
-            async fn assess_agent_create_accepts_valid_contract_agent_node() {
-                let (core, _env) = create_test_core_isolated().await;
-                let assessment = assess_agent_create(
-                    &core,
-                    AgentCreateRequest {
-                        name: "Typed Agent".to_string(),
-                        agent: ContractAgentNode {
-                            model_ref: Some(WireModelRef {
-                                provider: "openai".to_string(),
-                                model: "gpt-5-mini".to_string(),
-                            }),
-                            api_key_config: Some(ContractApiKeyConfig::Direct(
-                                "test-key".to_string(),
-                            )),
-                            prompt: Some("hello".to_string()),
-                            ..ContractAgentNode::default()
-                        },
-                    },
-                )
-                .await
-                .expect("assessment should succeed");
-
-                assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
-                assert_eq!(
-                    assessment
-                        .effective_model_ref
-                        .as_ref()
-                        .map(|model_ref| model_ref.provider.as_str()),
-                    Some("openai")
-                );
-            }
-
-            #[tokio::test]
-            async fn assess_agent_create_accepts_subagent_tools() {
-                let (core, _env) = create_test_core_isolated().await;
-                let assessment = assess_agent_create(
-                    &core,
-                    AgentCreateRequest {
-                        name: "Subagent Coordinator".to_string(),
-                        agent: ContractAgentNode {
-                            model_ref: Some(WireModelRef {
-                                provider: "openai".to_string(),
-                                model: "gpt-5-mini".to_string(),
-                            }),
-                            api_key_config: Some(ContractApiKeyConfig::Direct(
-                                "test-key".to_string(),
-                            )),
-                            tools: Some(vec![
-                                "bash".to_string(),
-                                "spawn_subagent_batch".to_string(),
-                                "wait_subagents".to_string(),
-                                "list_subagents".to_string(),
-                            ]),
-                            prompt: Some("coordinate subagents".to_string()),
-                            ..ContractAgentNode::default()
-                        },
-                    },
-                )
-                .await
-                .expect("subagent tools should be accepted");
-
-                assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
-            }
-
-            #[tokio::test]
-            async fn assess_agent_create_rejects_invalid_model_ref() {
-                let (core, _env) = create_test_core_isolated().await;
-                let error = assess_agent_create(
-                    &core,
-                    AgentCreateRequest {
-                        name: "Bad Agent".to_string(),
-                        agent: ContractAgentNode {
-                            model_ref: Some(WireModelRef {
-                                provider: "openai".to_string(),
-                                model: "claude-sonnet-4".to_string(),
-                            }),
-                            ..ContractAgentNode::default()
-                        },
-                    },
-                )
-                .await
-                .expect_err("invalid model_ref should fail");
-
-                let message = error.to_string();
-                assert!(message.contains("validation_error"));
-                assert!(message.contains("model_ref"));
-            }
-
-            #[tokio::test]
-            async fn assess_agent_update_rejects_invalid_model_ref() {
-                let (core, _env) = create_test_core_isolated().await;
-                let error = assess_agent_update(
-                    &core,
-                    AgentUpdateRequest {
-                        id: "agent-1".to_string(),
-                        name: None,
-                        agent: Some(ContractAgentNode {
-                            model_ref: Some(WireModelRef {
-                                provider: "anthropic".to_string(),
-                                model: "gpt-5-mini".to_string(),
-                            }),
-                            ..ContractAgentNode::default()
-                        }),
-                    },
-                )
-                .await
-                .expect_err("invalid model_ref should fail");
-
-                let message = error.to_string();
-                assert!(message.contains("validation_error"));
-                assert!(message.contains("model_ref"));
-            }
-
-            #[tokio::test]
-            async fn assess_subagent_spawn_accepts_contract_request_and_sets_effective_model_ref() {
-                let (core, _env) = create_test_core_isolated().await;
-                let assessment = assess_subagent_spawn(
-                    &core,
-                    "spawn_subagent",
-                    ContractRunSpawnRequest {
-                        task: "Summarize the workspace".to_string(),
-                        model: Some("gpt-5-mini".to_string()),
-                        model_provider: Some("openai".to_string()),
-                        ..ContractRunSpawnRequest::default()
-                    },
-                    true,
-                )
-                .await
-                .expect("assessment should succeed for a valid contract request");
-
-                assert!(matches!(
-                    assessment.status,
-                    OperationAssessmentStatus::Ok | OperationAssessmentStatus::Warning
-                ));
-                assert_eq!(
-                    assessment
-                        .effective_model_ref
-                        .as_ref()
-                        .map(|model_ref| model_ref.provider.as_str()),
-                    Some("openai")
-                );
-                assert_eq!(
-                    assessment
-                        .effective_model_ref
-                        .as_ref()
-                        .map(|model_ref| model_ref.model.as_str()),
-                    Some("gpt-5-mini")
-                );
-            }
-
-            #[tokio::test]
-            async fn assess_subagent_spawn_rejects_invalid_contract_request_before_runtime() {
-                let (core, _env) = create_test_core_isolated().await;
-                let error = assess_subagent_spawn(
-                    &core,
-                    "spawn_subagent",
-                    ContractRunSpawnRequest {
-                        task: "Summarize the workspace".to_string(),
-                        model: Some("gpt-5-mini".to_string()),
-                        model_provider: None,
-                        ..ContractRunSpawnRequest::default()
-                    },
-                    false,
-                )
-                .await
-                .expect_err("model/provider mismatch should fail at the boundary");
-
-                assert!(
-                    error
-                        .to_string()
-                        .contains("requires both 'model' and 'provider'")
-                );
-            }
-
-            #[tokio::test]
-            async fn assess_subagent_batch_rejects_invalid_contract_requests() {
-                let (core, _env) = create_test_core_isolated().await;
-                let error = assess_subagent_batch(
-                    &core,
-                    "spawn_subagent_batch",
-                    vec![ContractRunSpawnRequest {
-                        task: "Summarize the workspace".to_string(),
-                        model: Some("gpt-5-mini".to_string()),
-                        model_provider: None,
-                        ..ContractRunSpawnRequest::default()
-                    }],
-                    false,
-                )
-                .await
-                .expect_err("invalid batch request should fail at the boundary");
-
-                assert!(
-                    error
-                        .to_string()
-                        .contains("requires both 'model' and 'provider'")
-                );
-            }
-
-            #[tokio::test]
-            async fn assess_subagent_batch_allows_runtime_parent_model_inheritance() {
-                let (core, _env) = create_test_core_isolated().await;
-                let assessment = assess_subagent_batch(
-                    &core,
-                    "spawn_subagent_batch",
-                    vec![ContractRunSpawnRequest {
-                        task: "Return A_OK".to_string(),
-                        ..ContractRunSpawnRequest::default()
-                    }],
-                    false,
-                )
-                .await
-                .expect("runtime inheritance should be allowed");
-
-                assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
-                assert!(!assessment.requires_confirmation);
-                assert_eq!(assessment.approval_id, None);
             }
         }
     }
@@ -9727,14 +7540,13 @@ pub mod services {
             }
 
             pub fn get_session_view(&self, session_id: &str) -> Result<Option<ChatSession>> {
-                let Some(mut session) = self
+                let Some(session) = self
                     .file_sessions
                     .get(session_id)?
                     .map(|session| session.to_chat_session())
                 else {
                     return Ok(None);
                 };
-                session.hydrate_provider_from_model();
                 Ok(Some(session))
             }
 
@@ -9747,14 +7559,13 @@ pub mod services {
                     return Ok(None);
                 }
 
-                let Some(mut session) = self
+                let Some(session) = self
                     .file_sessions
                     .get_by_turn_id(turn_id)?
                     .map(|session| session.to_chat_session())
                 else {
                     return Ok(None);
                 };
-                session.hydrate_provider_from_model();
                 Ok(Some(session))
             }
 
@@ -9778,10 +7589,6 @@ pub mod services {
                         )
                     })
                     .collect::<Vec<_>>();
-
-                for session in &mut sessions {
-                    session.hydrate_provider_from_model();
-                }
 
                 sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
 
@@ -9924,8 +7731,6 @@ pub mod services {
                     let mut session = self
                         .get_session_view(session_id)?
                         .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-                    session.hydrate_provider_from_model();
                     session.add_message(user_message);
                     session.add_message(assistant_message);
 
@@ -9955,11 +7760,9 @@ pub mod services {
             pub fn append_user_message(
                 &self,
                 session_id: &str,
-                mut user_message: ChatMessage,
+                user_message: ChatMessage,
                 source: &str,
             ) -> Result<ChatSession> {
-                crate::voice_transcript::hydrate_voice_message_metadata(&mut user_message);
-
                 let session_lock = {
                     let mut locks = self.append_locks.lock().expect("session append locks");
                     if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
@@ -9976,8 +7779,6 @@ pub mod services {
                     let mut session = self
                         .get_session_view(session_id)?
                         .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-                    session.hydrate_provider_from_model();
                     session.add_message(user_message);
                     self.persist_session_view(&session, "append_user_message")?;
                     session
@@ -9997,8 +7798,7 @@ pub mod services {
             }
 
             pub fn save_existing_session(&self, session: &ChatSession, source: &str) -> Result<()> {
-                let mut session = session.clone();
-                session.hydrate_provider_from_model();
+                let session = session.clone();
                 self.persist_session_view(&session, "save")?;
                 publish_session_event(ChatSessionEvent::MessageAdded {
                     session_id: session.id.clone(),
@@ -10007,8 +7807,7 @@ pub mod services {
                 Ok(())
             }
 
-            pub fn create_external_session(&self, mut session: ChatSession) -> Result<ChatSession> {
-                session.hydrate_provider_from_model();
+            pub fn create_external_session(&self, session: ChatSession) -> Result<ChatSession> {
                 self.persist_session_view(&session, "create_external")?;
                 publish_session_event(ChatSessionEvent::Created {
                     session_id: session.id.clone(),
@@ -10017,8 +7816,7 @@ pub mod services {
             }
 
             pub fn save_session_metadata(&self, session: &ChatSession) -> Result<()> {
-                let mut session = session.clone();
-                session.hydrate_provider_from_model();
+                let session = session.clone();
                 self.persist_session_view(&session, "metadata")?;
                 publish_session_event(ChatSessionEvent::Updated {
                     session_id: session.id.clone(),
@@ -10230,7 +8028,6 @@ pub mod services {
                     request.original_input,
                     request.persisted_input,
                 );
-                session.hydrate_provider_from_model();
                 session.add_message(
                     ChatMessage::assistant(request.assistant_output)
                         .with_execution(request.execution),
@@ -10321,7 +8118,6 @@ pub mod services {
             };
 
             session.messages[index].content = updated_content.to_string();
-            crate::voice_transcript::hydrate_voice_message_metadata(&mut session.messages[index]);
             true
         }
 
@@ -10415,21 +8211,6 @@ pub mod services {
                 assert_eq!(reloaded.messages.len(), 2);
                 assert_eq!(reloaded.messages[0].content, "hello");
                 assert_eq!(reloaded.messages[1].content, "world");
-            }
-
-            #[test]
-            fn get_session_view_hydrates_provider_for_legacy_session() {
-                let (storage, service, mut session) = setup();
-                session.provider.clear();
-                save_session(&storage, &session);
-
-                let hydrated = service
-                    .get_session_view(&session.id)
-                    .unwrap()
-                    .expect("session");
-
-                assert_eq!(hydrated.provider, "openai");
-                assert_eq!(hydrated.model, "gpt-5");
             }
 
             #[test]
@@ -10620,38 +8401,6 @@ pub mod services {
             }
 
             #[test]
-            fn append_user_message_hydrates_voice_metadata() {
-                let (storage, service, session) = setup();
-
-                let persisted = service
-                    .append_user_message(
-                        &session.id,
-                        ChatMessage::user(
-                            "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm\n\n[Transcript]\nhello voice",
-                        ),
-                        "ipc",
-                    )
-                    .unwrap();
-
-                assert_eq!(persisted.messages.len(), 1);
-                let user = &persisted.messages[0];
-                assert_eq!(user.role, ChatRole::User);
-                assert_eq!(
-                    user.media.as_ref().map(|media| media.file_path.as_str()),
-                    Some("/tmp/voice.webm")
-                );
-                assert_eq!(
-                    user.transcript
-                        .as_ref()
-                        .map(|transcript| transcript.text.as_str()),
-                    Some("hello voice")
-                );
-
-                let reloaded = load_session(&storage, &session.id);
-                assert_eq!(reloaded.messages.len(), 1);
-            }
-
-            #[test]
             fn update_session_enforces_workspace_policy_and_persists_changes() {
                 let (storage, service, session) = setup();
                 let updated = service
@@ -10827,116 +8576,6 @@ pub mod services {
             }
         }
     }
-    pub mod skill_triggers {
-        use types::{Skill, SkillStatus};
-
-        /// Match result for a skill trigger phrase.
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct TriggerMatch {
-            pub skill_id: String,
-            pub skill_name: String,
-            pub matched_trigger: String,
-            pub confidence: TriggerConfidence,
-        }
-
-        /// Confidence score for a trigger match.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-        pub enum TriggerConfidence {
-            Exact,
-        }
-
-        /// Find active skills whose trigger phrases appear in the user message.
-        pub fn match_triggers(message: &str, skills: &[Skill]) -> Vec<TriggerMatch> {
-            let normalized_message = message.to_lowercase();
-            let mut matches = Vec::new();
-
-            for skill in skills {
-                if skill.status != SkillStatus::Active {
-                    continue;
-                }
-
-                for trigger in &skill.triggers {
-                    let normalized_trigger = trigger.trim().to_lowercase();
-                    if normalized_trigger.is_empty() {
-                        continue;
-                    }
-
-                    if normalized_message.contains(&normalized_trigger) {
-                        matches.push(TriggerMatch {
-                            skill_id: skill.id.clone(),
-                            skill_name: skill.name.clone(),
-                            matched_trigger: trigger.clone(),
-                            confidence: TriggerConfidence::Exact,
-                        });
-                        break;
-                    }
-                }
-            }
-
-            matches.sort_by_key(|match_result| std::cmp::Reverse(match_result.confidence));
-            matches
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-
-            fn build_skill(id: &str, name: &str, triggers: Vec<&str>) -> Skill {
-                let mut skill = Skill::new(
-                    id.to_string(),
-                    name.to_string(),
-                    Some(format!("{} description", name)),
-                    None,
-                    format!("# {}\n", name),
-                );
-                skill.triggers = triggers.into_iter().map(|item| item.to_string()).collect();
-                skill
-            }
-
-            #[test]
-            fn test_trigger_exact_match() {
-                let skills = vec![build_skill(
-                    "code-reviewer",
-                    "Code Reviewer",
-                    vec!["code review", "review PR"],
-                )];
-
-                let matches = match_triggers("please review PR #123", &skills);
-                assert_eq!(matches.len(), 1);
-                assert_eq!(matches[0].skill_id, "code-reviewer");
-                assert_eq!(matches[0].confidence, TriggerConfidence::Exact);
-            }
-
-            #[test]
-            fn test_trigger_case_insensitive() {
-                let skills = vec![build_skill(
-                    "code-reviewer",
-                    "Code Reviewer",
-                    vec!["Code Review"],
-                )];
-
-                let matches = match_triggers("do a code review on this patch", &skills);
-                assert_eq!(matches.len(), 1);
-            }
-
-            #[test]
-            fn test_trigger_no_match() {
-                let skills = vec![build_skill("deployer", "Deployer", vec!["deploy release"])];
-
-                let matches = match_triggers("fix the bug in parser", &skills);
-                assert!(matches.is_empty());
-            }
-
-            #[test]
-            fn test_trigger_ignores_non_active_skills() {
-                let mut archived = build_skill("archived", "Archived", vec!["code review"]);
-                archived.status = SkillStatus::Archived;
-
-                let matches = match_triggers("code review this", &[archived]);
-                assert!(matches.is_empty());
-            }
-        }
-    }
     pub mod skills {
         //! Skills service layer for the skrun-managed catalog.
 
@@ -11066,15 +8705,6 @@ pub mod services {
                             "Tag cannot be empty",
                         ));
                     }
-                }
-            }
-
-            for (index, trigger) in skill.triggers.iter().enumerate() {
-                if trigger.trim().is_empty() {
-                    errors.push(ValidationError::new(
-                        format!("triggers[{index}]"),
-                        "Trigger cannot be empty",
-                    ));
                 }
             }
 
@@ -11339,14 +8969,12 @@ pub mod services {
                 skill.name = "   ".to_string();
                 skill.content = "\n".to_string();
                 skill.tags = Some(vec!["ok".to_string(), " ".to_string()]);
-                skill.triggers = vec!["".to_string()];
 
                 let errors = validate_skill(&skill);
 
                 assert!(errors.iter().any(|e| e.field == "name"));
                 assert!(errors.iter().any(|e| e.field == "content"));
                 assert!(errors.iter().any(|e| e.field == "tags[1]"));
-                assert!(errors.iter().any(|e| e.field == "triggers[0]"));
             }
 
             #[test]
@@ -11445,7 +9073,6 @@ pub mod services {
         mod assembly {
             use super::*;
             use crate::tools::{BashConfig, FileConfig};
-            use types::AgentOperationAssessor;
 
             /// Create the daemon-owned minimal tool registry.
             ///
@@ -11459,15 +9086,6 @@ pub mod services {
                 config_storage: ConfigStorage,
                 agent_id: Option<String>,
                 security_gate: Option<Arc<dyn SecurityGate>>,
-            ) -> anyhow::Result<ToolRegistry> {
-                create_tool_registry_with_assessor(config_storage, agent_id, security_gate, None)
-            }
-
-            pub fn create_tool_registry_with_assessor(
-                config_storage: ConfigStorage,
-                agent_id: Option<String>,
-                security_gate: Option<Arc<dyn SecurityGate>>,
-                _assessor: Option<Arc<dyn AgentOperationAssessor>>,
             ) -> anyhow::Result<ToolRegistry> {
                 let config_storage = Arc::new(config_storage);
                 let agent_defaults = load_agent_defaults(&config_storage);
@@ -11539,7 +9157,7 @@ pub mod services {
 
         use self::config::load_agent_defaults;
 
-        pub use self::assembly::{create_tool_registry, create_tool_registry_with_assessor};
+        pub use self::assembly::create_tool_registry;
     }
 }
 pub mod session_events {
@@ -13795,85 +11413,6 @@ pub mod time_utils {
         chrono::Utc::now().timestamp_millis()
     }
 }
-mod voice_transcript {
-    use types::{ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole};
-
-    const VOICE_MEDIA_TYPE_LINE: &str = "media_type: voice";
-    const FILE_PATH_PREFIX: &str = "local_file_path: ";
-    const TRANSCRIPT_MARKER: &str = "\n\n[Transcript]\n";
-    const VOICE_HEADER_PREFIX: &str = "[Voice message";
-
-    /// Populate structured voice metadata from legacy message content blocks.
-    pub(crate) fn hydrate_voice_message_metadata(message: &mut ChatMessage) -> bool {
-        if message.role != ChatRole::User {
-            return false;
-        }
-
-        let mut changed = false;
-        if message.media.is_none()
-            && let Some(file_path) = extract_voice_file_path(&message.content)
-        {
-            let duration = extract_voice_duration_sec(&message.content);
-            message.media = Some(ChatMessageMedia::voice(file_path, duration));
-            changed = true;
-        }
-
-        if let Some(transcript_text) = extract_transcript_from_message_content(&message.content) {
-            let should_update = message
-                .transcript
-                .as_ref()
-                .is_none_or(|existing| existing.text.trim() != transcript_text);
-            if should_update {
-                message.transcript = Some(ChatMessageTranscript::new(transcript_text, None));
-                changed = true;
-            }
-        }
-
-        changed
-    }
-
-    fn extract_voice_file_path(content: &str) -> Option<String> {
-        let mut is_voice_message = false;
-        let mut file_path: Option<String> = None;
-
-        for raw_line in content.lines() {
-            let line = raw_line.trim();
-            if line == VOICE_MEDIA_TYPE_LINE {
-                is_voice_message = true;
-                continue;
-            }
-
-            if let Some(path) = line.strip_prefix(FILE_PATH_PREFIX) {
-                let normalized = path.trim();
-                if !normalized.is_empty() {
-                    file_path = Some(normalized.to_string());
-                }
-            }
-        }
-
-        if is_voice_message { file_path } else { None }
-    }
-
-    fn extract_voice_duration_sec(content: &str) -> Option<u32> {
-        let first_line = content.lines().next()?.trim();
-        if !first_line.starts_with(VOICE_HEADER_PREFIX) {
-            return None;
-        }
-        let (_, tail) = first_line.split_once(',')?;
-        let seconds = tail.trim().strip_suffix("s]")?.trim();
-        seconds.parse::<u32>().ok()
-    }
-
-    fn extract_transcript_from_message_content(content: &str) -> Option<String> {
-        let (_, body) = content.split_once(TRANSCRIPT_MARKER)?;
-        let transcript = body.trim();
-        if transcript.is_empty() {
-            None
-        } else {
-            Some(transcript.to_string())
-        }
-    }
-}
 pub use tools;
 
 pub use config::{
@@ -13890,10 +11429,10 @@ pub use types::{
     AgentMeta, AgentNode, AgentType, ApiKeyConfig, ChatExecutionStatus, ChatMessage, ChatRole,
     ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, CodexCliExecutionMode,
     ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionStepInfo,
-    ExecutionThread, MessageExecution, ModelId, ModelMetadataDTO, ModelRoutingConfig, Provider,
-    RunKind, RunListQuery, RunSummary, RunTimeline, Skill, SkillGating, SkillMeta, SkillReference,
-    SkillScript, SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError,
-    ValidationErrorResponse, encode_validation_error,
+    MessageExecution, ModelId, ModelMetadataDTO, ModelRoutingConfig, Provider, RunKind,
+    RunListQuery, RunSummary, Skill, SkillGating, SkillMeta, SkillReference, SkillScript,
+    SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError, ValidationErrorResponse,
+    encode_validation_error,
 };
 
 use std::sync::Arc;

@@ -1528,10 +1528,6 @@ mod commands {
                 Cell::new(config.agent.bash_timeout_secs),
             ]);
             table.add_row(vec![
-                Cell::new("agent.process_session_ttl_secs"),
-                Cell::new(config.agent.process_session_ttl_secs),
-            ]);
-            table.add_row(vec![
                 Cell::new("agent.approval_timeout_secs"),
                 Cell::new(config.agent.approval_timeout_secs),
             ]);
@@ -1653,7 +1649,6 @@ mod commands {
                 "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
                 "agent.llm_timeout_secs" => json!(config.agent.llm_timeout_secs),
                 "agent.bash_timeout_secs" => json!(config.agent.bash_timeout_secs),
-                "agent.process_session_ttl_secs" => json!(config.agent.process_session_ttl_secs),
                 "agent.approval_timeout_secs" => json!(config.agent.approval_timeout_secs),
                 "agent.auto_review_tools" => json!(config.agent.auto_review_tools),
                 "agent.max_iterations" => json!(config.agent.max_iterations),
@@ -1752,9 +1747,6 @@ mod commands {
                     }
                     "agent.bash_timeout_secs" => {
                         config.agent.bash_timeout_secs = parse_value(value)?;
-                    }
-                    "agent.process_session_ttl_secs" => {
-                        config.agent.process_session_ttl_secs = parse_value(value)?;
                     }
                     "agent.approval_timeout_secs" => {
                         config.agent.approval_timeout_secs = parse_value(value)?;

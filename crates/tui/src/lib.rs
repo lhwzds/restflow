@@ -1126,7 +1126,6 @@ mod controller {
                 }
                 Some(OverlayState::SkillMentionPicker { .. })
                 | Some(OverlayState::SkillDetail)
-                | Some(OverlayState::RunDetail)
                 | Some(OverlayState::Help)
                 | None => Ok(Vec::new()),
             }
@@ -1268,7 +1267,6 @@ mod controller {
                 SlashCommand::SwitchModel { model } => {
                     self.switch_model_actions(state, model).await
                 }
-                SlashCommand::OpenRun { run_id } => self.open_run_id_actions(&run_id).await,
             }
         }
 
@@ -1506,24 +1504,10 @@ mod controller {
             &self,
             item: WorkPickerItem,
         ) -> Result<Vec<ShellAction>> {
-            match item {
-                WorkPickerItem::Run { run_id, .. } => self.open_run_id_actions(&run_id).await,
-            }
-        }
-
-        async fn open_run_id_actions(&self, run_id: &str) -> Result<Vec<ShellAction>> {
-            let thread = self.client.get_execution_run_thread(run_id).await?;
-            let session = if let Some(session_id) = thread.focus.session_id.as_deref() {
-                self.client.get_session(session_id).await.ok()
-            } else {
-                None
-            };
-            Ok(vec![ShellAction::RunOpened {
-                session: session.map(Box::new),
-                run_id: run_id.to_string(),
-                thread: Box::new(thread),
-                status: format!("Opened run {run_id}"),
-            }])
+            let WorkPickerItem::Run { run_id, .. } = item;
+            Ok(vec![ShellAction::StatusUpdated(format!(
+                "Run detail view was removed: {run_id}"
+            ))])
         }
     }
 
@@ -2266,10 +2250,10 @@ mod daemon_client {
     use tokio::time::{Duration, sleep};
     use types::request::WireModelRef;
     use types::{
-        ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
-        ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill,
+        ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef, ModelId,
+        ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill,
     };
-    use types::{ChatSessionEvent, IpcRequest, StreamFrame};
+    use types::{ChatSessionEvent, StreamFrame};
 
     use super::event_loop::AppEvent;
 
@@ -2461,15 +2445,6 @@ mod daemon_client {
                         kind: ExecutionContainerKind::Workspace,
                         id: session_id.to_string(),
                     },
-                })
-                .await
-        }
-
-        pub async fn get_execution_run_thread(&self, run_id: &str) -> Result<ExecutionThread> {
-            let mut client = self.connect().await?;
-            client
-                .request_typed(IpcRequest::GetExecutionRunThread {
-                    run_id: run_id.to_string(),
                 })
                 .await
         }
@@ -3508,7 +3483,7 @@ mod reducer {
         SkillPickerItem,
     };
     use ::daemon::StoredAgent;
-    use types::{ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary};
+    use types::{ChatSession, ChatSessionSummary, ModelMetadataDTO, RunSummary};
     use types::{ChatSessionEvent, StreamFrame};
 
     const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
@@ -3546,12 +3521,6 @@ mod reducer {
             session: Box<ChatSession>,
             runs: Vec<RunSummary>,
             message: String,
-        },
-        RunOpened {
-            session: Option<Box<ChatSession>>,
-            run_id: String,
-            thread: Box<ExecutionThread>,
-            status: String,
         },
         RunPickerLoaded {
             runs: Vec<RunSummary>,
@@ -3747,19 +3716,6 @@ mod reducer {
                 state.start_assistant_typing();
                 state.status = "Sending message...".to_string();
                 output.effects.push(submit_message_effect(state, message));
-            }
-            ShellAction::RunOpened {
-                session,
-                run_id,
-                thread,
-                status,
-            } => {
-                if let Some(session) = session {
-                    state.set_current_session(*session);
-                }
-                state.set_run_focus(run_id, *thread);
-                state.overlay = Some(crate::state::OverlayState::RunDetail);
-                state.status = status;
             }
             ShellAction::RunPickerLoaded { runs, status } => {
                 if state.current_session_id().is_some() {
@@ -6315,7 +6271,7 @@ mod shell {
     use ratatui::text::{Line, Span};
     use serde_json::Value;
     use types::SkillSource;
-    use types::{ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus};
+    use types::{ChatTurnEventKind, ChatTurnStatus};
 
     use crate::render::render_shell_bottom_viewport;
     use crate::scrollback::ScrollbackWriter;
@@ -6879,10 +6835,6 @@ mod shell {
             return Some(lines);
         }
 
-        if let Some(lines) = build_run_detail_lines(state, width, max_rows) {
-            return Some(lines);
-        }
-
         if let Some(lines) = build_skill_mention_picker_lines(state, width, max_rows) {
             return Some(lines);
         }
@@ -7116,142 +7068,6 @@ mod shell {
         }
         lines.truncate(max_rows as usize);
         Some(lines)
-    }
-
-    fn build_run_detail_lines(
-        state: &AppState,
-        width: u16,
-        max_rows: u16,
-    ) -> Option<Vec<Line<'static>>> {
-        if !matches!(
-            state.overlay.as_ref(),
-            Some(crate::state::OverlayState::RunDetail)
-        ) {
-            return None;
-        }
-        let Some(thread) = state.thread.execution_thread.as_ref() else {
-            return Some(vec![styled_line("Run detail unavailable", muted_style())]);
-        };
-        let focus = &thread.focus;
-        let run_id = focus
-            .run_id
-            .as_deref()
-            .unwrap_or(focus.id.as_str())
-            .to_string();
-        let mut lines = vec![Line::from(vec![
-            Span::styled("Run detail", tool_title_style()),
-            Span::styled("  Esc close", muted_style()),
-        ])];
-
-        lines.extend(wrap_styled_line(
-            Line::from(vec![
-                Span::styled("  ", muted_style()),
-                Span::styled(work_run_kind_label(focus.kind), muted_style()),
-                Span::styled(" · ", muted_style()),
-                Span::styled(
-                    focus.title.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!(" · {}", focus.status), muted_style()),
-            ]),
-            width,
-        ));
-        lines.extend(wrap_styled_line(
-            Line::from(vec![
-                Span::styled("  run: ", muted_style()),
-                Span::styled(run_id, muted_style()),
-                Span::styled(format!(" · events {}", focus.event_count), muted_style()),
-            ]),
-            width,
-        ));
-        if let Some(model) =
-            run_model_label(focus.provider.as_deref(), focus.effective_model.as_deref())
-        {
-            lines.extend(wrap_styled_line(
-                Line::from(vec![
-                    Span::styled("  model: ", muted_style()),
-                    Span::styled(model, muted_style()),
-                ]),
-                width,
-            ));
-        }
-        if let Some(parent) = focus.parent_run_id.as_deref() {
-            lines.extend(wrap_styled_line(
-                Line::from(vec![
-                    Span::styled("  parent: ", muted_style()),
-                    Span::styled(parent.to_string(), muted_style()),
-                ]),
-                width,
-            ));
-        }
-        lines.push(styled_line("  Timeline", muted_style()));
-        let events = thread
-            .timeline
-            .events
-            .iter()
-            .rev()
-            .take(6)
-            .collect::<Vec<_>>();
-        if events.is_empty() {
-            lines.push(styled_line(
-                "    No timeline events recorded.",
-                muted_style(),
-            ));
-        } else {
-            for event in events.into_iter().rev() {
-                lines.extend(wrap_styled_line(
-                    Line::from(vec![
-                        Span::styled("    - ", muted_style()),
-                        Span::styled(turn_event_label(event), muted_style()),
-                    ]),
-                    width,
-                ));
-            }
-        }
-
-        lines.truncate(max_rows as usize);
-        Some(lines)
-    }
-
-    fn run_model_label(provider: Option<&str>, model: Option<&str>) -> Option<String> {
-        match (provider, model) {
-            (Some(provider), Some(model)) => Some(format!("{provider} · {model}")),
-            (Some(provider), None) => Some(provider.to_string()),
-            (None, Some(model)) => Some(model.to_string()),
-            (None, None) => None,
-        }
-    }
-
-    fn turn_event_label(event: &ChatTurnEvent) -> String {
-        match &event.kind {
-            ChatTurnEventKind::UserMessage { content } => {
-                format!("user · {}", compact_label(content))
-            }
-            ChatTurnEventKind::AssistantMessage { content } => {
-                format!("assistant · {}", compact_label(content))
-            }
-            ChatTurnEventKind::ToolCall { name, .. } => format!("tool · {name} · started"),
-            ChatTurnEventKind::ToolResult {
-                call_id, success, ..
-            } => {
-                let phase = if *success { "completed" } else { "failed" };
-                format!("tool · {call_id} · {phase}")
-            }
-            ChatTurnEventKind::Progress { message } => {
-                format!("progress · {}", compact_label(message))
-            }
-            ChatTurnEventKind::Error { message } => format!("error · {}", compact_label(message)),
-            ChatTurnEventKind::Canceled => "canceled".to_string(),
-        }
-    }
-
-    fn compact_label(value: &str) -> String {
-        let value = value.trim();
-        if value.chars().count() > 80 {
-            format!("{}...", value.chars().take(77).collect::<String>())
-        } else {
-            value.to_string()
-        }
     }
 
     fn build_skill_manager_lines(
@@ -9044,8 +8860,7 @@ mod shell {
         use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
         use types::StreamFrame;
         use types::{
-            ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEvent, ChatTurnEventKind,
-            ExecutionThread, RunKind, RunSummary, RunTimeline, Skill, SkillSource,
+            ChatMessage, ChatSession, ChatSessionSummary, ChatTurnEventKind, Skill, SkillSource,
         };
 
         fn line_texts(lines: &[Line<'static>]) -> Vec<String> {
@@ -10179,50 +9994,6 @@ mod shell {
         }
 
         #[test]
-        fn message_viewport_does_not_keep_open_run_focus_as_a_live_block() {
-            let mut state = AppState::empty();
-            let focus = RunSummary {
-                id: "run-1".to_string(),
-                kind: RunKind::WorkspaceRun,
-                container_id: "session-1".to_string(),
-                root_run_id: None,
-                title: "Workspace run".to_string(),
-                subtitle: Some("checking current migration".to_string()),
-                status: "run_completed".to_string(),
-                updated_at: 2,
-                started_at: Some(1),
-                ended_at: Some(2),
-                session_id: Some("session-1".to_string()),
-                run_id: Some("run-1".to_string()),
-                parent_run_id: None,
-                agent_id: Some("agent-1".to_string()),
-                effective_model: Some("deepseek-chat".to_string()),
-                provider: Some("deepseek".to_string()),
-                event_count: 1,
-            };
-            let thread = ExecutionThread {
-                focus,
-                timeline: RunTimeline {
-                    events: vec![ChatTurnEvent {
-                        id: "event-1".to_string(),
-                        timestamp: 2,
-                        kind: ChatTurnEventKind::AssistantMessage {
-                            content: "done".to_string(),
-                        },
-                    }],
-                },
-            };
-            state.thread.set_run_focus("run-1".to_string(), thread);
-
-            let text = line_texts(&super::build_message_lines(&state, 100, 14)).join("\n");
-
-            assert!(text.is_empty());
-            assert!(!text.contains("Run"));
-            assert!(!text.contains("Workspace run"));
-            assert!(!text.contains("child-1"));
-        }
-
-        #[test]
         fn message_viewport_hides_completed_tool_only_live_turn() {
             let mut state = AppState::empty();
             state.push_local_user_message("coordinate team".to_string());
@@ -10995,7 +10766,6 @@ mod slash_command {
         ListModelsForProvider { provider: String },
         ListRuns,
         SwitchModel { model: String },
-        OpenRun { run_id: String },
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11099,16 +10869,6 @@ Slash commands:\n\
                 })
             }
             "/runs" => Ok(SlashCommand::ListRuns),
-            "/run" => {
-                let action = parts.next().unwrap_or_default();
-                let run_id = parts.next().unwrap_or_default();
-                if action != "open" || run_id.is_empty() {
-                    bail!("Usage: /run open <run_id>");
-                }
-                Ok(SlashCommand::OpenRun {
-                    run_id: run_id.to_string(),
-                })
-            }
             _ => bail!("Unknown command: {command}"),
         }
     }
@@ -11116,22 +10876,6 @@ Slash commands:\n\
     #[cfg(test)]
     mod tests {
         use super::{SLASH_COMMAND_SPECS, SlashCommand, parse_slash_command};
-
-        #[test]
-        fn rejects_invalid_run_command() {
-            let error = parse_slash_command("/run close run-1").expect_err("invalid");
-            assert!(error.to_string().contains("Usage: /run open <run_id>"));
-        }
-
-        #[test]
-        fn parses_run_open_command() {
-            assert_eq!(
-                parse_slash_command("/run open run-1").expect("parse"),
-                SlashCommand::OpenRun {
-                    run_id: "run-1".to_string(),
-                }
-            );
-        }
 
         #[test]
         fn parses_list_runs_command() {
@@ -11287,9 +11031,8 @@ mod state {
     use ::daemon::StoredAgent;
     use chrono::Utc;
     use types::{
-        ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus,
-        ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunKind, RunSummary, Skill,
-        SkillSource,
+        ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus, ModelId,
+        ModelMetadataDTO, Provider, RunKind, RunSummary, Skill, SkillSource,
     };
     use types::{ChatSessionEvent, StreamFrame};
 
@@ -11442,15 +11185,6 @@ mod state {
         active_assistant_index: Option<usize>,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Default)]
-    pub enum ThreadFocus {
-        #[default]
-        Session,
-        Run {
-            run_id: String,
-        },
-    }
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub enum InputMode {
         #[default]
@@ -11477,9 +11211,7 @@ mod state {
     #[derive(Debug, Clone, Default)]
     pub struct SessionThreadState {
         pub session: Option<ChatSession>,
-        pub focus: ThreadFocus,
         pub runs: Vec<RunSummary>,
-        pub execution_thread: Option<ExecutionThread>,
     }
 
     impl SessionThreadState {
@@ -11489,25 +11221,16 @@ mod state {
 
         pub fn set_session(&mut self, session: ChatSession) {
             self.session = Some(session);
-            self.focus = ThreadFocus::Session;
             self.runs.clear();
-            self.execution_thread = None;
         }
 
         pub fn clear_session(&mut self) {
             self.session = None;
-            self.focus = ThreadFocus::Session;
             self.runs.clear();
-            self.execution_thread = None;
         }
 
         pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
             self.runs = runs;
-        }
-
-        pub fn set_run_focus(&mut self, run_id: String, thread: ExecutionThread) {
-            self.focus = ThreadFocus::Run { run_id };
-            self.execution_thread = Some(thread);
         }
     }
 
@@ -11523,7 +11246,6 @@ mod state {
         ProviderPicker { selected: usize },
         ModelPicker { provider: String, selected: usize },
         RunPicker { selected: usize },
-        RunDetail,
         Help,
     }
 
@@ -11939,11 +11661,6 @@ mod state {
             self.is_streaming = false;
         }
 
-        pub fn set_run_focus(&mut self, run_id: String, thread: ExecutionThread) {
-            self.activity.clear();
-            self.thread.set_run_focus(run_id, thread);
-        }
-
         pub fn clear_overlay(&mut self) {
             self.overlay = None;
             self.pending_session_delete_id = None;
@@ -12018,10 +11735,7 @@ mod state {
                         (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
                     *selected = next as usize;
                 }
-                Some(OverlayState::SkillDetail)
-                | Some(OverlayState::RunDetail)
-                | Some(OverlayState::Help)
-                | None => {}
+                Some(OverlayState::SkillDetail) | Some(OverlayState::Help) | None => {}
             }
         }
 
@@ -12058,7 +11772,6 @@ mod state {
                 OverlayState::ProviderPicker { .. } => Some(self.provider_items.len()),
                 OverlayState::ModelPicker { .. } => Some(self.model_items.len()),
                 OverlayState::RunPicker { .. } => Some(self.run_picker_items().len()),
-                OverlayState::RunDetail => None,
                 OverlayState::Help => None,
             }
         }
@@ -12220,7 +11933,6 @@ mod state {
 
         pub fn clear_thread_runs(&mut self) {
             self.thread.runs.clear();
-            self.thread.execution_thread = None;
             self.activity.clear();
         }
 

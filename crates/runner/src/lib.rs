@@ -27,14 +27,11 @@ pub mod runtime {
                 use super::SUBAGENT_TOOL_NAMES;
                 use crate::AgentStorage;
                 use crate::services::adapters::AgentStoreAdapter;
-                use crate::services::operation_assessment::OperationAssessorAdapter;
                 use crate::storage::SecretStorage;
-                use crate::storage::Storage;
                 use crate::tools::{
                     BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentBatchTool,
                     SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool,
                 };
-                use types::AgentOperationAssessor;
                 use types::SubagentManager;
                 use types::store::AgentStore;
                 use types::tool::SecurityGate;
@@ -113,12 +110,6 @@ pub mod runtime {
                     }
                 }
 
-                pub(crate) fn build_runtime_assessor(
-                    storage: &Storage,
-                ) -> Arc<dyn AgentOperationAssessor> {
-                    Arc::new(OperationAssessorAdapter::from_storage(storage))
-                }
-
                 pub(crate) fn build_agent_crud_components(
                     agent_storage: AgentStorage,
                     secret_storage: SecretStorage,
@@ -135,14 +126,9 @@ pub mod runtime {
                 pub(crate) fn register_management_tools(
                     mut builder: ToolRegistryBuilder,
                     agent_store: Option<Arc<dyn AgentStore>>,
-                    assessor: Option<Arc<dyn AgentOperationAssessor>>,
                 ) -> ToolRegistryBuilder {
                     if let Some(agent_store) = agent_store {
-                        builder = if let Some(assessor) = assessor.clone() {
-                            builder.with_agent_crud_and_assessor(agent_store, assessor)
-                        } else {
-                            builder.with_agent_crud(agent_store)
-                        };
+                        builder = builder.with_agent_crud(agent_store);
                     }
 
                     builder
@@ -151,17 +137,9 @@ pub mod runtime {
                 pub(crate) fn register_subagent_management_tools(
                     registry: &mut ToolRegistry,
                     manager: Arc<dyn SubagentManager>,
-                    assessor: Option<Arc<dyn AgentOperationAssessor>>,
                 ) {
-                    let mut spawn_tool = SpawnSubagentTool::new(manager.clone());
-                    let mut batch_tool = SpawnSubagentBatchTool::new(manager.clone());
-                    if let Some(assessor) = assessor {
-                        spawn_tool = spawn_tool.with_assessor(assessor.clone());
-                        batch_tool = batch_tool.with_assessor(assessor);
-                    }
-
-                    registry.register(spawn_tool);
-                    registry.register(batch_tool);
+                    registry.register(SpawnSubagentTool::new(manager.clone()));
+                    registry.register(SpawnSubagentBatchTool::new(manager.clone()));
                     registry.register(WaitSubagentsTool::new(manager.clone()));
                     registry.register(ListSubagentsTool::new(manager));
                 }
@@ -574,10 +552,9 @@ pub mod runtime {
             use tracing::{debug, warn};
 
             use self::assembly::{
-                build_agent_crud_components, build_runtime_assessor,
-                populate_known_tools_from_registry, register_bash_execution_tool,
-                register_file_execution_tool, register_management_tools,
-                register_subagent_management_tools,
+                build_agent_crud_components, populate_known_tools_from_registry,
+                register_bash_execution_tool, register_file_execution_tool,
+                register_management_tools, register_subagent_management_tools,
             };
             use crate::services::adapters::*;
             use crate::storage::Storage;
@@ -761,10 +738,6 @@ pub mod runtime {
                     .any(|name| name == "spawn_subagent" || name == "spawn_subagent_batch");
                 let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
                 let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
-                let wants_guarded_assessor = wants_manage_agents || wants_spawn_subagent;
-                let shared_assessor = storage.and_then(|value| {
-                    wants_guarded_assessor.then(|| build_runtime_assessor(value))
-                });
                 let agent_crud_components = storage.and_then(|value| {
                     wants_manage_agents.then(|| {
                         build_agent_crud_components(value.agents.clone(), value.secrets.clone())
@@ -914,9 +887,6 @@ pub mod runtime {
                         "reply" => {
                             // Registered by callers that provide a ReplySender.
                         }
-                        "process" => {
-                            // Registered by callers that provide a ProcessRegistry.
-                        }
                         unknown => {
                             let provider = composite_skill_provider(storage);
                             if provider.get_skill(unknown).is_some() {
@@ -952,7 +922,6 @@ pub mod runtime {
                             agent_crud_components
                                 .as_ref()
                                 .map(|components| components.store.clone()),
-                            shared_assessor.clone(),
                         );
                     } else {
                         if wants_manage_agents {
@@ -968,15 +937,7 @@ pub mod runtime {
 
                 if wants_spawn_subagent || wants_wait_subagents || wants_list_subagents {
                     if let Some(manager) = &subagent_manager {
-                        register_subagent_management_tools(
-                            &mut registry,
-                            manager.clone(),
-                            if wants_spawn_subagent {
-                                shared_assessor.clone()
-                            } else {
-                                None
-                            },
-                        );
+                        register_subagent_management_tools(&mut registry, manager.clone());
                     } else {
                         if wants_spawn_subagent {
                             debug!(
@@ -1033,9 +994,7 @@ pub mod runtime {
                     effective_main_agent_tool_names, main_agent_default_tool_names,
                     registry_from_allowlist,
                 };
-                use crate::prompt_files;
                 use crate::storage::Storage;
-                use serde_json::json;
                 use tempfile::tempdir;
 
                 #[test]
@@ -1251,59 +1210,6 @@ pub mod runtime {
                         merged.iter().filter(|name| name.as_str() == "bash").count(),
                         1
                     );
-                }
-
-                #[tokio::test]
-                async fn test_manage_agents_runtime_registry_injects_shared_assessor() {
-                    let dir = tempdir().expect("temp dir should be created");
-                    let db_path = dir.path().join("registry-agent-runtime.db");
-                    let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
-                        .expect("storage should be created");
-                    let prompts_dir = dir.path().join("agents");
-                    std::fs::create_dir_all(&prompts_dir).expect("prompts dir should be created");
-
-                    let previous_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
-                    unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
-
-                    let names = vec![
-                        "manage_agents".to_string(),
-                        "bash".to_string(),
-                        "file".to_string(),
-                    ];
-                    let registry = registry_from_allowlist(
-                        Some(&names),
-                        None,
-                        None,
-                        Some(&storage),
-                        None,
-                        None,
-                        None,
-                    )
-                    .expect("registry should be built");
-
-                    unsafe {
-                        match previous_agents_dir {
-                            Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
-                            None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
-                        }
-                    }
-
-                    let output = registry
-                        .get("manage_agents")
-                        .expect("manage_agents should be registered")
-                        .execute(json!({
-                            "operation": "create",
-                            "name": "Runtime Preview Agent",
-                            "agent": {
-                                "tools": ["bash", "file"]
-                            },
-                            "preview": true
-                        }))
-                        .await
-                        .expect("runtime tool should not fail when assessor is injected");
-
-                    assert!(output.success);
-                    assert_eq!(output.result["status"], "preview");
                 }
             }
         }
@@ -1642,7 +1548,6 @@ pub mod runtime {
         pub mod modes {
             pub mod interactive {
                 use anyhow::Result;
-                use serde_json::json;
                 use tokio::sync::mpsc;
 
                 use crate::runtime::orchestrator::kernel::{
@@ -1713,7 +1618,7 @@ pub mod runtime {
                         text: Some(execution.output.clone()),
                         iterations: Some(execution.iterations),
                         model: Some(execution.final_model.as_serialized_str().to_string()),
-                        metadata: Some(json!({
+                        metadata: Some(serde_json::json!({
                             "chat_session_id": session.id,
                             "resolved_agent_id": session.agent_id,
                         })),
@@ -2248,7 +2153,6 @@ pub mod runtime {
         //! // For API-based execution:
         //! let executor = Arc::new(AgentRuntimeExecutor::new(
         //!     storage.clone(),
-        //!     process_registry.clone(),
         //!     subagent_tracker.clone(),
         //!     subagent_definitions.clone(),
         //!     subagent_config.clone(),
@@ -2641,12 +2545,10 @@ pub mod runtime {
             use std::time::Duration;
 
             use crate::runtime::{AgentOrchestratorImpl, ExecutionContext};
-            use crate::tools::{ProcessTool, ReplyTool, SwitchModelTool};
+            use crate::tools::{ReplyTool, SwitchModelTool};
             use crate::{
-                ModelId, Provider, process::ProcessRegistry,
-                provider_policy::resolve_model_from_available_secrets,
-                services::session::SessionService, services::skill_triggers::match_triggers,
-                storage::Storage,
+                ModelId, Provider, provider_policy::resolve_model_from_available_secrets,
+                services::session::SessionService, storage::Storage,
             };
             use ::agent::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
             use ::agent::llm::Message;
@@ -2749,7 +2651,6 @@ pub mod runtime {
             #[derive(Clone)]
             pub struct AgentRuntimeExecutor {
                 storage: Arc<Storage>,
-                process_registry: Arc<ProcessRegistry>,
                 subagent_tracker: Arc<SubagentTracker>,
                 subagent_definitions: Arc<dyn SubagentDefLookup>,
                 subagent_config: SubagentConfig,
@@ -2835,7 +2736,6 @@ pub mod runtime {
                 /// Create a new AgentRuntimeExecutor with access to storage.
                 pub fn new(
                     storage: Arc<Storage>,
-                    process_registry: Arc<ProcessRegistry>,
                     subagent_tracker: Arc<SubagentTracker>,
                     subagent_definitions: Arc<dyn SubagentDefLookup>,
                     subagent_config: SubagentConfig,
@@ -2843,7 +2743,6 @@ pub mod runtime {
                     let session_service = SessionService::from_storage(storage.as_ref());
                     Self {
                         storage,
-                        process_registry,
                         subagent_tracker,
                         subagent_definitions,
                         subagent_config,
@@ -3552,19 +3451,13 @@ pub mod runtime {
                 pub(super) struct SkillSnapshotKey {
                     pub agent_id: Option<String>,
                     pub skill_filter_signature: String,
-                    pub trigger_context_signature: String,
                 }
 
                 impl SkillSnapshotKey {
-                    pub fn new(
-                        agent_id: Option<String>,
-                        skill_filter_signature: String,
-                        trigger_context_signature: String,
-                    ) -> Self {
+                    pub fn new(agent_id: Option<String>, skill_filter_signature: String) -> Self {
                         Self {
                             agent_id,
                             skill_filter_signature,
-                            trigger_context_signature,
                         }
                     }
                 }
@@ -3645,12 +3538,6 @@ pub mod runtime {
                     hash_text(&ids.join("|"))
                 }
 
-                pub(super) fn build_trigger_context_signature(
-                    trigger_context: Option<&str>,
-                ) -> String {
-                    hash_text(trigger_context.map(str::trim).unwrap_or(""))
-                }
-
                 pub(super) fn build_skill_version_hash(skills: &[Skill]) -> String {
                     let mut versions: Vec<String> = skills
                         .iter()
@@ -3718,7 +3605,6 @@ pub mod runtime {
                             "wait_subagents",
                             "list_subagents",
                             "switch_model",
-                            "process",
                             "reply",
                         ] {
                             if requested_tools.iter().any(|tool| tool == caller_registered)
@@ -3744,45 +3630,21 @@ pub mod runtime {
                         &self,
                         agent_node: &AgentNode,
                         agent_id: Option<&str>,
-                        user_input: Option<&str>,
+                        _user_input: Option<&str>,
                     ) -> Result<ResolvedSkillSnapshot> {
-                        let normalized_input =
-                            user_input.map(str::trim).filter(|value| !value.is_empty());
                         let key = SkillSnapshotKey::new(
                             agent_id.map(|value| value.to_string()),
                             build_skill_filter_signature(agent_node.skills.as_deref()),
-                            build_trigger_context_signature(normalized_input),
                         );
 
                         let all_skills = crate::services::skills::list_available_skills()?;
                         let version_hash = build_skill_version_hash(&all_skills);
 
-                        let mut assigned_skill_ids = agent_node.skills.clone().unwrap_or_default();
-                        let allowed_skills: HashSet<String> =
-                            assigned_skill_ids.iter().cloned().collect();
+                        let assigned_skill_ids = agent_node.skills.clone().unwrap_or_default();
 
                         let lookup = self
                             .skill_snapshot_cache
                             .resolve_with(key, version_hash, move || {
-                                let triggered_skill_ids = normalized_input
-                                    .map(|input| {
-                                        match_triggers(input, &all_skills)
-                                            .into_iter()
-                                            .map(|matched| matched.skill_id)
-                                            .collect::<Vec<String>>()
-                                    })
-                                    .unwrap_or_default();
-
-                                for skill_id in &triggered_skill_ids {
-                                    if allowed_skills.contains(skill_id)
-                                        && !assigned_skill_ids
-                                            .iter()
-                                            .any(|existing| existing == skill_id)
-                                    {
-                                        assigned_skill_ids.push(skill_id.clone());
-                                    }
-                                }
-
                                 let skill_by_id: HashMap<String, Skill> = all_skills
                                     .into_iter()
                                     .map(|skill| (skill.id.clone(), skill))
@@ -4734,10 +4596,6 @@ pub mod runtime {
                             registry.register(SwitchModelTool::new(switcher));
                         }
 
-                        if requested("process") {
-                            registry.register(ProcessTool::new(self.process_registry.clone()));
-                        }
-
                         if requested("reply")
                             && let Some(sender) = reply_sender
                         {
@@ -4815,7 +4673,6 @@ pub mod runtime {
                     let subagent_config = SubagentConfig::default();
                     AgentRuntimeExecutor::new(
                         storage,
-                        Arc::new(ProcessRegistry::new()),
                         subagent_tracker,
                         subagent_definitions,
                         subagent_config,
@@ -7098,8 +6955,6 @@ pub mod runtime {
         mod turn_persistence {
             use types::MessageExecution;
 
-            use super::voice_transcript::enrich_voice_message_with_transcript;
-
             /// Build persisted turn payload (execution metadata + user input text).
             pub fn build_turn_persistence_payload(
                 input: &str,
@@ -7107,636 +6962,11 @@ pub mod runtime {
                 iterations: u32,
             ) -> (MessageExecution, String) {
                 let execution = MessageExecution::new().complete(duration_ms, iterations);
-                let persisted_input = enrich_voice_message_with_transcript(input, &[])
-                    .unwrap_or_else(|| input.to_string());
+                let persisted_input = input.to_string();
                 (execution, persisted_input)
             }
         }
-        mod voice_preprocess {
-            use crate::storage::Storage;
-            use anyhow::{Result, bail};
-            use serde_json::Value;
-
-            const VOICE_MEDIA_TYPE_LINE: &str = "media_type: voice";
-            const FILE_PATH_PREFIX: &str = "local_file_path: ";
-            const TRANSCRIPT_MARKER: &str = "\n\n[Transcript]\n";
-            const VOICE_HEADER_PREFIX: &str = "[Voice message";
-
-            #[derive(Debug, Clone, PartialEq, Eq)]
-            pub struct VoiceMessageDescriptor {
-                pub header: String,
-                pub file_path: String,
-                pub transcript: Option<String>,
-            }
-
-            #[derive(Debug, Clone, PartialEq, Eq)]
-            pub struct VoicePreprocessResult {
-                pub agent_input: String,
-                pub persisted_input: String,
-                pub transcript: String,
-                pub file_path: String,
-            }
-
-            #[derive(Debug, Clone, PartialEq, Eq)]
-            struct ParsedVoiceMessage {
-                header: String,
-                file_path: Option<String>,
-                transcript: Option<String>,
-            }
-
-            impl VoiceMessageDescriptor {
-                pub fn persisted_content(&self, transcript: Option<&str>) -> String {
-                    let mut content = format!(
-                        "{}\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {}",
-                        self.header, self.file_path
-                    );
-                    if let Some(transcript) =
-                        transcript.map(str::trim).filter(|value| !value.is_empty())
-                    {
-                        content.push_str(TRANSCRIPT_MARKER);
-                        content.push_str(transcript);
-                    }
-                    content
-                }
-            }
-
-            pub fn detect_voice_message(
-                content: &str,
-                metadata: Option<&Value>,
-                file_path_override: Option<&str>,
-            ) -> Option<VoiceMessageDescriptor> {
-                let parsed = parse_voice_message_content(content);
-                let header = parsed
-                    .as_ref()
-                    .map(|value| value.header.as_str())
-                    .unwrap_or_else(|| content.lines().next().map(str::trim).unwrap_or_default());
-                if !header.starts_with(VOICE_HEADER_PREFIX) {
-                    return None;
-                }
-
-                let metadata_file_path = metadata
-                    .and_then(|value| value.get("media_type").and_then(|value| value.as_str()))
-                    .filter(|value| *value == "voice")
-                    .and_then(|_| {
-                        metadata.and_then(|value| {
-                            value.get("file_path").and_then(|value| value.as_str())
-                        })
-                    });
-
-                let file_path = file_path_override
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                    .or_else(|| parsed.as_ref().and_then(|value| value.file_path.clone()))
-                    .or_else(|| {
-                        metadata_file_path
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())
-                            .map(ToOwned::to_owned)
-                    })?;
-
-                Some(VoiceMessageDescriptor {
-                    header: header.to_string(),
-                    file_path,
-                    transcript: parsed.and_then(|value| value.transcript),
-                })
-            }
-
-            pub async fn preprocess_voice_message(
-                _storage: &Storage,
-                descriptor: &VoiceMessageDescriptor,
-            ) -> Result<VoicePreprocessResult> {
-                let transcript = match descriptor
-                    .transcript
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                {
-                    Some(existing) => existing.to_string(),
-                    None => bail!(
-                        "Voice transcription is no longer part of the core runtime. Use an external skrun transcribe skill and provide the transcript in the message."
-                    ),
-                };
-
-                let persisted_input = descriptor.persisted_content(Some(&transcript));
-                Ok(VoicePreprocessResult {
-                    agent_input: persisted_input.clone(),
-                    persisted_input,
-                    transcript,
-                    file_path: descriptor.file_path.clone(),
-                })
-            }
-
-            fn parse_voice_message_content(content: &str) -> Option<ParsedVoiceMessage> {
-                let header = content.lines().next()?.trim();
-                if !header.starts_with(VOICE_HEADER_PREFIX) {
-                    return None;
-                }
-
-                let mut is_voice_message = false;
-                let mut file_path = None;
-                for raw_line in content.lines() {
-                    let line = raw_line.trim();
-                    if line == VOICE_MEDIA_TYPE_LINE {
-                        is_voice_message = true;
-                        continue;
-                    }
-
-                    if let Some(path) = line.strip_prefix(FILE_PATH_PREFIX) {
-                        let normalized = path.trim();
-                        if !normalized.is_empty() {
-                            file_path = Some(normalized.to_string());
-                        }
-                    }
-                }
-
-                let transcript = content
-                    .split_once(TRANSCRIPT_MARKER)
-                    .map(|(_, body)| body.trim())
-                    .filter(|body| !body.is_empty())
-                    .map(ToOwned::to_owned);
-
-                if !is_voice_message && transcript.is_none() {
-                    return None;
-                }
-
-                Some(ParsedVoiceMessage {
-                    header: header.to_string(),
-                    file_path,
-                    transcript,
-                })
-            }
-
-            #[cfg(test)]
-            mod tests {
-                use super::*;
-                use serde_json::json;
-
-                #[test]
-                fn detects_voice_message_from_metadata_without_media_context() {
-                    let descriptor = detect_voice_message(
-                        "[Voice message, 5s]",
-                        Some(&json!({"media_type": "voice", "file_path": "/tmp/voice.ogg"})),
-                        None,
-                    )
-                    .expect("voice message");
-
-                    assert_eq!(descriptor.header, "[Voice message, 5s]");
-                    assert_eq!(descriptor.file_path, "/tmp/voice.ogg");
-                    assert_eq!(descriptor.transcript, None);
-                }
-
-                #[test]
-                fn detects_voice_message_from_new_content_format() {
-                    let descriptor = detect_voice_message(
-                        "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm",
-                        None,
-                        None,
-                    )
-                    .expect("voice message");
-
-                    assert_eq!(descriptor.file_path, "/tmp/voice.webm");
-                    assert_eq!(descriptor.transcript, None);
-                }
-
-                #[test]
-                fn detects_voice_message_from_legacy_content_format() {
-                    let descriptor = detect_voice_message(
-                        "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm\ninstruction: Use the transcribe tool with this file_path before answering.",
-                        None,
-                        None,
-                    )
-                    .expect("voice message");
-
-                    assert_eq!(descriptor.file_path, "/tmp/voice.webm");
-                }
-
-                #[test]
-                fn detects_voice_message_with_existing_transcript() {
-                    let descriptor = detect_voice_message(
-                        "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm\n\n[Transcript]\nhello from audio",
-                        None,
-                        None,
-                    )
-                    .expect("voice message");
-
-                    assert_eq!(descriptor.transcript.as_deref(), Some("hello from audio"));
-                }
-
-                #[test]
-                fn override_path_takes_precedence() {
-                    let descriptor = detect_voice_message(
-                        "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/original.webm",
-                        Some(&json!({"media_type": "voice", "file_path": "/tmp/metadata.webm"})),
-                        Some("/tmp/override.webm"),
-                    )
-                    .expect("voice message");
-
-                    assert_eq!(descriptor.file_path, "/tmp/override.webm");
-                }
-
-                #[test]
-                fn persisted_content_appends_transcript_block() {
-                    let descriptor = VoiceMessageDescriptor {
-                        header: "[Voice message, 3s]".to_string(),
-                        file_path: "/tmp/voice.ogg".to_string(),
-                        transcript: None,
-                    };
-
-                    let content = descriptor.persisted_content(Some("hello from audio"));
-                    assert!(content.contains("media_type: voice"));
-                    assert!(content.contains("local_file_path: /tmp/voice.ogg"));
-                    assert!(content.contains("[Transcript]\nhello from audio"));
-                    assert!(!content.contains("instruction:"));
-                }
-
-                #[test]
-                fn persisted_content_without_transcript_omits_transcript_block() {
-                    let descriptor = VoiceMessageDescriptor {
-                        header: "[Voice message]".to_string(),
-                        file_path: "/tmp/voice.webm".to_string(),
-                        transcript: None,
-                    };
-
-                    let content = descriptor.persisted_content(None);
-                    assert!(content.contains("media_type: voice"));
-                    assert!(!content.contains("[Transcript]"));
-                }
-            }
-        }
-        mod voice_transcript {
-            use std::collections::HashMap;
-            use types::{
-                ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession,
-                ChatTurnEvent, ChatTurnEventKind,
-            };
-
-            const TRANSCRIBE_TOOL_NAME: &str = "transcribe";
-            const VOICE_MEDIA_TYPE_LINE: &str = "media_type: voice";
-            const FILE_PATH_PREFIX: &str = "local_file_path: ";
-            const TRANSCRIPT_MARKER: &str = "\n\n[Transcript]\n";
-            const VOICE_HEADER_PREFIX: &str = "[Voice message";
-
-            /// Populate structured voice metadata from legacy message content blocks.
-            ///
-            /// This keeps existing stored message text compatible while progressively
-            /// hydrating `ChatMessage.media` and `ChatMessage.transcript`.
-            pub fn hydrate_voice_message_metadata(message: &mut ChatMessage) -> bool {
-                if message.role != ChatRole::User {
-                    return false;
-                }
-
-                let mut changed = false;
-                if message.media.is_none()
-                    && let Some(file_path) = extract_voice_file_path(&message.content)
-                {
-                    let duration = extract_voice_duration_sec(&message.content);
-                    message.media = Some(ChatMessageMedia::voice(file_path, duration));
-                    changed = true;
-                }
-
-                if let Some(transcript_text) =
-                    extract_transcript_from_message_content(&message.content)
-                {
-                    let should_update = message
-                        .transcript
-                        .as_ref()
-                        .is_none_or(|existing| existing.text.trim() != transcript_text);
-                    if should_update {
-                        message.transcript =
-                            Some(ChatMessageTranscript::new(transcript_text, None));
-                        changed = true;
-                    }
-                }
-
-                changed
-            }
-
-            /// Enrich a voice message content with transcript text extracted from turn events.
-            ///
-            /// Returns `Some(updated_content)` only when:
-            /// - the message is a voice media-context message,
-            /// - a `transcribe` tool call for the same `file_path` exists in this turn,
-            /// - transcript text can be extracted from that tool result.
-            pub(crate) fn enrich_voice_message_with_transcript(
-                message_content: &str,
-                events: &[ChatTurnEvent],
-            ) -> Option<String> {
-                let voice_path = extract_voice_file_path(message_content)?;
-                let transcript = find_matching_transcript(events, &voice_path)?;
-                let updated = upsert_transcript_block(message_content, &transcript);
-                if updated == message_content {
-                    None
-                } else {
-                    Some(updated)
-                }
-            }
-
-            /// Replace the latest user message matching `original_content`.
-            ///
-            /// This is used by chat-session execution paths where the user message has already
-            /// been persisted before tool execution, and transcript is backfilled after the turn.
-            pub fn replace_latest_user_message_content(
-                session: &mut ChatSession,
-                original_content: &str,
-                updated_content: &str,
-            ) -> bool {
-                if original_content == updated_content {
-                    return false;
-                }
-
-                let Some(index) = session.messages.iter().rposition(|message| {
-                    message.role == ChatRole::User && message.content == original_content
-                }) else {
-                    return false;
-                };
-
-                let message = &mut session.messages[index];
-                message.content = updated_content.to_string();
-                hydrate_voice_message_metadata(message);
-                true
-            }
-
-            fn extract_voice_file_path(content: &str) -> Option<String> {
-                let mut is_voice_message = false;
-                let mut file_path: Option<String> = None;
-
-                for raw_line in content.lines() {
-                    let line = raw_line.trim();
-                    if line == VOICE_MEDIA_TYPE_LINE {
-                        is_voice_message = true;
-                        continue;
-                    }
-
-                    if let Some(path) = line.strip_prefix(FILE_PATH_PREFIX) {
-                        let normalized = path.trim();
-                        if !normalized.is_empty() {
-                            file_path = Some(normalized.to_string());
-                        }
-                    }
-                }
-
-                if is_voice_message { file_path } else { None }
-            }
-
-            fn extract_voice_duration_sec(content: &str) -> Option<u32> {
-                let first_line = content.lines().next()?.trim();
-                if !first_line.starts_with(VOICE_HEADER_PREFIX) {
-                    return None;
-                }
-                let (_, tail) = first_line.split_once(',')?;
-                let seconds = tail.trim().strip_suffix("s]")?.trim();
-                seconds.parse::<u32>().ok()
-            }
-
-            fn extract_transcript_from_message_content(content: &str) -> Option<String> {
-                let (_, body) = content.split_once(TRANSCRIPT_MARKER)?;
-                let transcript = body.trim();
-                if transcript.is_empty() {
-                    None
-                } else {
-                    Some(transcript.to_string())
-                }
-            }
-
-            fn parse_json_value(input: &str) -> Option<serde_json::Value> {
-                if input.trim().is_empty() {
-                    return None;
-                }
-                serde_json::from_str::<serde_json::Value>(input).ok()
-            }
-
-            fn extract_file_path_from_payload(payload: Option<&str>) -> Option<String> {
-                let payload = payload?;
-                let value = parse_json_value(payload)?;
-                value
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .map(ToOwned::to_owned)
-            }
-
-            fn extract_text_from_payload(payload: &str) -> Option<String> {
-                let trimmed = payload.trim();
-                if trimmed.is_empty() {
-                    return None;
-                }
-
-                if let Some(value) = parse_json_value(trimmed) {
-                    if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
-                        let normalized = text.trim();
-                        if !normalized.is_empty() {
-                            return Some(normalized.to_string());
-                        }
-                    }
-                    if let Some(text) = value.as_str() {
-                        let normalized = text.trim();
-                        if !normalized.is_empty() {
-                            return Some(normalized.to_string());
-                        }
-                    }
-                    return None;
-                }
-
-                Some(trimmed.to_string())
-            }
-
-            fn find_matching_transcript(
-                events: &[ChatTurnEvent],
-                voice_path: &str,
-            ) -> Option<String> {
-                let mut call_to_file_path: HashMap<String, String> = HashMap::new();
-
-                for event in events {
-                    if let ChatTurnEventKind::ToolCall {
-                        call_id,
-                        name,
-                        arguments,
-                    } = &event.kind
-                    {
-                        if name != TRANSCRIBE_TOOL_NAME {
-                            continue;
-                        }
-                        if let Some(path) = extract_file_path_from_payload(Some(arguments.as_str()))
-                        {
-                            call_to_file_path.insert(call_id.clone(), path);
-                        }
-                    }
-                }
-
-                for event in events {
-                    if let ChatTurnEventKind::ToolResult {
-                        call_id,
-                        success: true,
-                        result,
-                    } = &event.kind
-                    {
-                        let Some(transcript) = extract_text_from_payload(result) else {
-                            continue;
-                        };
-                        let path = call_to_file_path
-                            .get(call_id)
-                            .cloned()
-                            .or_else(|| extract_file_path_from_payload(Some(result.as_str())));
-                        if path.as_deref() == Some(voice_path) {
-                            return Some(transcript);
-                        }
-                    }
-                }
-
-                None
-            }
-
-            fn upsert_transcript_block(message_content: &str, transcript: &str) -> String {
-                let transcript = transcript.trim();
-                if transcript.is_empty() {
-                    return message_content.to_string();
-                }
-
-                if let Some((prefix, _)) = message_content.split_once(TRANSCRIPT_MARKER) {
-                    format!("{prefix}{TRANSCRIPT_MARKER}{transcript}")
-                } else {
-                    format!("{message_content}{TRANSCRIPT_MARKER}{transcript}")
-                }
-            }
-
-            #[cfg(test)]
-            mod tests {
-                use super::*;
-                use serde_json::json;
-                use types::ChatMediaType;
-
-                fn voice_message(path: &str) -> String {
-                    format!(
-                        "[Voice message, 6s]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering."
-                    )
-                }
-
-                fn tool_call_event(call_id: &str, file_path: &str) -> ChatTurnEvent {
-                    ChatTurnEvent {
-                        id: format!("event-{call_id}-call"),
-                        timestamp: 1,
-                        kind: ChatTurnEventKind::ToolCall {
-                            call_id: call_id.to_string(),
-                            name: TRANSCRIBE_TOOL_NAME.to_string(),
-                            arguments: json!({"file_path": file_path}).to_string(),
-                        },
-                    }
-                }
-
-                fn tool_result_event(
-                    call_id: &str,
-                    success: bool,
-                    result: serde_json::Value,
-                ) -> ChatTurnEvent {
-                    ChatTurnEvent {
-                        id: format!("event-{call_id}-result"),
-                        timestamp: 2,
-                        kind: ChatTurnEventKind::ToolResult {
-                            call_id: call_id.to_string(),
-                            success,
-                            result: result.to_string(),
-                        },
-                    }
-                }
-
-                #[test]
-                fn hydrate_voice_metadata_from_content() {
-                    let mut message = ChatMessage::user(voice_message("/tmp/voice-a.webm"));
-                    let changed = hydrate_voice_message_metadata(&mut message);
-                    assert!(changed);
-                    assert_eq!(
-                        message.media.as_ref().map(|m| m.media_type),
-                        Some(ChatMediaType::Voice)
-                    );
-                    assert_eq!(
-                        message.media.as_ref().map(|m| m.file_path.as_str()),
-                        Some("/tmp/voice-a.webm")
-                    );
-                    assert_eq!(message.media.as_ref().and_then(|m| m.duration_sec), Some(6));
-                    assert!(message.transcript.is_none());
-                }
-
-                #[test]
-                fn hydrate_transcript_from_content_block() {
-                    let mut message = ChatMessage::user(format!(
-                        "{}\n\n[Transcript]\nhello from transcript",
-                        voice_message("/tmp/voice-a.webm")
-                    ));
-                    let changed = hydrate_voice_message_metadata(&mut message);
-                    assert!(changed);
-                    assert_eq!(
-                        message.transcript.as_ref().map(|t| t.text.as_str()),
-                        Some("hello from transcript")
-                    );
-                }
-
-                #[test]
-                fn enriches_voice_message_with_matching_transcript() {
-                    let input = voice_message("/tmp/voice-a.webm");
-                    let start = tool_call_event("call-1", "/tmp/voice-a.webm");
-                    let done =
-                        tool_result_event("call-1", true, json!({"text": "hello from audio"}));
-
-                    let updated = enrich_voice_message_with_transcript(&input, &[start, done])
-                        .expect("should enrich");
-                    assert!(updated.contains("[Transcript]"));
-                    assert!(updated.contains("hello from audio"));
-                }
-
-                #[test]
-                fn does_not_enrich_when_file_path_does_not_match() {
-                    let input = voice_message("/tmp/voice-a.webm");
-                    let start = tool_call_event("call-1", "/tmp/voice-b.webm");
-                    let done = tool_result_event("call-1", true, json!({"text": "other audio"}));
-
-                    let updated = enrich_voice_message_with_transcript(&input, &[start, done]);
-                    assert!(updated.is_none());
-                }
-
-                #[test]
-                fn enriches_with_embedded_json_result() {
-                    let input = voice_message("/tmp/voice-a.webm");
-                    let start = tool_call_event("call-1", "/tmp/voice-a.webm");
-                    let done = tool_result_event("call-1", true, json!({"text": "from result"}));
-
-                    let updated = enrich_voice_message_with_transcript(&input, &[start, done])
-                        .expect("should enrich");
-                    assert!(updated.contains("from result"));
-                }
-
-                #[test]
-                fn replace_latest_matching_user_message_hydrates_metadata() {
-                    let original = voice_message("/tmp/voice-a.webm");
-                    let updated = format!("{original}\n\n[Transcript]\nhello");
-
-                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-                    session.add_message(ChatMessage::user("older message"));
-                    session.add_message(ChatMessage::user(original.clone()));
-
-                    let changed =
-                        replace_latest_user_message_content(&mut session, &original, &updated);
-                    assert!(changed);
-                    let message = session.messages.last().expect("last message should exist");
-                    assert_eq!(message.content, updated);
-                    assert_eq!(
-                        message.media.as_ref().map(|m| m.file_path.as_str()),
-                        Some("/tmp/voice-a.webm")
-                    );
-                    assert_eq!(
-                        message.transcript.as_ref().map(|t| t.text.as_str()),
-                        Some("hello")
-                    );
-                }
-            }
-        }
-
         pub use turn_persistence::build_turn_persistence_payload;
-        pub use voice_preprocess::{detect_voice_message, preprocess_voice_message};
-        pub use voice_transcript::{
-            hydrate_voice_message_metadata, replace_latest_user_message_content,
-        };
     }
     pub mod subagent {
         //! Storage-backed sub-agent definition adapters.

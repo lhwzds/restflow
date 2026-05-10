@@ -8,98 +8,6 @@
 // are defined in `types` and re-exported here for convenience.
 
 pub mod impls {
-    pub(crate) mod operation_assessment {
-        use crate::{Result, ToolError, ToolErrorCategory, ToolOutput};
-        use serde_json::json;
-        use types::{OperationAssessment, OperationAssessmentStatus};
-
-        fn assessment_message(assessment: &OperationAssessment) -> String {
-            let issues = match assessment.status {
-                OperationAssessmentStatus::Ok => return "Operation is ready.".to_string(),
-                OperationAssessmentStatus::Warning => &assessment.warnings,
-                OperationAssessmentStatus::Block => &assessment.blockers,
-            };
-
-            let message = issues
-                .iter()
-                .map(|issue| issue.message.trim())
-                .filter(|message| !message.is_empty())
-                .collect::<Vec<_>>()
-                .join("; ");
-
-            if message.is_empty() {
-                match assessment.status {
-                    OperationAssessmentStatus::Warning => {
-                        "Operation requires confirmation before continuing.".to_string()
-                    }
-                    OperationAssessmentStatus::Block => {
-                        "Operation is blocked by validation or capability checks.".to_string()
-                    }
-                    OperationAssessmentStatus::Ok => "Operation is ready.".to_string(),
-                }
-            } else {
-                message
-            }
-        }
-
-        fn serialize_assessment_error(kind: &str, assessment: &OperationAssessment) -> ToolError {
-            let payload = json!({
-                "type": kind,
-                "message": assessment_message(assessment),
-                "assessment": assessment,
-            });
-            ToolError::Tool(payload.to_string())
-        }
-
-        pub(crate) fn preview_output(assessment: OperationAssessment) -> ToolOutput {
-            ToolOutput::success(json!({
-                "status": "preview",
-                "assessment": assessment,
-            }))
-        }
-
-        pub(crate) fn confirmation_required_output(assessment: OperationAssessment) -> ToolOutput {
-            ToolOutput {
-                success: false,
-                result: json!({
-                    "pending_approval": true,
-                    "approval_id": assessment.approval_id,
-                    "assessment": assessment,
-                }),
-                error: Some(assessment_message(&assessment)),
-                error_category: Some(ToolErrorCategory::Auth),
-                retryable: Some(false),
-                retry_after_ms: None,
-            }
-        }
-
-        pub(crate) fn enforce_confirmation_or_defer(
-            assessment: &OperationAssessment,
-            approval_id: Option<&str>,
-        ) -> Result<Option<ToolOutput>> {
-            match assessment.status {
-                OperationAssessmentStatus::Ok => Ok(None),
-                OperationAssessmentStatus::Block => {
-                    Err(serialize_assessment_error("operation_blocked", assessment))
-                }
-                OperationAssessmentStatus::Warning => {
-                    if !assessment.requires_confirmation {
-                        return Ok(None);
-                    }
-
-                    let expected = assessment.approval_id.as_deref();
-                    let provided = approval_id.map(str::trim).filter(|value| !value.is_empty());
-
-                    if expected.is_some() && provided == expected {
-                        Ok(None)
-                    } else {
-                        Ok(Some(confirmation_required_output(assessment.clone())))
-                    }
-                }
-            }
-        }
-    }
-
     pub(crate) mod path_utils {
         // Shared path resolution and normalization utilities for file-based tools.
         //
@@ -4981,15 +4889,12 @@ pub mod impls {
         use types::request::AgentNode as ContractAgentNode;
 
         use crate::Result;
-        use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
         use crate::{Tool, ToolError, ToolOutput};
-        use types::AgentOperationAssessor;
         use types::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 
         #[derive(Clone)]
         pub struct AgentCrudTool {
             store: Arc<dyn AgentStore>,
-            assessor: Option<Arc<dyn AgentOperationAssessor>>,
             allow_write: bool,
         }
 
@@ -4997,14 +4902,8 @@ pub mod impls {
             pub fn new(store: Arc<dyn AgentStore>) -> Self {
                 Self {
                     store,
-                    assessor: None,
                     allow_write: false,
                 }
-            }
-
-            pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
-                self.assessor = Some(assessor);
-                self
             }
 
             pub fn with_write(mut self, allow_write: bool) -> Self {
@@ -5038,10 +4937,6 @@ pub mod impls {
             Create {
                 name: String,
                 agent: Value,
-                #[serde(default)]
-                preview: bool,
-                #[serde(default)]
-                approval_id: Option<String>,
             },
             Update {
                 id: String,
@@ -5049,10 +4944,6 @@ pub mod impls {
                 name: Option<String>,
                 #[serde(default)]
                 agent: Option<Value>,
-                #[serde(default)]
-                preview: bool,
-                #[serde(default)]
-                approval_id: Option<String>,
             },
             Delete {
                 id: String,
@@ -5089,14 +4980,6 @@ pub mod impls {
                         "agent": {
                             "type": "object",
                             "description": "Agent configuration (for create/update)"
-                        },
-                        "preview": {
-                            "type": "boolean",
-                            "description": "If true, validate and preview warnings/blockers without persisting changes."
-                        },
-                        "approval_id": {
-                            "type": "string",
-                            "description": "Approval ID returned by preview when warnings require explicit confirmation."
                         }
                     },
                     "required": ["operation"]
@@ -5106,100 +4989,56 @@ pub mod impls {
             async fn execute(&self, input: Value) -> Result<ToolOutput> {
                 let action: AgentAction = serde_json::from_value(input)?;
 
-                let output = match action {
-                    AgentAction::List => ToolOutput::success(
-                        self.store
-                            .list_agents()
-                            .map_err(|e| ToolError::Tool(format!("Failed to list agent: {e}")))?,
-                    ),
-                    AgentAction::Show { id } => ToolOutput::success(
-                        self.store
-                            .get_agent(&id)
-                            .map_err(|e| ToolError::Tool(format!("Failed to get agent: {e}")))?,
-                    ),
-                    AgentAction::Create {
-                        name,
-                        agent,
-                        preview,
-                        approval_id,
-                    } => {
-                        self.write_guard()?;
-                        let request = AgentCreateRequest {
-                            name,
-                            agent: Self::parse_contract_agent(agent)?,
-                        };
-                        if let Some(assessor) = &self.assessor {
-                            let assessment = assessor.assess_agent_create(request.clone()).await?;
-                            if preview {
-                                return Ok(preview_output(assessment));
-                            }
-                            if let Some(output) =
-                                enforce_confirmation_or_defer(&assessment, approval_id.as_deref())?
-                            {
-                                return Ok(output);
-                            }
-                        } else if preview {
-                            return Err(ToolError::Tool(
-                                "Agent operation preview is unavailable in this runtime."
-                                    .to_string(),
-                            ));
+                let output =
+                    match action {
+                        AgentAction::List => {
+                            ToolOutput::success(self.store.list_agents().map_err(|e| {
+                                ToolError::Tool(format!("Failed to list agent: {e}"))
+                            })?)
                         }
-                        ToolOutput::success(self.store.create_agent(request).map_err(|e| {
-                            let message = e.to_string();
-                            if message.contains("\"type\":\"validation_error\"") {
-                                ToolError::Tool(message)
-                            } else {
-                                ToolError::Tool(format!("Failed to create agent: {e}"))
-                            }
-                        })?)
-                    }
-                    AgentAction::Update {
-                        id,
-                        name,
-                        agent,
-                        preview,
-                        approval_id,
-                    } => {
-                        self.write_guard()?;
-                        let request = AgentUpdateRequest {
-                            id,
-                            name,
-                            agent: agent.map(Self::parse_contract_agent).transpose()?,
-                        };
-                        if let Some(assessor) = &self.assessor {
-                            let assessment = assessor.assess_agent_update(request.clone()).await?;
-                            if preview {
-                                return Ok(preview_output(assessment));
-                            }
-                            if let Some(output) =
-                                enforce_confirmation_or_defer(&assessment, approval_id.as_deref())?
-                            {
-                                return Ok(output);
-                            }
-                        } else if preview {
-                            return Err(ToolError::Tool(
-                                "Agent operation preview is unavailable in this runtime."
-                                    .to_string(),
-                            ));
+                        AgentAction::Show { id } => {
+                            ToolOutput::success(self.store.get_agent(&id).map_err(|e| {
+                                ToolError::Tool(format!("Failed to get agent: {e}"))
+                            })?)
                         }
-                        ToolOutput::success(self.store.update_agent(request).map_err(|e| {
-                            let message = e.to_string();
-                            if message.contains("\"type\":\"validation_error\"") {
-                                ToolError::Tool(message)
-                            } else {
-                                ToolError::Tool(format!("Failed to update agent: {e}"))
-                            }
-                        })?)
-                    }
-                    AgentAction::Delete { id } => {
-                        self.write_guard()?;
-                        ToolOutput::success(
-                            self.store.delete_agent(&id).map_err(|e| {
+                        AgentAction::Create { name, agent } => {
+                            self.write_guard()?;
+                            let request = AgentCreateRequest {
+                                name,
+                                agent: Self::parse_contract_agent(agent)?,
+                            };
+                            ToolOutput::success(self.store.create_agent(request).map_err(|e| {
+                                let message = e.to_string();
+                                if message.contains("\"type\":\"validation_error\"") {
+                                    ToolError::Tool(message)
+                                } else {
+                                    ToolError::Tool(format!("Failed to create agent: {e}"))
+                                }
+                            })?)
+                        }
+                        AgentAction::Update { id, name, agent } => {
+                            self.write_guard()?;
+                            let request = AgentUpdateRequest {
+                                id,
+                                name,
+                                agent: agent.map(Self::parse_contract_agent).transpose()?,
+                            };
+                            ToolOutput::success(self.store.update_agent(request).map_err(|e| {
+                                let message = e.to_string();
+                                if message.contains("\"type\":\"validation_error\"") {
+                                    ToolError::Tool(message)
+                                } else {
+                                    ToolError::Tool(format!("Failed to update agent: {e}"))
+                                }
+                            })?)
+                        }
+                        AgentAction::Delete { id } => {
+                            self.write_guard()?;
+                            ToolOutput::success(self.store.delete_agent(&id).map_err(|e| {
                                 ToolError::Tool(format!("Failed to delete agent: {e}"))
-                            })?,
-                        )
-                    }
-                };
+                            })?)
+                        }
+                    };
 
                 Ok(output)
             }
@@ -5209,10 +5048,6 @@ pub mod impls {
         mod tests {
             use super::*;
             use std::sync::Mutex;
-            use types::{
-                AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
-                OperationAssessmentIssue,
-            };
 
             struct MockStore;
 
@@ -5373,105 +5208,6 @@ pub mod impls {
                     .expect_err("invalid payload should be rejected");
 
                 assert!(err.to_string().contains("Invalid agent payload"));
-            }
-
-            struct WarningAssessor;
-
-            #[async_trait]
-            impl AgentOperationAssessor for WarningAssessor {
-                async fn assess_agent_create(
-                    &self,
-                    _request: AgentCreateRequest,
-                ) -> Result<OperationAssessment> {
-                    Ok(OperationAssessment::warning_with_confirmation(
-                        "create_agent",
-                        OperationAssessmentIntent::Save,
-                        vec![OperationAssessmentIssue {
-                            code: "review".to_string(),
-                            message: "Review this change before creating the agent.".to_string(),
-                            field: None,
-                            suggestion: None,
-                        }],
-                    ))
-                }
-
-                async fn assess_agent_update(
-                    &self,
-                    _request: AgentUpdateRequest,
-                ) -> Result<OperationAssessment> {
-                    unreachable!("unused in this test")
-                }
-
-                async fn assess_subagent_spawn(
-                    &self,
-                    _operation: &str,
-                    _request: types::subagent::ContractRunSpawnRequest,
-                    _template_mode: bool,
-                ) -> Result<OperationAssessment> {
-                    unreachable!("unused in this test")
-                }
-
-                async fn assess_subagent_batch(
-                    &self,
-                    _operation: &str,
-                    _requests: Vec<types::subagent::ContractRunSpawnRequest>,
-                    _template_mode: bool,
-                ) -> Result<OperationAssessment> {
-                    unreachable!("unused in this test")
-                }
-            }
-
-            #[tokio::test]
-            async fn test_create_returns_pending_approval_when_assessment_requires_confirmation() {
-                let tool = AgentCrudTool::new(Arc::new(MockStore))
-                    .with_assessor(Arc::new(WarningAssessor))
-                    .with_write(true);
-
-                let output = tool
-                    .execute(json!({
-                        "operation": "create",
-                        "name": "Agent",
-                        "agent": {}
-                    }))
-                    .await
-                    .expect("tool should return structured pending approval");
-
-                assert!(!output.success);
-                assert_eq!(output.result["pending_approval"], true);
-                assert!(output.result["approval_id"].as_str().is_some());
-            }
-
-            #[tokio::test]
-            async fn test_create_accepts_approval_id_for_replay() {
-                let tool = AgentCrudTool::new(Arc::new(MockStore))
-                    .with_assessor(Arc::new(WarningAssessor))
-                    .with_write(true);
-
-                let preview = tool
-                    .execute(json!({
-                        "operation": "create",
-                        "name": "Agent",
-                        "agent": {}
-                    }))
-                    .await
-                    .expect("initial guarded execution should succeed");
-
-                let approval_id = preview.result["approval_id"]
-                    .as_str()
-                    .expect("pending approval id")
-                    .to_string();
-
-                let replay = tool
-                    .execute(json!({
-                        "operation": "create",
-                        "name": "Agent",
-                        "agent": {},
-                        "approval_id": approval_id,
-                    }))
-                    .await
-                    .expect("approval id should replay successfully");
-
-                assert!(replay.success);
             }
         }
     }
@@ -5670,7 +5406,6 @@ pub mod impls {
             "agent.tool_timeout_secs",
             "agent.llm_timeout_secs",
             "agent.bash_timeout_secs",
-            "agent.process_session_ttl_secs",
             "agent.approval_timeout_secs",
             "agent.max_iterations",
             "agent.max_depth",
@@ -5691,7 +5426,7 @@ pub mod impls {
         ];
 
         const VALID_TOP_LEVEL_FIELDS: &str = "system.*, agent.*, api.*, runtime.*, registry.*";
-        const VALID_AGENT_FIELDS: &str = "agent.tool_timeout_secs, agent.llm_timeout_secs, agent.bash_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.max_depth, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_tool_concurrency, agent.max_tool_result_length, agent.prune_tool_max_chars, agent.compact_preserve_tokens, agent.max_wall_clock_secs, agent.fallback_models";
+        const VALID_AGENT_FIELDS: &str = "agent.tool_timeout_secs, agent.llm_timeout_secs, agent.bash_timeout_secs, agent.approval_timeout_secs, agent.max_iterations, agent.max_depth, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_tool_concurrency, agent.max_tool_result_length, agent.prune_tool_max_chars, agent.compact_preserve_tokens, agent.max_wall_clock_secs, agent.fallback_models";
         const VALID_API_FIELDS: &str = "api.session_list_limit, api.web_search_num_results";
         const VALID_RUNTIME_FIELDS: &str = "runtime.chat_max_session_history";
         const VALID_REGISTRY_FIELDS: &str =
@@ -5762,9 +5497,6 @@ pub mod impls {
                 }
                 "agent.bash_timeout_secs" => {
                     config.agent.bash_timeout_secs = parse_u64(value, key)?;
-                }
-                "agent.process_session_ttl_secs" => {
-                    config.agent.process_session_ttl_secs = parse_u64(value, key)?;
                 }
                 "agent.approval_timeout_secs" => {
                     config.agent.approval_timeout_secs = parse_u64(value, key)?;
@@ -6175,7 +5907,6 @@ pub mod impls {
                     ("agent.tool_timeout_secs", json!(180)),
                     ("agent.llm_timeout_secs", json!(900)),
                     ("agent.bash_timeout_secs", json!(600)),
-                    ("agent.process_session_ttl_secs", json!(5400)),
                     ("agent.approval_timeout_secs", json!(420)),
                     ("agent.max_iterations", json!(50)),
                     ("agent.max_depth", json!(4)),
@@ -6227,12 +5958,6 @@ pub mod impls {
                     Some(50)
                 );
                 assert_eq!(agent.get("max_depth").and_then(|v| v.as_u64()), Some(4));
-                assert_eq!(
-                    agent
-                        .get("process_session_ttl_secs")
-                        .and_then(|v| v.as_u64()),
-                    Some(5400)
-                );
                 assert_eq!(
                     agent.get("approval_timeout_secs").and_then(|v| v.as_u64()),
                     Some(420)
@@ -6295,7 +6020,6 @@ pub mod impls {
                 assert!(agent.get("tool_timeout_secs").is_some());
                 assert!(agent.get("llm_timeout_secs").is_some());
                 assert!(agent.get("bash_timeout_secs").is_some());
-                assert!(agent.get("process_session_ttl_secs").is_some());
                 assert!(agent.get("approval_timeout_secs").is_some());
                 assert!(agent.get("max_iterations").is_some());
                 assert!(agent.get("max_tool_concurrency").is_some());
@@ -7295,675 +7019,6 @@ pub mod impls {
             let result = tool.apply_operations(&operations).await;
 
             assert!(result.is_ok());
-        }
-    }
-
-    pub mod process {
-        // Process management tool for AI agents
-
-        use async_trait::async_trait;
-        use serde::Deserialize;
-        use serde_json::{Value, json};
-        use std::sync::Arc;
-
-        use crate::Result;
-        use crate::SecurityGate;
-        use crate::check_security;
-        use crate::{Tool, ToolAction, ToolOutput};
-        use types::store::ProcessManager;
-
-        fn missing_session_message(session_id: &str) -> String {
-            format!(
-                "Session '{}' not found. Use action 'list' to see active sessions.",
-                session_id
-            )
-        }
-
-        fn invalid_session_state_message() -> &'static str {
-            "Process session is in an invalid state. The session may have crashed. Use 'list' to check status."
-        }
-
-        #[derive(Debug, Deserialize)]
-        #[serde(tag = "action", rename_all = "snake_case")]
-        enum ProcessAction {
-            Spawn {
-                command: String,
-                cwd: Option<String>,
-                /// Reserved for future background mode support
-                #[serde(rename = "yield")]
-                #[allow(dead_code)]
-                yield_mode: Option<bool>,
-            },
-            Poll {
-                session_id: String,
-            },
-            Write {
-                session_id: String,
-                data: String,
-            },
-            Kill {
-                session_id: String,
-            },
-            List,
-            Log {
-                session_id: String,
-                offset: Option<usize>,
-                limit: Option<usize>,
-            },
-        }
-
-        /// Process management tool
-        pub struct ProcessTool {
-            manager: Arc<dyn ProcessManager>,
-            security_gate: Option<Arc<dyn SecurityGate>>,
-            agent_id: Option<String>,
-            task_id: Option<String>,
-        }
-
-        impl ProcessTool {
-            pub fn new(manager: Arc<dyn ProcessManager>) -> Self {
-                Self {
-                    manager,
-                    security_gate: None,
-                    agent_id: None,
-                    task_id: None,
-                }
-            }
-
-            pub fn with_security(
-                mut self,
-                security_gate: Arc<dyn SecurityGate>,
-                agent_id: impl Into<String>,
-                task_id: impl Into<String>,
-            ) -> Self {
-                self.security_gate = Some(security_gate);
-                self.agent_id = Some(agent_id.into());
-                self.task_id = Some(task_id.into());
-                self
-            }
-
-            async fn check_action_allowed(
-                &self,
-                operation: &str,
-                target: String,
-                summary: String,
-            ) -> Result<Option<String>> {
-                let action = ToolAction {
-                    tool_name: self.name().to_string(),
-                    operation: operation.to_string(),
-                    target,
-                    summary,
-                };
-
-                check_security(
-                    self.security_gate.as_deref(),
-                    action,
-                    self.agent_id.as_deref(),
-                    self.task_id.as_deref(),
-                )
-                .await
-            }
-        }
-
-        #[async_trait]
-        impl Tool for ProcessTool {
-            fn name(&self) -> &str {
-                "process"
-            }
-
-            fn description(&self) -> &str {
-                "Manage process sessions: spawn commands, poll status, write stdin, read logs, list, and kill."
-            }
-
-            fn parameters_schema(&self) -> Value {
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "description": "Action to perform: spawn, poll, write, kill, list, log",
-                            "enum": ["spawn", "poll", "write", "kill", "list", "log"]
-                        },
-                        "command": { "type": "string", "description": "Command to execute" },
-                        "cwd": { "type": "string", "description": "Working directory" },
-                        "yield": { "type": "boolean", "description": "Run in background" },
-                        "session_id": { "type": "string", "description": "Process session id" },
-                        "data": { "type": "string", "description": "Input to write to the process" },
-                        "offset": { "type": "integer", "description": "Log offset" },
-                        "limit": { "type": "integer", "description": "Log limit" }
-                    },
-                    "required": ["action"]
-                })
-            }
-
-            async fn execute(&self, input: Value) -> Result<ToolOutput> {
-                let action: ProcessAction = match serde_json::from_value(input) {
-                    Ok(action) => action,
-                    Err(e) => {
-                        return Ok(ToolOutput::error(format!(
-                            "Invalid input: {}. Required: action (spawn|poll|write|kill|list|log).",
-                            e
-                        )));
-                    }
-                };
-
-                match action {
-                    ProcessAction::Spawn { command, cwd, .. } => {
-                        if let Some(message) = self
-                            .check_action_allowed(
-                                "spawn",
-                                command.clone(),
-                                format!("Spawn process command: {}", command),
-                            )
-                            .await?
-                        {
-                            return Ok(ToolOutput::error(message));
-                        }
-
-                        match self.manager.spawn(command, cwd) {
-                            Ok(session_id) => {
-                                Ok(ToolOutput::success(json!({"session_id": session_id})))
-                            }
-                            Err(e) => Ok(ToolOutput::error(format!(
-                                "Failed to spawn process: {}. Check that the command exists and the working directory is valid.",
-                                e
-                            ))),
-                        }
-                    }
-                    ProcessAction::Poll { session_id } => {
-                        if let Some(message) = self
-                            .check_action_allowed(
-                                "poll",
-                                session_id.clone(),
-                                format!("Poll process session {}", session_id),
-                            )
-                            .await?
-                        {
-                            return Ok(ToolOutput::error(message));
-                        }
-
-                        match self.manager.poll(&session_id) {
-                            Ok(result) => Ok(ToolOutput::success(serde_json::to_value(result)?)),
-                            Err(e) => {
-                                if e.to_string().contains("Session not found") {
-                                    return Ok(ToolOutput::error(missing_session_message(
-                                        &session_id,
-                                    )));
-                                }
-                                Ok(ToolOutput::error(format!(
-                                    "Failed to poll process session '{}': {}",
-                                    session_id, e
-                                )))
-                            }
-                        }
-                    }
-                    ProcessAction::Write { session_id, data } => {
-                        if let Some(message) = self
-                            .check_action_allowed(
-                                "write",
-                                session_id.clone(),
-                                format!("Write stdin to process session {}", session_id),
-                            )
-                            .await?
-                        {
-                            return Ok(ToolOutput::error(message));
-                        }
-
-                        match self.manager.write(&session_id, &data) {
-                            Ok(()) => Ok(ToolOutput::success(json!({"session_id": session_id}))),
-                            Err(e) => {
-                                let error_message = e.to_string();
-                                if error_message.contains("Session not found") {
-                                    return Ok(ToolOutput::error(missing_session_message(
-                                        &session_id,
-                                    )));
-                                }
-                                if error_message.contains("lock poisoned") {
-                                    return Ok(ToolOutput::error(invalid_session_state_message()));
-                                }
-                                Ok(ToolOutput::error(format!(
-                                    "Failed to write to process session '{}': {}",
-                                    session_id, e
-                                )))
-                            }
-                        }
-                    }
-                    ProcessAction::Kill { session_id } => {
-                        if let Some(message) = self
-                            .check_action_allowed(
-                                "kill",
-                                session_id.clone(),
-                                format!("Kill process session {}", session_id),
-                            )
-                            .await?
-                        {
-                            return Ok(ToolOutput::error(message));
-                        }
-
-                        match self.manager.kill(&session_id) {
-                            Ok(()) => Ok(ToolOutput::success(json!({"session_id": session_id}))),
-                            Err(e) => {
-                                if e.to_string().contains("Session not found") {
-                                    return Ok(ToolOutput::error(missing_session_message(
-                                        &session_id,
-                                    )));
-                                }
-                                Ok(ToolOutput::error(format!(
-                                    "Failed to kill process session '{}': {}",
-                                    session_id, e
-                                )))
-                            }
-                        }
-                    }
-                    ProcessAction::List => {
-                        if let Some(message) = self
-                            .check_action_allowed(
-                                "list",
-                                "process_sessions".to_string(),
-                                "List process sessions".to_string(),
-                            )
-                            .await?
-                        {
-                            return Ok(ToolOutput::error(message));
-                        }
-
-                        match self.manager.list() {
-                            Ok(sessions) => {
-                                Ok(ToolOutput::success(serde_json::to_value(sessions)?))
-                            }
-                            Err(e) => Ok(ToolOutput::error(format!(
-                                "Failed to list process sessions: {}",
-                                e
-                            ))),
-                        }
-                    }
-                    ProcessAction::Log {
-                        session_id,
-                        offset,
-                        limit,
-                    } => {
-                        if let Some(message) = self
-                            .check_action_allowed(
-                                "log",
-                                session_id.clone(),
-                                format!("Read process logs for session {}", session_id),
-                            )
-                            .await?
-                        {
-                            return Ok(ToolOutput::error(message));
-                        }
-
-                        let offset = offset.unwrap_or(0);
-                        let limit = limit.unwrap_or(10_000);
-                        match self.manager.log(&session_id, offset, limit) {
-                            Ok(log) => Ok(ToolOutput::success(serde_json::to_value(log)?)),
-                            Err(e) => {
-                                if e.to_string().contains("Session not found") {
-                                    return Ok(ToolOutput::error(missing_session_message(
-                                        &session_id,
-                                    )));
-                                }
-                                Ok(ToolOutput::error(format!(
-                                    "Failed to read process logs for session '{}': {}",
-                                    session_id, e
-                                )))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-            use anyhow::anyhow;
-            use async_trait::async_trait;
-            use serde_json::json;
-            use std::sync::Mutex;
-            use types::store::{ProcessLog, ProcessPollResult, ProcessSessionInfo};
-            use types::tool::{SecurityDecision, ToolAction};
-
-            struct MockProcessManager;
-
-            impl ProcessManager for MockProcessManager {
-                fn spawn(&self, _command: String, _cwd: Option<String>) -> anyhow::Result<String> {
-                    Ok("session-1".to_string())
-                }
-
-                fn poll(&self, _session_id: &str) -> anyhow::Result<ProcessPollResult> {
-                    Err(anyhow!("Session not found: session-404"))
-                }
-
-                fn write(&self, _session_id: &str, _data: &str) -> anyhow::Result<()> {
-                    Ok(())
-                }
-
-                fn kill(&self, _session_id: &str) -> anyhow::Result<()> {
-                    Ok(())
-                }
-
-                fn list(&self) -> anyhow::Result<Vec<ProcessSessionInfo>> {
-                    Ok(vec![])
-                }
-
-                fn log(
-                    &self,
-                    _session_id: &str,
-                    _offset: usize,
-                    _limit: usize,
-                ) -> anyhow::Result<ProcessLog> {
-                    Err(anyhow!("Session not found: session-404"))
-                }
-            }
-
-            #[tokio::test]
-            async fn process_tool_returns_actionable_error_for_invalid_input() {
-                let tool = ProcessTool::new(Arc::new(MockProcessManager));
-                let output = tool.execute(json!({"command": "echo test"})).await.unwrap();
-
-                assert!(!output.success);
-                assert!(
-                    output
-                        .error
-                        .unwrap_or_default()
-                        .contains("Required: action (spawn|poll|write|kill|list|log).")
-                );
-            }
-
-            #[tokio::test]
-            async fn process_tool_returns_actionable_error_for_missing_session() {
-                let tool = ProcessTool::new(Arc::new(MockProcessManager));
-                let output = tool
-                    .execute(json!({"action": "poll", "session_id": "session-404"}))
-                    .await
-                    .unwrap();
-
-                assert!(!output.success);
-                assert_eq!(
-                    output.error.unwrap_or_default(),
-                    "Session 'session-404' not found. Use action 'list' to see active sessions."
-                );
-            }
-
-            #[derive(Default)]
-            struct ProcessCallCounts {
-                spawn: usize,
-                poll: usize,
-                write: usize,
-                kill: usize,
-                list: usize,
-                log: usize,
-            }
-
-            struct CountingProcessManager {
-                calls: Arc<Mutex<ProcessCallCounts>>,
-            }
-
-            impl CountingProcessManager {
-                fn new(calls: Arc<Mutex<ProcessCallCounts>>) -> Self {
-                    Self { calls }
-                }
-            }
-
-            impl ProcessManager for CountingProcessManager {
-                fn spawn(&self, _command: String, _cwd: Option<String>) -> anyhow::Result<String> {
-                    self.calls.lock().expect("calls lock poisoned").spawn += 1;
-                    Ok("session-1".to_string())
-                }
-
-                fn poll(&self, session_id: &str) -> anyhow::Result<ProcessPollResult> {
-                    self.calls.lock().expect("calls lock poisoned").poll += 1;
-                    Ok(ProcessPollResult {
-                        session_id: session_id.to_string(),
-                        output: String::new(),
-                        status: "running".to_string(),
-                        exit_code: None,
-                    })
-                }
-
-                fn write(&self, _session_id: &str, _data: &str) -> anyhow::Result<()> {
-                    self.calls.lock().expect("calls lock poisoned").write += 1;
-                    Ok(())
-                }
-
-                fn kill(&self, _session_id: &str) -> anyhow::Result<()> {
-                    self.calls.lock().expect("calls lock poisoned").kill += 1;
-                    Ok(())
-                }
-
-                fn list(&self) -> anyhow::Result<Vec<ProcessSessionInfo>> {
-                    self.calls.lock().expect("calls lock poisoned").list += 1;
-                    Ok(Vec::new())
-                }
-
-                fn log(
-                    &self,
-                    session_id: &str,
-                    offset: usize,
-                    limit: usize,
-                ) -> anyhow::Result<ProcessLog> {
-                    self.calls.lock().expect("calls lock poisoned").log += 1;
-                    Ok(ProcessLog {
-                        session_id: session_id.to_string(),
-                        output: String::new(),
-                        offset,
-                        limit,
-                        total: 0,
-                        truncated: false,
-                    })
-                }
-            }
-
-            enum GateMode {
-                Allow,
-                Deny(String),
-            }
-
-            struct MockSecurityGate {
-                mode: GateMode,
-                actions: Arc<Mutex<Vec<ToolAction>>>,
-            }
-
-            impl MockSecurityGate {
-                fn allow(actions: Arc<Mutex<Vec<ToolAction>>>) -> Self {
-                    Self {
-                        mode: GateMode::Allow,
-                        actions,
-                    }
-                }
-
-                fn deny(reason: impl Into<String>, actions: Arc<Mutex<Vec<ToolAction>>>) -> Self {
-                    Self {
-                        mode: GateMode::Deny(reason.into()),
-                        actions,
-                    }
-                }
-            }
-
-            #[async_trait]
-            impl SecurityGate for MockSecurityGate {
-                async fn check_command(
-                    &self,
-                    _command: &str,
-                    _task_id: &str,
-                    _agent_id: &str,
-                    _workdir: Option<&str>,
-                ) -> types::error::Result<SecurityDecision> {
-                    Ok(SecurityDecision::allowed(None))
-                }
-
-                async fn check_tool_action(
-                    &self,
-                    action: &ToolAction,
-                    _agent_id: Option<&str>,
-                    _task_id: Option<&str>,
-                ) -> types::error::Result<SecurityDecision> {
-                    self.actions
-                        .lock()
-                        .expect("actions lock poisoned")
-                        .push(action.clone());
-
-                    match &self.mode {
-                        GateMode::Allow => Ok(SecurityDecision::allowed(None)),
-                        GateMode::Deny(reason) => {
-                            Ok(SecurityDecision::blocked(Some(reason.clone())))
-                        }
-                    }
-                }
-            }
-
-            #[tokio::test]
-            async fn process_tool_defaults_to_open_when_security_gate_is_absent() {
-                let calls = Arc::new(Mutex::new(ProcessCallCounts::default()));
-                let manager = Arc::new(CountingProcessManager::new(calls.clone()));
-                let tool = ProcessTool::new(manager);
-
-                let spawn = tool
-                    .execute(json!({"action": "spawn", "command": "echo test"}))
-                    .await
-                    .unwrap();
-                let write = tool
-                    .execute(json!({"action": "write", "session_id": "session-1", "data": "input"}))
-                    .await
-                    .unwrap();
-                let poll = tool
-                    .execute(json!({"action": "poll", "session_id": "session-1"}))
-                    .await
-                    .unwrap();
-                let kill = tool
-                    .execute(json!({"action": "kill", "session_id": "session-1"}))
-                    .await
-                    .unwrap();
-                let list = tool.execute(json!({"action": "list"})).await.unwrap();
-                let log = tool
-                    .execute(json!({"action": "log", "session_id": "session-1"}))
-                    .await
-                    .unwrap();
-
-                assert!(spawn.success);
-                assert!(write.success);
-                assert!(poll.success);
-                assert!(kill.success);
-                assert!(list.success);
-                assert!(log.success);
-
-                let calls = calls.lock().expect("calls lock poisoned");
-                assert_eq!(calls.spawn, 1);
-                assert_eq!(calls.poll, 1);
-                assert_eq!(calls.write, 1);
-                assert_eq!(calls.kill, 1);
-                assert_eq!(calls.list, 1);
-                assert_eq!(calls.log, 1);
-            }
-
-            #[tokio::test]
-            async fn process_tool_applies_security_gate_to_all_operations() {
-                let calls = Arc::new(Mutex::new(ProcessCallCounts::default()));
-                let manager = Arc::new(CountingProcessManager::new(calls.clone()));
-                let actions = Arc::new(Mutex::new(Vec::new()));
-                let gate = Arc::new(MockSecurityGate::deny(
-                    "process operation blocked",
-                    actions.clone(),
-                ));
-                let tool = ProcessTool::new(manager).with_security(gate, "agent-1", "task-1");
-
-                let spawn = tool
-                    .execute(json!({"action": "spawn", "command": "echo test"}))
-                    .await
-                    .unwrap();
-                let write = tool
-                    .execute(json!({"action": "write", "session_id": "session-1", "data": "input"}))
-                    .await
-                    .unwrap();
-                let poll = tool
-                    .execute(json!({"action": "poll", "session_id": "session-1"}))
-                    .await
-                    .unwrap();
-                let kill = tool
-                    .execute(json!({"action": "kill", "session_id": "session-1"}))
-                    .await
-                    .unwrap();
-                let list = tool.execute(json!({"action": "list"})).await.unwrap();
-                let log = tool
-                    .execute(json!({"action": "log", "session_id": "session-1"}))
-                    .await
-                    .unwrap();
-
-                assert!(!spawn.success);
-                assert!(!write.success);
-                assert!(!poll.success);
-                assert!(!kill.success);
-                assert!(!list.success);
-                assert!(!log.success);
-                assert_eq!(
-                    spawn.error.as_deref(),
-                    Some("Action blocked: process operation blocked")
-                );
-                assert_eq!(
-                    write.error.as_deref(),
-                    Some("Action blocked: process operation blocked")
-                );
-                assert_eq!(
-                    poll.error.as_deref(),
-                    Some("Action blocked: process operation blocked")
-                );
-                assert_eq!(
-                    kill.error.as_deref(),
-                    Some("Action blocked: process operation blocked")
-                );
-                assert_eq!(
-                    list.error.as_deref(),
-                    Some("Action blocked: process operation blocked")
-                );
-                assert_eq!(
-                    log.error.as_deref(),
-                    Some("Action blocked: process operation blocked")
-                );
-
-                let calls = calls.lock().expect("calls lock poisoned");
-                assert_eq!(calls.spawn, 0);
-                assert_eq!(calls.poll, 0);
-                assert_eq!(calls.write, 0);
-                assert_eq!(calls.kill, 0);
-                assert_eq!(calls.list, 0);
-                assert_eq!(calls.log, 0);
-                drop(calls);
-
-                let actions = actions.lock().expect("actions lock poisoned");
-                let operations: Vec<&str> = actions
-                    .iter()
-                    .map(|action| action.operation.as_str())
-                    .collect();
-                assert_eq!(
-                    operations,
-                    vec!["spawn", "write", "poll", "kill", "list", "log"]
-                );
-            }
-
-            #[tokio::test]
-            async fn process_tool_executes_when_security_gate_allows_actions() {
-                let calls = Arc::new(Mutex::new(ProcessCallCounts::default()));
-                let manager = Arc::new(CountingProcessManager::new(calls.clone()));
-                let actions = Arc::new(Mutex::new(Vec::new()));
-                let gate = Arc::new(MockSecurityGate::allow(actions.clone()));
-                let tool = ProcessTool::new(manager).with_security(gate, "agent-1", "task-1");
-
-                let output = tool
-                    .execute(json!({"action": "spawn", "command": "echo allowed"}))
-                    .await
-                    .unwrap();
-
-                assert!(output.success);
-
-                let calls = calls.lock().expect("calls lock poisoned");
-                assert_eq!(calls.spawn, 1);
-                drop(calls);
-
-                let actions = actions.lock().expect("actions lock poisoned");
-                assert_eq!(actions.len(), 1);
-                assert_eq!(actions[0].operation, "spawn");
-            }
         }
     }
 
@@ -12434,9 +11489,9 @@ pub mod impls {
         use crate::impls::wait_subagents::WaitSubagentsTool;
         use crate::impls::{BashTool, FileTool};
         use crate::{BashSecurityConfig, SecurityGate, ToolRegistry};
+        use types::SubagentManager;
         use types::skill::SkillProvider;
         use types::store::{AgentStore, ConfigStore, OpsProvider, SecretStore, SessionStore};
-        use types::{AgentOperationAssessor, SubagentManager};
 
         /// Configuration for bash tool security.
         #[derive(Debug, Clone)]
@@ -12796,19 +11851,6 @@ pub mod impls {
                     .register(AgentCrudTool::new(store).with_write(true));
                 self
             }
-
-            pub fn with_agent_crud_and_assessor(
-                mut self,
-                store: Arc<dyn AgentStore>,
-                assessor: Arc<dyn AgentOperationAssessor>,
-            ) -> Self {
-                self.registry.register(
-                    AgentCrudTool::new(store)
-                        .with_assessor(assessor)
-                        .with_write(true),
-                );
-                self
-            }
         }
 
         #[cfg(test)]
@@ -12835,12 +11877,10 @@ pub mod impls {
         use std::sync::Arc;
         use tokio::time::{Duration, timeout};
 
-        use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
         use crate::impls::spawn_subagent_batch::{
             BatchSubagentSpec, SpawnSubagentBatchOperation, SpawnSubagentBatchTool,
         };
         use crate::{Result, Tool, ToolError, ToolOutput};
-        use ::types::AgentOperationAssessor;
         use ::types::{SubagentManager, subagent::SubagentDefSummary};
         use types::request::{
             InlineAgentRunConfig as ContractInlineAgentRunConfig,
@@ -12907,33 +11947,16 @@ pub mod impls {
             /// Optional list-based worker specs for unified single/multi spawn.
             #[serde(default)]
             pub workers: Option<Vec<BatchSubagentSpec>>,
-
-            /// If true, validate and preview capability warnings/blockers without executing.
-            #[serde(default)]
-            pub preview: bool,
-
-            /// Approval ID returned by preview when warnings require explicit confirmation.
-            #[serde(default)]
-            pub approval_id: Option<String>,
         }
 
         /// spawn_subagent tool for the shared agent execution engine.
         pub struct SpawnSubagentTool {
             manager: Arc<dyn SubagentManager>,
-            assessor: Option<Arc<dyn AgentOperationAssessor>>,
         }
 
         impl SpawnSubagentTool {
             pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
-                Self {
-                    manager,
-                    assessor: None,
-                }
-            }
-
-            pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
-                self.assessor = Some(assessor);
-                self
+                Self { manager }
             }
 
             fn available_agents(&self) -> Vec<SubagentDefSummary> {
@@ -13064,14 +12087,6 @@ pub mod impls {
                                 "inline_max_iterations": { "type": "integer", "minimum": 1, "description": "Optional temporary sub-agent max iterations." }
                             }
                         }
-                    },
-                    "preview": {
-                        "type": "boolean",
-                        "description": "If true, validate capability warnings/blockers without executing."
-                    },
-                    "approval_id": {
-                        "type": "string",
-                        "description": "Approval ID returned by preview when warnings require explicit confirmation."
                     }
                 }
             })
@@ -13186,10 +12201,7 @@ pub mod impls {
                     ));
                 }
 
-                let mut batch_tool = SpawnSubagentBatchTool::new(tool.manager.clone());
-                if let Some(assessor) = tool.assessor.clone() {
-                    batch_tool = batch_tool.with_assessor(assessor);
-                }
+                let batch_tool = SpawnSubagentBatchTool::new(tool.manager.clone());
 
                 let operation = params.operation.clone();
                 let task = normalize_optional_text(params.task.as_deref());
@@ -13204,8 +12216,6 @@ pub mod impls {
                         "wait": params.wait,
                         "timeout_secs": params.timeout_secs,
                         "parent_run_id": params.parent_run_id,
-                        "preview": params.preview,
-                        "approval_id": params.approval_id
                     }))
                     .await;
             }
@@ -13214,24 +12224,6 @@ pub mod impls {
                 &params,
                 normalize_optional_text(params.task.as_deref()).unwrap_or_default(),
             );
-
-            if let Some(assessor) = &tool.assessor {
-                let assessment = assessor
-                    .assess_subagent_spawn("spawn_subagent", request.clone(), false)
-                    .await?;
-                if params.preview {
-                    return Ok(preview_output(assessment));
-                }
-                if let Some(output) =
-                    enforce_confirmation_or_defer(&assessment, params.approval_id.as_deref())?
-                {
-                    return Ok(output);
-                }
-            } else if params.preview {
-                return Err(ToolError::Tool(
-                    "Sub-agent capability preview is unavailable in this runtime.".to_string(),
-                ));
-            }
 
             let handle = tool.manager.spawn(request)?;
 
@@ -13297,11 +12289,8 @@ pub mod impls {
             };
             use ::agent::llm::{MockLlmClient, MockStep};
             use ::types::request::RunSpawnRequest as ContractRunSpawnRequest;
-            use ::types::{
-                AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
-                OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,
-            };
             use ::types::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
+            use ::types::{SpawnHandle, SubagentCompletion, SubagentState};
             use serde_json::json;
             use std::collections::HashMap;
             use std::sync::{Arc, Mutex};
@@ -13439,52 +12428,6 @@ pub mod impls {
                 ))
             }
 
-            struct WarningAssessor;
-
-            #[async_trait]
-            impl AgentOperationAssessor for WarningAssessor {
-                async fn assess_agent_create(
-                    &self,
-                    _request: ::types::store::AgentCreateRequest,
-                ) -> crate::Result<OperationAssessment> {
-                    unreachable!("unused in this test")
-                }
-
-                async fn assess_agent_update(
-                    &self,
-                    _request: ::types::store::AgentUpdateRequest,
-                ) -> crate::Result<OperationAssessment> {
-                    unreachable!("unused in this test")
-                }
-
-                async fn assess_subagent_spawn(
-                    &self,
-                    _operation: &str,
-                    _request: ::types::subagent::ContractRunSpawnRequest,
-                    _template_mode: bool,
-                ) -> crate::Result<OperationAssessment> {
-                    Ok(OperationAssessment::warning_with_confirmation(
-                        "spawn_subagent",
-                        OperationAssessmentIntent::Run,
-                        vec![OperationAssessmentIssue {
-                            code: "review".to_string(),
-                            message: "Review this batch before spawning.".to_string(),
-                            field: None,
-                            suggestion: None,
-                        }],
-                    ))
-                }
-
-                async fn assess_subagent_batch(
-                    &self,
-                    _operation: &str,
-                    _requests: Vec<::types::subagent::ContractRunSpawnRequest>,
-                    _template_mode: bool,
-                ) -> crate::Result<OperationAssessment> {
-                    unreachable!("unused in this test")
-                }
-            }
-
             #[test]
             fn test_params_deserialization() {
                 let json = r#"{"agent": "researcher", "task": "Research topic X"}"#;
@@ -13531,8 +12474,6 @@ pub mod impls {
                     inline_allowed_tools: None,
                     inline_max_iterations: None,
                     workers: None,
-                    preview: false,
-                    approval_id: None,
                 };
 
                 let serialized = serde_json::to_value(&params).unwrap();
@@ -13633,25 +12574,6 @@ pub mod impls {
                 assert!(result.success);
                 assert_eq!(result.result["status"], "timeout");
                 assert!(result.result["task_id"].as_str().is_some());
-            }
-
-            #[tokio::test]
-            async fn test_spawn_subagent_returns_pending_approval_when_assessment_requires_confirmation()
-             {
-                let deps = make_test_deps(
-                    vec![("coder", "Coder")],
-                    vec![MockStep::text("function written")],
-                );
-                let tool = SpawnSubagentTool::new(deps).with_assessor(Arc::new(WarningAssessor));
-
-                let result = tool
-                    .execute(json!({"agent": "coder", "task": "Review code"}))
-                    .await
-                    .expect("tool should return structured pending approval");
-
-                assert!(!result.success);
-                assert_eq!(result.result["pending_approval"], true);
-                assert!(result.result["approval_id"].as_str().is_some());
             }
 
             #[tokio::test]
@@ -13872,9 +12794,7 @@ pub mod impls {
         use std::sync::Arc;
         use tokio::time::{Duration, timeout};
 
-        use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
         use crate::{Result, Tool, ToolError, ToolOutput};
-        use ::types::AgentOperationAssessor;
         use ::types::{SubagentManager, subagent::SubagentDefSummary};
         use types::request::{
             InlineAgentRunConfig as ContractInlineAgentRunConfig,
@@ -13958,12 +12878,6 @@ pub mod impls {
             /// Optional parent run ID for context propagation.
             #[serde(default)]
             pub parent_run_id: Option<String>,
-            /// If true, validate and preview capability warnings/blockers without executing.
-            #[serde(default)]
-            pub preview: bool,
-            /// Approval ID returned by preview when warnings require explicit confirmation.
-            #[serde(default)]
-            pub approval_id: Option<String>,
         }
 
         #[derive(Debug, Clone)]
@@ -13992,20 +12906,11 @@ pub mod impls {
         /// spawn_subagent_batch tool for shared agent execution engine.
         pub struct SpawnSubagentBatchTool {
             manager: Arc<dyn SubagentManager>,
-            assessor: Option<Arc<dyn AgentOperationAssessor>>,
         }
 
         impl SpawnSubagentBatchTool {
             pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
-                Self {
-                    manager,
-                    assessor: None,
-                }
-            }
-
-            pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
-                self.assessor = Some(assessor);
-                self
+                Self { manager }
             }
 
             fn available_agents(&self) -> Vec<SubagentDefSummary> {
@@ -14128,14 +13033,6 @@ pub mod impls {
                     "parent_run_id": {
                         "type": "string",
                         "description": "Optional parent run ID for context propagation (runtime-injected)."
-                    },
-                    "preview": {
-                        "type": "boolean",
-                        "description": "If true, validate capability warnings/blockers without executing."
-                    },
-                    "approval_id": {
-                        "type": "string",
-                        "description": "Approval ID returned by preview when warnings require explicit confirmation."
                     }
                 }
             })
@@ -14550,28 +13447,6 @@ pub mod impls {
                         request,
                     });
                 }
-            }
-
-            if let Some(assessor) = &tool.assessor {
-                let assessment = assessor
-                    .assess_subagent_batch(
-                        "spawn_subagent_batch",
-                        prepared.iter().map(|item| item.request.clone()).collect(),
-                        false,
-                    )
-                    .await?;
-                if params.preview {
-                    return Ok(preview_output(assessment));
-                }
-                if let Some(output) =
-                    enforce_confirmation_or_defer(&assessment, params.approval_id.as_deref())?
-                {
-                    return Ok(output);
-                }
-            } else if params.preview {
-                return Err(ToolError::Tool(
-                    "Sub-agent capability preview is unavailable in this runtime.".to_string(),
-                ));
             }
 
             let mut spawned = Vec::with_capacity(prepared.len());
@@ -15504,7 +14379,6 @@ pub mod impls {
     pub use agent_crud::AgentCrudTool;
     pub use config::ConfigTool;
     pub use patch::PatchTool;
-    pub use process::ProcessTool;
     pub use reply::ReplyTool;
     pub use secrets::{SecretGetPolicy, SecretsTool};
     pub use session::SessionTool;
@@ -15558,8 +14432,8 @@ pub use impls::{EditTool, MultiEditTool};
 
 // Re-export migrated tool implementations
 pub use impls::{
-    AgentCrudTool, ConfigTool, PatchTool, ProcessTool, ReplyTool, SecretGetPolicy, SecretsTool,
-    SessionTool, SkillTool, SwitchModelTool,
+    AgentCrudTool, ConfigTool, PatchTool, ReplyTool, SecretGetPolicy, SecretsTool, SessionTool,
+    SkillTool, SwitchModelTool,
 };
 
 // Re-export tool_registry inline migrated tools
