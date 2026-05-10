@@ -6699,16 +6699,12 @@ mod shell {
             let available_above_prompt = available_above_prompt.saturating_sub(overlay_height);
             let spacer_height = u16::from(available_above_prompt > 0);
             let message_height = available_above_prompt.saturating_sub(spacer_height);
-            let message_lines = build_message_lines(state, width, message_height);
-            let mut visible_message_lines = if state.message_scroll_from_bottom == 0 {
-                preserve_first_cell_tail(message_lines, message_height as usize)
-            } else {
-                tail_lines(
-                    message_lines,
-                    message_height as usize,
-                    state.message_scroll_from_bottom,
-                )
-            };
+            let mut visible_message_lines = build_visible_message_lines(
+                state,
+                width,
+                message_height,
+                state.message_scroll_from_bottom,
+            );
             if spacer_height > 0 && !visible_message_lines.is_empty() {
                 visible_message_lines.push(Line::from(""));
             }
@@ -6780,18 +6776,8 @@ mod shell {
     }
 
     fn message_layout_line_count(state: &AppState, size: (u16, u16)) -> usize {
-        let (width, height) = size;
-        let prompt = build_prompt_snapshot(state, width, height);
-        let prompt_height = prompt.lines.len() as u16 + 2;
-        let available_above_prompt = height.saturating_sub(prompt_height);
-        let overlay_capacity = available_above_prompt.min(OVERLAY_MAX_ROWS);
-        let overlay_height = build_overlay_lines(state, width, overlay_capacity)
-            .map(|lines| lines.len() as u16)
-            .unwrap_or_default();
-        let available_above_prompt = available_above_prompt.saturating_sub(overlay_height);
-        let spacer_height = u16::from(available_above_prompt > 0);
-        let message_height = available_above_prompt.saturating_sub(spacer_height);
-        build_message_lines(state, width, message_height).len()
+        let (width, _) = size;
+        build_scrollable_message_lines(state, width).len()
     }
 
     fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
@@ -6896,12 +6882,61 @@ mod shell {
         bottom_anchor_lines(history_lines, height, 0)
     }
 
-    fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
+    fn build_active_message_lines(state: &AppState, width: u16) -> Vec<Line<'static>> {
+        build_cell_lines(&build_live_message_cells(state), width)
+    }
+
+    fn build_scrollable_message_lines(state: &AppState, width: u16) -> Vec<Line<'static>> {
+        let active_lines = build_active_message_lines(state, width);
+        if active_lines.is_empty() {
+            return Vec::new();
+        }
+
+        let mut history_lines =
+            render_history_append_lines(&build_stable_history_cells(state), width);
+        if history_lines.is_empty() {
+            return active_lines;
+        }
+        history_lines.push(Line::from(""));
+        history_lines.extend(active_lines);
+        history_lines
+    }
+
+    fn build_visible_message_lines(
+        state: &AppState,
+        width: u16,
+        max_rows: u16,
+        scroll_from_bottom: usize,
+    ) -> Vec<Line<'static>> {
         if max_rows == 0 {
             return Vec::new();
         }
 
-        build_cell_lines(&build_live_message_cells(state), width)
+        let height = max_rows as usize;
+        let active_lines = build_active_message_lines(state, width);
+        if active_lines.is_empty() {
+            return Vec::new();
+        }
+
+        if scroll_from_bottom == 0 {
+            return preserve_first_cell_tail(active_lines, height);
+        }
+
+        let active_overflow = active_lines.len().saturating_sub(height);
+        if scroll_from_bottom <= active_overflow {
+            return tail_lines(active_lines, height, scroll_from_bottom);
+        }
+
+        tail_lines(
+            build_scrollable_message_lines(state, width),
+            height,
+            scroll_from_bottom,
+        )
+    }
+
+    #[cfg(test)]
+    fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
+        build_visible_message_lines(state, width, max_rows, 0)
     }
 
     fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
@@ -10695,7 +10730,7 @@ mod shell {
         }
 
         #[test]
-        fn message_viewport_only_scrolls_live_turn() {
+        fn message_viewport_scrolls_from_live_turn_into_history() {
             let mut state = AppState::empty();
             state.conversation_cells.push(TranscriptCell {
                 kind: TranscriptCellKind::Assistant,
@@ -10724,6 +10759,20 @@ mod shell {
             assert!(!scrolled.iter().any(|line| line.contains("stable")));
             assert!(!scrolled.iter().any(|line| line.contains("live 20")));
             assert!(scrolled.iter().any(|line| line.contains("live 15")));
+
+            state.message_scroll_from_bottom = 16;
+            let scrolled_into_history =
+                line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
+            assert!(
+                scrolled_into_history
+                    .iter()
+                    .any(|line| line.contains("stable"))
+            );
+            assert!(
+                scrolled_into_history
+                    .iter()
+                    .any(|line| line.contains("live 1"))
+            );
         }
 
         #[test]
