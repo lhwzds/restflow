@@ -127,20 +127,12 @@ mod activity {
         };
         let mut lines = Vec::new();
         for entry in entries.values().take(MAX_ACTIVITY_ROWS) {
-            let run = entry
-                .run_id
-                .as_ref()
-                .map(|run_id| format!(" · run {}", short_id(run_id)))
-                .unwrap_or_default();
             let detail = if entry.detail.trim().is_empty() {
                 String::new()
             } else {
                 format!(" · {}", entry.detail.trim())
             };
-            lines.push(format!(
-                "- {} · {}{}{}",
-                entry.title, entry.status, run, detail
-            ));
+            lines.push(format!("- {} · {}{}", entry.title, entry.status, detail));
         }
         if entries.len() > MAX_ACTIVITY_ROWS {
             lines.push(format!("+{} more", entries.len() - MAX_ACTIVITY_ROWS));
@@ -257,10 +249,6 @@ mod activity {
         text
     }
 
-    fn short_id(value: &str) -> String {
-        value.chars().take(8).collect()
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -269,6 +257,8 @@ mod activity {
         fn renders_subagent_activity_group_from_tool_call() {
             let mut state = ActivityState::default();
             state.record_tool_call("call-1", "spawn_subagent", "Starting 1 subagent");
+            state.subagents.get_mut("call-1").unwrap().run_id =
+                Some("run-should-not-render".to_string());
             let cells = state.live_cells();
 
             assert_eq!(cells.len(), 1);
@@ -276,6 +266,8 @@ mod activity {
             assert_eq!(cells[0].title, "Subagents");
             assert!(cells[0].body.contains("spawn"));
             assert!(cells[0].body.contains("running"));
+            assert!(!cells[0].body.contains("run-should-not-render"));
+            assert!(!cells[0].body.contains("run run"));
         }
 
         #[test]
@@ -1555,10 +1547,10 @@ mod controller {
             &self,
             item: WorkPickerItem,
         ) -> Result<Vec<ShellAction>> {
-            let WorkPickerItem::Run { run_id, .. } = item;
-            Ok(vec![ShellAction::StatusUpdated(format!(
-                "Run detail view was removed: {run_id}"
-            ))])
+            let WorkPickerItem::Run { .. } = item;
+            Ok(vec![ShellAction::StatusUpdated(
+                "Run detail view was removed.".to_string(),
+            )])
         }
     }
 
@@ -6446,7 +6438,15 @@ mod shell {
     fn overlay_capacity_for_state(state: &AppState, available_above_prompt: u16) -> u16 {
         if matches!(
             state.overlay,
-            Some(crate::state::OverlayState::SessionPicker { .. })
+            Some(
+                crate::state::OverlayState::SessionPicker { .. }
+                    | crate::state::OverlayState::RunPicker { .. }
+                    | crate::state::OverlayState::SkillManager { .. }
+                    | crate::state::OverlayState::SkillDetail
+                    | crate::state::OverlayState::ProviderPicker { .. }
+                    | crate::state::OverlayState::ModelPicker { .. }
+                    | crate::state::OverlayState::Help
+            )
         ) {
             available_above_prompt
         } else {
@@ -7227,7 +7227,6 @@ mod shell {
                 Style::default().add_modifier(Modifier::BOLD)
             };
             let WorkPickerItem::Run {
-                run_id,
                 kind,
                 title,
                 status,
@@ -7246,13 +7245,6 @@ mod shell {
                     Span::styled(format!("{} · ", work_run_kind_label(*kind)), muted_style()),
                     Span::styled(title.clone(), title_style),
                     Span::styled(format!(" · {status}"), muted_style()),
-                ]),
-                width,
-            ));
-            lines.extend(wrap_styled_line(
-                Line::from(vec![
-                    Span::styled("    run: ", muted_style()),
-                    Span::styled(run_id.clone(), muted_style()),
                 ]),
                 width,
             ));
@@ -10417,6 +10409,34 @@ mod shell {
         }
 
         #[test]
+        fn model_picker_uses_full_available_viewport_height() {
+            let mut state = AppState::empty();
+            state.model_items = (0..14)
+                .map(|index| ModelPickerItem {
+                    provider: "codex".to_string(),
+                    model: format!("model-{index}"),
+                    name: format!("Model {index}"),
+                    category: ModelPickerCategory::Available,
+                    usage_count: 0,
+                    last_used_at: None,
+                    is_current: false,
+                    is_default: false,
+                })
+                .collect();
+            state.open_model_picker("codex");
+
+            let snapshot = build_viewport_snapshot(&state, (120, 34));
+            let rendered = line_texts(&snapshot.lines);
+            let visible_model_rows = rendered
+                .iter()
+                .filter(|line| line.contains("Model "))
+                .count();
+
+            assert!(visible_model_rows > 4);
+            assert!(rendered.iter().any(|line| line.contains("Model 6")));
+        }
+
+        #[test]
         fn resume_picker_scrolls_to_selected_session() {
             let mut state = AppState::empty();
             state.sessions = (0..8)
@@ -10507,6 +10527,46 @@ mod shell {
                 "resume picker should not be capped to the compact overlay height"
             );
             assert!(rendered.iter().any(|line| line.contains("Session 6")));
+        }
+
+        #[test]
+        fn work_picker_uses_full_height_without_showing_run_id() {
+            let mut state = AppState::empty();
+            state.thread.runs = (0..12)
+                .map(|index| types::RunSummary {
+                    id: format!("work-{index}"),
+                    kind: types::RunKind::WorkspaceRun,
+                    container_id: "session-1".to_string(),
+                    root_run_id: Some(format!("run-internal-{index}")),
+                    title: format!("Work {index}"),
+                    subtitle: None,
+                    status: "running".to_string(),
+                    updated_at: index as i64,
+                    started_at: Some(index as i64),
+                    ended_at: None,
+                    session_id: Some("session-1".to_string()),
+                    run_id: Some(format!("run-internal-{index}")),
+                    parent_run_id: None,
+                    agent_id: Some("agent-1".to_string()),
+                    effective_model: None,
+                    provider: None,
+                    event_count: 0,
+                })
+                .collect();
+            state.open_run_picker();
+
+            let snapshot = build_viewport_snapshot(&state, (120, 30));
+            let rendered = line_texts(&snapshot.lines);
+            let text = rendered.join("\n");
+            let visible_work_rows = rendered
+                .iter()
+                .filter(|line| line.contains("Work "))
+                .count();
+
+            assert!(visible_work_rows > 5);
+            assert!(text.contains("Work 6"));
+            assert!(!text.contains("run-internal"));
+            assert!(!text.contains("run:"));
         }
 
         #[test]
