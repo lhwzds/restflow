@@ -129,7 +129,6 @@ pub mod config {
     //! System configuration storage.
 
     use anyhow::{Context, Result};
-    use redb::Database;
     use serde::{Deserialize, Deserializer, Serialize};
     use serde_json::Value as JsonValue;
     use specta::Type;
@@ -138,7 +137,7 @@ pub mod config {
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, OnceLock, RwLock};
+    use std::sync::{OnceLock, RwLock};
     use std::time::{SystemTime, UNIX_EPOCH};
     use types::{
         DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS, DEFAULT_AGENT_BASH_TIMEOUT_SECS,
@@ -1467,13 +1466,13 @@ pub mod config {
     pub struct ConfigStorage;
 
     impl ConfigStorage {
-        pub fn new(_db: Arc<Database>) -> Result<Self> {
-            Ok(Self)
+        pub fn new() -> Self {
+            Self
         }
 
         /// Get the global config view (defaults + global config.toml).
-        pub fn get_config(&self) -> Result<Option<SystemConfig>> {
-            self.get_global_config().map(Some)
+        pub fn get_config(&self) -> Result<SystemConfig> {
+            self.get_global_config()
         }
 
         /// Get the global config view (defaults + global config.toml).
@@ -1594,9 +1593,7 @@ pub mod config {
             let temp_dir = tempdir().unwrap();
             let config_path = temp_dir.path().join("config.toml");
             let global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &config_path);
-            let db_path = temp_dir.path().join("test.db");
-            let db = Arc::new(Database::create(db_path).unwrap());
-            let storage = ConfigStorage::new(db).unwrap();
+            let storage = ConfigStorage::new();
             TestContext {
                 storage,
                 _temp_dir: temp_dir,
@@ -1614,9 +1611,6 @@ pub mod config {
             let ctx = setup_test_storage();
 
             let config = ctx.storage.get_config().unwrap();
-            assert!(config.is_some());
-
-            let config = config.unwrap();
             assert_eq!(config.worker_count, DEFAULT_WORKER_COUNT);
             assert_eq!(config.chat_response_timeout_seconds, None);
             assert_eq!(
@@ -1687,7 +1681,7 @@ pub mod config {
 
             ctx.storage.update_config(new_config).unwrap();
 
-            let retrieved = ctx.storage.get_config().unwrap().unwrap();
+            let retrieved = ctx.storage.get_config().unwrap();
             assert_eq!(retrieved.worker_count, 8);
         }
 
@@ -1764,7 +1758,7 @@ pub mod config {
         fn test_agent_defaults_round_trip() {
             let ctx = setup_test_storage();
 
-            let mut config = ctx.storage.get_config().unwrap().unwrap();
+            let mut config = ctx.storage.get_config().unwrap();
             assert_eq!(
                 config.agent.tool_timeout_secs,
                 DEFAULT_AGENT_TOOL_TIMEOUT_SECS
@@ -1809,7 +1803,7 @@ pub mod config {
             config.agent.auto_review_tools = true;
             ctx.storage.update_config(config).unwrap();
 
-            let retrieved = ctx.storage.get_config().unwrap().unwrap();
+            let retrieved = ctx.storage.get_config().unwrap();
             assert_eq!(retrieved.agent.tool_timeout_secs, 180);
             assert_eq!(retrieved.agent.llm_timeout_secs, Some(900));
             assert_eq!(retrieved.agent.bash_timeout_secs, 600);
@@ -1916,7 +1910,7 @@ pub mod config {
         fn test_effective_config_without_overrides() {
             let ctx = setup_test_storage();
             let effective = ctx.storage.get_effective_config().unwrap();
-            let stored = ctx.storage.get_config().unwrap().unwrap();
+            let stored = ctx.storage.get_config().unwrap();
             assert_eq!(effective.worker_count, stored.worker_count);
         }
 
@@ -2105,15 +2099,13 @@ pub mod config {
         }
 
         #[test]
-        fn test_config_storage_ignores_legacy_db_config() {
+        fn test_config_storage_uses_defaults_without_config_file() {
             let _env_guard = env_lock();
             let temp_dir = tempdir().unwrap();
             let global_config = temp_dir.path().join("config.toml");
-            let db_path = temp_dir.path().join("test.db");
             let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &global_config);
 
-            let db = Arc::new(Database::create(&db_path).unwrap());
-            let storage = ConfigStorage::new(db).unwrap();
+            let storage = ConfigStorage::new();
             let effective = storage.get_effective_config().unwrap();
             assert_eq!(effective.worker_count, DEFAULT_WORKER_COUNT);
             assert_eq!(effective.agent.max_iterations, DEFAULT_AGENT_MAX_ITERATIONS);
@@ -2187,12 +2179,12 @@ pub mod config {
         #[test]
         fn test_api_round_trip() {
             let ctx = setup_test_storage();
-            let mut config = ctx.storage.get_config().unwrap().unwrap();
+            let mut config = ctx.storage.get_config().unwrap();
             assert_eq!(config.api_defaults.web_search_num_results, 5);
             config.api_defaults.web_search_num_results = 6;
             ctx.storage.update_config(config).unwrap();
 
-            let retrieved = ctx.storage.get_config().unwrap().unwrap();
+            let retrieved = ctx.storage.get_config().unwrap();
             assert_eq!(retrieved.api_defaults.web_search_num_results, 6);
         }
 
@@ -4843,7 +4835,7 @@ pub mod secrets {
 
         /// Check whether the secret is available from managed storage.
         pub fn has_available_secret(&self, key: &str) -> Result<bool> {
-            self.has_secret(key)
+            Ok(self.get_non_empty(key)?.is_some())
         }
 
         fn encode_secret(&self, secret: &Secret) -> Result<Vec<u8>> {
@@ -5174,6 +5166,8 @@ pub mod secrets {
             let (storage, _temp_dir) = setup();
             let key = "MANAGED_SECRET";
 
+            assert!(!storage.has_available_secret(key).unwrap());
+            storage.set_secret(key, "   ", None).unwrap();
             assert!(!storage.has_available_secret(key).unwrap());
             storage.set_secret(key, "managed-value", None).unwrap();
             assert!(storage.has_available_secret(key).unwrap());
@@ -9758,17 +9752,6 @@ pub mod services {
                     .get_by_turn_id(turn_id)?
                     .map(|session| session.to_chat_session())
                 else {
-                    return Ok(None);
-                };
-                session.hydrate_provider_from_model();
-                Ok(Some(session))
-            }
-
-            pub fn materialize_session_for_runtime(
-                &self,
-                session_id: &str,
-            ) -> Result<Option<ChatSession>> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
                     return Ok(None);
                 };
                 session.hydrate_provider_from_model();

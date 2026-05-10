@@ -2689,8 +2689,8 @@ pub mod daemon {
                 core: &Arc<AppCore>,
                 session_id: &str,
             ) -> std::result::Result<ChatSession, ExecuteChatSessionError> {
-                let Some(session) = SessionService::from_storage(&core.storage)
-                    .materialize_session_for_runtime(session_id)?
+                let Some(session) =
+                    SessionService::from_storage(&core.storage).get_session_view(session_id)?
                 else {
                     return Err(ExecuteChatSessionError::SessionNotFound);
                 };
