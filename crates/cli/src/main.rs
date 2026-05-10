@@ -713,30 +713,6 @@ mod executor {
                     .set_secret(key, value, description)
             }
 
-            async fn create_secret(
-                &self,
-                key: &str,
-                value: &str,
-                description: Option<String>,
-            ) -> Result<()> {
-                self.core
-                    .storage
-                    .secrets
-                    .create_secret(key, value, description)
-            }
-
-            async fn update_secret(
-                &self,
-                key: &str,
-                value: &str,
-                description: Option<String>,
-            ) -> Result<()> {
-                self.core
-                    .storage
-                    .secrets
-                    .update_secret(key, value, description)
-            }
-
             async fn delete_secret(&self, key: &str) -> Result<()> {
                 self.core.storage.secrets.delete_secret(key)
             }
@@ -936,38 +912,6 @@ mod executor {
                 Ok(())
             }
 
-            async fn create_secret(
-                &self,
-                key: &str,
-                value: &str,
-                description: Option<String>,
-            ) -> Result<()> {
-                let _: OkResponse = self
-                    .request_typed(IpcRequest::CreateSecret {
-                        key: key.to_string(),
-                        value: value.to_string(),
-                        description,
-                    })
-                    .await?;
-                Ok(())
-            }
-
-            async fn update_secret(
-                &self,
-                key: &str,
-                value: &str,
-                description: Option<String>,
-            ) -> Result<()> {
-                let _: OkResponse = self
-                    .request_typed(IpcRequest::UpdateSecret {
-                        key: key.to_string(),
-                        value: value.to_string(),
-                        description,
-                    })
-                    .await?;
-                Ok(())
-            }
-
             async fn delete_secret(&self, key: &str) -> Result<()> {
                 let _: OkResponse = self
                     .request_typed(IpcRequest::DeleteSecret {
@@ -1077,20 +1021,6 @@ mod executor {
 
         async fn list_secrets(&self) -> Result<Vec<Secret>>;
         async fn set_secret(
-            &self,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()>;
-        #[allow(dead_code)]
-        async fn create_secret(
-            &self,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()>;
-        #[allow(dead_code)]
-        async fn update_secret(
             &self,
             key: &str,
             value: &str,

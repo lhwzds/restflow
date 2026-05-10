@@ -1350,38 +1350,6 @@ pub mod daemon {
                     }
                 }
 
-                pub(super) async fn handle_create_secret(
-                    core: &Arc<AppCore>,
-                    key: String,
-                    value: String,
-                    description: Option<String>,
-                ) -> IpcResponse {
-                    match core
-                        .storage
-                        .secrets
-                        .create_secret(&key, &value, description)
-                    {
-                        Ok(()) => IpcResponse::success(OkResponse { ok: true }),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    }
-                }
-
-                pub(super) async fn handle_update_secret(
-                    core: &Arc<AppCore>,
-                    key: String,
-                    value: String,
-                    description: Option<String>,
-                ) -> IpcResponse {
-                    match core
-                        .storage
-                        .secrets
-                        .update_secret(&key, &value, description)
-                    {
-                        Ok(()) => IpcResponse::success(OkResponse { ok: true }),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    }
-                }
-
                 pub(super) async fn handle_delete_secret(
                     core: &Arc<AppCore>,
                     key: String,
@@ -1851,16 +1819,6 @@ pub mod daemon {
                             value,
                             description,
                         } => Self::handle_set_secret(core, key, value, description).await,
-                        IpcRequest::CreateSecret {
-                            key,
-                            value,
-                            description,
-                        } => Self::handle_create_secret(core, key, value, description).await,
-                        IpcRequest::UpdateSecret {
-                            key,
-                            value,
-                            description,
-                        } => Self::handle_update_secret(core, key, value, description).await,
                         IpcRequest::DeleteSecret { key } => {
                             Self::handle_delete_secret(core, key).await
                         }

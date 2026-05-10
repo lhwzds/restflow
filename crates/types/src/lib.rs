@@ -243,20 +243,6 @@ pub mod agent {
             Ok(())
         }
 
-        /// Get the model, returning an error if not specified.
-        pub fn require_model(&self) -> Result<ModelId, &'static str> {
-            self.resolved_model_ref()
-                .map(|model_ref| model_ref.model)
-                .ok_or("Model not specified. Please set a model for this agent.")
-        }
-
-        /// Get the model or use a fallback default.
-        pub fn get_model_or(&self, default: ModelId) -> ModelId {
-            self.resolved_model_ref()
-                .map(|model_ref| model_ref.model)
-                .unwrap_or(default)
-        }
-
         /// Validate fields that do not depend on storage or runtime state.
         pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
             let mut errors = Vec::new();
@@ -3005,22 +2991,6 @@ mod model_id {
                 .map(|model| model.as_serialized_str().to_string())
         }
 
-        /// Normalize model identifiers using a provider hint before falling back
-        /// to global lookup. This avoids collisions between providers that expose
-        /// overlapping model families or aliases.
-        pub fn normalize_model_id_for_provider(provider: Provider, input: &str) -> Option<String> {
-            let normalized = input.trim();
-            if normalized.is_empty() {
-                return None;
-            }
-
-            Self::for_provider_and_model(provider, normalized)
-                .or_else(|| Self::from_canonical_id(normalized))
-                .or_else(|| Self::from_api_name(normalized))
-                .filter(|model| model.provider_matches(provider))
-                .map(|model| model.as_serialized_str().to_string())
-        }
-
         /// Get the string representation used for API calls
         pub fn as_str(&self) -> &'static str {
             self.descriptor().api_name
@@ -3047,16 +3017,6 @@ mod model_id {
                 let parsed = Self::from_api_name(&normalized)?;
                 parsed.provider_matches(provider).then_some(parsed)
             })
-        }
-
-        /// Remap this model into another provider when a provider-specific counterpart exists.
-        pub fn remap_provider(&self, provider: Provider) -> Option<Self> {
-            if self.provider() == provider {
-                return Some(*self);
-            }
-
-            let canonical_family = self.descriptor().canonical_family?;
-            catalog::lookup_by_canonical_family(provider, canonical_family)
         }
 
         /// Get the display name for UI
@@ -3098,11 +3058,6 @@ mod model_id {
         /// Get the OpenRouter equivalent of this model (if one exists).
         pub fn openrouter_equivalent(&self) -> Option<Self> {
             self.descriptor().openrouter_equivalent
-        }
-
-        /// Convert metadata to serializable DTO for runtime clients.
-        pub fn to_metadata_dto(&self) -> ModelMetadataDTO {
-            self.descriptor().metadata_dto()
         }
 
         /// Get all models with their metadata as DTOs
@@ -3858,7 +3813,7 @@ pub mod orchestrator {
 }
 
 mod provider {
-    use crate::{ClientKind, LlmProvider, ModelId, ModelProvider, catalog};
+    use crate::{ClientKind, LlmProvider, ModelId, ModelProvider};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use specta::Type;
 
@@ -4078,15 +4033,6 @@ mod provider {
         /// Returns None if the string is not recognized.
         pub fn from_canonical_str(s: &str) -> Option<Self> {
             ModelProvider::parse_alias(s).map(Self)
-        }
-
-        /// Get the best available model for this provider.
-        pub fn flagship_model(self) -> ModelId {
-            catalog::provider_catalog(self)
-                .map(|catalog| catalog.flagship)
-                .unwrap_or_else(|| {
-                    panic!("missing provider catalog for {}", self.as_canonical_str())
-                })
         }
     }
 
@@ -6126,17 +6072,6 @@ pub mod steer {
                 SteerCommand::CancelToolCall { tool_call_id } => tool_call_id,
             }
         }
-
-        /// Create a cancel-tool-call steer message.
-        pub fn cancel_tool_call(tool_call_id: impl Into<String>, source: SteerSource) -> Self {
-            Self {
-                command: SteerCommand::CancelToolCall {
-                    tool_call_id: tool_call_id.into(),
-                },
-                source,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-            }
-        }
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7009,12 +6944,6 @@ pub mod tool {
         pub operation: String,
         pub target: String,
         pub summary: String,
-    }
-
-    impl ToolAction {
-        pub fn as_pattern_string(&self) -> String {
-            format!("{}:{} {}", self.tool_name, self.operation, self.target)
-        }
     }
 
     /// Result of a security check.
@@ -7948,16 +7877,6 @@ pub mod contracts {
                 value: String,
                 description: Option<String>,
             },
-            CreateSecret {
-                key: String,
-                value: String,
-                description: Option<String>,
-            },
-            UpdateSecret {
-                key: String,
-                value: String,
-                description: Option<String>,
-            },
             DeleteSecret {
                 key: String,
             },
@@ -8181,39 +8100,6 @@ pub mod contracts {
             pub model_provider: Option<String>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub parent_run_id: Option<String>,
-        }
-
-        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-        #[serde(tag = "type", rename_all = "snake_case")]
-        pub enum Credential {
-            ApiKey {
-                key: String,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                email: Option<String>,
-            },
-            Token {
-                token: String,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                expires_at: Option<String>,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                email: Option<String>,
-            },
-            OAuth {
-                access_token: String,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                refresh_token: Option<String>,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                expires_at: Option<String>,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                email: Option<String>,
-            },
-        }
-
-        #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-        pub struct ProfileUpdate {
-            pub name: Option<String>,
-            pub enabled: Option<bool>,
-            pub priority: Option<i32>,
         }
 
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -8706,10 +8592,6 @@ pub mod contracts {
             details: Option<Value>,
         ) -> Self {
             Self::Error(ErrorPayload::new(code, message, details))
-        }
-
-        pub fn error_payload(payload: ErrorPayload) -> Self {
-            Self::Error(payload)
         }
 
         pub fn not_found(what: &str) -> Self {
@@ -9316,10 +9198,6 @@ impl ModelSpec {
 
     pub fn is_gemini_cli(&self) -> bool {
         self.client_kind == ClientKind::GeminiCli
-    }
-
-    pub fn is_claude_code_cli(&self) -> bool {
-        self.client_kind == ClientKind::ClaudeCodeCli
     }
 
     pub fn is_cli(&self) -> bool {

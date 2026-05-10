@@ -11412,11 +11412,8 @@ pub mod impls {
         use crate::impls::secrets::{SecretGetPolicy, SecretsTool};
         use crate::impls::session::SessionTool;
         use crate::impls::skill::SkillTool;
-        use crate::impls::spawn_subagent::SpawnSubagentTool;
-        use crate::impls::wait_subagents::WaitSubagentsTool;
         use crate::impls::{BashTool, FileTool};
         use crate::{BashSecurityConfig, SecurityGate, ToolRegistry};
-        use types::SubagentManager;
         use types::skill::SkillProvider;
         use types::store::{AgentStore, ConfigStore, OpsProvider, SecretStore, SessionStore};
 
@@ -11485,18 +11482,6 @@ pub mod impls {
                     allowed_paths: vec![workspace_root.into()],
                     ..Self::default()
                 }
-            }
-
-            /// Convert into a [`FileTool`] with a new internal tracker.
-            pub fn into_file_tool(self) -> FileTool {
-                let require_base_dir = self.allowed_paths.is_empty();
-                let mut tool = FileTool::new().with_max_read(self.max_read_bytes);
-                if let Some(base) = self.allowed_paths.into_iter().next() {
-                    tool = tool.with_base_dir(base);
-                } else if require_base_dir {
-                    tool = tool.require_base_dir();
-                }
-                tool
             }
 
             /// Convert into a [`FileTool`] using a shared [`FileTracker`].
@@ -11600,22 +11585,11 @@ pub mod impls {
                 self
             }
 
-            pub fn with_patch(mut self) -> Self {
-                self.registry.register(PatchTool::new(self.tracker.clone()));
-                self
-            }
-
             pub fn with_patch_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
                 let mut tool = PatchTool::new(self.tracker.clone()).require_base_dir();
                 if let Some(base_dir) = base_dir {
                     tool = tool.with_base_dir(base_dir);
                 }
-                self.registry.register(tool);
-                self
-            }
-
-            pub fn with_edit(mut self) -> Self {
-                let tool = EditTool::with_tracker(self.tracker.clone());
                 self.registry.register(tool);
                 self
             }
@@ -11653,16 +11627,6 @@ pub mod impls {
                     tool = tool.with_base_dir(base_dir);
                 }
                 self.registry.register(tool);
-                self
-            }
-
-            pub fn with_spawn_subagent(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-                self.registry.register(SpawnSubagentTool::new(manager));
-                self
-            }
-
-            pub fn with_wait_subagents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-                self.registry.register(WaitSubagentsTool::new(manager));
                 self
             }
 

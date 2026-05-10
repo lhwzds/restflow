@@ -477,10 +477,6 @@ pub mod agent {
                     .await
                     .clone()
             }
-
-            pub fn invalidate(&mut self) {
-                self.cache = tokio::sync::OnceCell::new();
-            }
         }
 
         #[cfg(test)]
@@ -2632,18 +2628,6 @@ pub mod agent {
                     self
                 }
 
-                /// Set agent context for prompt injection
-                pub fn with_agent_context(mut self, context: AgentContext) -> Self {
-                    self.agent_context = Some(context);
-                    self
-                }
-
-                /// Set whether to inject agent_context into system prompt.
-                pub fn with_inject_agent_context(mut self, inject: bool) -> Self {
-                    self.inject_agent_context = inject;
-                    self
-                }
-
                 /// Set resource limits for guardrails.
                 pub fn with_resource_limits(mut self, limits: ResourceLimits) -> Self {
                     self.resource_limits = limits;
@@ -2661,24 +2645,6 @@ pub mod agent {
                     reviewer: Arc<dyn ToolCallReviewer>,
                 ) -> Self {
                     self.tool_call_reviewer = Some(reviewer);
-                    self
-                }
-
-                /// Set stuck detection configuration.
-                pub fn with_stuck_detection(mut self, config: StuckDetectorConfig) -> Self {
-                    self.stuck_detection = Some(config);
-                    self
-                }
-
-                /// Disable stuck detection.
-                pub fn without_stuck_detection(mut self) -> Self {
-                    self.stuck_detection = None;
-                    self
-                }
-
-                /// Set directory for saving full tool outputs.
-                pub fn with_tool_output_dir(mut self, tool_output_dir: impl Into<PathBuf>) -> Self {
-                    self.tool_output_dir = Some(tool_output_dir.into());
                     self
                 }
 
@@ -2704,11 +2670,6 @@ pub mod agent {
                 /// Set the maximum number of concurrent tool calls.
                 pub fn with_max_tool_concurrency(mut self, max: usize) -> Self {
                     self.max_tool_concurrency = max;
-                    self
-                }
-
-                pub fn with_yolo_mode(mut self, yolo_mode: bool) -> Self {
-                    self.yolo_mode = yolo_mode;
                     self
                 }
             }
@@ -7778,12 +7739,6 @@ pub mod agent {
                 self
             }
 
-            /// Builder: disable agent context section.
-            pub fn without_agent_context(mut self) -> Self {
-                self.include_agent_context = false;
-                self
-            }
-
             /// Builder: disable security policy section.
             pub fn without_security_policy(mut self) -> Self {
                 self.include_security_policy = false;
@@ -8698,11 +8653,6 @@ pub mod agent {
             pub fn add_message(&mut self, message: Message) {
                 self.messages.push(message);
                 self.version += 1;
-            }
-
-            /// Add tool result message
-            pub fn add_tool_result(&mut self, tool_call_id: String, result: String) {
-                self.add_message(Message::tool_result(tool_call_id, result));
             }
 
             /// Complete with final answer
@@ -12647,22 +12597,6 @@ pub mod agent {
                     }
                 }
 
-                /// Cancel all running sub-agents.
-                pub fn cancel_all(&self) -> usize {
-                    let ids: Vec<String> = self
-                        .abort_handles
-                        .iter()
-                        .map(|record| record.key().clone())
-                        .collect();
-                    let mut cancelled = 0;
-                    for id in ids {
-                        if self.cancel(&id) {
-                            cancelled += 1;
-                        }
-                    }
-                    cancelled
-                }
-
                 /// Mark a sub-agent as completed.
                 ///
                 /// This will not overwrite status if the sub-agent was already interrupted or timed out.
@@ -12673,22 +12607,6 @@ pub mod agent {
                         SubagentStatus::Failed
                     };
                     let _ = self.try_mark_terminal(id, status, Some(result));
-                }
-
-                /// Mark a sub-agent as timed out.
-                pub fn mark_timed_out(&self, id: &str) {
-                    self.mark_timed_out_with_result(
-                        id,
-                        SubagentResult {
-                            success: false,
-                            output: String::new(),
-                            summary: None,
-                            duration_ms: 0,
-                            tokens_used: None,
-                            cost_usd: None,
-                            error: Some("Sub-agent timed out".to_string()),
-                        },
-                    );
                 }
 
                 /// Mark a sub-agent as timed out with a specific result.
@@ -12717,11 +12635,6 @@ pub mod agent {
                     }
 
                     self.cleanup_parent_scopes(max_age_ms);
-                }
-
-                /// Get the completion sender for external use.
-                pub fn completion_sender(&self) -> mpsc::Sender<SubagentCompletion> {
-                    self.completion_tx.clone()
                 }
 
                 /// Poll completion notifications without blocking.

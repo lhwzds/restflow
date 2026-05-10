@@ -3583,10 +3583,6 @@ mod mock_client {
             }
         }
 
-        pub async fn push_step(&self, step: MockStep) {
-            self.script.lock().await.push_back(step);
-        }
-
         async fn next_step(&self) -> Option<MockStep> {
             self.script.lock().await.pop_front()
         }
@@ -4621,24 +4617,6 @@ mod operation_retry {
             }
         }
 
-        pub fn no_retries() -> Self {
-            Self {
-                max_retries: 0,
-                ..Default::default()
-            }
-        }
-
-        pub fn aggressive() -> Self {
-            Self {
-                max_retries: 5,
-                initial_delay_secs: 30,
-                max_delay_secs: 1800,
-                backoff_multiplier: 1.5,
-                jitter_enabled: true,
-                jitter_factor: 0.2,
-            }
-        }
-
         pub fn conservative() -> Self {
             Self {
                 max_retries: 2,
@@ -4701,11 +4679,6 @@ mod operation_retry {
             }
         }
 
-        pub fn is_retry_due(&self) -> bool {
-            self.next_retry_at
-                .is_some_and(|retry_at| chrono::Utc::now().timestamp_millis() >= retry_at)
-        }
-
         pub fn time_until_retry(&self) -> Option<i64> {
             self.next_retry_at
                 .map(|retry_at| (retry_at - chrono::Utc::now().timestamp_millis()).max(0))
@@ -4720,32 +4693,6 @@ mod operation_retry {
 
         pub fn is_exhausted(&self, config: &RetryConfig) -> bool {
             self.attempt >= config.max_retries
-        }
-
-        pub fn status_string(&self, config: &RetryConfig) -> String {
-            if self.attempt == 0 {
-                return "Not retried".to_string();
-            }
-
-            if self.is_exhausted(config) {
-                return format!(
-                    "Exhausted ({}/{} retries, {} total failures)",
-                    self.attempt, config.max_retries, self.total_failures
-                );
-            }
-
-            match self.time_until_retry() {
-                Some(ms) if ms > 0 => {
-                    let secs = ms / 1000;
-                    format!(
-                        "Retry {}/{} in {}s",
-                        self.attempt + 1,
-                        config.max_retries,
-                        secs
-                    )
-                }
-                _ => format!("Retry {}/{} ready", self.attempt + 1, config.max_retries),
-            }
         }
     }
 

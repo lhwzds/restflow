@@ -2377,20 +2377,6 @@ pub mod features {
                 Stage::UnderDevelopment | Stage::Deprecated | Stage::Removed => false,
             }
         }
-
-        pub fn descriptors(&self) -> Vec<FeatureDescriptor> {
-            Feature::ALL
-                .iter()
-                .copied()
-                .map(|feature| FeatureDescriptor {
-                    key: feature.key().to_string(),
-                    stage: feature.stage(),
-                    description: feature.description(),
-                    enabled: self.is_enabled(feature),
-                    requires_opt_in: feature.requires_opt_in(),
-                })
-                .collect()
-        }
     }
 
     #[cfg(test)]
@@ -2432,7 +2418,6 @@ pub mod paths {
     const DB_FILE: &str = "restflow.db";
     const LOGS_DIR: &str = "logs";
     const SKILLS_DIR: &str = "skills";
-    const MEDIA_DIR: &str = "media";
     const SESSIONS_DIR: &str = "sessions";
 
     /// Environment variable to override the RestFlow directory.
@@ -2500,13 +2485,6 @@ pub mod paths {
     /// User-global skills directory: ~/.restflow/skills/
     pub fn user_skills_dir() -> Result<PathBuf> {
         let dir = ensure_restflow_dir()?.join(SKILLS_DIR);
-        std::fs::create_dir_all(&dir)?;
-        Ok(dir)
-    }
-
-    /// Media directory: ~/.restflow/media/
-    pub fn media_dir() -> Result<PathBuf> {
-        let dir = ensure_restflow_dir()?.join(MEDIA_DIR);
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
     }
@@ -3073,68 +3051,6 @@ pub mod secrets {
             })
         }
 
-        /// Create a new secret (fails if already exists)
-        ///
-        /// This operation is atomic - the existence check and insert happen
-        /// within the same write transaction to prevent race conditions.
-        pub fn create_secret(
-            &self,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()> {
-            self.with_database(|db| {
-                let write_txn = db.begin_write()?;
-                {
-                    let mut table = write_txn.open_table(SECRETS_TABLE)?;
-
-                    // Check existence within write transaction to prevent TOCTOU race
-                    if table.get(key)?.is_some() {
-                        return Err(anyhow::anyhow!("Secret {} already exists", key));
-                    }
-
-                    let secret = Secret::new(key.to_string(), value.to_string(), description);
-                    let encrypted = self.encode_secret(&secret)?;
-                    table.insert(key, encrypted.as_slice())?;
-                }
-                write_txn.commit()?;
-                Ok(())
-            })
-        }
-
-        /// Update an existing secret (fails if not exists)
-        ///
-        /// This operation is atomic - the existence check and update happen
-        /// within the same write transaction to prevent race conditions.
-        pub fn update_secret(
-            &self,
-            key: &str,
-            value: &str,
-            description: Option<String>,
-        ) -> Result<()> {
-            self.with_database(|db| {
-                let write_txn = db.begin_write()?;
-                {
-                    let mut table = write_txn.open_table(SECRETS_TABLE)?;
-
-                    // Check existence and get current data within write transaction
-                    let existing = table
-                        .get(key)?
-                        .map(|data| self.decode_secret_bytes(data.value()))
-                        .transpose()?;
-
-                    let mut existing_secret =
-                        existing.ok_or_else(|| anyhow::anyhow!("Secret {} not found", key))?;
-
-                    existing_secret.update(value.to_string(), description);
-                    let encrypted = self.encode_secret(&existing_secret)?;
-                    table.insert(key, encrypted.as_slice())?;
-                }
-                write_txn.commit()?;
-                Ok(())
-            })
-        }
-
         /// Get secret model (internal)
         fn get_secret_model(&self, key: &str) -> Result<Option<Secret>> {
             self.with_database(|db| {
@@ -3583,44 +3499,6 @@ pub mod secrets {
             );
         }
 
-        #[test]
-        fn test_create_secret_atomic() {
-            let (storage, _temp_dir) = setup();
-
-            // First create should succeed
-            storage.create_secret("UNIQUE_KEY", "value1", None).unwrap();
-
-            // Second create should fail
-            let result = storage.create_secret("UNIQUE_KEY", "value2", None);
-            assert!(result.is_err());
-            assert!(result.unwrap_err().to_string().contains("already exists"));
-
-            // Value should remain the first one
-            let value = storage.get_secret("UNIQUE_KEY").unwrap();
-            assert_eq!(value, Some("value1".to_string()));
-        }
-
-        #[test]
-        fn test_update_secret_atomic() {
-            let (storage, _temp_dir) = setup();
-
-            // Update non-existent should fail
-            let result = storage.update_secret("NON_EXISTENT", "value", None);
-            assert!(result.is_err());
-            assert!(result.unwrap_err().to_string().contains("not found"));
-
-            // Create then update should work
-            storage
-                .create_secret("UPDATE_KEY", "initial", None)
-                .unwrap();
-            storage
-                .update_secret("UPDATE_KEY", "updated", Some("desc".to_string()))
-                .unwrap();
-
-            let value = storage.get_secret("UPDATE_KEY").unwrap();
-            assert_eq!(value, Some("updated".to_string()));
-        }
-
         /// Test concurrent set_secret operations don't corrupt data.
         /// All threads write to the same key - the final value should be one of the written values.
         #[test]
@@ -3659,56 +3537,6 @@ pub mod secrets {
             assert!(secret.is_some());
             let value = secret.unwrap();
             assert!(value.starts_with("value-"));
-
-            // Only one secret should exist
-            let secrets = storage.list_secrets().unwrap();
-            assert_eq!(secrets.len(), 1);
-
-            // SAFETY: This is a single-threaded test, no other threads access this env var
-            unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
-        }
-
-        /// Test concurrent create_secret - only one should succeed.
-        #[test]
-        fn test_concurrent_create_secret() {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            use std::thread;
-
-            let _env_lock = env_lock();
-            let temp_dir = tempdir().unwrap();
-            let state_dir = temp_dir.path().join("state");
-            std::fs::create_dir_all(&state_dir).unwrap();
-
-            // SAFETY: This is a single-threaded test, no other threads access this env var
-            unsafe { std::env::set_var(RESTFLOW_DIR_ENV, &state_dir) };
-
-            let db_path = temp_dir.path().join("test.db");
-            let db = Arc::new(Database::create(db_path).unwrap());
-            let storage = Arc::new(SecretStorage::new_insecure(db).unwrap());
-
-            let success_count = Arc::new(AtomicUsize::new(0));
-            let num_threads = 10;
-
-            let handles: Vec<_> = (0..num_threads)
-                .map(|i| {
-                    let s = Arc::clone(&storage);
-                    let count = Arc::clone(&success_count);
-                    thread::spawn(move || {
-                        if s.create_secret("race_key", &format!("value-{}", i), None)
-                            .is_ok()
-                        {
-                            count.fetch_add(1, Ordering::SeqCst);
-                        }
-                    })
-                })
-                .collect();
-
-            for h in handles {
-                h.join().unwrap();
-            }
-
-            // Exactly one create should have succeeded
-            assert_eq!(success_count.load(Ordering::SeqCst), 1);
 
             // Only one secret should exist
             let secrets = storage.list_secrets().unwrap();
@@ -8800,10 +8628,6 @@ pub mod session_log {
     }
 
     impl FileSessionStore {
-        pub fn default_root() -> Result<PathBuf> {
-            crate::paths::sessions_dir()
-        }
-
         pub fn new(root: PathBuf) -> Result<Self> {
             Ok(Self { root })
         }
