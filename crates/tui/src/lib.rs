@@ -58,10 +58,7 @@ mod activity {
 
         pub fn record_tool_result(&mut self, call_id: &str, success: bool, body: &str) {
             let status = if success { "completed" } else { "failed" };
-            if let Some(entry) = self.subagents.get_mut(call_id) {
-                entry.status = status.to_string();
-                entry.detail = compact_detail(body);
-                entry.is_active = false;
+            if self.subagents.remove(call_id).is_some() {
                 self.bump();
                 return;
             }
@@ -279,6 +276,19 @@ mod activity {
             assert_eq!(cells[0].title, "Subagents");
             assert!(cells[0].body.contains("spawn"));
             assert!(cells[0].body.contains("running"));
+        }
+
+        #[test]
+        fn subagent_activity_disappears_after_result() {
+            let mut state = ActivityState::default();
+            state.record_tool_call("call-1", "wait_subagents", "Waiting for 1 subagent");
+            state.record_tool_result(
+                "call-1",
+                false,
+                "Error: Tool error: Tool wait_subagents timed out",
+            );
+
+            assert!(state.subagent_live_cells().is_empty());
         }
     }
 }
@@ -10660,6 +10670,34 @@ mod shell {
                 !rendered
                     .iter()
                     .any(|line| line.contains("Output:") && line.contains("\\nLONG_TOOL_2"))
+            );
+        }
+
+        #[test]
+        fn failed_subagent_wait_does_not_leave_live_summary() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("wait for subagents".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "wait-call".to_string(),
+                name: "wait_subagents".to_string(),
+                arguments: serde_json::json!({
+                    "task_ids": ["child-1"],
+                    "timeout_secs": 1
+                }),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "wait-call".to_string(),
+                success: false,
+                result: "Tool error: Tool wait_subagents timed out".to_string(),
+            });
+
+            let rendered = line_texts(&super::build_message_lines(&state, 100, 30));
+
+            assert!(rendered.iter().any(|line| line.contains("Tool error")));
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Subagents updated"))
             );
         }
 
