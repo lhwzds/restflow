@@ -2327,6 +2327,7 @@ mod daemon_client {
     };
     use ::daemon::paths;
     use ::daemon::services::{session::SessionService, skills as skills_service};
+    use ::daemon::storage::{load_cli_config, load_global_cli_config, write_cli_config};
     use ::daemon::{DEFAULT_ASSISTANT_NAME, StoredAgent};
     use anyhow::{Result, bail};
     use std::path::PathBuf;
@@ -2475,15 +2476,13 @@ mod daemon_client {
         }
 
         pub fn configured_default_model(&self) -> Option<String> {
-            ::daemon::load_cli_config()
-                .ok()
-                .and_then(|config| config.model)
+            load_cli_config().ok().and_then(|config| config.model)
         }
 
         pub async fn set_default_model(&self, model: &str) -> Result<()> {
-            let mut config = ::daemon::load_global_cli_config()?;
+            let mut config = load_global_cli_config()?;
             config.model = Some(model.to_string());
-            ::daemon::write_cli_config(&config)
+            write_cli_config(&config)
         }
 
         pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -2609,9 +2608,13 @@ mod daemon_client {
                 };
                 let mut saw_terminal_frame = false;
                 while let Some(frame) = rx.recv().await {
-                    saw_terminal_frame =
+                    let terminal =
                         matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
+                    saw_terminal_frame |= terminal;
                     if tx.send(AppEvent::StreamFrame(frame)).is_err() {
+                        break;
+                    }
+                    if terminal {
                         break;
                     }
                 }

@@ -1,6 +1,8 @@
 //! RestFlow daemon, IPC, launcher, and foreground stream services.
 
-pub use restflow_core::*;
+pub use restflow_core::{
+    AppCore, DEFAULT_ASSISTANT_NAME, Secret, StoredAgent, paths, services, storage,
+};
 pub use runner;
 pub use tools;
 
@@ -291,8 +293,8 @@ pub mod daemon {
         };
         use crate::StoredAgent;
         use crate::daemon::request_mapper::to_contract;
-        use crate::session_events::ChatSessionEvent;
         use anyhow::{Context, Result, bail};
+        use restflow_core::session_events::ChatSessionEvent;
         use serde::de::DeserializeOwned;
         use std::path::Path;
         use types::{
@@ -1058,7 +1060,6 @@ pub mod daemon {
             IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
             MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
         };
-        use crate::AgentDefaults;
         use crate::AppCore;
         use crate::runtime::{
             AgentOrchestratorImpl, AgentRuntimeExecutor, InteractiveSessionRequest,
@@ -1068,12 +1069,13 @@ pub mod daemon {
             session::{PersistInteractiveTurnRequest, SessionService},
             skills as skills_service,
         };
-        use crate::subscribe_session_events;
         use ::agent::agent::StreamEmitter;
         use ::agent::agent::{SubagentConfig, SubagentTracker};
         use anyhow::Result;
         use async_trait::async_trait;
         use chrono::Utc;
+        use restflow_core::AgentDefaults;
+        use restflow_core::session_events::subscribe_session_events;
         use std::collections::{HashMap, VecDeque};
         use std::future::Future;
         use std::path::PathBuf;
@@ -1104,7 +1106,7 @@ pub mod daemon {
                 from_contract, invalid_request_response, invalid_validation_response,
             };
             use crate::daemon::tool_result_mapper::to_tool_execution_result;
-            use crate::provider_policy::provider_display_order;
+            use restflow_core::provider_policy::provider_display_order;
             use types::request::WireModelRef;
             use types::{
                 ArchiveResponse, CancelResponse, CleanupReportResponse, DeleteResponse,
@@ -3295,7 +3297,7 @@ pub mod daemon {
             };
             pub(super) use super::*;
             pub(super) use crate::services::agent_catalog;
-            pub(super) use crate::test_support::RestflowTestEnv;
+            pub(super) use restflow_core::test_support::RestflowTestEnv;
             pub(super) use types::AgentNode;
             pub(super) use types::SteerCommand;
             pub(super) use types::ToolExecutionResult;
@@ -3651,7 +3653,7 @@ pub mod daemon {
                     core.storage
                         .file_sessions
                         .write_session(
-                            &crate::session_log::FileSession::from_chat_session(session),
+                            &restflow_core::session_log::FileSession::from_chat_session(session),
                             true,
                         )
                         .unwrap();
@@ -5371,9 +5373,6 @@ pub mod daemon {
         }
     }
 
-    pub use crate::session_events::{
-        ChatSessionEvent, publish_session_event, subscribe_session_events,
-    };
     pub use core_access::CoreAccess;
     pub use health::{HealthChecker, HealthStatus, check_health};
     pub use ipc_client::{IpcClient, is_daemon_available};
@@ -5390,10 +5389,11 @@ pub mod daemon {
         ensure_daemon_running_with_config, start_daemon, start_daemon_with_config, stop_daemon,
     };
     pub use process::{DaemonConfig, ProcessManager};
+    pub use restflow_core::session_events::{
+        ChatSessionEvent, publish_session_event, subscribe_session_events,
+    };
     pub use types::{ToolDefinition, ToolExecutionResult};
 }
-
-pub use daemon::*;
 
 #[cfg(test)]
 mod integration_tests {
