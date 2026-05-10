@@ -165,11 +165,11 @@ mod tests {
     use super::*;
     use crate::tools::Tool;
     use crate::tools::ToolRegistry;
-    use ai::agent::{
+    use ::agent::agent::{
         SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
         SubagentManagerImpl, SubagentTracker,
     };
-    use ai::llm::{MockLlmClient, MockStep};
+    use ::agent::llm::{MockLlmClient, MockStep};
     use std::collections::HashMap;
     use tokio::sync::mpsc;
     use types::SubagentManager;

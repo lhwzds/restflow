@@ -5,8 +5,8 @@ use crate::runtime::subagent::AgentDefinitionRegistry;
 use crate::services::session::SessionService;
 use crate::session_log::{FileSession, FileSessionStore};
 use crate::test_support::RestflowTestEnv;
-use ai::AiError;
-use ai::agent::{SubagentConfig, SubagentTracker};
+use ::agent::AiError;
+use ::agent::agent::{SubagentConfig, SubagentTracker};
 use std::future::Future;
 #[cfg(unix)]
 use std::path::PathBuf;

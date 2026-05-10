@@ -165,12 +165,10 @@ impl Tool for SwitchModelTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ai::error::AiError;
-    use ai::llm::{
+    use ::agent::llm::{
         ClientKind, CompletionRequest, CompletionResponse, FinishReason, LlmClient,
         LlmClientFactory, LlmProvider, StreamResult, SwappableLlm, TokenUsage,
     };
-    type AiResult<T> = std::result::Result<T, AiError>;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -198,7 +196,10 @@ mod tests {
             &self.model
         }
 
-        async fn complete(&self, _request: CompletionRequest) -> AiResult<CompletionResponse> {
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> ::agent::llm::Result<CompletionResponse> {
             Ok(CompletionResponse {
                 content: Some(String::new()),
                 tool_calls: vec![],
@@ -257,14 +258,14 @@ mod tests {
             &self,
             model: &str,
             api_key: Option<&str>,
-        ) -> AiResult<Arc<dyn LlmClient>> {
+        ) -> ::agent::llm::Result<Arc<dyn LlmClient>> {
             self.create_calls
                 .lock()
                 .expect("lock poisoned")
                 .push((model.to_string(), api_key.map(ToString::to_string)));
-            let provider = self
-                .provider_for_model(model)
-                .ok_or_else(|| AiError::Llm(format!("no provider found for model {model}")))?;
+            let provider = self.provider_for_model(model).ok_or_else(|| {
+                ::agent::llm::AiError::Llm(format!("no provider found for model {model}"))
+            })?;
             Ok(Arc::new(MockClient::new(provider.as_str(), model)))
         }
 
@@ -292,7 +293,7 @@ mod tests {
     }
 
     fn build_tool(factory: Arc<MockFactory>) -> (SwitchModelTool, Arc<SwappableLlm>) {
-        use ai::llm::LlmSwitcherImpl;
+        use ::agent::llm::LlmSwitcherImpl;
         let llm = Arc::new(SwappableLlm::new(Arc::new(MockClient::new(
             "anthropic",
             "claude-haiku-4-5",

@@ -13,7 +13,7 @@ mod skrun;
 pub mod edit;
 pub mod multiedit;
 
-// Migrated from ai
+// Migrated from agent
 pub mod agent_crud;
 pub mod config;
 pub mod file_tracker;

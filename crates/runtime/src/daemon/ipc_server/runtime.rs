@@ -1,6 +1,6 @@
 use super::*;
 use crate::services::operation_assessment::OperationAssessorAdapter;
-use ai::StreamDisplayMode;
+use ::agent::StreamDisplayMode;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -41,7 +41,7 @@ pub(super) struct ExecuteChatSessionRequest {
 
 pub(super) fn create_runtime_tool_registry_with_assessment(
     core: &Arc<AppCore>,
-) -> anyhow::Result<ai::tools::ToolRegistry> {
+) -> anyhow::Result<::agent::tools::ToolRegistry> {
     crate::services::tool_registry::create_tool_registry_with_assessor(
         core.storage.config.clone(),
         None,
@@ -52,8 +52,8 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
 
 pub(super) fn get_runtime_tool_registry<'a>(
     core: &Arc<AppCore>,
-    runtime_tool_registry: &'a OnceLock<ai::tools::ToolRegistry>,
-) -> Result<&'a ai::tools::ToolRegistry, String> {
+    runtime_tool_registry: &'a OnceLock<::agent::tools::ToolRegistry>,
+) -> Result<&'a ::agent::tools::ToolRegistry, String> {
     if let Some(registry) = runtime_tool_registry.get() {
         return Ok(registry);
     }

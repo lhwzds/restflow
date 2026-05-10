@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ai::agent::{
+use ::agent::agent::{
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
     SubagentManagerImpl, SubagentTracker,
 };
-use ai::llm::{MockLlmClient, MockStep};
-use ai::tools::ToolRegistry;
+use ::agent::llm::{MockLlmClient, MockStep};
+use ::agent::tools::ToolRegistry;
 use runtime::tools::{ListSubagentsTool, SpawnSubagentTool, Tool, WaitSubagentsTool};
 use serde_json::json;
 use tokio::sync::mpsc;

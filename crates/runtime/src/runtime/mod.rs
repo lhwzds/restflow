@@ -7,13 +7,14 @@ pub mod subagent;
 
 // Public surface rule:
 // - `runtime::runtime` re-exports durable runtime and core-owned adapters.
-// - AI-owned subagent runtime state stays exported from `ai` /
+// - AI-owned subagent runtime state stays exported from `agent` /
 //   `types` so ownership remains unambiguous.
-pub use agent::{
+pub use self::agent::build_agent_system_prompt;
+pub use self::agent::tools::{
     BashConfig, BashTool, FileConfig, FileTool, ListSubagentsTool, LoadSkillTool,
     SpawnSubagentTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, WaitSubagentsTool,
-    build_agent_system_prompt, default_registry, effective_main_agent_tool_names,
-    main_agent_default_tool_names, registry_from_allowlist, secret_resolver_from_storage,
+    default_registry, effective_main_agent_tool_names, main_agent_default_tool_names,
+    registry_from_allowlist, secret_resolver_from_storage,
 };
 pub use execution_context::{ExecutionContext, ExecutionRole};
 pub use orchestrator::AgentOrchestratorImpl;

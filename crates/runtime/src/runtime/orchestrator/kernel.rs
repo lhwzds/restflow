@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use crate::runtime::session_runner::{
     AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
 };
-use ai::agent::StreamEmitter;
+use ::agent::agent::StreamEmitter;
 use types::ChatSession;
 use types::{ExecutionOutcome, ExecutionPlan};
 

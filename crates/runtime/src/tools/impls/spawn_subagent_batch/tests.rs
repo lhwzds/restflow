@@ -2,13 +2,13 @@ use super::*;
 use crate::tools::Tool;
 use crate::tools::ToolRegistry;
 use crate::tools::impls::spawn_subagent_batch::SpawnSubagentBatchParams;
-use ::types::request::RunSpawnRequest as ContractRunSpawnRequest;
-use ::types::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
-use ai::agent::{
+use ::agent::agent::{
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
     SubagentManagerImpl, SubagentTracker,
 };
-use ai::llm::{MockLlmClient, MockStep};
+use ::agent::llm::{MockLlmClient, MockStep};
+use ::types::request::RunSpawnRequest as ContractRunSpawnRequest;
+use ::types::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

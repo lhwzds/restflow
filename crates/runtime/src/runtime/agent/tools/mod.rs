@@ -30,7 +30,7 @@ pub use crate::tools::impls::{
     SpawnSubagentTool, ToolRegistryBuilder, WaitSubagentsTool, default_registry,
 };
 
-pub use ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
+pub use ::agent::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub use skill_activation::{
     SkillActivationIssue, SkillActivationIssueCategory, SkillActivationPolicy,
     SkillActivationResult, effective_tool_allowlist_for_turn,

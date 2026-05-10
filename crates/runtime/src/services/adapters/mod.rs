@@ -11,7 +11,7 @@ pub mod secret;
 pub mod session;
 pub mod skill_provider;
 
-pub use agent::AgentStoreAdapter;
+pub use self::agent::AgentStoreAdapter;
 pub use config::ConfigStoreAdapter;
 pub use ops::OpsProviderAdapter;
 pub use secret::SecretStoreAdapter;

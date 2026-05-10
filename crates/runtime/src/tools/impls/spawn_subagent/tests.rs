@@ -1,17 +1,17 @@
 use super::*;
 use crate::tools::Tool;
 use crate::tools::ToolRegistry;
+use ::agent::agent::{
+    SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+    SubagentManagerImpl, SubagentTracker,
+};
+use ::agent::llm::{MockLlmClient, MockStep};
 use ::types::request::RunSpawnRequest as ContractRunSpawnRequest;
 use ::types::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,
 };
 use ::types::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
-use ai::agent::{
-    SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-    SubagentManagerImpl, SubagentTracker,
-};
-use ai::llm::{MockLlmClient, MockStep};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

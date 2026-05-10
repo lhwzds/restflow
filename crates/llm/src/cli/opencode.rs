@@ -1,0 +1,154 @@
+//! OpenCode CLI LLM provider
+
+use async_trait::async_trait;
+use std::process::Stdio;
+use tokio::process::Command;
+use tracing::{debug, info};
+
+use crate::client::{CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult};
+use crate::error::Result;
+
+use super::utils;
+
+const DEFAULT_MODEL: &str = "opencode";
+
+/// OpenCode CLI client (auth via env vars)
+pub struct OpenCodeClient {
+    model: String,
+    provider_env: Option<(String, String)>,
+}
+
+impl OpenCodeClient {
+    /// Create a new OpenCode CLI client
+    pub fn new() -> Self {
+        Self {
+            model: DEFAULT_MODEL.to_string(),
+            provider_env: None,
+        }
+    }
+
+    /// Set the model to use
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Inject provider credentials as an env var
+    pub fn with_provider_env(
+        mut self,
+        var_name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.provider_env = Some((var_name.into(), value.into()));
+        self
+    }
+
+    fn parse_json_output(output: &str) -> Result<String> {
+        utils::parse_json_response(output, "OpenCode")
+    }
+}
+
+impl Default for OpenCodeClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl LlmClient for OpenCodeClient {
+    fn provider(&self) -> &str {
+        "opencode-cli"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
+        info!("OpenCodeClient: executing via CLI");
+
+        let prompt = utils::build_prompt(&request.messages);
+
+        let mut cmd = Command::new("opencode");
+        cmd.arg("-p")
+            .arg(&prompt)
+            .arg("-f")
+            .arg("json")
+            .arg("-q")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        if let Some((env_var, value)) = &self.provider_env {
+            cmd.env(env_var, value);
+        }
+
+        let raw_output = utils::execute_cli_command(
+            cmd,
+            "OpenCode",
+            "Install with: go install github.com/opencode-ai/opencode@latest",
+        )
+        .await?;
+        let content = Self::parse_json_output(&raw_output)?;
+        debug!(content_len = content.len(), "OpenCode CLI response parsed");
+
+        Ok(CompletionResponse {
+            content: Some(content),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+            reasoning_content: None,
+        })
+    }
+
+    fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+        utils::unsupported_stream("OpenCode CLI")
+    }
+
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_json_output() {
+        let output = r#"{"response":"Hello world"}"#;
+        let content = OpenCodeClient::parse_json_output(output).unwrap();
+        assert_eq!(content, "Hello world");
+    }
+
+    #[test]
+    fn test_parse_json_output_missing_response() {
+        let output = r#"{"error":"something"}"#;
+        assert!(OpenCodeClient::parse_json_output(output).is_err());
+    }
+
+    #[test]
+    fn test_parse_json_output_with_whitespace() {
+        let output = " {\"response\": \"Hi\"} \n";
+        let content = OpenCodeClient::parse_json_output(output).unwrap();
+        assert_eq!(content, "Hi");
+    }
+
+    #[test]
+    fn test_build_prompt() {
+        let messages = vec![
+            crate::Message::system("system"),
+            crate::Message::user("hello"),
+            crate::Message::assistant("world"),
+        ];
+        let prompt = super::utils::build_prompt(&messages);
+        assert_eq!(prompt, "hello\n\nworld");
+    }
+
+    #[test]
+    fn test_opencode_provider_model() {
+        let client = OpenCodeClient::new();
+        assert_eq!(client.provider(), "opencode-cli");
+        assert_eq!(client.model(), "opencode");
+    }
+}

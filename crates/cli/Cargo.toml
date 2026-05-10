@@ -12,7 +12,7 @@ path = "src/main.rs"
 # Core
 runtime = { workspace = true }
 tui = { workspace = true }
-ai = { workspace = true }
+agent = { workspace = true }
 types = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }

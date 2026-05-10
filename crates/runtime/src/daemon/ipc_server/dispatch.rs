@@ -716,7 +716,7 @@ impl IpcServer {
 
     pub(super) async fn handle_get_available_tools(
         core: &Arc<AppCore>,
-        runtime_tool_registry: &OnceLock<ai::tools::ToolRegistry>,
+        runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
     ) -> IpcResponse {
         match get_runtime_tool_registry(core, runtime_tool_registry) {
             Ok(registry) => {
@@ -733,7 +733,7 @@ impl IpcServer {
 
     pub(super) async fn handle_get_available_tool_definitions(
         core: &Arc<AppCore>,
-        runtime_tool_registry: &OnceLock<ai::tools::ToolRegistry>,
+        runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
     ) -> IpcResponse {
         match get_runtime_tool_registry(core, runtime_tool_registry) {
             Ok(registry) => {
@@ -754,7 +754,7 @@ impl IpcServer {
 
     pub(super) async fn handle_execute_tool(
         core: &Arc<AppCore>,
-        runtime_tool_registry: &OnceLock<ai::tools::ToolRegistry>,
+        runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
         name: String,
         input: serde_json::Value,
     ) -> IpcResponse {
@@ -787,7 +787,7 @@ impl IpcServer {
 
     pub(crate) async fn process(
         core: &Arc<AppCore>,
-        runtime_tool_registry: &OnceLock<ai::tools::ToolRegistry>,
+        runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
         request: IpcRequest,
     ) -> IpcResponse {
         match request {

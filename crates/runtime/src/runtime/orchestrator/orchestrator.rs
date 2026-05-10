@@ -11,8 +11,8 @@ use crate::runtime::orchestrator::modes::{interactive, subagent};
 use crate::runtime::session_runner::{
     AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions,
 };
-use ai::StreamDisplayMode;
-use ai::agent::{NullEmitter, StreamEmitter};
+use ::agent::StreamDisplayMode;
+use ::agent::agent::{NullEmitter, StreamEmitter};
 use types::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
 use types::{ChatSession, SteerMessage};
 
@@ -224,7 +224,7 @@ mod tests {
 
     use crate::runtime::orchestrator::kernel::ExecutionBackend;
     use crate::runtime::session_runner::{SessionExecutionResult, SessionInputMode};
-    use ai::agent::StreamEmitter;
+    use ::agent::agent::StreamEmitter;
     use types::{ChatSession, ModelId};
     use types::{ExecutionMode, ExecutionPlan, InlineSubagentConfig};
 

@@ -20,8 +20,8 @@ use crate::services::{
     session_policy::SessionPolicyError,
     skills as skills_service,
 };
-use ai::agent::StreamEmitter;
-use ai::agent::{SubagentConfig, SubagentTracker};
+use ::agent::agent::StreamEmitter;
+use ::agent::agent::{SubagentConfig, SubagentTracker};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -62,7 +62,7 @@ use tokio::net::{UnixListener, UnixStream};
 pub struct IpcServer {
     core: Arc<AppCore>,
     socket_path: PathBuf,
-    runtime_tool_registry: Arc<OnceLock<ai::tools::ToolRegistry>>,
+    runtime_tool_registry: Arc<OnceLock<::agent::tools::ToolRegistry>>,
 }
 
 fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
@@ -421,7 +421,7 @@ impl IpcServer {
     async fn handle_client(
         mut stream: UnixStream,
         core: Arc<AppCore>,
-        runtime_tool_registry: Arc<OnceLock<ai::tools::ToolRegistry>>,
+        runtime_tool_registry: Arc<OnceLock<::agent::tools::ToolRegistry>>,
     ) -> Result<()> {
         loop {
             let mut len_buf = [0u8; 4];

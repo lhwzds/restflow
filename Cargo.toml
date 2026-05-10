@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/types",
-    "crates/ai",
+    "crates/llm",
+    "crates/agent",
     "crates/runtime",
     "crates/tui",
     "crates/cli",
@@ -18,7 +19,8 @@ edition = "2024"
 
 [workspace.dependencies]
 types = { path = "crates/types" }
-ai = { path = "crates/ai" }
+llm = { path = "crates/llm" }
+agent = { path = "crates/agent" }
 runtime = { path = "crates/runtime" }
 tui = { path = "crates/tui" }
 monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.7" }

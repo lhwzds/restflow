@@ -1,4 +1,4 @@
-use ai::AiError;
+use ::agent::AiError;
 use anyhow::Error as AnyhowError;
 use types::{ToolErrorCategory, ToolOutput};
 

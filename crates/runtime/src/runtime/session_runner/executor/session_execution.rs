@@ -1,7 +1,7 @@
 use super::*;
 use crate::services::adapters::SkrunSkillProvider;
 use crate::services::skill_mentions::parse_skill_mentions;
-use ai::StreamDisplayMode;
+use ::agent::StreamDisplayMode;
 use types::skill::{SkillInfo, SkillProvider};
 
 fn should_force_non_stream(model: ModelId) -> bool {
@@ -176,8 +176,8 @@ impl AgentRuntimeExecutor {
         input_mode: SessionInputMode,
         user_input: &str,
         max_iterations: usize,
-    ) -> ai::AgentState {
-        let mut state = ai::AgentState::new(uuid::Uuid::new_v4().to_string(), max_iterations);
+    ) -> ::agent::AgentState {
+        let mut state = ::agent::AgentState::new(uuid::Uuid::new_v4().to_string(), max_iterations);
         state.add_message(Message::system(system_prompt));
         for message in Self::session_history_messages(session, max_messages, input_mode) {
             state.add_message(message);
@@ -693,8 +693,8 @@ impl AgentRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ai::StreamDisplayMode;
-    use ai::llm::Role;
+    use ::agent::StreamDisplayMode;
+    use ::agent::llm::Role;
     use types::skill::{SkillInfo, SkillSource};
 
     #[test]

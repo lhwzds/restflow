@@ -19,9 +19,9 @@ use crate::{
     services::skill_triggers::match_triggers,
     storage::Storage,
 };
-use ai::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
-use ai::llm::Message;
-use ai::{
+use ::agent::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
+use ::agent::llm::Message;
+use ::agent::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, ResourceLimits as AgentResourceLimits,
     SwappableLlm,
@@ -45,9 +45,11 @@ use crate::runtime::agent::{
     effective_tool_allowlist_for_turn, main_agent_default_tool_names, registry_from_allowlist,
     secret_resolver_from_storage,
 };
-use ai::agent::SubagentDefLookup;
-use ai::agent::{SubagentConfig, SubagentExecutionBridge, SubagentTracker, execute_subagent_plan};
-use ai::llm::LlmSwitcherImpl;
+use ::agent::agent::SubagentDefLookup;
+use ::agent::agent::{
+    SubagentConfig, SubagentExecutionBridge, SubagentTracker, execute_subagent_plan,
+};
+use ::agent::llm::LlmSwitcherImpl;
 use preflight::SkillSnapshotCache;
 #[cfg(any(test, feature = "test-utils"))]
 use std::sync::{Mutex, OnceLock};
@@ -102,7 +104,7 @@ fn current_test_llm_factory() -> Option<Arc<dyn LlmClientFactory>> {
         .clone()
 }
 
-/// Real agent executor that bridges to ai::AgentExecutor.
+/// Real agent executor that bridges to ::agent::AgentExecutor.
 ///
 /// This executor:
 /// - Loads agent configuration from storage

@@ -8,8 +8,8 @@ use crate::runtime::orchestrator::kernel::{
 use crate::runtime::session_runner::{
     SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
 };
-use ai::StreamDisplayMode;
-use ai::agent::StreamEmitter;
+use ::agent::StreamDisplayMode;
+use ::agent::agent::StreamEmitter;
 use types::{ChatSession, SteerMessage};
 use types::{ExecutionOutcome, ExecutionPlan};
 

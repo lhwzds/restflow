@@ -5,7 +5,7 @@ use super::subagent_backend::{
 };
 use super::*;
 use crate::services::adapters::{AgentStoreAdapter, OpsProviderAdapter};
-use ai::llm::{
+use ::agent::llm::{
     ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
 use async_trait::async_trait;
@@ -122,7 +122,10 @@ impl LlmClient for TestLlmClient {
         &self.model
     }
 
-    async fn complete(&self, _request: CompletionRequest) -> ai::error::Result<CompletionResponse> {
+    async fn complete(
+        &self,
+        _request: CompletionRequest,
+    ) -> ::agent::llm::Result<CompletionResponse> {
         Ok(CompletionResponse {
             content: Some(self.response.clone()),
             tool_calls: Vec::new(),
@@ -155,11 +158,11 @@ impl LlmClientFactory for TestLlmFactory {
         &self,
         model: &str,
         _api_key: Option<&str>,
-    ) -> ai::error::Result<Arc<dyn LlmClient>> {
+    ) -> ::agent::llm::Result<Arc<dyn LlmClient>> {
         if model == self.model {
             Ok(self.client.clone())
         } else {
-            Err(ai::error::AiError::Llm(format!(
+            Err(::agent::llm::AiError::Llm(format!(
                 "unexpected model request: {model}"
             )))
         }

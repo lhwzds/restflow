@@ -2,7 +2,7 @@
 //!
 //! Ownership rule:
 //! - `runtime::runtime::agent` exposes tool assembly and prompt helpers.
-//! - AI-owned subagent runtime types stay in `ai` / `types`.
+//! - AI-owned subagent runtime types stay in `agent` / `types`.
 //! - Do not re-export `SubagentManagerImpl`, `SubagentDeps`, or related runtime
 //!   state from this module.
 
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use crate::storage::Storage;
-use ai::agent::DEFAULT_AGENT_PROMPT;
+use ::agent::agent::DEFAULT_AGENT_PROMPT;
 use types::AgentNode;
 
 const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../prompts/agents/default.md");

@@ -1,0 +1,28 @@
+[package]
+name = "llm"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "LLM clients and streaming abstractions for RestFlow"
+
+[dependencies]
+async-stream = "0.3"
+async-trait.workspace = true
+futures = "0.3"
+once_cell = "1.20"
+dirs = "6.0.0"
+parking_lot = "0.12"
+reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "2.0"
+tokio.workspace = true
+tracing.workspace = true
+types.workspace = true
+
+[features]
+default = []
+test-utils = []
+
+[dev-dependencies]
+wiremock = "0.6"

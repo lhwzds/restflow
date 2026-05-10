@@ -2,7 +2,7 @@
 //!
 //! This module is intentionally limited to definition lookup and registry
 //! plumbing. Runtime execution primitives such as `SubagentTracker`,
-//! `SubagentManagerImpl`, and `spawn_subagent` are owned by `ai`.
+//! `SubagentManagerImpl`, and `spawn_subagent` are owned by `agent`.
 
 pub mod definition;
 

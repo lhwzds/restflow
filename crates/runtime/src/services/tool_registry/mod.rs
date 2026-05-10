@@ -23,12 +23,12 @@ use crate::storage::SecretStorage;
 use crate::tools::ToolRegistryBuilder;
 use crate::{AgentDefaults, SystemConfig};
 #[cfg(test)]
-use ai::agent::{
+use ::agent::agent::{
     StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentExecutionBridge, SubagentManagerImpl,
     SubagentTracker, execute_subagent_plan,
 };
 #[cfg(test)]
-use ai::llm::{CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory};
+use ::agent::llm::{CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory};
 #[cfg(test)]
 use std::collections::HashMap;
 use std::sync::Arc;

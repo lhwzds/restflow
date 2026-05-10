@@ -1,5 +1,5 @@
 use super::*;
-use ai::agent::SubagentManagerImpl;
+use ::agent::agent::SubagentManagerImpl;
 use types::SubagentManager;
 
 impl AgentRuntimeExecutor {

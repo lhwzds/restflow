@@ -50,6 +50,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent"
+version = "0.4.2"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "dirs",
+ "futures",
+ "llm",
+ "nix 0.31.2",
+ "once_cell",
+ "parking_lot",
+ "postcard",
+ "redb",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "types",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -68,35 +98,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "ai"
-version = "0.4.2"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "chrono",
- "dashmap",
- "dirs",
- "futures",
- "nix 0.31.2",
- "once_cell",
- "parking_lot",
- "postcard",
- "redb",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "types",
- "uuid",
- "wiremock",
 ]
 
 [[package]]
@@ -586,7 +587,7 @@ dependencies = [
 name = "cli"
 version = "0.4.2"
 dependencies = [
- "ai",
+ "agent",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -2020,6 +2021,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "llm"
+version = "0.4.2"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "dirs",
+ "futures",
+ "once_cell",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "types",
+ "wiremock",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2911,7 +2932,7 @@ name = "runtime"
 version = "0.4.2"
 dependencies = [
  "aes-gcm",
- "ai",
+ "agent",
  "anyhow",
  "async-recursion",
  "async-stream",

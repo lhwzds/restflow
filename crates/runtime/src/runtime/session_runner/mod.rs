@@ -1,12 +1,12 @@
 //! Agent session runtime module.
 //!
 //! This module owns the runtime-side session execution path. Delegated
-//! sub-agent execution remains an `ai` capability injected into this runtime
+//! sub-agent execution remains an `agent` capability injected into this runtime
 //! when needed.
 //!
 //! # Architecture
 //!
-//! - `executor`: Real agent executor that bridges to `ai`
+//! - `executor`: Real agent executor that bridges to `agent`
 //! - `retry`: Retry mechanism for transient failures
 //! - `failover`: Model failover system for automatic fallback
 //! # Execution
@@ -66,7 +66,7 @@
 //! }
 //! ```
 //!
-use ai::llm::Message;
+use ::agent::llm::Message;
 use types::ModelId;
 
 pub mod error_classification;

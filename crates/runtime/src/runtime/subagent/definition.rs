@@ -4,7 +4,7 @@
 //! by the main agent, including their capabilities and system prompts.
 
 use crate::{AgentStorage, StoredAgent};
-use ai::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
+use ::agent::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -359,7 +359,7 @@ mod tests {
     use crate::prompt_files::agents_dir_env_lock;
     use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
     use crate::{AgentStorage, StoredAgent};
-    use ai::agent::SubagentDefLookup;
+    use ::agent::agent::SubagentDefLookup;
     use redb::Database;
     use std::sync::Arc;
     use std::time::Duration;
