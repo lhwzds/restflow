@@ -5,7 +5,6 @@ covers:
   - Cargo.toml
   - Cargo.lock
   - Makefile
-  - crates/**/*.rs
   - examples/skrun/**/*.py
   - homebrew-tap-template/**/*.md
   - homebrew-tap-template/**/*.rb
@@ -17,29 +16,34 @@ covers:
 
 # RestFlow Documentation
 
-RestFlow is a local AI agent framework with a terminal-first interface. The
-runtime owns agent execution, a small built-in tool surface, skill discovery,
-and executable skill calls through skrun.
+RestFlow is a local agent CLI with a terminal-first interface and executable
+skills. The docs are organized around the current Rust workspace crates.
 
-The Rust workspace is narrowed to the runtime crates that still define product
-boundaries: shared types, AI execution, tools, daemon runtime, CLI, and TUI.
+The repository does not use Docker and does not maintain a separate frontend
+application. The primary product surface is the `restflow` CLI and TUI.
 
-## What RestFlow Owns
+## Crate Map
 
-- Agent runtime orchestration.
-- Minimal coding tools: shell, file, edit, patch, glob, and grep.
-- `load_skill` for skill discovery and guidance loading.
-- `run_skill` for executable skrun skills.
-- TUI and client surfaces that consume runtime events.
+- [types](./types.md): shared public types, contracts, traits, and model catalog.
+- [llm](./llm.md): model clients and streaming abstractions.
+- [agent](./agent.md): agent loop, context management, steering, and sub-agent runtime.
+- [tools](./tools.md): built-in local tool implementations and skill tools.
+- [core](./core.md): local file-backed state, secrets, services, and app core.
+- [runner](./runner.md): foreground/background turn orchestration.
+- [daemon](./daemon.md): background hosting, IPC, launcher, and daemon services.
+- [tui](./tui.md): terminal UI rendering and interaction state.
+- [cli](./cli.md): `restflow` command-line entrypoint.
 
-## Documentation Map
+## Product Boundary
 
-- [Agent Framework](./agent-framework.md) covers the simplified runtime.
-- [Skills](./skills.md) covers skill loading and executable skrun skills.
-- [skrun Examples](./skrun-examples.md) covers external tool migration.
-- [TUI](./tui.md) covers the terminal interface.
-- [Task and Run Domain Model](./TASK_RUN_DOMAIN_MODEL.md) covers durable task
-  naming.
+- RestFlow owns local agent execution, a terminal interface, model configuration,
+  secrets, sessions, and executable skill calls.
+- External capabilities should be packaged as skrun-compatible skills instead
+  of growing the core tool surface.
+- `daemon` is for hosted background work. Normal interactive chat belongs to
+  the foreground TUI and runner path.
+- Redb is reserved for secrets; sessions and agent configuration are
+  file-backed.
 
 ## Publishing Boundary
 

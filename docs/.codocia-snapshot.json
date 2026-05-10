@@ -1,45 +1,58 @@
 {
-  "commit": "e9139a2632319829b4bcdb5a9b12adf59cd44e1c",
+  "commit": "1a4cdbf186818b037984cb0a1f2037419cba429f",
   "docs": {
-    "docs/TASK_RUN_DOMAIN_MODEL.md": {
-      "covers": ["crates/types/src/lib.rs", "crates/core/src/lib.rs", "crates/runner/src/lib.rs", "crates/daemon/src/lib.rs", "crates/tui/src/lib.rs"],
+    "docs/agent.md": {
+      "covers": ["crates/agent/Cargo.toml", "crates/agent/README.md", "crates/agent/src/lib.rs"],
       "files": {
-        "crates/core/src/lib.rs": "9b3b86e65a338a4a",
-        "crates/daemon/src/lib.rs": "74ab357d69f35252",
-        "crates/runner/src/lib.rs": "e416868734bda9af",
-        "crates/tui/src/lib.rs": "37715191334dc866",
-        "crates/types/src/lib.rs": "8325709cdaf613fe"
+        "crates/agent/Cargo.toml": "a1aa5206108327c8",
+        "crates/agent/README.md": "fe2b6a9b39789118",
+        "crates/agent/src/lib.rs": "daf3409d27220926"
       }
     },
-    "docs/agent-framework.md": {
-      "covers": ["crates/types/src/lib.rs", "crates/llm/src/lib.rs", "crates/agent/src/lib.rs", "crates/tools/src/**/*.rs", "crates/core/src/lib.rs", "crates/runner/src/lib.rs", "crates/daemon/src/lib.rs"],
+    "docs/cli.md": {
+      "covers": ["crates/cli/Cargo.toml", "crates/cli/build.rs", "crates/cli/src/main.rs", "crates/cli/man/*.1"],
       "files": {
-        "crates/agent/src/lib.rs": "daf3409d27220926",
-        "crates/core/src/lib.rs": "9b3b86e65a338a4a",
-        "crates/daemon/src/lib.rs": "74ab357d69f35252",
-        "crates/llm/src/lib.rs": "30abe7b6dca50fca",
-        "crates/runner/src/lib.rs": "e416868734bda9af",
-        "crates/tools/src/lib.rs": "c9749b99f44184a4",
-        "crates/types/src/lib.rs": "8325709cdaf613fe"
+        "crates/cli/Cargo.toml": "214fca0d64bb27e0",
+        "crates/cli/build.rs": "26e90a259e902658",
+        "crates/cli/man/restflow-agent.1": "155b4dbfc1299568",
+        "crates/cli/man/restflow-completions.1": "2bc68b6beb7c249f",
+        "crates/cli/man/restflow-config.1": "6a4c0004b86dbef7",
+        "crates/cli/man/restflow-daemon.1": "c2795ddd623e5925",
+        "crates/cli/man/restflow-info.1": "09fc919ec6446783",
+        "crates/cli/man/restflow-maintenance.1": "f74faf67408cacc9",
+        "crates/cli/man/restflow-restart.1": "a7617912b128d7d5",
+        "crates/cli/man/restflow-secret.1": "e13f294202263436",
+        "crates/cli/man/restflow-session.1": "e965b6199efd4a5a",
+        "crates/cli/man/restflow-skill.1": "fdc8837964335952",
+        "crates/cli/man/restflow-start.1": "edacf4281750bce1",
+        "crates/cli/man/restflow-status.1": "a753d9d95f87f3fd",
+        "crates/cli/man/restflow-stop.1": "24249d12e77eba3b",
+        "crates/cli/man/restflow-upgrade.1": "a7d0ba0aead592e8",
+        "crates/cli/man/restflow.1": "0a9edf2d2811b278",
+        "crates/cli/src/main.rs": "da89ac1b5ddb35a5"
+      }
+    },
+    "docs/core.md": {
+      "covers": ["crates/core/Cargo.toml", "crates/core/src/lib.rs"],
+      "files": {
+        "crates/core/Cargo.toml": "db13be50dee34128",
+        "crates/core/src/lib.rs": "9b3b86e65a338a4a"
+      }
+    },
+    "docs/daemon.md": {
+      "covers": ["crates/daemon/Cargo.toml", "crates/daemon/src/lib.rs"],
+      "files": {
+        "crates/daemon/Cargo.toml": "887f9f50b35f3967",
+        "crates/daemon/src/lib.rs": "74ab357d69f35252"
       }
     },
     "docs/index.md": {
-      "covers": ["README.md", "Cargo.toml", "Cargo.lock", "Makefile", "crates/**/*.rs", "examples/skrun/**/*.py", "homebrew-tap-template/**/*.md", "homebrew-tap-template/**/*.rb", "homebrew-tap-template/**/*.yml", "npm/scripts/**/*.js", "scripts/**/*.md", "scripts/**/*.sh"],
+      "covers": ["README.md", "Cargo.toml", "Cargo.lock", "Makefile", "examples/skrun/**/*.py", "homebrew-tap-template/**/*.md", "homebrew-tap-template/**/*.rb", "homebrew-tap-template/**/*.yml", "npm/scripts/**/*.js", "scripts/**/*.md", "scripts/**/*.sh"],
       "files": {
         "Cargo.lock": "1e6d163163b6aa4c",
         "Cargo.toml": "1896467daaf30392",
         "Makefile": "e447f51217120cea",
-        "README.md": "0b0e66ee95e3f087",
-        "crates/agent/src/lib.rs": "daf3409d27220926",
-        "crates/cli/build.rs": "26e90a259e902658",
-        "crates/cli/src/main.rs": "da89ac1b5ddb35a5",
-        "crates/core/src/lib.rs": "9b3b86e65a338a4a",
-        "crates/daemon/src/lib.rs": "74ab357d69f35252",
-        "crates/llm/src/lib.rs": "30abe7b6dca50fca",
-        "crates/runner/src/lib.rs": "e416868734bda9af",
-        "crates/tools/src/lib.rs": "c9749b99f44184a4",
-        "crates/tui/src/lib.rs": "37715191334dc866",
-        "crates/types/src/lib.rs": "8325709cdaf613fe",
+        "README.md": "52296c4dce0c73ed",
         "examples/skrun/_lib/common.py": "94b1694644757ff9",
         "examples/skrun/browser-automation/run.py": "7775cb19048ebf82",
         "examples/skrun/discord-send/run.py": "22a58654901d7cba",
@@ -62,54 +75,39 @@
         "scripts/stress/mock_daemon_soak.sh": "92619a67309750e2"
       }
     },
-    "docs/skills.md": {
-      "covers": ["crates/types/src/lib.rs", "crates/tools/src/lib.rs", "crates/core/src/lib.rs", "crates/runner/src/lib.rs"],
+    "docs/llm.md": {
+      "covers": ["crates/llm/Cargo.toml", "crates/llm/src/lib.rs"],
       "files": {
-        "crates/core/src/lib.rs": "9b3b86e65a338a4a",
-        "crates/runner/src/lib.rs": "e416868734bda9af",
-        "crates/tools/src/lib.rs": "c9749b99f44184a4",
-        "crates/types/src/lib.rs": "8325709cdaf613fe"
+        "crates/llm/Cargo.toml": "a343ecb481f4fcac",
+        "crates/llm/src/lib.rs": "30abe7b6dca50fca"
       }
     },
-    "docs/skrun-examples.md": {
-      "covers": ["examples/skrun/**", "crates/tools/src/lib.rs"],
+    "docs/runner.md": {
+      "covers": ["crates/runner/Cargo.toml", "crates/runner/src/lib.rs"],
       "files": {
-        "crates/tools/src/lib.rs": "c9749b99f44184a4",
-        "examples/skrun/README.md": "8bb72b0558eac6e8",
-        "examples/skrun/_lib/common.py": "94b1694644757ff9",
-        "examples/skrun/browser-automation/run.py": "7775cb19048ebf82",
-        "examples/skrun/browser-automation/skill.json": "55df59b3a61252f9",
-        "examples/skrun/discord-send/run.py": "22a58654901d7cba",
-        "examples/skrun/discord-send/skill.json": "7b056c8be475f79a",
-        "examples/skrun/email-send/run.py": "bd1de3cddad67410",
-        "examples/skrun/email-send/skill.json": "8a9d96595be4e236",
-        "examples/skrun/http-request/run.py": "12bdfbc689a9b3dd",
-        "examples/skrun/http-request/skill.json": "7b3a3a65046638d3",
-        "examples/skrun/memory-file/run.py": "2c1e5c5231644160",
-        "examples/skrun/memory-file/skill.json": "80847886924af915",
-        "examples/skrun/python-exec/run.py": "8a3ff7639345dbc5",
-        "examples/skrun/python-exec/skill.json": "de2964b1592a9276",
-        "examples/skrun/slack-send/run.py": "2464d9be3c5ee9bc",
-        "examples/skrun/slack-send/skill.json": "2e74a7f850a584d2",
-        "examples/skrun/telegram-send/run.py": "d749b4f5ead58600",
-        "examples/skrun/telegram-send/skill.json": "a2535d337b028981",
-        "examples/skrun/transcribe/run.py": "f05ca136b8ec00cd",
-        "examples/skrun/transcribe/skill.json": "4d72c0c1cc3ab981",
-        "examples/skrun/vision/run.py": "e46fa632cf323b0a",
-        "examples/skrun/vision/skill.json": "dd32186e53f44b78",
-        "examples/skrun/web-fetch/run.py": "68b8f52f10c9ac16",
-        "examples/skrun/web-fetch/skill.json": "9b0c2df971eeed89",
-        "examples/skrun/web-search/run.py": "e353528f93a7ebec",
-        "examples/skrun/web-search/skill.json": "d97827b90f028644"
+        "crates/runner/Cargo.toml": "08720b26f625d8a4",
+        "crates/runner/src/lib.rs": "e416868734bda9af"
+      }
+    },
+    "docs/tools.md": {
+      "covers": ["crates/tools/Cargo.toml", "crates/tools/src/lib.rs"],
+      "files": {
+        "crates/tools/Cargo.toml": "996817c70ab0f4c2",
+        "crates/tools/src/lib.rs": "c9749b99f44184a4"
       }
     },
     "docs/tui.md": {
-      "covers": ["crates/tui/**/*.rs", "crates/cli/src/main.rs", "crates/runner/src/lib.rs", "crates/daemon/src/lib.rs"],
+      "covers": ["crates/tui/Cargo.toml", "crates/tui/src/lib.rs"],
       "files": {
-        "crates/cli/src/main.rs": "da89ac1b5ddb35a5",
-        "crates/daemon/src/lib.rs": "74ab357d69f35252",
-        "crates/runner/src/lib.rs": "e416868734bda9af",
+        "crates/tui/Cargo.toml": "d7d87914adaf50e8",
         "crates/tui/src/lib.rs": "37715191334dc866"
+      }
+    },
+    "docs/types.md": {
+      "covers": ["crates/types/Cargo.toml", "crates/types/src/lib.rs"],
+      "files": {
+        "crates/types/Cargo.toml": "8af4a9ed87cb6b42",
+        "crates/types/src/lib.rs": "8325709cdaf613fe"
       }
     }
   }
