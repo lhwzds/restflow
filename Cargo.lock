@@ -2987,6 +2987,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "tools",
  "tower",
  "tower-http",
  "tracing",
@@ -3914,6 +3915,34 @@ name = "toml_writer"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
+
+[[package]]
+name = "tools"
+version = "0.4.2"
+dependencies = [
+ "agent",
+ "anyhow",
+ "async-recursion",
+ "async-trait",
+ "chrono",
+ "futures",
+ "glob-match",
+ "llm",
+ "nix 0.31.2",
+ "parking_lot",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "skrun",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "types",
+ "uuid",
+ "walkdir",
+]
 
 [[package]]
 name = "tower"

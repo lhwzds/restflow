@@ -3,6 +3,7 @@ members = [
     "crates/types",
     "crates/llm",
     "crates/agent",
+    "crates/tools",
     "crates/runtime",
     "crates/tui",
     "crates/cli",
@@ -21,6 +22,7 @@ edition = "2024"
 types = { path = "crates/types" }
 llm = { path = "crates/llm" }
 agent = { path = "crates/agent" }
+tools = { path = "crates/tools" }
 runtime = { path = "crates/runtime" }
 tui = { path = "crates/tui" }
 monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.7" }

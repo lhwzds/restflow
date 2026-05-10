@@ -17,7 +17,7 @@ pub mod storage;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod time_utils;
-pub mod tools;
+pub use tools;
 
 pub use config::{
     AgentDefaults, AgentSettings, ApiDefaults, ApiSettings, CliConfig, ConfigDocument,
