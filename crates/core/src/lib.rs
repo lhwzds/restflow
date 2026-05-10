@@ -686,6 +686,7 @@ pub mod config {
         pub bash_timeout_secs: Option<u64>,
         pub python_timeout_secs: Option<u64>,
         pub browser_timeout_secs: Option<u64>,
+        pub process_session_ttl_secs: Option<u64>,
         pub approval_timeout_secs: Option<u64>,
         pub auto_review_tools: Option<bool>,
         pub max_iterations: Option<usize>,
@@ -699,6 +700,8 @@ pub mod config {
         pub compact_preserve_tokens: Option<usize>,
         #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
         pub max_wall_clock_secs: Option<Option<u64>>,
+        pub default_task_timeout_secs: Option<u64>,
+        pub default_max_duration_secs: Option<u64>,
         #[serde(
             default,
             deserialize_with = "deserialize_optional_string_list_override"
@@ -723,6 +726,7 @@ pub mod config {
             if let Some(value) = self.browser_timeout_secs {
                 agent.browser_timeout_secs = value;
             }
+            let _ = self.process_session_ttl_secs;
             if let Some(value) = self.approval_timeout_secs {
                 agent.approval_timeout_secs = value;
             }
@@ -759,6 +763,10 @@ pub mod config {
             if let Some(value) = self.max_wall_clock_secs {
                 agent.max_wall_clock_secs = value;
             }
+            let _ = (
+                self.default_task_timeout_secs,
+                self.default_max_duration_secs,
+            );
             if let Some(value) = self.fallback_models.clone() {
                 agent.fallback_models = value;
             }
@@ -769,6 +777,8 @@ pub mod config {
     #[serde(default, deny_unknown_fields)]
     struct ApiDefaultsOverride {
         pub session_list_limit: Option<u32>,
+        pub task_progress_event_limit: Option<u32>,
+        pub task_message_list_limit: Option<u32>,
         pub web_search_num_results: Option<usize>,
     }
 
@@ -777,6 +787,7 @@ pub mod config {
             if let Some(value) = self.session_list_limit {
                 api_defaults.session_list_limit = value;
             }
+            let _ = (self.task_progress_event_limit, self.task_message_list_limit);
             if let Some(value) = self.web_search_num_results {
                 api_defaults.web_search_num_results = value;
             }
@@ -786,11 +797,17 @@ pub mod config {
     #[derive(Debug, Default, Serialize, Deserialize)]
     #[serde(default, deny_unknown_fields)]
     struct RuntimeDefaultsOverride {
+        pub task_runner_poll_interval_ms: Option<u64>,
+        pub task_runner_max_concurrent_tasks: Option<usize>,
         pub chat_max_session_history: Option<usize>,
     }
 
     impl RuntimeDefaultsOverride {
         fn apply_to(&self, runtime_defaults: &mut RuntimeDefaults) {
+            let _ = (
+                self.task_runner_poll_interval_ms,
+                self.task_runner_max_concurrent_tasks,
+            );
             if let Some(value) = self.chat_max_session_history {
                 runtime_defaults.chat_max_session_history = value;
             }
@@ -819,11 +836,14 @@ pub mod config {
     #[serde(default, deny_unknown_fields)]
     struct SystemSectionOverride {
         pub worker_count: Option<usize>,
+        pub task_timeout_seconds: Option<u64>,
         pub stall_timeout_seconds: Option<u64>,
         #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
         pub chat_response_timeout_seconds: Option<Option<u64>>,
         pub max_retries: Option<u32>,
         pub chat_session_retention_days: Option<u32>,
+        pub task_retention_days: Option<u32>,
+        pub audit_event_retention_days: Option<u32>,
         pub log_file_retention_days: Option<u32>,
         pub experimental_features: Option<Vec<String>>,
     }
@@ -833,6 +853,7 @@ pub mod config {
             if let Some(value) = self.worker_count {
                 config.worker_count = value;
             }
+            let _ = self.task_timeout_seconds;
             if let Some(value) = self.stall_timeout_seconds {
                 config.stall_timeout_seconds = value;
             }
@@ -845,6 +866,7 @@ pub mod config {
             if let Some(value) = self.chat_session_retention_days {
                 config.chat_session_retention_days = value;
             }
+            let _ = (self.task_retention_days, self.audit_event_retention_days);
             if let Some(value) = self.log_file_retention_days {
                 config.log_file_retention_days = value;
             }
@@ -1771,6 +1793,38 @@ pub mod config {
             let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
 
             ctx.storage.get_effective_config().unwrap();
+        }
+
+        #[test]
+        fn test_effective_config_accepts_removed_task_fields() {
+            let ctx = setup_test_storage();
+            let file = write_override_file(
+                r#"[system]
+    worker_count = 8
+    task_timeout_seconds = 1800
+    task_retention_days = 7
+    audit_event_retention_days = 7
+
+    [agent]
+    process_session_ttl_secs = 1800
+    default_task_timeout_secs = 1800
+    default_max_duration_secs = 1800
+
+    [api]
+    task_progress_event_limit = 10
+    task_message_list_limit = 50
+
+    [runtime]
+    task_runner_poll_interval_ms = 30000
+    task_runner_max_concurrent_tasks = 5
+    chat_max_session_history = 42
+    "#,
+            );
+            let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
+
+            let effective = ctx.storage.get_effective_config().unwrap();
+            assert_eq!(effective.worker_count, 8);
+            assert_eq!(effective.runtime_defaults.chat_max_session_history, 42);
         }
 
         #[test]
