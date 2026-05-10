@@ -36,6 +36,5 @@ uuid = { version = "1.21.0", features = ["v4", "serde"] }
 
 [dev-dependencies]
 agent = { workspace = true, features = ["test-utils"] }
-redb = "3.1.0"
 skrun = { workspace = true }
 tempfile = "3.25.0"

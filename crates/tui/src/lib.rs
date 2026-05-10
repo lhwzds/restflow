@@ -4675,13 +4675,13 @@ mod reducer {
             let output = reduce(
                 &mut state,
                 ShellAction::CommandPicked {
-                    text: "/task ".to_string(),
+                    text: "/model ".to_string(),
                 },
             );
 
             assert!(!output.should_quit);
             assert!(state.overlay.is_none());
-            assert_eq!(state.composer.draft(), "/task ");
+            assert_eq!(state.composer.draft(), "/model ");
             assert_eq!(state.status, "Command selected");
         }
 

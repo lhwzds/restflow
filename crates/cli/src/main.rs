@@ -445,9 +445,9 @@ mod cli {
 
         /// Create a new session
         Create {
-            /// Agent ID to associate with
-            #[arg(long, default_value = "default")]
-            agent: String,
+            /// Agent ID to associate with. Omit to use the default assistant.
+            #[arg(long)]
+            agent: Option<String>,
 
             /// Model name
             #[arg(long, default_value = "gpt-5.4")]
@@ -638,7 +638,7 @@ mod output {
 mod executor {
     #[cfg(test)]
     pub mod direct {
-        use anyhow::{Result, bail};
+        use anyhow::Result;
         use async_trait::async_trait;
         use std::sync::Arc;
 
@@ -820,12 +820,7 @@ mod executor {
                 return Ok(agent_id);
             }
 
-            let agents = core.list_agents().await?;
-            if agents.is_empty() {
-                bail!("No agents available");
-            }
-
-            Ok(agents[0].id.clone())
+            core.storage.agents.resolve_default_agent_id()
         }
     }
 
@@ -3261,7 +3256,7 @@ mod commands {
                 SessionCommands::List => list_sessions(executor, format).await,
                 SessionCommands::Show { id } => show_session(executor, &id, format).await,
                 SessionCommands::Create { agent, model } => {
-                    create_session(executor, &agent, &model, format).await
+                    create_session(executor, agent.as_deref(), &model, format).await
                 }
                 SessionCommands::Delete { id } => delete_session(executor, &id, format).await,
                 SessionCommands::Search {
@@ -3335,13 +3330,13 @@ mod commands {
 
         async fn create_session(
             executor: Arc<dyn CommandExecutor>,
-            agent: &str,
+            agent: Option<&str>,
             model: &str,
             format: OutputFormat,
         ) -> Result<()> {
             let session = executor
                 .create_session(
-                    Some(agent.to_string()),
+                    agent.map(ToOwned::to_owned),
                     Some(model.to_string()),
                     Some("New Chat".to_string()),
                     None,

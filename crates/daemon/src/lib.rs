@@ -2577,11 +2577,7 @@ pub mod daemon {
                     return core.storage.agents.resolve_existing_agent_id(&agent_id);
                 }
 
-                let agents = core.storage.agents.list_agents()?;
-                let agent = agents
-                    .first()
-                    .ok_or_else(|| anyhow::anyhow!("No agents available"))?;
-                Ok(agent.id.clone())
+                core.storage.agents.resolve_default_agent_id()
             }
 
             pub(super) fn build_agent_system_prompt(
