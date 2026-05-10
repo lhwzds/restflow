@@ -478,13 +478,6 @@ mod error {
             ]);
         }
 
-        if lower.contains("task not found") {
-            blocks.push(vec![
-                "Check daemon status and active runners with:".to_string(),
-                format!("{} restflow daemon status", "$".dimmed()),
-            ]);
-        }
-
         if lower.contains("connection refused") || lower.contains("network") {
             blocks.push(vec![
                 "Check your internet connection and try again.".to_string(),
@@ -536,18 +529,6 @@ mod error {
         }
 
         #[test]
-        fn suggests_task_list() {
-            let suggestions = suggestions_for_message("Task not found: my-task");
-            let joined = suggestions
-                .iter()
-                .flat_map(|block| block.iter())
-                .cloned()
-                .collect::<Vec<String>>()
-                .join("\n");
-            assert!(joined.contains("restflow daemon status"));
-        }
-
-        #[test]
         fn suggests_network_hint() {
             let suggestions = suggestions_for_message("connection refused");
             let joined = suggestions
@@ -590,7 +571,7 @@ mod setup {
         Ok(Arc::new(AppCore::new(&db_path).await?))
     }
 
-    // TODO: Add startup-time API key validation for chat/task flows.
+    // TODO: Add startup-time API key validation for chat flows.
     // The old validation used rig-core which has been removed.
 }
 
@@ -749,8 +730,6 @@ mod executor {
                 let report = ::daemon::services::cleanup::run_cleanup(&self.core).await?;
                 Ok(CleanupReportResponse {
                     chat_sessions: report.chat_sessions,
-                    tasks: report.tasks,
-                    audit_events: report.audit_events,
                     daemon_log_files: report.daemon_log_files,
                 })
             }
@@ -2461,8 +2440,6 @@ mod commands {
             let report = ::daemon::services::cleanup::run_cleanup(&core).await?;
             info!(
                 chat_sessions = report.chat_sessions,
-                tasks = report.tasks,
-                audit_events = report.audit_events,
                 daemon_logs = report.daemon_log_files,
                 "Storage cleanup completed"
             );
@@ -4248,16 +4225,12 @@ mod commands {
             if format.is_json() {
                 return print_json(&json!({
                     "chat_sessions": report.chat_sessions,
-                    "tasks": report.tasks,
-                    "audit_events": report.audit_events,
                     "daemon_log_files": report.daemon_log_files
                 }));
             }
 
             println!("Cleanup finished:");
             println!("  chat_sessions: {}", report.chat_sessions);
-            println!("  tasks: {}", report.tasks);
-            println!("  audit_events: {}", report.audit_events);
             println!("  daemon_log_files: {}", report.daemon_log_files);
             Ok(())
         }

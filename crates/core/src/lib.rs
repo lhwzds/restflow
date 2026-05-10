@@ -4835,7 +4835,6 @@ pub mod features {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub enum Feature {
-        Tasks,
         Triggers,
         WebSocketTransport,
         StuckDetection,
@@ -4858,8 +4857,7 @@ pub mod features {
     }
 
     impl Feature {
-        pub const ALL: [Feature; 6] = [
-            Feature::Tasks,
+        pub const ALL: [Feature; 5] = [
             Feature::Triggers,
             Feature::WebSocketTransport,
             Feature::StuckDetection,
@@ -4869,7 +4867,6 @@ pub mod features {
 
         pub fn key(self) -> &'static str {
             match self {
-                Feature::Tasks => "tasks",
                 Feature::Triggers => "triggers",
                 Feature::WebSocketTransport => "websocket_transport",
                 Feature::StuckDetection => "stuck_detection",
@@ -4880,7 +4877,6 @@ pub mod features {
 
         pub fn stage(self) -> Stage {
             match self {
-                Feature::Tasks => Stage::Stable,
                 Feature::Triggers => Stage::Stable,
                 Feature::WebSocketTransport => Stage::Experimental,
                 Feature::StuckDetection => Stage::Experimental,
@@ -4891,7 +4887,6 @@ pub mod features {
 
         pub fn description(self) -> &'static str {
             match self {
-                Feature::Tasks => "Run long-lived AI tasks in background workers.",
                 Feature::Triggers => "Activate workflows and tasks by event or schedule.",
                 Feature::WebSocketTransport => "Use websocket transport for live client streams.",
                 Feature::StuckDetection => "Detect and recover tasks that stop making progress.",
@@ -4911,7 +4906,6 @@ pub mod features {
         fn from_str(value: &str) -> Result<Self, Self::Err> {
             let normalized = value.trim().to_ascii_lowercase();
             match normalized.as_str() {
-                "tasks" => Ok(Feature::Tasks),
                 "triggers" => Ok(Feature::Triggers),
                 "websocket_transport" | "websocket" => Ok(Feature::WebSocketTransport),
                 "stuck_detection" => Ok(Feature::StuckDetection),
@@ -4973,7 +4967,7 @@ pub mod features {
         #[test]
         fn test_stable_feature_enabled_by_default() {
             let features = Features::from_config(&SystemConfig::default());
-            assert!(features.is_enabled(Feature::Tasks));
+            assert!(features.is_enabled(Feature::Triggers));
         }
 
         #[test]
@@ -8353,7 +8347,6 @@ pub mod services {
 
             use crate::tools::ToolError;
             use serde_json::{Value, json};
-            use std::collections::BTreeMap;
             use std::path::{Path, PathBuf};
             use types::store::OpsProvider;
 
@@ -8467,26 +8460,6 @@ pub mod services {
                     })
                 }
 
-                fn task_summary(
-                    &self,
-                    status: Option<&str>,
-                    limit: usize,
-                ) -> crate::tools::Result<Value> {
-                    let by_status: BTreeMap<String, usize> = BTreeMap::new();
-                    let sample: Vec<Value> = Vec::new();
-                    let evidence = json!({
-                        "total": 0,
-                        "by_status": by_status,
-                        "sample": sample
-                    });
-                    let verification = json!({
-                        "status_filter": status,
-                        "sample_limit": limit,
-                        "derived_from": "task_storage_removed"
-                    });
-                    Ok(build_ops_response("task_summary", evidence, verification))
-                }
-
                 fn log_tail(
                     &self,
                     lines: usize,
@@ -8530,14 +8503,6 @@ pub mod services {
                 fn setup() -> (OpsProviderAdapter, tempfile::TempDir) {
                     let temp_dir = tempdir().unwrap();
                     (OpsProviderAdapter::new(), temp_dir)
-                }
-
-                #[test]
-                fn test_task_summary_empty() {
-                    let (adapter, _dir) = setup();
-                    let result = adapter.task_summary(None, 10).unwrap();
-                    assert_eq!(result["operation"], "task_summary");
-                    assert_eq!(result["evidence"]["total"], 0);
                 }
 
                 #[test]
@@ -9249,7 +9214,7 @@ pub mod services {
         //! Agent service layer
         //!
         //! This module only covers agent CRUD operations.
-        //! Agent execution happens through chat sessions and task runtime paths.
+        //! Agent execution happens through chat sessions and subagent runs.
 
         use crate::{
             AppCore,
@@ -9258,9 +9223,8 @@ pub mod services {
             services::session::SessionService,
         };
         use anyhow::{Context, Result};
-        use std::collections::BTreeSet;
         use std::sync::Arc;
-        use types::{AgentNode, ChatSessionSource, encode_validation_error};
+        use types::{AgentNode, encode_validation_error};
 
         pub async fn list_agents(core: &Arc<AppCore>) -> Result<Vec<StoredAgent>> {
             core.storage
@@ -9306,34 +9270,6 @@ pub mod services {
                 .with_context(|| format!("Failed to update agent {}", id))
         }
 
-        /// Check whether an agent has managed chat sessions.
-        ///
-        /// Returns `Ok(Some(source_list))` when linked managed sessions exist, `Ok(None)`
-        /// otherwise.
-        pub(crate) fn check_agent_has_managed_sessions(
-            session_service: &SessionService,
-            agent_id: &str,
-        ) -> Result<Option<String>> {
-            let sessions = session_service.list_session_views(Some(agent_id), None, true)?;
-            let mut sources: BTreeSet<String> = BTreeSet::new();
-
-            for session in sessions {
-                if session.is_archived() {
-                    continue;
-                }
-                let (source, _) = session_service.effective_source(&session)?;
-                if matches!(source, ChatSessionSource::Background) {
-                    sources.insert("background".to_string());
-                }
-            }
-
-            if sources.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(sources.into_iter().collect::<Vec<_>>().join(", ")))
-            }
-        }
-
         pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
             let resolved_id = core
                 .storage
@@ -9357,16 +9293,6 @@ pub mod services {
             }
 
             let session_service = SessionService::from_storage(&core.storage);
-            if let Some(sources) = check_agent_has_managed_sessions(&session_service, &resolved_id)
-                .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
-            {
-                anyhow::bail!(
-                    "Cannot delete agent {}: managed sessions exist ({})",
-                    resolved_id,
-                    sources
-                );
-            }
-
             archive_agent_workspace_sessions(&session_service, &resolved_id).with_context(
                 || {
                     format!(
@@ -9394,11 +9320,7 @@ pub mod services {
             agent_id: &str,
         ) -> Result<()> {
             for session in session_service.list_session_views(Some(agent_id), None, true)? {
-                if session_service.management_owner(&session)?.is_none() {
-                    let _ = session_service.archive_session(&session.id)?;
-                } else if session.source_channel == Some(ChatSessionSource::Background) {
-                    let _ = session_service.archive_managed_session(&session.id)?;
-                }
+                let _ = session_service.archive_session(&session.id)?;
             }
             Ok(())
         }
@@ -9420,9 +9342,7 @@ pub mod services {
             use crate::prompt_files;
             use crate::time_utils;
             use tempfile::tempdir;
-            use types::{
-                ApiKeyConfig, ChatSession, ChatSessionSource, ModelId, ValidationErrorResponse,
-            };
+            use types::{ApiKeyConfig, ChatSession, ModelId, ValidationErrorResponse};
 
             struct AgentsDirEnvGuard {
                 _lock: std::sync::MutexGuard<'static, ()>,
@@ -9675,12 +9595,11 @@ pub mod services {
                     .await
                     .unwrap();
 
-                let mut session = ChatSession::new(
+                let session = ChatSession::new(
                     created.id.clone(),
                     ModelId::Gpt5.as_serialized_str().to_string(),
                 )
                 .with_name("Workspace Session");
-                session.source_channel = Some(ChatSessionSource::Workspace);
                 core.storage
                     .file_sessions
                     .write_session(
@@ -9710,39 +9629,6 @@ pub mod services {
                     .map(|session| session.to_chat_session())
                     .expect("session should remain after archiving");
                 assert!(archived_session.is_archived());
-            }
-
-            #[tokio::test]
-            async fn test_delete_agent_blocks_orphan_background_sessions() {
-                let (core, _db, _agents, _guard) = create_test_core_isolated().await;
-
-                let agent_node = create_test_agent_node("Background owner");
-                let created = create_agent(&core, "Background Owner".to_string(), agent_node)
-                    .await
-                    .unwrap();
-
-                let mut session = ChatSession::new(
-                    created.id.clone(),
-                    ModelId::Gpt5.as_serialized_str().to_string(),
-                )
-                .with_name("Orphan Background Session")
-                .with_source(ChatSessionSource::Background, "deleted-task".to_string());
-                session.updated_at = time_utils::now_ms();
-                core.storage
-                    .file_sessions
-                    .write_session(
-                        &crate::session_log::FileSession::from_chat_session(&session),
-                        true,
-                    )
-                    .unwrap();
-
-                let error = delete_agent(&core, &created.id)
-                    .await
-                    .expect_err("background sessions should block deletion");
-                assert!(error.to_string().contains("managed sessions exist"));
-
-                let retained_agent = core.storage.agents.get_agent(created.id).unwrap();
-                assert!(retained_agent.is_some());
             }
 
             #[tokio::test]
@@ -10978,8 +10864,6 @@ pub mod services {
         #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
         pub struct CleanupReport {
             pub chat_sessions: usize,
-            pub tasks: usize,
-            pub audit_events: usize,
             pub daemon_log_files: usize,
         }
 
@@ -10998,10 +10882,6 @@ pub mod services {
                 .cleanup_workspace_sessions_by_retention(now_ms)?
                 .deleted;
 
-            let tasks = 0;
-
-            let audit_events = 0;
-
             // L1: Clean up old log files (blocking I/O, offload to spawn_blocking)
             let retention_days = config.log_file_retention_days;
             let daemon_log_files = tokio::task::spawn_blocking(move || {
@@ -11011,8 +10891,6 @@ pub mod services {
             .unwrap_or(0);
             Ok(CleanupReport {
                 chat_sessions,
-                tasks,
-                audit_events,
                 daemon_log_files,
             })
         }
@@ -11215,9 +11093,9 @@ pub mod services {
 
         use crate::storage::Storage;
         use types::{
-            ChatSession, ChatSessionSource, ChatTurn, ChatTurnEventKind, ChatTurnStatus,
-            ExecutionContainerKind, ExecutionContainerSummary, ExecutionThread, RunKind,
-            RunListQuery, RunSummary, RunTimeline,
+            ChatSession, ChatTurn, ChatTurnEventKind, ChatTurnStatus, ExecutionContainerKind,
+            ExecutionContainerSummary, ExecutionThread, RunKind, RunListQuery, RunSummary,
+            RunTimeline,
         };
 
         #[derive(Debug, Error)]
@@ -11248,10 +11126,7 @@ pub mod services {
                 let sessions = self.list_sessions()?;
                 let mut containers = Vec::new();
 
-                for session in sessions
-                    .iter()
-                    .filter(|session| session.source_channel == Some(ChatSessionSource::Workspace))
-                {
+                for session in sessions.iter() {
                     containers.push(ExecutionContainerSummary {
                         id: session.id.clone(),
                         kind: ExecutionContainerKind::Workspace,
@@ -11263,8 +11138,6 @@ pub mod services {
                         latest_session_id: Some(session.id.clone()),
                         latest_run_id: latest_turn(session).map(|turn| turn.id.clone()),
                         agent_id: Some(session.agent_id.clone()),
-                        source_channel: session.source_channel,
-                        source_conversation_id: session.source_conversation_id.clone(),
                     });
                 }
 
@@ -11278,9 +11151,7 @@ pub mod services {
                         let sessions = self.list_sessions()?;
                         let mut runs = Vec::new();
                         for session in sessions.into_iter().filter(|session| {
-                            session.id == query.container.id
-                                || (query.container.id == "workspace"
-                                    && session.source_channel == Some(ChatSessionSource::Workspace))
+                            session.id == query.container.id || query.container.id == "workspace"
                         }) {
                             runs.extend(
                                 session
@@ -11292,7 +11163,6 @@ pub mod services {
                         runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
                         Ok(runs)
                     }
-                    ExecutionContainerKind::Task => Ok(Vec::new()),
                 }
             }
 
@@ -11392,8 +11262,6 @@ pub mod services {
                 task_id: None,
                 parent_run_id: None,
                 agent_id: Some(session.agent_id.clone()),
-                source_channel: session.source_channel,
-                source_conversation_id: session.source_conversation_id.clone(),
                 effective_model: Some(session.model.clone()).filter(|value| !value.is_empty()),
                 provider: Some(session.provider.clone()).filter(|value| !value.is_empty()),
                 event_count: turn.events.len() as u64,
@@ -12464,7 +12332,6 @@ pub mod services {
     }
     pub mod session {
         use crate::AgentStorage;
-        use crate::services::session_policy::{SessionPolicy, SessionPolicyCleanupStats};
         use crate::session_events::{ChatSessionEvent, publish_session_event};
         use crate::session_log::{FileSession, FileSessionStore};
         use crate::storage::Storage;
@@ -12473,16 +12340,25 @@ pub mod services {
         use std::sync::{Arc, Mutex, Weak};
         use tracing::warn;
         use types::{
-            ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary,
-            ChatSessionUpdate, ChatTurnEventKind, MessageExecution, ModelId,
+            ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
+            MessageExecution, ModelId,
         };
 
         #[derive(Clone)]
         pub struct SessionService {
             agents: Option<AgentStorage>,
-            policy: SessionPolicy,
             file_sessions: FileSessionStore,
             append_locks: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
+        }
+
+        #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+        pub struct SessionCleanupStats {
+            pub scanned: usize,
+            pub deleted: usize,
+            pub skipped_not_expired: usize,
+            pub skipped_no_retention: usize,
+            pub failed: usize,
+            pub bytes_freed: u64,
         }
 
         pub struct PersistInteractiveTurnRequest<'a> {
@@ -12497,10 +12373,8 @@ pub mod services {
 
         impl SessionService {
             pub fn new(file_sessions: FileSessionStore, agents: Option<AgentStorage>) -> Self {
-                let policy = SessionPolicy::new(file_sessions.clone());
                 Self {
                     agents,
-                    policy,
                     file_sessions,
                     append_locks: Arc::new(Mutex::new(HashMap::new())),
                 }
@@ -12512,31 +12386,8 @@ pub mod services {
 
             #[cfg(test)]
             pub fn with_file_sessions(mut self, file_sessions: FileSessionStore) -> Self {
-                self.policy = SessionPolicy::new(file_sessions.clone());
                 self.file_sessions = file_sessions;
                 self
-            }
-
-            pub fn management_owner(
-                &self,
-                session: &ChatSession,
-            ) -> Result<Option<ChatSessionSource>> {
-                self.policy.management_owner(session)
-            }
-
-            pub fn effective_source(
-                &self,
-                session: &ChatSession,
-            ) -> Result<(ChatSessionSource, Option<String>)> {
-                let effective = self.policy.effective_source(session)?;
-                Ok((effective.source, effective.conversation_id))
-            }
-
-            pub fn apply_effective_source(&self, session: &mut ChatSession) -> Result<()> {
-                let (source, conversation_id) = self.effective_source(session)?;
-                session.source_channel = Some(source);
-                session.source_conversation_id = conversation_id;
-                Ok(())
             }
 
             pub fn get_session_view(&self, session_id: &str) -> Result<Option<ChatSession>> {
@@ -12548,7 +12399,6 @@ pub mod services {
                     return Ok(None);
                 };
                 session.hydrate_provider_from_model();
-                self.apply_effective_source(&mut session)?;
                 Ok(Some(session))
             }
 
@@ -12569,7 +12419,6 @@ pub mod services {
                     return Ok(None);
                 };
                 session.hydrate_provider_from_model();
-                self.apply_effective_source(&mut session)?;
                 Ok(Some(session))
             }
 
@@ -12607,7 +12456,6 @@ pub mod services {
 
                 for session in &mut sessions {
                     session.hydrate_provider_from_model();
-                    self.apply_effective_source(session)?;
                 }
 
                 sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
@@ -12701,23 +12549,6 @@ pub mod services {
                     .collect())
             }
 
-            pub fn find_session_by_source_fields(
-                &self,
-                source_channel: ChatSessionSource,
-                conversation_id: &str,
-            ) -> Result<Option<ChatSession>> {
-                for file_session in self.file_sessions.list()? {
-                    let mut session = file_session.to_chat_session();
-                    if session.source_channel == Some(source_channel)
-                        && session.source_conversation_id.as_deref() == Some(conversation_id)
-                    {
-                        session.hydrate_provider_from_model();
-                        return Ok(Some(session));
-                    }
-                }
-                Ok(None)
-            }
-
             pub fn create_workspace_session(
                 &self,
                 agent_id: String,
@@ -12727,7 +12558,6 @@ pub mod services {
                 retention: Option<String>,
             ) -> Result<ChatSession> {
                 let mut session = ChatSession::new(agent_id, model);
-                session.source_channel = Some(ChatSessionSource::Workspace);
                 if let Some(name) = name {
                     session = session.with_name(name);
                 }
@@ -12738,15 +12568,10 @@ pub mod services {
                     session = session.with_retention(retention);
                 }
                 self.persist_session_view(&session, "create")?;
-                self.apply_effective_source(&mut session)?;
                 publish_session_event(ChatSessionEvent::Created {
                     session_id: session.id.clone(),
                 });
                 Ok(session)
-            }
-
-            pub fn is_workspace_managed(&self, session: &ChatSession) -> Result<bool> {
-                self.policy.is_workspace_managed(session)
             }
 
             pub fn append_exchange(
@@ -12786,197 +12611,6 @@ pub mod services {
                     }
 
                     self.persist_session_view(&session, "append_exchange")?;
-                    session
-                };
-
-                self.append_locks
-                    .lock()
-                    .expect("session append locks")
-                    .retain(|_, weak| weak.strong_count() > 0);
-
-                publish_session_event(ChatSessionEvent::MessageAdded {
-                    session_id: session_id.to_string(),
-                    source: source.to_string(),
-                });
-
-                Ok(session)
-            }
-
-            pub fn append_task_result(
-                &self,
-                session_id: &str,
-                input: Option<&str>,
-                output: &str,
-                execution: MessageExecution,
-                source: &str,
-            ) -> Result<ChatSession> {
-                let session_lock = {
-                    let mut locks = self.append_locks.lock().expect("session append locks");
-                    if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                        lock
-                    } else {
-                        let lock = Arc::new(Mutex::new(()));
-                        locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                        lock
-                    }
-                };
-
-                let session = {
-                    let _guard = session_lock.lock().expect("session append lock");
-                    let mut session = self
-                        .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-                    session.hydrate_provider_from_model();
-                    if let Some(input) = input
-                        && !input.trim().is_empty()
-                    {
-                        session.add_message(ChatMessage::user(input));
-                    }
-                    session.add_message(ChatMessage::assistant(output).with_execution(execution));
-                    self.persist_session_view(&session, "append_task_result")?;
-                    session
-                };
-
-                self.append_locks
-                    .lock()
-                    .expect("session append locks")
-                    .retain(|_, weak| weak.strong_count() > 0);
-
-                publish_session_event(ChatSessionEvent::MessageAdded {
-                    session_id: session_id.to_string(),
-                    source: source.to_string(),
-                });
-
-                Ok(session)
-            }
-
-            pub fn append_task_turn_user_message(
-                &self,
-                session_id: &str,
-                turn_id: &str,
-                input: &str,
-                source: &str,
-            ) -> Result<ChatSession> {
-                let session_lock = {
-                    let mut locks = self.append_locks.lock().expect("session append locks");
-                    if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                        lock
-                    } else {
-                        let lock = Arc::new(Mutex::new(()));
-                        locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                        lock
-                    }
-                };
-
-                let session = {
-                    let _guard = session_lock.lock().expect("session append lock");
-                    let mut session = self
-                        .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-                    session.hydrate_provider_from_model();
-                    session.add_message(ChatMessage::user(input));
-                    session.record_turn_user_message(turn_id, input);
-                    self.persist_session_view(&session, "append_task_turn_user_message")?;
-                    session
-                };
-
-                self.append_locks
-                    .lock()
-                    .expect("session append locks")
-                    .retain(|_, weak| weak.strong_count() > 0);
-
-                publish_session_event(ChatSessionEvent::MessageAdded {
-                    session_id: session_id.to_string(),
-                    source: source.to_string(),
-                });
-
-                Ok(session)
-            }
-
-            pub fn append_task_turn_progress(
-                &self,
-                session_id: &str,
-                turn_id: &str,
-                message: &str,
-                source: &str,
-            ) -> Result<ChatSession> {
-                let session_lock = {
-                    let mut locks = self.append_locks.lock().expect("session append locks");
-                    if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                        lock
-                    } else {
-                        let lock = Arc::new(Mutex::new(()));
-                        locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                        lock
-                    }
-                };
-
-                let session = {
-                    let _guard = session_lock.lock().expect("session append lock");
-                    let mut session = self
-                        .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-                    session.hydrate_provider_from_model();
-                    session.record_turn_event(
-                        turn_id,
-                        ChatTurnEventKind::Progress {
-                            message: message.to_string(),
-                        },
-                    );
-                    self.persist_session_view(&session, "append_task_turn_progress")?;
-                    session
-                };
-
-                self.append_locks
-                    .lock()
-                    .expect("session append locks")
-                    .retain(|_, weak| weak.strong_count() > 0);
-
-                publish_session_event(ChatSessionEvent::MessageAdded {
-                    session_id: session_id.to_string(),
-                    source: source.to_string(),
-                });
-
-                Ok(session)
-            }
-
-            pub fn append_task_turn_result(
-                &self,
-                session_id: &str,
-                turn_id: &str,
-                output: &str,
-                execution: MessageExecution,
-                is_error: bool,
-                source: &str,
-            ) -> Result<ChatSession> {
-                let session_lock = {
-                    let mut locks = self.append_locks.lock().expect("session append locks");
-                    if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                        lock
-                    } else {
-                        let lock = Arc::new(Mutex::new(()));
-                        locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                        lock
-                    }
-                };
-
-                let session = {
-                    let _guard = session_lock.lock().expect("session append lock");
-                    let mut session = self
-                        .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-                    session.hydrate_provider_from_model();
-                    session.add_message(ChatMessage::assistant(output).with_execution(execution));
-                    if is_error {
-                        session.fail_turn(turn_id, output);
-                    } else {
-                        session.complete_turn_with_assistant_message(turn_id, output);
-                    }
-                    self.persist_session_view(&session, "append_task_turn_result")?;
                     session
                 };
 
@@ -13075,9 +12709,6 @@ pub mod services {
                 let Some(mut session) = self.get_session_view(session_id)? else {
                     return Ok(None);
                 };
-                self.policy
-                    .ensure_workspace_operation_allowed(&session, "updated")?;
-
                 let mut updated = false;
                 let mut name_updated = false;
 
@@ -13113,7 +12744,6 @@ pub mod services {
                     });
                 }
 
-                self.apply_effective_source(&mut session)?;
                 Ok(Some(session))
             }
 
@@ -13125,14 +12755,11 @@ pub mod services {
                 let Some(mut session) = self.get_session_view(session_id)? else {
                     return Ok(None);
                 };
-                self.policy
-                    .ensure_workspace_operation_allowed(&session, "renamed")?;
                 session.rename(name);
                 self.persist_session_view(&session, "rename")?;
                 publish_session_event(ChatSessionEvent::Updated {
                     session_id: session.id.clone(),
                 });
-                self.apply_effective_source(&mut session)?;
                 Ok(Some(session))
             }
 
@@ -13145,8 +12772,6 @@ pub mod services {
                 let Some(mut session) = self.get_session_view(session_id)? else {
                     return Ok(None);
                 };
-                self.policy
-                    .ensure_workspace_operation_allowed(&session, "switch model")?;
                 session.provider = provider;
                 session.model = model;
                 session.updated_at = chrono::Utc::now().timestamp_millis();
@@ -13154,7 +12779,6 @@ pub mod services {
                 publish_session_event(ChatSessionEvent::Updated {
                     session_id: session.id.clone(),
                 });
-                self.apply_effective_source(&mut session)?;
                 Ok(Some(session))
             }
 
@@ -13162,8 +12786,6 @@ pub mod services {
                 let Some(mut session) = self.get_session_view(session_id)? else {
                     return Ok(false);
                 };
-                self.policy
-                    .ensure_workspace_operation_allowed(&session, "archived")?;
                 if session.is_archived() {
                     return Ok(false);
                 }
@@ -13175,27 +12797,10 @@ pub mod services {
                 Ok(true)
             }
 
-            pub(crate) fn archive_managed_session(&self, session_id: &str) -> Result<bool> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
-                    return Ok(false);
-                };
-                if session.is_archived() {
-                    return Ok(false);
-                }
-                session.archive();
-                self.persist_session_view(&session, "archive_managed")?;
-                publish_session_event(ChatSessionEvent::Updated {
-                    session_id: session_id.to_string(),
-                });
-                Ok(true)
-            }
-
             pub fn unarchive_session(&self, session_id: &str) -> Result<bool> {
                 let Some(mut session) = self.get_session_view(session_id)? else {
                     return Ok(false);
                 };
-                self.policy
-                    .ensure_workspace_operation_allowed(&session, "unarchived")?;
                 if !session.is_archived() {
                     return Ok(false);
                 }
@@ -13208,12 +12813,9 @@ pub mod services {
             }
 
             pub fn delete_session(&self, session_id: &str) -> Result<bool> {
-                let Some(session) = self.get_session_view(session_id)? else {
+                if self.get_session_view(session_id)?.is_none() {
                     return Ok(false);
-                };
-                self.policy
-                    .ensure_workspace_operation_allowed(&session, "deleted")?;
-
+                }
                 let deleted = self.delete_file_session(session_id);
                 if deleted {
                     publish_session_event(ChatSessionEvent::Deleted {
@@ -13226,16 +12828,68 @@ pub mod services {
             pub fn cleanup_workspace_sessions_older_than(
                 &self,
                 older_than_ms: i64,
-            ) -> Result<SessionPolicyCleanupStats> {
-                self.policy
-                    .cleanup_workspace_sessions_older_than(older_than_ms)
+            ) -> Result<SessionCleanupStats> {
+                let sessions = self.list_session_views(None, None, true)?;
+                let mut stats = SessionCleanupStats {
+                    scanned: sessions.len(),
+                    ..SessionCleanupStats::default()
+                };
+
+                for session in sessions {
+                    if session.updated_at >= older_than_ms {
+                        stats.skipped_not_expired += 1;
+                        continue;
+                    }
+
+                    let serialized_len = serde_json::to_vec(&session)
+                        .map(|bytes| bytes.len() as u64)
+                        .unwrap_or(0);
+                    if self.file_sessions.delete(&session.id)? {
+                        stats.deleted += 1;
+                        stats.bytes_freed += serialized_len;
+                    }
+                }
+
+                Ok(stats)
             }
 
             pub fn cleanup_workspace_sessions_by_retention(
                 &self,
                 now_ms: i64,
-            ) -> Result<SessionPolicyCleanupStats> {
-                self.policy.cleanup_workspace_sessions_by_retention(now_ms)
+            ) -> Result<SessionCleanupStats> {
+                let sessions = self.list_session_views(None, None, true)?;
+                let mut stats = SessionCleanupStats {
+                    scanned: sessions.len(),
+                    ..SessionCleanupStats::default()
+                };
+
+                for session in sessions {
+                    let Some(retention) = session.retention.as_deref() else {
+                        stats.skipped_no_retention += 1;
+                        continue;
+                    };
+
+                    let Some(retention_ms) = parse_retention_to_ms(retention) else {
+                        stats.failed += 1;
+                        continue;
+                    };
+
+                    let expires_at = session.updated_at.saturating_add(retention_ms);
+                    if now_ms < expires_at {
+                        stats.skipped_not_expired += 1;
+                        continue;
+                    }
+
+                    let serialized_len = serde_json::to_vec(&session)
+                        .map(|bytes| bytes.len() as u64)
+                        .unwrap_or(0);
+                    if self.file_sessions.delete(&session.id)? {
+                        stats.deleted += 1;
+                        stats.bytes_freed += serialized_len;
+                    }
+                }
+
+                Ok(stats)
             }
 
             pub fn persist_interactive_turn(
@@ -13312,6 +12966,17 @@ pub mod services {
                         false
                     }
                 }
+            }
+        }
+
+        fn parse_retention_to_ms(retention: &str) -> Option<i64> {
+            let normalized = retention.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1h" => Some(60 * 60 * 1000),
+                "1d" => Some(24 * 60 * 60 * 1000),
+                "7d" => Some(7 * 24 * 60 * 60 * 1000),
+                "30d" => Some(30 * 24 * 60 * 60 * 1000),
+                _ => None,
             }
         }
 
@@ -13411,30 +13076,6 @@ pub mod services {
 
                 assert_eq!(persisted.provider, "minimax-coding-plan");
                 assert_eq!(persisted.model, "minimax-coding-plan-m2-5");
-            }
-
-            #[test]
-            fn append_task_result_persists_optional_input_and_execution() {
-                let (storage, service, session) = setup();
-                let execution = MessageExecution::new().complete(25, 7);
-
-                let persisted = service
-                    .append_task_result(
-                        &session.id,
-                        Some("run digest"),
-                        "digest complete",
-                        execution.clone(),
-                        "session_runner",
-                    )
-                    .unwrap();
-
-                assert_eq!(persisted.messages.len(), 2);
-                assert_eq!(persisted.messages[0].content, "run digest");
-                assert_eq!(persisted.messages[1].content, "digest complete");
-                assert_eq!(persisted.messages[1].execution.as_ref(), Some(&execution));
-                let reloaded = load_session(&storage, &session.id);
-                assert_eq!(reloaded.messages.len(), 2);
-                assert_eq!(reloaded.messages[1].execution.as_ref(), Some(&execution));
             }
 
             #[test]
@@ -13561,6 +13202,35 @@ pub mod services {
                     .unwrap();
 
                 assert!(file_store.get(&session.id).unwrap().is_some());
+            }
+
+            #[test]
+            fn cleanup_workspace_sessions_only_deletes_expired_sessions() {
+                let dir = tempdir().unwrap();
+                let db_path = dir.path().join("session-service.db");
+                let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+                let file_store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+                let service = SessionService::new(file_store.clone(), Some(storage.agents.clone()));
+
+                let mut old_session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                old_session.updated_at = 1;
+                file_store
+                    .write_session(&FileSession::from_chat_session(&old_session), true)
+                    .unwrap();
+                let mut fresh_session =
+                    ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                fresh_session.updated_at = 20;
+                file_store
+                    .write_session(&FileSession::from_chat_session(&fresh_session), true)
+                    .unwrap();
+
+                let stats = service.cleanup_workspace_sessions_older_than(10).unwrap();
+
+                assert_eq!(stats.scanned, 2);
+                assert_eq!(stats.deleted, 1);
+                assert_eq!(stats.skipped_not_expired, 1);
+                assert!(file_store.get(&old_session.id).unwrap().is_none());
+                assert!(file_store.get(&fresh_session.id).unwrap().is_some());
             }
 
             #[test]
@@ -13754,313 +13424,6 @@ pub mod services {
                     error
                         .to_string()
                         .contains("assistant_output must not be empty")
-                );
-            }
-        }
-    }
-    pub mod session_policy {
-        use crate::session_log::{FileSession, FileSessionStore};
-        use crate::storage::Storage;
-        use anyhow::Result;
-        use types::{ChatSession, ChatSessionSource};
-
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum SessionPolicyError {
-            NotWorkspaceManaged {
-                session_id: String,
-                owner: ChatSessionSource,
-                operation: &'static str,
-            },
-        }
-
-        impl SessionPolicyError {
-            pub const fn status_code(&self) -> u16 {
-                match self {
-                    Self::NotWorkspaceManaged { .. } => 403,
-                }
-            }
-        }
-
-        impl std::fmt::Display for SessionPolicyError {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    Self::NotWorkspaceManaged {
-                        session_id,
-                        owner,
-                        operation,
-                    } => write!(
-                        f,
-                        "Session {} is managed by {:?} and cannot be {} from workspace",
-                        session_id, owner, operation
-                    ),
-                }
-            }
-        }
-
-        impl std::error::Error for SessionPolicyError {}
-
-        #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
-        pub struct SessionPolicyCleanupStats {
-            pub scanned: usize,
-            pub deleted: usize,
-            pub skipped_non_workspace: usize,
-            pub skipped_not_expired: usize,
-            pub skipped_no_retention: usize,
-            pub failed: usize,
-            pub bytes_freed: u64,
-        }
-
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct EffectiveSessionSource {
-            pub source: ChatSessionSource,
-            pub conversation_id: Option<String>,
-        }
-
-        #[derive(Clone)]
-        pub struct SessionPolicy {
-            sessions: FileSessionStore,
-        }
-
-        impl SessionPolicy {
-            pub fn new(sessions: FileSessionStore) -> Self {
-                Self { sessions }
-            }
-
-            pub fn from_storage(storage: &Storage) -> Self {
-                Self::new(storage.file_sessions.clone())
-            }
-
-            pub fn effective_source(
-                &self,
-                session: &ChatSession,
-            ) -> Result<EffectiveSessionSource> {
-                if session.source_channel == Some(ChatSessionSource::Background) {
-                    return Ok(EffectiveSessionSource {
-                        source: ChatSessionSource::Background,
-                        conversation_id: session
-                            .source_conversation_id
-                            .clone()
-                            .or_else(|| Some(session.id.clone())),
-                    });
-                }
-
-                Ok(EffectiveSessionSource {
-                    source: ChatSessionSource::Workspace,
-                    conversation_id: None,
-                })
-            }
-
-            pub fn management_owner(
-                &self,
-                session: &ChatSession,
-            ) -> Result<Option<ChatSessionSource>> {
-                let effective = self.effective_source(session)?;
-                Ok(match effective.source {
-                    ChatSessionSource::Workspace => None,
-                    source => Some(source),
-                })
-            }
-
-            pub fn is_workspace_managed(&self, session: &ChatSession) -> Result<bool> {
-                Ok(self.management_owner(session)?.is_none())
-            }
-
-            pub fn ensure_workspace_operation_allowed(
-                &self,
-                session: &ChatSession,
-                operation: &'static str,
-            ) -> Result<()> {
-                if let Some(owner) = self.management_owner(session)? {
-                    return Err(SessionPolicyError::NotWorkspaceManaged {
-                        session_id: session.id.clone(),
-                        owner,
-                        operation,
-                    }
-                    .into());
-                }
-
-                Ok(())
-            }
-
-            pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
-                let Some(session) = self
-                    .sessions
-                    .get(session_id)?
-                    .map(|session| session.to_chat_session())
-                else {
-                    return Ok(false);
-                };
-
-                self.ensure_workspace_operation_allowed(&session, "archived")?;
-                if session.is_archived() {
-                    return Ok(false);
-                }
-                let mut session = session;
-                session.archive();
-                self.write_session(&session)?;
-                Ok(true)
-            }
-
-            pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
-                let Some(session) = self
-                    .sessions
-                    .get(session_id)?
-                    .map(|session| session.to_chat_session())
-                else {
-                    return Ok(false);
-                };
-
-                self.ensure_workspace_operation_allowed(&session, "deleted")?;
-                self.sessions.delete(session_id)
-            }
-
-            pub fn cleanup_workspace_sessions_older_than(
-                &self,
-                older_than_ms: i64,
-            ) -> Result<SessionPolicyCleanupStats> {
-                let sessions = self.list_sessions()?;
-                let mut stats = SessionPolicyCleanupStats {
-                    scanned: sessions.len(),
-                    ..SessionPolicyCleanupStats::default()
-                };
-
-                for session in sessions {
-                    if session.updated_at >= older_than_ms {
-                        stats.skipped_not_expired += 1;
-                        continue;
-                    }
-
-                    if !self.is_workspace_managed(&session)? {
-                        stats.skipped_non_workspace += 1;
-                        continue;
-                    }
-
-                    let serialized_len = serde_json::to_vec(&session)
-                        .map(|bytes| bytes.len() as u64)
-                        .unwrap_or(0);
-                    if self.sessions.delete(&session.id)? {
-                        stats.deleted += 1;
-                        stats.bytes_freed += serialized_len;
-                    }
-                }
-
-                Ok(stats)
-            }
-
-            pub fn cleanup_workspace_sessions_by_retention(
-                &self,
-                now_ms: i64,
-            ) -> Result<SessionPolicyCleanupStats> {
-                let sessions = self.list_sessions()?;
-                let mut stats = SessionPolicyCleanupStats {
-                    scanned: sessions.len(),
-                    ..SessionPolicyCleanupStats::default()
-                };
-
-                for session in sessions {
-                    let Some(retention) = session.retention.as_deref() else {
-                        stats.skipped_no_retention += 1;
-                        continue;
-                    };
-
-                    let Some(retention_ms) = parse_retention_to_ms(retention) else {
-                        stats.failed += 1;
-                        continue;
-                    };
-
-                    let expires_at = session.updated_at.saturating_add(retention_ms);
-                    if now_ms < expires_at {
-                        stats.skipped_not_expired += 1;
-                        continue;
-                    }
-
-                    if !self.is_workspace_managed(&session)? {
-                        stats.skipped_non_workspace += 1;
-                        continue;
-                    }
-
-                    let serialized_len = serde_json::to_vec(&session)
-                        .map(|bytes| bytes.len() as u64)
-                        .unwrap_or(0);
-                    if self.sessions.delete(&session.id)? {
-                        stats.deleted += 1;
-                        stats.bytes_freed += serialized_len;
-                    }
-                }
-
-                Ok(stats)
-            }
-
-            fn list_sessions(&self) -> Result<Vec<ChatSession>> {
-                self.sessions
-                    .list()?
-                    .into_iter()
-                    .map(|session| Ok(session.to_chat_session()))
-                    .collect()
-            }
-
-            fn write_session(&self, session: &ChatSession) -> Result<()> {
-                let existing = self.sessions.get(&session.id)?;
-                let file_session = FileSession::merge_chat_session(existing.as_ref(), session);
-                self.sessions.write_session(&file_session, true)?;
-                Ok(())
-            }
-        }
-
-        fn parse_retention_to_ms(retention: &str) -> Option<i64> {
-            let normalized = retention.trim().to_ascii_lowercase();
-            match normalized.as_str() {
-                "1h" => Some(60 * 60 * 1000),
-                "1d" => Some(24 * 60 * 60 * 1000),
-                "7d" => Some(7 * 24 * 60 * 60 * 1000),
-                "30d" => Some(30 * 24 * 60 * 60 * 1000),
-                _ => None,
-            }
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-            use crate::session_log::FileSessionStore;
-            use crate::storage::Storage;
-            use tempfile::tempdir;
-            use types::ChatSessionSource;
-
-            fn create_workspace_session(
-                file_sessions: &FileSessionStore,
-                agent_id: &str,
-            ) -> ChatSession {
-                let mut session = ChatSession::new(agent_id.to_string(), "gpt-5".to_string());
-                session.source_channel = Some(ChatSessionSource::Workspace);
-                let file_session = FileSession::from_chat_session(&session);
-                file_sessions.write_session(&file_session, true).unwrap();
-                session
-            }
-
-            #[test]
-            fn cleanup_workspace_sessions_only_deletes_eligible_sessions() {
-                let dir = tempdir().unwrap();
-                let db_path = dir.path().join("session-policy-cleanup.db");
-                let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
-
-                let mut old_workspace = create_workspace_session(&storage.file_sessions, "agent-1");
-                old_workspace.updated_at = 1;
-                storage
-                    .file_sessions
-                    .write_session(&FileSession::from_chat_session(&old_workspace), true)
-                    .unwrap();
-
-                let policy = SessionPolicy::from_storage(&storage);
-                let stats = policy.cleanup_workspace_sessions_older_than(10).unwrap();
-
-                assert_eq!(stats.deleted, 1);
-                assert_eq!(stats.skipped_non_workspace, 0);
-                assert!(
-                    storage
-                        .file_sessions
-                        .get(&old_workspace.id)
-                        .unwrap()
-                        .is_none()
                 );
             }
         }
@@ -14995,8 +14358,8 @@ pub mod session_log {
     use std::sync::{Mutex, OnceLock};
     use types::{
         ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession,
-        ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, ChatTurn, ChatTurnEvent,
-        ChatTurnEventKind, ChatTurnStatus, MessageExecution,
+        ChatSessionMetadata, ChatSessionSummary, ChatTurn, ChatTurnEvent, ChatTurnEventKind,
+        ChatTurnStatus, MessageExecution,
     };
     use uuid::Uuid;
     use walkdir::WalkDir;
@@ -15073,11 +14436,6 @@ pub mod session_log {
             retention: Option<String>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             summary_message_id: Option<String>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            source_channel: Option<String>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            source_conversation_id: Option<String>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
             archived_at: Option<String>,
         },
         Message {
@@ -15160,11 +14518,6 @@ pub mod session_log {
             agent_id: Option<String>,
             #[serde(default)]
             skill_id: Option<String>,
-            #[serde(default)]
-            source_channel: Option<String>,
-            #[serde(default)]
-            source_conversation_id: Option<String>,
-            #[serde(default)]
             archived_at: Option<String>,
         },
         Message {
@@ -15212,8 +14565,6 @@ pub mod session_log {
         pub skill_id: Option<String>,
         pub retention: Option<String>,
         pub summary_message_id: Option<String>,
-        pub source_channel: Option<String>,
-        pub source_conversation_id: Option<String>,
         pub archived_at: Option<String>,
     }
 
@@ -15233,8 +14584,6 @@ pub mod session_log {
                 skill_id: None,
                 retention: None,
                 summary_message_id: None,
-                source_channel: None,
-                source_conversation_id: None,
                 archived_at: None,
             }
         }
@@ -15255,8 +14604,6 @@ pub mod session_log {
                 skill_id: self.skill_id,
                 retention: self.retention,
                 summary_message_id: self.summary_message_id,
-                source_channel: self.source_channel,
-                source_conversation_id: self.source_conversation_id,
                 archived_at: self.archived_at,
             }
         }
@@ -15281,8 +14628,6 @@ pub mod session_log {
                     skill_id,
                     retention,
                     summary_message_id,
-                    source_channel,
-                    source_conversation_id,
                     archived_at,
                     ..
                 } => Ok(Self {
@@ -15299,8 +14644,6 @@ pub mod session_log {
                     skill_id: skill_id.clone(),
                     retention: retention.clone(),
                     summary_message_id: summary_message_id.clone(),
-                    source_channel: source_channel.clone(),
-                    source_conversation_id: source_conversation_id.clone(),
                     archived_at: archived_at.clone(),
                 }),
                 _ => Err(anyhow!("first session line is not session_meta")),
@@ -15346,10 +14689,6 @@ pub mod session_log {
             meta.skill_id = session.skill_id.clone();
             meta.retention = session.retention.clone();
             meta.summary_message_id = session.summary_message_id.clone();
-            meta.source_channel = session
-                .source_channel
-                .map(|source| session_source_to_str(source).to_string());
-            meta.source_conversation_id = session.source_conversation_id.clone();
             meta.archived_at = session.archived_at.map(iso_from_millis);
 
             let mut events = vec![meta.clone().into_event()];
@@ -15439,12 +14778,6 @@ pub mod session_log {
                 completion_tokens: 0,
                 cost: 0.0,
                 metadata: ChatSessionMetadata::new(),
-                source_channel: self
-                    .meta
-                    .source_channel
-                    .as_deref()
-                    .and_then(session_source_from_str),
-                source_conversation_id: self.meta.source_conversation_id.clone(),
                 archived_at: self.meta.archived_at.as_deref().map(parse_time_ms),
             };
 
@@ -15961,8 +15294,6 @@ pub mod session_log {
             provider,
             agent_id,
             skill_id,
-            source_channel,
-            source_conversation_id,
             archived_at,
         }) = meta
         else {
@@ -15991,8 +15322,6 @@ pub mod session_log {
             message_count,
             updated_at,
             last_message_preview,
-            source_channel: source_channel.as_deref().and_then(session_source_from_str),
-            source_conversation_id,
             archived_at: archived_at.as_deref().map(parse_time_ms),
         })
     }
@@ -16236,21 +15565,6 @@ pub mod session_log {
                 }
             })
             .collect()
-    }
-
-    fn session_source_to_str(source: ChatSessionSource) -> &'static str {
-        match source {
-            ChatSessionSource::Workspace => "workspace",
-            ChatSessionSource::Background => "background",
-        }
-    }
-
-    fn session_source_from_str(source: &str) -> Option<ChatSessionSource> {
-        match source.trim().to_ascii_lowercase().as_str() {
-            "workspace" => Some(ChatSessionSource::Workspace),
-            "background" => Some(ChatSessionSource::Background),
-            _ => None,
-        }
     }
 
     fn latest_event_time(events: &[SessionLogEvent]) -> Option<String> {
@@ -16532,8 +15846,7 @@ pub mod session_log {
             let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
                 .with_name("Build fix")
                 .with_skill("release")
-                .with_retention("7d")
-                .with_source(ChatSessionSource::Workspace, "conversation-1");
+                .with_retention("7d");
             session.add_message(ChatMessage::user("hello"));
             session.add_message(ChatMessage::assistant("world"));
             let summary_message_id = session.messages[1].id.clone();
@@ -16547,11 +15860,6 @@ pub mod session_log {
             assert!(file_session.meta.archived_at.is_some());
             let reloaded = file_session.to_chat_session();
             assert_eq!(reloaded.skill_id.as_deref(), Some("release"));
-            assert_eq!(reloaded.source_channel, Some(ChatSessionSource::Workspace));
-            assert_eq!(
-                reloaded.source_conversation_id.as_deref(),
-                Some("conversation-1")
-            );
             assert_eq!(
                 reloaded.summary_message_id.as_deref(),
                 Some(summary_message_id.as_str())
@@ -17261,13 +16569,12 @@ pub use services::agent_catalog::{AgentStorage, DEFAULT_ASSISTANT_NAME, StoredAg
 pub use steer::SteerRegistry;
 pub use types::{
     AgentMeta, AgentNode, AgentType, ApiKeyConfig, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary, ChatSessionUpdate,
-    ChildRunListQuery, CodexCliExecutionMode, ExecutionContainerKind, ExecutionContainerRef,
+    ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, ChildRunListQuery,
+    CodexCliExecutionMode, ExecutionContainerKind, ExecutionContainerRef,
     ExecutionContainerSummary, ExecutionStepInfo, ExecutionThread, MessageExecution, ModelId,
-    ModelMetadataDTO, ModelRoutingConfig, Provider, RunArtifact, RunArtifactKind, RunKind,
-    RunListQuery, RunSummary, RunTimeline, Skill, SkillGating, SkillMeta, SkillReference,
-    SkillScript, SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError,
-    ValidationErrorResponse, encode_validation_error,
+    ModelMetadataDTO, ModelRoutingConfig, Provider, RunKind, RunListQuery, RunSummary, RunTimeline,
+    Skill, SkillGating, SkillMeta, SkillReference, SkillScript, SkillSource, SkillStatus,
+    SteerMessage, SteerSource, ValidationError, ValidationErrorResponse, encode_validation_error,
 };
 
 use std::sync::Arc;

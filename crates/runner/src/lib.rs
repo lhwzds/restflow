@@ -1412,7 +1412,7 @@ pub mod runtime {
         }
     }
     pub mod execution_context {
-        //! Shared execution context metadata across main, background, and sub-agent flows.
+        //! Shared execution context metadata across main and sub-agent flows.
 
         use serde::{Deserialize, Serialize};
 
@@ -1422,8 +1422,6 @@ pub mod runtime {
         pub enum ExecutionRole {
             /// Foreground interactive chat turn.
             MainAgent,
-            /// Scheduled or manually triggered task run.
-            Task,
             /// Child agent spawned by another agent.
             Subagent,
         }
@@ -1432,7 +1430,6 @@ pub mod runtime {
             pub fn as_str(self) -> &'static str {
                 match self {
                     Self::MainAgent => "main_agent",
-                    Self::Task => "task",
                     Self::Subagent => "subagent",
                 }
             }
@@ -1444,7 +1441,6 @@ pub mod runtime {
             pub role: ExecutionRole,
             pub agent_id: String,
             pub chat_session_id: Option<String>,
-            pub task_id: Option<String>,
             pub parent_run_id: Option<String>,
         }
 
@@ -1454,21 +1450,6 @@ pub mod runtime {
                     role: ExecutionRole::MainAgent,
                     agent_id: agent_id.into(),
                     chat_session_id: Some(chat_session_id.into()),
-                    task_id: None,
-                    parent_run_id: None,
-                }
-            }
-
-            pub fn background(
-                agent_id: impl Into<String>,
-                chat_session_id: impl Into<String>,
-                task_id: impl Into<String>,
-            ) -> Self {
-                Self {
-                    role: ExecutionRole::Task,
-                    agent_id: agent_id.into(),
-                    chat_session_id: Some(chat_session_id.into()),
-                    task_id: Some(task_id.into()),
                     parent_run_id: None,
                 }
             }
@@ -1478,7 +1459,6 @@ pub mod runtime {
                     role: ExecutionRole::Subagent,
                     agent_id: agent_id.into(),
                     chat_session_id: None,
-                    task_id: None,
                     parent_run_id: Some(parent_run_id.into()),
                 }
             }
@@ -1497,15 +1477,6 @@ pub mod runtime {
                 let context = ExecutionContext::main("agent-1", "session-1");
                 assert_eq!(context.role, ExecutionRole::MainAgent);
                 assert_eq!(context.chat_session_id.as_deref(), Some("session-1"));
-                assert!(context.task_id.is_none());
-            }
-
-            #[test]
-            fn background_context_sets_task_and_session() {
-                let context = ExecutionContext::background("agent-1", "session-1", "task-1");
-                assert_eq!(context.role, ExecutionRole::Task);
-                assert_eq!(context.chat_session_id.as_deref(), Some("session-1"));
-                assert_eq!(context.task_id.as_deref(), Some("task-1"));
             }
 
             #[test]
@@ -1514,7 +1485,6 @@ pub mod runtime {
                 assert_eq!(context.role, ExecutionRole::Subagent);
                 assert_eq!(context.parent_run_id.as_deref(), Some("exec-1"));
                 assert!(context.chat_session_id.is_none());
-                assert!(context.task_id.is_none());
             }
 
             #[test]
@@ -1527,18 +1497,16 @@ pub mod runtime {
             #[test]
             fn role_as_str_is_stable() {
                 assert_eq!(ExecutionRole::MainAgent.as_str(), "main_agent");
-                assert_eq!(ExecutionRole::Task.as_str(), "task");
                 assert_eq!(ExecutionRole::Subagent.as_str(), "subagent");
             }
 
             #[test]
             fn context_serializes_to_json_value() {
-                let context = ExecutionContext::background("agent-1", "session-1", "task-1");
+                let context = ExecutionContext::main("agent-1", "session-1");
                 let value = context.to_value();
-                assert_eq!(value["role"], "task");
+                assert_eq!(value["role"], "main_agent");
                 assert_eq!(value["agent_id"], "agent-1");
                 assert_eq!(value["chat_session_id"], "session-1");
-                assert_eq!(value["task_id"], "task-1");
             }
         }
     }
@@ -2044,11 +2012,9 @@ pub mod runtime {
                         types::ExecutionMode::Interactive => {
                             interactive::run_plan(self.kernel.as_ref(), plan).await
                         }
-                        types::ExecutionMode::Background => Err(ToolError::InvalidInput(
-                            "background task execution has been removed; use an interactive session or subagent"
-                                .to_string(),
-                        )),
-                        types::ExecutionMode::Subagent => subagent::run_plan(self.kernel.as_ref(), plan).await,
+                        types::ExecutionMode::Subagent => {
+                            subagent::run_plan(self.kernel.as_ref(), plan).await
+                        }
                     }
                 }
             }
@@ -2797,15 +2763,6 @@ pub mod runtime {
                 session_service: SessionService,
                 skill_snapshot_cache: Arc<SkillSnapshotCache>,
                 reply_sender: Option<Arc<dyn ReplySender>>,
-                reply_sender_factory: Option<Arc<dyn ReplySenderFactory>>,
-            }
-
-            /// Factory for constructing execution-scoped reply senders.
-            ///
-            /// Background-agent execution needs a sender bound to the current task ID,
-            /// while interactive chat execution usually uses a static sender per session.
-            pub trait ReplySenderFactory: Send + Sync {
-                fn for_task(&self, task_id: &str, agent_id: &str) -> Option<Arc<dyn ReplySender>>;
             }
 
             const TOOL_RESULT_CONTEXT_RATIO: f64 = 0.08;
@@ -2902,7 +2859,6 @@ pub mod runtime {
                         session_service,
                         skill_snapshot_cache: Arc::new(SkillSnapshotCache::default()),
                         reply_sender: None,
-                        reply_sender_factory: None,
                     }
                 }
 
@@ -2918,16 +2874,6 @@ pub mod runtime {
                 /// Set a reply sender so the agent can send intermediate messages.
                 pub fn with_reply_sender(mut self, sender: Arc<dyn ReplySender>) -> Self {
                     self.reply_sender = Some(sender);
-                    self
-                }
-
-                /// Set a reply sender factory for execution-scoped contexts (for example
-                /// task executions where each task has distinct routing semantics).
-                pub fn with_reply_sender_factory(
-                    mut self,
-                    factory: Arc<dyn ReplySenderFactory>,
-                ) -> Self {
-                    self.reply_sender_factory = Some(factory);
                     self
                 }
             }
@@ -3936,7 +3882,7 @@ pub mod runtime {
                                 category = warning_issue.category.as_str(),
                                 message = %warning_issue.message,
                                 suggestion = ?warning_issue.suggestion,
-                                "Background agent preflight warning"
+                                "Agent preflight warning"
                             );
                         }
 
@@ -4882,12 +4828,6 @@ pub mod runtime {
                                 serde_json::Value::String(session_id.clone()),
                             );
                         }
-                        if let Some(task_id) = &context.task_id {
-                            config = config.with_context(
-                                "task_id",
-                                serde_json::Value::String(task_id.clone()),
-                            );
-                        }
                         if let Some(parent_run_id) = &context.parent_run_id {
                             config = config.with_context(
                                 "parent_run_id",
@@ -5022,18 +4962,9 @@ pub mod runtime {
 
                     pub(super) fn resolve_reply_sender(
                         &self,
-                        task_id: Option<&str>,
-                        agent_id: Option<&str>,
+                        _task_id: Option<&str>,
+                        _agent_id: Option<&str>,
                     ) -> Option<Arc<dyn ReplySender>> {
-                        if let Some(task_id) = task_id
-                            && let Some(factory) = &self.reply_sender_factory
-                        {
-                            let current_agent_id = agent_id.unwrap_or_default();
-                            if let Some(sender) = factory.for_task(task_id, current_agent_id) {
-                                return Some(sender);
-                            }
-                        }
-
                         self.reply_sender.clone()
                     }
                 }
@@ -5261,17 +5192,16 @@ pub mod runtime {
 
                 #[test]
                 fn test_apply_execution_context_populates_context_keys() {
-                    let context = ExecutionContext::background("agent-1", "session-1", "task-1");
+                    let context = ExecutionContext::main("agent-1", "session-1");
                     let config = ReActAgentConfig::new("goal".to_string());
                     let config = AgentRuntimeExecutor::apply_execution_context(config, &context);
 
                     assert_eq!(
                         config.context.get("execution_role"),
-                        Some(&serde_json::Value::String("task".to_string()))
+                        Some(&serde_json::Value::String("main_agent".to_string()))
                     );
                     assert_eq!(config.context["chat_session_id"], "session-1");
-                    assert_eq!(config.context["task_id"], "task-1");
-                    assert_eq!(config.context["execution_context"]["role"], "task");
+                    assert_eq!(config.context["execution_context"]["role"], "main_agent");
                 }
 
                 #[test]
@@ -5455,11 +5385,11 @@ pub mod runtime {
                     let bin = install_skrun_skills(
                         &temp_dir,
                         r##"[{
-                          "id": "manage-task",
-                          "name": "Manage Tasks",
+                          "id": "manage-agents-skill",
+                          "name": "Manage Agents",
                           "version": "0.1.0",
                           "kind": "markdown",
-                          "content": "# Manage Tasks",
+                          "content": "# Manage Agents",
                           "suggested_tools": ["manage_agents"],
                           "executable": false
                         }]"##,
@@ -5469,7 +5399,11 @@ pub mod runtime {
                     let node = AgentNode::new();
 
                     let tools = executor
-                        .resolve_effective_tool_names(&node, None, Some("please use @manage-task"))
+                        .resolve_effective_tool_names(
+                            &node,
+                            None,
+                            Some("please use @manage-agents-skill"),
+                        )
                         .expect("invalid skill mentions should not fail the turn");
 
                     assert!(tools.iter().any(|tool| tool == "load_skill"));
@@ -6638,9 +6572,9 @@ pub mod runtime {
             }
         }
         pub mod retry {
-            //! Retry Manager for Failed Tasks
+            //! Retry manager for failed agent operations.
             //!
-            //! This module provides a retry mechanism for agent tasks that fail due to
+            //! This module provides a retry mechanism for agent operations that fail due to
             //! transient errors (e.g., network timeouts, rate limits, temporary service
             //! unavailability).
             //!

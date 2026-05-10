@@ -9719,7 +9719,7 @@ pub mod impls {
     }
 
     pub mod manage_ops {
-        // Unified operational diagnostics tool for daemon health, task summary, and log tail.
+        // Unified operational diagnostics tool for daemon health and log tail.
 
         use async_trait::async_trait;
         use serde_json::{Value, json};
@@ -9755,7 +9755,7 @@ pub mod impls {
             }
 
             fn description(&self) -> &str {
-                "Unified operational diagnostics for daemon health, task summary, and log tail."
+                "Unified operational diagnostics for daemon health and log tail."
             }
 
             fn parameters_schema(&self) -> Value {
@@ -9764,17 +9764,8 @@ pub mod impls {
                     "properties": {
                         "operation": {
                             "type": "string",
-                            "enum": ["daemon_health", "task_summary", "log_tail"],
+                            "enum": ["daemon_health", "log_tail"],
                             "description": "Operation to execute."
-                        },
-                        "status": {
-                            "type": "string",
-                            "description": "Optional status filter for task_summary."
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "Optional row limit for task summary operations."
                         },
                         "lines": {
                             "type": "integer",
@@ -9798,11 +9789,6 @@ pub mod impls {
 
                 let result = match operation {
                     "daemon_health" => self.provider.daemon_health().await?,
-                    "task_summary" => {
-                        let status = input.get("status").and_then(Value::as_str);
-                        let limit = parse_limit(&input, "limit", 5, 100);
-                        self.provider.task_summary(status, limit)?
-                    }
                     "log_tail" => {
                         let lines = parse_limit(&input, "lines", 100, 1000);
                         let path = input.get("path").and_then(Value::as_str);
@@ -9810,7 +9796,7 @@ pub mod impls {
                     }
                     other => {
                         return Err(ToolError::Tool(format!(
-                            "Unknown operation: {}. Supported: daemon_health, task_summary, log_tail",
+                            "Unknown operation: {}. Supported: daemon_health, log_tail",
                             other
                         )));
                     }

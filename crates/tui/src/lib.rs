@@ -419,9 +419,9 @@ mod app {
                 state.set_pending_session(Some(controller.pending_session_for_agent(&agent).await));
             }
             state.status = if daemon_running {
-                "Foreground agent ready; daemon connected for background work.".to_string()
+                "Foreground agent ready; daemon connected.".to_string()
             } else {
-                "Foreground agent ready; daemon offline for background work.".to_string()
+                "Foreground agent ready; daemon offline.".to_string()
             };
         } else {
             state.status =
@@ -842,8 +842,7 @@ mod controller {
 
     use ::daemon::StoredAgent;
     use types::{
-        ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary,
-        SkillSource,
+        ChatSession, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary, SkillSource,
     };
 
     use super::daemon_client::TuiDaemonClient;
@@ -961,12 +960,7 @@ mod controller {
                 state.sessions.clone()
             };
             if matches!(state.overlay, Some(OverlayState::SessionPicker { .. })) {
-                let bound_session_ids = self
-                    .client
-                    .list_background_bound_session_ids()
-                    .await
-                    .unwrap_or_default();
-                sessions = filter_resume_sessions(sessions, &bound_session_ids);
+                sessions = filter_resume_sessions(sessions, &HashSet::new());
             }
             let runs = if let Some(session_id) = state.current_session_id() {
                 self.client
@@ -1359,12 +1353,7 @@ mod controller {
 
         async fn session_picker_actions(&self) -> Result<Vec<ShellAction>> {
             let sessions = self.client.list_sessions().await?;
-            let bound_session_ids = self
-                .client
-                .list_background_bound_session_ids()
-                .await
-                .unwrap_or_default();
-            let sessions = filter_resume_sessions(sessions, &bound_session_ids);
+            let sessions = filter_resume_sessions(sessions, &HashSet::new());
             let status = if sessions.is_empty() {
                 "No sessions to resume yet.".to_string()
             } else {
@@ -1556,12 +1545,7 @@ mod controller {
         async fn delete_session_actions(&self, session_id: String) -> Result<Vec<ShellAction>> {
             let delete_result = self.client.delete_session(&session_id).await;
             let sessions = self.client.list_sessions().await.unwrap_or_default();
-            let bound_session_ids = self
-                .client
-                .list_background_bound_session_ids()
-                .await
-                .unwrap_or_default();
-            let sessions = filter_resume_sessions(sessions, &bound_session_ids);
+            let sessions = filter_resume_sessions(sessions, &HashSet::new());
             let (deleted, status) = match delete_result {
                 Ok(deleted) if deleted => (true, format!("Deleted session {session_id}")),
                 Ok(_) => (false, format!("Session {session_id} was not deleted")),
@@ -1689,12 +1673,7 @@ mod controller {
     ) -> Vec<ChatSessionSummary> {
         sessions
             .into_iter()
-            .filter(|session| {
-                session.message_count > 0
-                    && !bound_session_ids.contains(&session.id)
-                    && session.source_channel != Some(ChatSessionSource::Background)
-                    && !session.name.trim_start().starts_with("Background:")
-            })
+            .filter(|session| session.message_count > 0 && !bound_session_ids.contains(&session.id))
             .collect()
     }
 
@@ -2040,11 +2019,7 @@ mod controller {
     }
 
     fn delete_session_error_message(session_id: &str, error: String) -> String {
-        if error.contains("bound to task") {
-            format!("Cannot delete background-bound session {session_id}")
-        } else {
-            format!("Failed to delete session {session_id}: {error}")
-        }
+        format!("Failed to delete session {session_id}: {error}")
     }
 
     fn start_daemon_error_actions(err: anyhow::Error) -> Vec<ShellAction> {
@@ -2063,16 +2038,14 @@ mod controller {
     mod tests {
         use super::{
             build_model_picker_items_for_provider, build_provider_picker_items,
-            delete_session_error_message, filter_resume_sessions, preferred_reload_session_id,
-            refreshed_state_is_unchanged, select_default_model_item, should_refresh_child_runs,
-            should_refresh_session_list, start_daemon_error_actions,
+            filter_resume_sessions, preferred_reload_session_id, refreshed_state_is_unchanged,
+            select_default_model_item, should_refresh_child_runs, should_refresh_session_list,
+            start_daemon_error_actions,
         };
         use crate::reducer::ShellAction;
         use crate::state::{AppState, ModelPickerCategory, OverlayState};
         use std::collections::HashSet;
-        use types::{
-            ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO,
-        };
+        use types::{ChatSession, ChatSessionSummary, ModelId, ModelMetadataDTO};
 
         #[test]
         fn start_daemon_error_stays_inside_shell() {
@@ -2108,23 +2081,20 @@ mod controller {
         }
 
         #[test]
-        fn filter_resume_sessions_removes_background_bound_sessions() {
+        fn filter_resume_sessions_removes_bound_and_empty_sessions() {
             let sessions = vec![
                 session_summary_with_messages("session-1", "Regular", 1),
-                session_summary_with_messages("session-2", "Background", 1),
+                session_summary_with_messages("session-2", "Bound", 1),
                 session_summary_with_messages("session-3", "Empty", 0),
-                session_summary_with_messages("session-4", "Background: Reviewer", 1),
+                session_summary_with_messages("session-4", "Regular 2", 1),
             ];
-            let mut source_background = session_summary_with_messages("session-5", "Reviewer", 1);
-            source_background.source_channel = Some(ChatSessionSource::Background);
-            let mut sessions = sessions;
-            sessions.push(source_background);
             let bound = HashSet::from(["session-2".to_string()]);
 
             let visible = filter_resume_sessions(sessions, &bound);
 
-            assert_eq!(visible.len(), 1);
+            assert_eq!(visible.len(), 2);
             assert_eq!(visible[0].id, "session-1");
+            assert_eq!(visible[1].id, "session-4");
         }
 
         #[test]
@@ -2184,16 +2154,6 @@ mod controller {
             state.overlay = Some(OverlayState::SessionPicker { selected: 0 });
 
             assert!(should_refresh_session_list(&state));
-        }
-
-        #[test]
-        fn delete_session_error_message_summarizes_background_bound_conflict() {
-            let message = delete_session_error_message(
-                "session-1",
-                "IPC error 409: Session session-1 is bound to task task-1".to_string(),
-            );
-
-            assert_eq!(message, "Cannot delete background-bound session session-1");
         }
 
         #[test]
@@ -2384,8 +2344,6 @@ mod controller {
                 message_count,
                 updated_at: 1,
                 last_message_preview: Some("preview".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 archived_at: None,
             }
         }
@@ -2407,8 +2365,6 @@ mod controller {
                 message_count: 1,
                 updated_at,
                 last_message_preview: Some("preview".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 archived_at: None,
             }
         }
@@ -2433,7 +2389,6 @@ mod daemon_client {
     use ::daemon::services::{session::SessionService, skills as skills_service};
     use ::daemon::{DEFAULT_ASSISTANT_NAME, StoredAgent};
     use anyhow::{Result, bail};
-    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::mpsc;
@@ -2583,10 +2538,6 @@ mod daemon_client {
 
         pub async fn list_available_models(&self) -> Result<Vec<ModelMetadataDTO>> {
             Ok(available_model_catalog(&self.core))
-        }
-
-        pub async fn list_background_bound_session_ids(&self) -> Result<HashSet<String>> {
-            Ok(HashSet::new())
         }
 
         pub async fn list_skills(&self) -> Result<Vec<Skill>> {
@@ -3410,7 +3361,7 @@ mod event_loop {
         }
 
         #[test]
-        fn background_refresh_effects_do_not_pre_render() {
+        fn refresh_effects_do_not_pre_render() {
             assert!(!effect_requires_pre_render(&ShellEffect::RefreshState));
             assert!(!effect_requires_pre_render(
                 &ShellEffect::ReloadCurrentSession
@@ -4528,8 +4479,6 @@ mod reducer {
                 message_count: 1,
                 updated_at: 1,
                 last_message_preview: Some("preview".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 archived_at: None,
             }
         }
@@ -8509,10 +8458,6 @@ mod shell {
     }
 
     fn summarize_tool_input_json(value: &Value) -> Option<String> {
-        if let Some(summary) = summarize_task_input_json(value) {
-            return Some(summary);
-        }
-
         if let Some(command) = value
             .get("command")
             .and_then(Value::as_str)
@@ -8590,10 +8535,6 @@ mod shell {
             return Some(summary);
         }
 
-        if let Some(summary) = summarize_task_output_json(value) {
-            return Some(summary);
-        }
-
         if let Some(match_count) = value.get("match_count").and_then(Value::as_u64) {
             let label = count_label(match_count, "match", "matches");
             return Some(format!("Output: {match_count} {label}"));
@@ -8641,89 +8582,6 @@ mod shell {
             summary.push_str(&format!(" · {lines_changed} {label} changed"));
         }
         Some(summary)
-    }
-
-    fn summarize_task_input_json(value: &Value) -> Option<String> {
-        let operation = value
-            .get("operation")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())?;
-        let label = task_operation_input_label(operation);
-        let name = value
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let id = value
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(short_tool_id);
-        let target = name
-            .map(compact_tool_text)
-            .or(id)
-            .unwrap_or_else(|| "task".to_string());
-        Some(format!("Input: {label} {target}"))
-    }
-
-    fn summarize_task_output_json(value: &Value) -> Option<String> {
-        let status = value
-            .get("status")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let result = value.get("result")?;
-        let task = result.get("task").unwrap_or(result);
-        task.get("name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())?;
-        let task_status = task
-            .get("status")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .or(status)
-            .unwrap_or("updated");
-        let id = task
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(short_tool_id);
-        let label = match status {
-            Some("preview") => "previewed task",
-            Some("deleted") => "deleted task",
-            _ => "task",
-        };
-        let mut summary = format!("Output: {label} · {task_status}");
-        if let Some(id) = id {
-            summary.push_str(&format!(" · {id}"));
-        }
-        Some(summary)
-    }
-
-    fn task_operation_input_label(operation: &str) -> &'static str {
-        match operation {
-            "create" => "create task",
-            "update" => "update task",
-            "delete" => "delete task",
-            "convert_session" => "convert session",
-            "promote_to_background" => "promote background task",
-            "run_batch" => "run task batch",
-            "start" => "start task",
-            "pause" => "pause task",
-            "resume" => "resume task",
-            "stop" => "stop task",
-            "run_now" => "run task",
-            _ => "manage task",
-        }
-    }
-
-    fn short_tool_id(value: &str) -> String {
-        value.chars().take(8).collect()
     }
 
     fn summarize_tool_error_json(value: &Value) -> Option<String> {
@@ -9433,36 +9291,6 @@ mod shell {
             assert_eq!(
                 summary,
                 "Input: $ cargo test -p tui Output: exit 0 · 42ms · 1 stdout line"
-            );
-        }
-
-        #[test]
-        fn tool_summary_formats_task_create_json() {
-            let summary = summarize_tool_body(&format!(
-                "Input: {}\nOutput: {}",
-                serde_json::json!({
-                    "operation": "create",
-                    "name": "BG_TASK_PANEL_REAL_20260506_DELETE_ME",
-                    "agent_id": "agent-1",
-                    "schedule": {
-                        "type": "interval",
-                        "interval_ms": 3600000,
-                        "start_at": null
-                    }
-                }),
-                serde_json::json!({
-                    "status": "executed",
-                    "result": {
-                        "id": "b244bf7c-b07a-4c9c-9415-c3b1a4d6d19f",
-                        "name": "BG_TASK_PANEL_REAL_20260506_DELETE_ME",
-                        "status": "active"
-                    }
-                })
-            ));
-
-            assert_eq!(
-                summary,
-                "Input: create task BG_TASK_PANEL_REAL_20260506_DELETE_ME Output: task · active · b244bf7c"
             );
         }
 
@@ -10499,8 +10327,6 @@ mod shell {
                     message_count: 2,
                     updated_at: 1,
                     last_message_preview: Some("hello\nworld".to_string()),
-                    source_channel: None,
-                    source_conversation_id: None,
                     archived_at: None,
                 },
                 ChatSessionSummary {
@@ -10513,8 +10339,6 @@ mod shell {
                     message_count: 0,
                     updated_at: 2,
                     last_message_preview: None,
-                    source_channel: None,
-                    source_conversation_id: None,
                     archived_at: None,
                 },
             ];
@@ -10560,8 +10384,6 @@ mod shell {
                     task_id: None,
                     parent_run_id: None,
                     agent_id: Some("agent-1".to_string()),
-                    source_channel: None,
-                    source_conversation_id: None,
                     effective_model: None,
                     provider: None,
                     event_count: 0,
@@ -10582,8 +10404,6 @@ mod shell {
                     task_id: None,
                     parent_run_id: Some("run-1".to_string()),
                     agent_id: Some("agent-2".to_string()),
-                    source_channel: None,
-                    source_conversation_id: None,
                     effective_model: None,
                     provider: None,
                     event_count: 0,
@@ -10622,8 +10442,6 @@ mod shell {
                 task_id: None,
                 parent_run_id: Some("run-other".to_string()),
                 agent_id: Some("agent-2".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 effective_model: None,
                 provider: None,
                 event_count: 0,
@@ -10657,8 +10475,6 @@ mod shell {
                     task_id: None,
                     parent_run_id: Some("run-1".to_string()),
                     agent_id: Some("agent-2".to_string()),
-                    source_channel: None,
-                    source_conversation_id: None,
                     effective_model: None,
                     provider: None,
                     event_count: 0,
@@ -10690,8 +10506,6 @@ mod shell {
                 task_id: None,
                 parent_run_id: None,
                 agent_id: Some("agent-1".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 effective_model: Some("deepseek-chat".to_string()),
                 provider: Some("deepseek".to_string()),
                 event_count: 1,
@@ -10727,8 +10541,6 @@ mod shell {
                     task_id: None,
                     parent_run_id: Some("run-1".to_string()),
                     agent_id: Some("agent-2".to_string()),
-                    source_channel: None,
-                    source_conversation_id: None,
                     effective_model: None,
                     provider: None,
                     event_count: 1,
@@ -10768,8 +10580,6 @@ mod shell {
                     task_id: None,
                     parent_run_id: Some("run-1".to_string()),
                     agent_id: Some("agent-2".to_string()),
-                    source_channel: None,
-                    source_conversation_id: None,
                     effective_model: None,
                     provider: None,
                     event_count: 0,
@@ -11021,8 +10831,6 @@ mod shell {
                     message_count: index,
                     updated_at: index as i64,
                     last_message_preview: Some(format!("preview {index}")),
-                    source_channel: None,
-                    source_conversation_id: None,
                     archived_at: None,
                 })
                 .collect();
@@ -11053,8 +10861,6 @@ mod shell {
                     message_count: index,
                     updated_at: index as i64,
                     last_message_preview: Some(format!("preview {index}")),
-                    source_channel: None,
-                    source_conversation_id: None,
                     archived_at: None,
                 })
                 .collect();
@@ -12892,7 +12698,6 @@ mod state {
                 } => {
                     let label = match kind {
                         RunKind::WorkspaceRun => "workspace run",
-                        RunKind::TaskRun => "background run",
                         RunKind::SubagentRun => "team",
                     };
                     lines.push(format!("- {label} · {title} · {status} · {run_id}"));
@@ -12914,7 +12719,7 @@ mod state {
                 ..
             } => match kind {
                 RunKind::WorkspaceRun => false,
-                RunKind::TaskRun | RunKind::SubagentRun => {
+                RunKind::SubagentRun => {
                     matches_normalized_status(status, &["running"])
                         && active_turn_run_id.is_some_and(|active_turn_run_id| {
                             run_id == active_turn_run_id
@@ -12935,7 +12740,6 @@ mod state {
     pub fn work_run_kind_label(kind: RunKind) -> &'static str {
         match kind {
             RunKind::WorkspaceRun => "workspace run",
-            RunKind::TaskRun => "task run",
             RunKind::SubagentRun => "subagent run",
         }
     }
@@ -14051,8 +13855,6 @@ mod state {
                 task_id: None,
                 parent_run_id: None,
                 agent_id: Some("agent-1".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 effective_model: None,
                 provider: None,
                 event_count: 0,
@@ -14073,8 +13875,6 @@ mod state {
                 task_id: None,
                 parent_run_id: Some("run-local".to_string()),
                 agent_id: Some("agent-2".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 effective_model: None,
                 provider: None,
                 event_count: 0,

@@ -3836,7 +3836,6 @@ pub mod orchestrator {
     pub enum ExecutionMode {
         Interactive,
         Subagent,
-        Background,
     }
 
     /// Shared execution plan consumed by orchestrators.
@@ -3856,9 +3855,6 @@ pub mod orchestrator {
         /// Optional chat session ID for interactive mode.
         #[serde(default)]
         pub chat_session_id: Option<String>,
-        /// Optional task ID for background mode.
-        #[serde(default)]
-        pub task_id: Option<String>,
         /// Optional timeout override in seconds.
         #[serde(default)]
         pub timeout_secs: Option<u64>,
@@ -3965,18 +3961,6 @@ pub mod orchestrator {
                     {
                         return Err(ToolError::Tool(
                             "Subagent execution requires non-empty 'input'.".to_string(),
-                        ));
-                    }
-                }
-                ExecutionMode::Background => {
-                    if self
-                        .agent_id
-                        .as_ref()
-                        .map(|value| value.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        return Err(ToolError::Tool(
-                            "Task execution requires 'agent_id'.".to_string(),
                         ));
                     }
                 }
@@ -4598,65 +4582,19 @@ mod provider {
 pub mod run {
     use serde::{Deserialize, Serialize};
     use specta::Type;
-    use std::collections::BTreeMap;
 
-    use crate::{ChatSessionSource, ChatTurnEvent};
-
-    #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
-    #[serde(rename_all = "snake_case")]
-    pub enum RunArtifactKind {
-        FinalOutput,
-        ToolOutput,
-        Report,
-        Data,
-        File,
-        Artifact,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
-    pub struct RunArtifact {
-        pub id: String,
-        pub run_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub task_id: Option<String>,
-        pub kind: RunArtifactKind,
-        pub title: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub content: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub content_ref: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub content_type: Option<String>,
-        pub size_bytes: usize,
-        pub created_at: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub metadata: Option<BTreeMap<String, String>>,
-    }
-
-    impl RunArtifact {
-        pub fn has_payload(&self) -> bool {
-            self.content
-                .as_deref()
-                .is_some_and(|content| !content.trim().is_empty())
-                || self
-                    .content_ref
-                    .as_deref()
-                    .is_some_and(|content_ref| !content_ref.trim().is_empty())
-        }
-    }
+    use crate::ChatTurnEvent;
 
     #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
     #[serde(rename_all = "snake_case")]
     pub enum ExecutionContainerKind {
         Workspace,
-        Task,
     }
 
     #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
     #[serde(rename_all = "snake_case")]
     pub enum RunKind {
         WorkspaceRun,
-        TaskRun,
         SubagentRun,
     }
 
@@ -4678,10 +4616,6 @@ pub mod run {
         pub latest_run_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub agent_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_channel: Option<ChatSessionSource>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_conversation_id: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -4716,10 +4650,6 @@ pub mod run {
         pub parent_run_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub agent_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_channel: Option<ChatSessionSource>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_conversation_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub effective_model: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4758,8 +4688,8 @@ pub mod run {
         fn run_types_expose_canonical_surface() {
             let summary = RunSummary {
                 id: "run-1".to_string(),
-                kind: RunKind::TaskRun,
-                container_id: "task-1".to_string(),
+                kind: RunKind::WorkspaceRun,
+                container_id: "workspace".to_string(),
                 root_run_id: Some("run-1".to_string()),
                 title: "Example Run".to_string(),
                 subtitle: None,
@@ -4769,19 +4699,17 @@ pub mod run {
                 ended_at: Some(2),
                 session_id: Some("session-1".to_string()),
                 run_id: Some("run-1".to_string()),
-                task_id: Some("task-1".to_string()),
+                task_id: None,
                 parent_run_id: None,
                 agent_id: Some("agent-1".to_string()),
-                source_channel: None,
-                source_conversation_id: None,
                 effective_model: Some("gpt-5.4".to_string()),
                 provider: Some("openai".to_string()),
                 event_count: 3,
             };
             let query = RunListQuery {
                 container: ExecutionContainerRef {
-                    kind: ExecutionContainerKind::Task,
-                    id: "task-1".to_string(),
+                    kind: ExecutionContainerKind::Workspace,
+                    id: "workspace".to_string(),
                 },
             };
             let child_query = ChildRunListQuery {
@@ -4789,7 +4717,7 @@ pub mod run {
             };
 
             assert_eq!(summary.run_id.as_deref(), Some("run-1"));
-            assert_eq!(query.container.id, "task-1");
+            assert_eq!(query.container.id, "workspace");
             assert_eq!(child_query.parent_run_id, "run-1");
         }
     }
@@ -5212,16 +5140,6 @@ pub mod session {
         }
     }
 
-    /// Origin of a chat session.
-    #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
-    #[serde(rename_all = "snake_case")]
-    pub enum ChatSessionSource {
-        /// Created from workspace UI / local API entrypoints.
-        Workspace,
-        /// Created for durable task execution.
-        Background,
-    }
-
     /// A chat session containing conversation history with an agent.
     ///
     /// Sessions persist conversations across application restarts and can be
@@ -5282,12 +5200,6 @@ pub mod session {
         pub cost: f64,
         /// Session metadata (tokens, message count, etc.)
         pub metadata: ChatSessionMetadata,
-        /// Optional origin channel of this session.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_channel: Option<ChatSessionSource>,
-        /// Optional channel-specific conversation identifier.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_conversation_id: Option<String>,
         /// Unix timestamp in milliseconds when the session was archived.
         /// None means the session is active.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5343,8 +5255,6 @@ pub mod session {
                 completion_tokens: 0,
                 cost: 0.0,
                 metadata: ChatSessionMetadata::new(),
-                source_channel: None,
-                source_conversation_id: None,
                 archived_at: None,
             }
         }
@@ -5385,17 +5295,6 @@ pub mod session {
         /// Set an optional retention policy for this session.
         pub fn with_retention(mut self, retention: impl Into<String>) -> Self {
             self.retention = Some(retention.into());
-            self
-        }
-
-        /// Associate this session with a managed source.
-        pub fn with_source(
-            mut self,
-            source_channel: ChatSessionSource,
-            source_conversation_id: impl Into<String>,
-        ) -> Self {
-            self.source_channel = Some(source_channel);
-            self.source_conversation_id = Some(source_conversation_id.into());
             self
         }
 
@@ -5606,12 +5505,6 @@ pub mod session {
         /// Preview of last message (truncated)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub last_message_preview: Option<String>,
-        /// Optional origin channel of this session.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_channel: Option<ChatSessionSource>,
-        /// Optional channel-specific conversation identifier.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_conversation_id: Option<String>,
         /// Unix timestamp in milliseconds when the session was archived.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub archived_at: Option<i64>,
@@ -5638,8 +5531,6 @@ pub mod session {
                 message_count: session.metadata.message_count,
                 updated_at: session.updated_at,
                 last_message_preview,
-                source_channel: session.source_channel,
-                source_conversation_id: session.source_conversation_id.clone(),
                 archived_at: session.archived_at,
             }
         }
@@ -6765,7 +6656,6 @@ pub mod store {
 
     pub trait OpsProvider: Send + Sync {
         fn daemon_health(&self) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
-        fn task_summary(&self, status: Option<&str>, limit: usize) -> Result<Value>;
         fn log_tail(&self, lines: usize, path: Option<&str>) -> Result<Value>;
     }
 }
@@ -8512,12 +8402,6 @@ pub mod contracts {
                 run_id: String,
             },
             SubscribeSessionEvents,
-            ListRunArtifacts {
-                #[serde(default)]
-                run_id: Option<String>,
-                #[serde(default)]
-                task_id: Option<String>,
-            },
             SwitchSessionModel {
                 session_id: String,
                 model_ref: WireModelRef,
@@ -9018,8 +8902,8 @@ pub mod contracts {
                 let request = IpcRequest::ListRuns {
                     query: RunListQuery {
                         container: ExecutionContainerRef {
-                            kind: ExecutionContainerKind::Task,
-                            id: "task-1".to_string(),
+                            kind: ExecutionContainerKind::Workspace,
+                            id: "workspace".to_string(),
                         },
                     },
                 };
@@ -9394,8 +9278,6 @@ pub mod contracts {
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub struct CleanupReportResponse {
         pub chat_sessions: usize,
-        pub tasks: usize,
-        pub audit_events: usize,
         pub daemon_log_files: usize,
     }
 
@@ -9525,7 +9407,7 @@ pub mod contracts {
             let response = ResponseEnvelope::<Value>::error_with_details(
                 500,
                 "failed",
-                Some(serde_json::json!({ "error_kind": "session_policy" })),
+                Some(serde_json::json!({ "error_kind": "session" })),
             );
 
             assert_roundtrip(&response);
@@ -9622,8 +9504,6 @@ pub mod contracts {
             });
             assert_roundtrip(&CleanupReportResponse {
                 chat_sessions: 1,
-                tasks: 2,
-                audit_events: 3,
                 daemon_log_files: 4,
             });
         }
@@ -9672,13 +9552,12 @@ pub use assessment::{
 };
 pub use run::{
     ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
-    ExecutionThread, RunArtifact, RunArtifactKind, RunKind, RunListQuery, RunSummary, RunTimeline,
+    ExecutionThread, RunKind, RunListQuery, RunSummary, RunTimeline,
 };
 pub use session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
-    ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary,
-    ChatSessionUpdate, ChatTurn, ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus,
-    ExecutionStepInfo, MessageExecution,
+    ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, ChatTurn,
+    ChatTurnEvent, ChatTurnEventKind, ChatTurnStatus, ExecutionStepInfo, MessageExecution,
 };
 
 // Tool trait and core types

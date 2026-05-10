@@ -1087,7 +1087,6 @@ pub mod daemon {
         use crate::services::{
             agent as agent_service, config as config_service, secrets as secrets_service,
             session::{PersistInteractiveTurnRequest, SessionService},
-            session_policy::SessionPolicyError,
             skills as skills_service,
         };
         use crate::subscribe_session_events;
@@ -1398,8 +1397,6 @@ pub mod daemon {
                     match crate::services::cleanup::run_cleanup(core).await {
                         Ok(report) => IpcResponse::success(CleanupReportResponse {
                             chat_sessions: report.chat_sessions,
-                            tasks: report.tasks,
-                            audit_events: report.audit_events,
                             daemon_log_files: report.daemon_log_files,
                         }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1838,20 +1835,6 @@ pub mod daemon {
                     IpcResponse::error(-3, "Session event streaming requires stream mode")
                 }
 
-                pub(super) async fn handle_list_run_artifacts(
-                    _core: &Arc<AppCore>,
-                    run_id: Option<String>,
-                    task_id: Option<String>,
-                ) -> IpcResponse {
-                    if run_id.is_none() && task_id.is_none() {
-                        return IpcResponse::error(
-                            400,
-                            "ListRunArtifacts requires run_id or task_id",
-                        );
-                    }
-                    IpcResponse::success(Vec::<types::RunArtifact>::new())
-                }
-
                 pub(super) async fn handle_switch_session_model(
                     core: &Arc<AppCore>,
                     session_id: String,
@@ -2111,9 +2094,6 @@ pub mod daemon {
                         }
                         IpcRequest::SubscribeSessionEvents => {
                             Self::handle_subscribe_session_events_unsupported().await
-                        }
-                        IpcRequest::ListRunArtifacts { run_id, task_id } => {
-                            Self::handle_list_run_artifacts(core, run_id, task_id).await
                         }
                         IpcRequest::SwitchSessionModel {
                             session_id,
@@ -3138,17 +3118,6 @@ pub mod daemon {
         }
 
         fn ipc_session_lifecycle_error(error: anyhow::Error) -> IpcResponse {
-            if let Some(lifecycle_error) = error.downcast_ref::<SessionPolicyError>() {
-                let status_code = i32::from(lifecycle_error.status_code());
-                return IpcResponse::error_with_details(
-                    status_code,
-                    lifecycle_error.to_string(),
-                    Some(serde_json::json!({
-                        "error_kind": "session_lifecycle",
-                        "status_code": status_code,
-                    })),
-                );
-            }
             IpcResponse::error(500, error.to_string())
         }
 
@@ -3928,8 +3897,8 @@ pub mod daemon {
             }
             mod sessions {
                 use super::*;
+                use types::ChatTurnStatus;
                 use types::request::ChildRunListQuery;
-                use types::{ChatSessionSource, ChatTurnStatus};
 
                 fn assert_execution_thread_error(
                     response: IpcResponse,
@@ -4262,20 +4231,6 @@ pub mod daemon {
                 }
 
                 #[tokio::test]
-                async fn is_workspace_managed_session_accepts_sessions_without_channel_bindings() {
-                    let (core, _temp) = create_test_core().await;
-                    let session_service = SessionService::from_storage(&core.storage);
-
-                    let mut workspace =
-                        ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-                    workspace.source_channel = Some(ChatSessionSource::Workspace);
-                    assert!(session_service.is_workspace_managed(&workspace).unwrap());
-
-                    let legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-                    assert!(session_service.is_workspace_managed(&legacy).unwrap());
-                }
-
-                #[tokio::test]
                 async fn search_sessions_applies_agent_filter_and_limit() {
                     let (core, _temp) = create_test_core().await;
                     let runtime_tool_registry = OnceLock::new();
@@ -4313,20 +4268,6 @@ pub mod daemon {
                         }
                         other => panic!("expected success response, got {other:?}"),
                     }
-                }
-
-                #[tokio::test]
-                async fn apply_effective_session_source_defaults_to_workspace_when_no_external_route()
-                 {
-                    let (core, _temp) = create_test_core().await;
-                    let session_service = SessionService::from_storage(&core.storage);
-
-                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-                    session_service
-                        .apply_effective_source(&mut session)
-                        .unwrap();
-                    assert_eq!(session.source_channel, Some(ChatSessionSource::Workspace));
-                    assert!(session.source_conversation_id.is_none());
                 }
 
                 #[tokio::test]
