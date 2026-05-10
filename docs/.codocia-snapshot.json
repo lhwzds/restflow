@@ -1,5 +1,5 @@
 {
-  "commit": "1a4cdbf186818b037984cb0a1f2037419cba429f",
+  "commit": "762faae8a3187efde81d11d4b0a2f866951bdccf",
   "docs": {
     "docs/agent.md": {
       "covers": ["crates/agent/Cargo.toml", "crates/agent/README.md", "crates/agent/src/lib.rs"],
@@ -47,7 +47,7 @@
       }
     },
     "docs/index.md": {
-      "covers": ["README.md", "Cargo.toml", "Cargo.lock", "Makefile", "examples/skrun/**/*.py", "homebrew-tap-template/**/*.md", "homebrew-tap-template/**/*.rb", "homebrew-tap-template/**/*.yml", "npm/scripts/**/*.js", "scripts/**/*.md", "scripts/**/*.sh"],
+      "covers": ["README.md", "Cargo.toml", "Cargo.lock", "Makefile", "examples/skrun/**/*.py", "homebrew-tap-template/**/*.md", "homebrew-tap-template/**/*.rb", "homebrew-tap-template/**/*.yml", "npm/scripts/**/*.js"],
       "files": {
         "Cargo.lock": "1e6d163163b6aa4c",
         "Cargo.toml": "1896467daaf30392",
@@ -70,9 +70,7 @@
         "homebrew-tap-template/Formula/restflow.rb": "1496bc39eaf263b5",
         "homebrew-tap-template/README.md": "a9edc361017a1e68",
         "npm/scripts/install.js": "c8bd89bb822d6e8c",
-        "npm/scripts/install.test.js": "9c9c85c72747e12b",
-        "scripts/stress/ARTIFACT_SCHEMA.md": "855ac77a355d01ae",
-        "scripts/stress/mock_daemon_soak.sh": "92619a67309750e2"
+        "npm/scripts/install.test.js": "9c9c85c72747e12b"
       }
     },
     "docs/llm.md": {

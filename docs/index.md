@@ -10,8 +10,6 @@ covers:
   - homebrew-tap-template/**/*.rb
   - homebrew-tap-template/**/*.yml
   - npm/scripts/**/*.js
-  - scripts/**/*.md
-  - scripts/**/*.sh
 ---
 
 # RestFlow Documentation
