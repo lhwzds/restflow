@@ -6922,11 +6922,6 @@ mod shell {
             return preserve_first_cell_tail(active_lines, height);
         }
 
-        let active_overflow = active_lines.len().saturating_sub(height);
-        if scroll_from_bottom <= active_overflow {
-            return tail_lines(active_lines, height, scroll_from_bottom);
-        }
-
         tail_lines(
             build_scrollable_message_lines(state, width),
             height,
