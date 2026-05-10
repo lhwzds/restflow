@@ -128,7 +128,8 @@ mod cli {
     #[cfg(test)]
     mod tests {
         use super::Cli;
-        use clap::Parser;
+        use clap::{CommandFactory, Parser};
+        use clap_complete::{Shell, generate};
 
         #[test]
         fn parses_start_command() {
@@ -146,6 +147,32 @@ mod cli {
         fn parses_status_command() {
             let cli = Cli::try_parse_from(["restflow", "status"]).expect("parse status");
             assert!(matches!(cli.command, Some(super::Commands::Status)));
+        }
+
+        #[test]
+        fn help_mentions_restflow_and_daemon_without_chat_subcommand() {
+            let help = Cli::command().render_help().to_string();
+
+            assert!(help.contains("RestFlow"));
+            assert!(help.contains("daemon"));
+            assert!(!help.contains("Start interactive terminal chat"));
+        }
+
+        #[test]
+        fn version_is_available_from_command_metadata() {
+            let command = Cli::command();
+            assert!(command.get_version().is_some());
+        }
+
+        #[test]
+        fn bash_completions_start_with_restflow_function() {
+            let mut command = Cli::command();
+            let mut output = Vec::new();
+
+            generate(Shell::Bash, &mut command, "restflow", &mut output);
+
+            let text = String::from_utf8(output).expect("completion should be utf8");
+            assert!(text.starts_with("_restflow"));
         }
 
         #[test]
