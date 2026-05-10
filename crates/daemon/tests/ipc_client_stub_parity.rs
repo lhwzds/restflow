@@ -22,8 +22,7 @@ fn load_source(path: &Path) -> String {
 
 #[test]
 fn non_unix_stub_covers_session_client_methods() {
-    let ipc_client_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/daemon/ipc_client");
-    let ipc_client_source = load_source(&ipc_client_dir.join("mod.rs"));
+    let ipc_client_source = load_source(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"));
     let unix_methods = parse_method_names(&ipc_client_source, "pub async fn ")
         .into_iter()
         .filter(|name| {
