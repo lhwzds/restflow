@@ -4,14 +4,16 @@ members = [
     "crates/llm",
     "crates/agent",
     "crates/tools",
-    "crates/runtime",
+    "crates/core",
+    "crates/runner",
+    "crates/daemon",
     "crates/tui",
     "crates/cli",
 ]
 resolver = "2"
 
 # Default to running core
-default-members = ["crates/runtime"]
+default-members = ["crates/core"]
 
 [workspace.package]
 version = "0.4.2"
@@ -23,7 +25,9 @@ types = { path = "crates/types" }
 llm = { path = "crates/llm" }
 agent = { path = "crates/agent" }
 tools = { path = "crates/tools" }
-runtime = { path = "crates/runtime" }
+restflow-core = { path = "crates/core" }
+runner = { path = "crates/runner" }
+daemon = { path = "crates/daemon" }
 tui = { path = "crates/tui" }
 monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.7" }
 anyhow = "1.0.101"

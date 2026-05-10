@@ -1,0 +1,50 @@
+[package]
+name = "restflow-core"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "restflow_core"
+path = "src/lib.rs"
+
+[features]
+default = []
+keychain = ["keyring"]
+test-utils = []
+
+[dependencies]
+keyring = { version = "3.6", optional = true, features = ["apple-native"] }
+# Internal dependencies
+types = { workspace = true, features = ["specta"] }
+tools = { workspace = true }
+
+# External dependencies
+aes-gcm = "0.10"
+anyhow = "1.0.101"
+async-trait = "0.1.89"
+base64 = "0.22"
+chrono = "0.4.44"
+dirs = "6.0.0"
+dashmap = "6.1.0"
+hex = "0.4.3"
+rand = "0.10"
+portable-pty = "0.9"
+redb = "3.1.0"
+regex = "1.11.1"
+reqwest = { version = "0.13.2", features = ["form", "json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
+serde_yaml = "0.9"
+skrun = { workspace = true }
+specta = { version = "=2.0.0-rc.23", features = ["derive", "chrono", "uuid", "serde_json"] }
+sha2 = "0.10.9"
+tempfile = "3.25.0"
+thiserror = "2.0.17"
+tokio = { version = "1.51.1", features = ["full"] }
+toml = "1.1"
+tracing = "0.1"
+uuid = { version = "1.21.0", features = ["v4", "serde"] }
+walkdir = "2"
+
+[dev-dependencies]
+filetime = "0.2"

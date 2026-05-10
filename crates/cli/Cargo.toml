@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Core
-runtime = { workspace = true }
+daemon = { workspace = true }
 tui = { workspace = true }
 agent = { workspace = true }
 types = { workspace = true }

@@ -572,8 +572,8 @@ mod setup {
     //!
     //! Handles initialization of the RestFlow core for CLI usage.
 
+    use ::daemon::{AppCore, paths};
     use anyhow::Result;
-    use runtime::{AppCore, paths};
     use std::sync::Arc;
 
     /// Resolve the database path for CLI usage.
@@ -596,7 +596,7 @@ mod setup {
 
 mod config {
     pub mod settings {
-        pub use runtime::storage::CliConfig;
+        pub use ::daemon::storage::CliConfig;
     }
 
     pub use settings::CliConfig;
@@ -636,13 +636,13 @@ mod executor {
 
         use crate::executor::CommandExecutor;
         use crate::setup;
-        use runtime::StoredAgent;
-        use runtime::services::{
+        use ::daemon::StoredAgent;
+        use ::daemon::services::{
             agent as agent_service, config as config_service, secrets as secrets_service,
             session::SessionService, skills as skills_service,
         };
-        use runtime::storage::SystemConfig;
-        use runtime::{AppCore, Secret};
+        use ::daemon::storage::SystemConfig;
+        use ::daemon::{AppCore, Secret};
         use types::{AgentNode, ChatSession, ChatSessionSummary};
         use types::{CleanupReportResponse, Skill};
         /// Test-only executor used by command unit tests.
@@ -746,7 +746,7 @@ mod executor {
             }
 
             async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
-                let report = runtime::services::cleanup::run_cleanup(&self.core).await?;
+                let report = ::daemon::services::cleanup::run_cleanup(&self.core).await?;
                 Ok(CleanupReportResponse {
                     chat_sessions: report.chat_sessions,
                     tasks: report.tasks,
@@ -822,11 +822,11 @@ mod executor {
         use types::{CleanupReportResponse, OkResponse};
 
         use crate::executor::CommandExecutor;
-        use runtime::Secret;
-        use runtime::StoredAgent;
-        use runtime::daemon::request_mapper::to_contract;
-        use runtime::daemon::{IpcClient, IpcRequest};
-        use runtime::storage::SystemConfig;
+        use ::daemon::Secret;
+        use ::daemon::StoredAgent;
+        use ::daemon::daemon::request_mapper::to_contract;
+        use ::daemon::daemon::{IpcClient, IpcRequest};
+        use ::daemon::storage::SystemConfig;
         use types::{AgentNode, ChatSession, ChatSessionSummary, Skill};
 
         pub struct IpcExecutor {
@@ -1038,13 +1038,13 @@ mod executor {
         }
     }
 
+    use ::daemon::Secret;
+    use ::daemon::StoredAgent;
+    use ::daemon::daemon::is_daemon_available;
+    use ::daemon::paths;
+    use ::daemon::storage::SystemConfig;
     use anyhow::Result;
     use async_trait::async_trait;
-    use runtime::Secret;
-    use runtime::StoredAgent;
-    use runtime::daemon::is_daemon_available;
-    use runtime::paths;
-    use runtime::storage::SystemConfig;
     use std::sync::Arc;
     use types::CleanupReportResponse;
     use types::{AgentNode, ChatSession, ChatSessionSummary, Skill};
@@ -1430,7 +1430,7 @@ mod commands {
         use crate::cli::ConfigCommands;
         use crate::executor::CommandExecutor;
         use crate::output::{OutputFormat, json::print_json};
-        use runtime::storage::{
+        use ::daemon::storage::{
             CliConfig, ConfigDocument, ConfigSourcePathInfo, SystemConfig,
             effective_config_sources, load_cli_config, load_global_cli_config, write_cli_config,
         };
@@ -1921,7 +1921,7 @@ mod commands {
         mod tests {
             use super::*;
             use crate::executor::{CommandExecutor, direct::DirectExecutor};
-            use runtime::storage::{load_cli_config, load_global_cli_config};
+            use ::daemon::storage::{load_cli_config, load_global_cli_config};
             use std::env;
             use std::path::Path;
             use tempfile::tempdir;
@@ -2185,10 +2185,10 @@ mod commands {
     pub mod daemon {
         use crate::cli::DaemonCommands;
         use crate::commands::daemon_state::{self, EffectiveDaemonStatus, RunningSource};
+        use ::daemon::AppCore;
+        use ::daemon::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
+        use ::daemon::paths;
         use anyhow::{Context, Result};
-        use runtime::AppCore;
-        use runtime::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
-        use runtime::paths;
         use std::path::PathBuf;
         #[cfg(not(unix))]
         use std::process::Command;
@@ -2214,7 +2214,7 @@ mod commands {
             }
 
             // Clean stale artifacts that may remain after an unclean shutdown.
-            let report = runtime::daemon::recovery::recover().await?;
+            let report = ::daemon::daemon::recovery::recover().await?;
             if !report.is_clean() {
                 println!("{}", report);
             }
@@ -2285,7 +2285,7 @@ mod commands {
                 return Ok(());
             }
 
-            let report = runtime::daemon::recovery::recover().await?;
+            let report = ::daemon::daemon::recovery::recover().await?;
             if !report.is_clean() {
                 println!("{}", report);
             }
@@ -2300,7 +2300,7 @@ mod commands {
 
             if foreground {
                 // In foreground mode, clean stale artifacts before binding.
-                let report = runtime::daemon::recovery::recover().await?;
+                let report = ::daemon::daemon::recovery::recover().await?;
                 if !report.is_clean() {
                     println!("{}", report);
                 }
@@ -2312,7 +2312,7 @@ mod commands {
                     Ok(())
                 } else {
                     // Clean stale artifacts (e.g. leftover socket) before spawning.
-                    let report = runtime::daemon::recovery::recover().await?;
+                    let report = ::daemon::daemon::recovery::recover().await?;
                     if !report.is_clean() {
                         println!("{}", report);
                     }
@@ -2342,7 +2342,7 @@ mod commands {
                     wait_for_daemon_exit(previous_pid).await?;
                 }
                 // Clean stale artifacts that may remain after an unclean shutdown.
-                let report = runtime::daemon::recovery::recover().await?;
+                let report = ::daemon::daemon::recovery::recover().await?;
                 if !report.is_clean() {
                     println!("{}", report);
                 }
@@ -2458,7 +2458,7 @@ mod commands {
         }
 
         async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
-            let report = runtime::services::cleanup::run_cleanup(&core).await?;
+            let report = ::daemon::services::cleanup::run_cleanup(&core).await?;
             info!(
                 chat_sessions = report.chat_sessions,
                 tasks = report.tasks,
@@ -2610,7 +2610,7 @@ mod commands {
                     if let Some(report) = snapshot.auto_recovery {
                         println!("  {}", report);
                     }
-                    if snapshot.stale_state == runtime::daemon::recovery::StaleState::StaleSocket {
+                    if snapshot.stale_state == ::daemon::daemon::recovery::StaleState::StaleSocket {
                         println!(
                             "  Note: stale socket detected (run `daemon start` to auto-clean)"
                         );
@@ -2620,8 +2620,8 @@ mod commands {
                     println!("Daemon not running (stale PID: {})", pid);
                     if matches!(
                         snapshot.stale_state,
-                        runtime::daemon::recovery::StaleState::Both
-                            | runtime::daemon::recovery::StaleState::StaleSocket
+                        ::daemon::daemon::recovery::StaleState::Both
+                            | ::daemon::daemon::recovery::StaleState::StaleSocket
                     ) {
                         println!("  Note: stale socket also detected");
                     }
@@ -2936,9 +2936,9 @@ mod commands {
     }
 
     pub mod daemon_state {
+        use ::daemon::daemon::{self, DaemonStatus};
+        use ::daemon::paths;
         use anyhow::Result;
-        use runtime::daemon::{self, DaemonStatus};
-        use runtime::paths;
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum RunningSource {
@@ -2973,7 +2973,7 @@ mod commands {
         pub struct DaemonStatusSnapshot {
             pub daemon_status: EffectiveDaemonStatus,
             pub auto_recovery: Option<String>,
-            pub stale_state: runtime::daemon::recovery::StaleState,
+            pub stale_state: ::daemon::daemon::recovery::StaleState,
             pub socket_path: std::path::PathBuf,
             pub pid_path: std::path::PathBuf,
             pub db_path: std::path::PathBuf,
@@ -2997,14 +2997,14 @@ mod commands {
             let mut auto_recovery = None;
 
             if auto_recover_stale && matches!(daemon_status, DaemonStatus::Stale { .. }) {
-                let report = runtime::daemon::recovery::recover().await?;
+                let report = ::daemon::daemon::recovery::recover().await?;
                 if !report.is_clean() {
                     auto_recovery = Some(report.to_string());
                 }
                 daemon_status = daemon::check_daemon_status()?;
             }
 
-            let stale_state = runtime::daemon::recovery::inspect(&pid_path, &socket_path).await?;
+            let stale_state = ::daemon::daemon::recovery::inspect(&pid_path, &socket_path).await?;
             let socket_alive = daemon::is_daemon_available(&socket_path).await;
             let lock_pid = read_lock_pid(&lock_path);
             let lock_alive_pid = lock_pid.filter(|pid| is_process_alive(*pid));
@@ -3464,7 +3464,7 @@ mod commands {
         use crate::commands::utils::format_timestamp;
         use crate::executor::CommandExecutor;
         use crate::output::{OutputFormat, json::print_json};
-        use runtime::services::skills as skill_service;
+        use ::daemon::services::skills as skill_service;
         use serde_json::json;
 
         pub async fn run(
@@ -4275,8 +4275,8 @@ mod commands {
 
     pub mod start {
         use crate::cli::StartArgs;
+        use ::daemon::daemon::ensure_daemon_running;
         use anyhow::Result;
-        use runtime::daemon::ensure_daemon_running;
 
         pub async fn run(args: StartArgs) -> Result<()> {
             let _ = args;
@@ -4352,8 +4352,8 @@ mod commands {
     }
 
     pub mod stop {
+        use ::daemon::daemon::stop_daemon;
         use anyhow::Result;
-        use runtime::daemon::stop_daemon;
 
         pub async fn run() -> Result<()> {
             if stop_daemon()? {
@@ -4378,11 +4378,11 @@ mod test_support {
     }
 }
 
+use ::daemon::paths;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands};
-use runtime::paths;
 use std::io;
 use std::io::IsTerminal;
 use tracing_appender::non_blocking::WorkerGuard;

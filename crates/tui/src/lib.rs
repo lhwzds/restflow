@@ -840,7 +840,7 @@ mod controller {
     use std::collections::{HashMap, HashSet};
     use tokio::sync::mpsc;
 
-    use runtime::StoredAgent;
+    use ::daemon::StoredAgent;
     use types::{
         ChatSession, ChatSessionSource, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary,
         SkillSource,
@@ -2425,14 +2425,14 @@ mod controller {
 }
 
 mod daemon_client {
-    use anyhow::{Result, bail};
-    use runtime::AppCore;
-    use runtime::daemon::{
+    use ::daemon::AppCore;
+    use ::daemon::daemon::{
         DaemonConfig, IpcClient, is_daemon_available, start_daemon_with_config, stop_daemon,
     };
-    use runtime::paths;
-    use runtime::services::{session::SessionService, skills as skills_service};
-    use runtime::{DEFAULT_ASSISTANT_NAME, StoredAgent};
+    use ::daemon::paths;
+    use ::daemon::services::{session::SessionService, skills as skills_service};
+    use ::daemon::{DEFAULT_ASSISTANT_NAME, StoredAgent};
+    use anyhow::{Result, bail};
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -2472,7 +2472,7 @@ mod daemon_client {
                 return Ok(());
             }
 
-            let report = runtime::daemon::recovery::recover().await?;
+            let report = ::daemon::daemon::recovery::recover().await?;
             let _ = report;
             tokio::task::spawn_blocking(|| start_daemon_with_config(DaemonConfig::default()))
                 .await??;
@@ -2628,7 +2628,7 @@ mod daemon_client {
         }
 
         pub async fn cancel_chat_stream(&self, stream_id: &str) -> Result<bool> {
-            Ok(runtime::daemon::cancel_foreground_chat_stream(&self.core, stream_id).await)
+            Ok(::daemon::daemon::cancel_foreground_chat_stream(&self.core, stream_id).await)
         }
 
         pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {
@@ -2706,7 +2706,7 @@ mod daemon_client {
                 .ok()
                 .map(|path| path.to_string_lossy().into_owned());
             tokio::spawn(async move {
-                let stream = runtime::daemon::open_foreground_chat_session_stream(
+                let stream = ::daemon::daemon::open_foreground_chat_session_stream(
                     client.core.clone(),
                     session_id.clone(),
                     Some(input),
@@ -2743,14 +2743,12 @@ mod daemon_client {
             session_id: String,
             instruction: String,
         ) -> Result<bool> {
-            Ok(
-                runtime::daemon::steer_foreground_chat_stream(
-                    &self.core,
-                    &session_id,
-                    &instruction,
-                )
-                .await,
+            Ok(::daemon::daemon::steer_foreground_chat_stream(
+                &self.core,
+                &session_id,
+                &instruction,
             )
+            .await)
         }
     }
 
@@ -3698,7 +3696,7 @@ mod reducer {
         AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
         SkillPickerItem,
     };
-    use runtime::StoredAgent;
+    use ::daemon::StoredAgent;
     use types::{ChatSession, ChatSessionSummary, ExecutionThread, ModelMetadataDTO, RunSummary};
     use types::{ChatSessionEvent, StreamFrame};
 
@@ -11858,8 +11856,8 @@ Slash commands:\n\
 mod state {
     use std::collections::{HashMap, HashSet};
 
+    use ::daemon::StoredAgent;
     use chrono::Utc;
-    use runtime::StoredAgent;
     use types::{
         ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus,
         ExecutionThread, ModelId, ModelMetadataDTO, Provider, RunKind, RunSummary, Skill,
