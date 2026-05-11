@@ -11960,6 +11960,9 @@ mod state {
         }
 
         pub fn set_current_session(&mut self, session: ChatSession) {
+            // Keep the TUI boundary value-owned for now. Most session clones in this
+            // crate are test setup or snapshot handoff points; moving state to Arc
+            // should wait for evidence that clone cost is a real hot path.
             self.thread.set_session(session.clone());
             self.pending_session = None;
             self.runtime_cells.clear();

@@ -6596,7 +6596,7 @@ pub mod agent {
 
         // Agent executor with ReAct loop
         //
-        // # Refactoring Notes (TODO)
+        // # Refactoring Notes
         //
         // This module is large (~900 lines) and should be split into focused submodules:
         //
@@ -6605,7 +6605,7 @@ pub mod agent {
         // ├── mod.rs              # AgentExecutor + entry methods
         // ├── builder.rs          # new(), with_workspace_root(), with_steer_channel(), with_subagent_tracker()
         // ├── llm.rs              # execute_llm_completion(), build_system_prompt(), workspace instructions
-        // ├── loop.rs             # execute_with_mode() — the ~450 line main ReAct loop
+        // ├── loop.rs             # execute_with_mode() orchestration helpers
         // ├── tool_output.rs      # save_tool_output(), truncate_tool_output(), sanitize_tool_call_history()
         // ├── config.rs           # already split ✓
         // ├── prompt.rs           # already split ✓
@@ -6613,8 +6613,7 @@ pub mod agent {
         // └── streaming.rs        # already split ✓
         // ```
         //
-        // Priority: tool_output.rs and builder.rs are easiest (stateless helpers).
-        // loop.rs is the hardest due to tight state coupling.
+        // Priority: tool_output.rs and builder.rs are still the easiest stateless module moves.
         //
         // # Timeout Architecture
         //
@@ -6676,6 +6675,12 @@ pub mod agent {
         use tracing::debug;
 
         const USER_INSTRUCTIONS_PREFIX: &str = "# AGENTS.md instructions for ";
+
+        #[derive(Debug, Default)]
+        struct ExecutionTotals {
+            total_tokens: u32,
+            total_cost_usd: f64,
+        }
 
         /// Truncate tool output with middle-truncation and optional disk persistence.
         /// Returns the (possibly truncated) string with a retrieval hint if the full output was saved.
@@ -6962,6 +6967,425 @@ pub mod agent {
                     .await
             }
 
+            async fn initialize_execution_state(
+                &self,
+                config: &AgentConfig,
+                execution_id_override: Option<String>,
+                initial_state: Option<AgentState>,
+            ) -> AgentState {
+                let execution_id =
+                    execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                let mut state = initial_state
+                    .unwrap_or_else(|| AgentState::new(execution_id, config.max_iterations));
+                state.max_iterations = config.max_iterations;
+                state.context.extend(config.context.clone());
+
+                // Initialize conversation only for fresh executions.
+                if state.messages.is_empty() {
+                    let system_prompt = self.build_system_prompt(config).await;
+                    state.add_message(Message::system(&system_prompt));
+                    state.add_message(Message::user(&config.goal));
+                }
+                if config.prompt_flags.include_workspace_context
+                    && let Some(message) = self.build_workspace_instruction_user_message().await
+                {
+                    Self::inject_workspace_instruction_message(&mut state, message);
+                }
+
+                state
+            }
+
+            fn maybe_route_model(
+                config: &AgentConfig,
+                state: &AgentState,
+                last_tool_names: &[String],
+                had_failure: bool,
+            ) {
+                let Some(routing) = config
+                    .model_routing
+                    .as_ref()
+                    .filter(|routing| routing.enabled)
+                else {
+                    return;
+                };
+                let Some(switcher) = config.model_switcher.as_ref() else {
+                    return;
+                };
+
+                let tool_names: Vec<&str> = last_tool_names.iter().map(String::as_str).collect();
+                let latest_signal = state
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| matches!(message.role, Role::User | Role::Assistant))
+                    .map(|message| message.content.as_str())
+                    .unwrap_or(config.goal.as_str());
+                let should_escalate = routing.escalate_on_failure && had_failure;
+                let tier =
+                    classify_task(&tool_names, latest_signal, state.iteration, should_escalate);
+                let current_model = switcher.current_model();
+                let target_model = select_model(routing, tier, &current_model);
+                if target_model == current_model {
+                    return;
+                }
+                if let Err(error) = switcher.switch_model(&target_model) {
+                    debug!(
+                        current_model = %current_model,
+                        target_model = %target_model,
+                        tier = ?tier,
+                        error = %error,
+                        "Failed to switch routed model"
+                    );
+                } else {
+                    debug!(
+                        current_model = %current_model,
+                        target_model = %target_model,
+                        tier = ?tier,
+                        "Switched model via router"
+                    );
+                }
+            }
+
+            async fn maybe_compact_context(
+                &self,
+                state: &mut AgentState,
+                context_config: &ContextManagerConfig,
+                token_estimator: &mut TokenEstimator,
+            ) {
+                token_estimator.tick_cooldown();
+                let estimated = token_estimator.estimate(&state.messages);
+                if !token_estimator.compact_allowed()
+                    || !context_manager::should_compact(estimated, context_config)
+                {
+                    return;
+                }
+
+                match context_manager::compact(
+                    &mut state.messages,
+                    context_config,
+                    self.llm.as_ref(),
+                )
+                .await
+                {
+                    Ok(stats) => {
+                        tracing::info!(
+                            messages_replaced = stats.messages_replaced,
+                            tokens_before = stats.tokens_before,
+                            tokens_after = stats.tokens_after,
+                            "Context compacted"
+                        );
+                        if !context_manager::compact_was_effective(&stats) {
+                            tracing::warn!("Compact was ineffective, entering cooldown");
+                            token_estimator.start_compact_cooldown(5);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Context compaction failed, entering cooldown"
+                        );
+                        token_estimator.start_compact_cooldown(3);
+                    }
+                }
+            }
+
+            fn build_completion_request(
+                &self,
+                config: &AgentConfig,
+                state: &AgentState,
+            ) -> CompletionRequest {
+                let request_messages = sanitize_tool_call_history(state.messages.clone());
+                // TODO(ToolSearch): Currently sends ALL tool schemas to the LLM every turn.
+                // With 58+ tools this costs ~46K tokens per request. Instead:
+                //   let loaded_tools = self.tools.partition_for_deferred_loading();
+                //   let request = CompletionRequest::new(request_messages).with_tools(loaded_tools.schemas());
+                // See types/src/tool.rs Tool trait TODO for the full plan.
+                let mut request =
+                    CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
+
+                // Only set temperature if explicitly configured (some models don't support it)
+                if let Some(temp) = config.temperature {
+                    request = request.with_temperature(temp);
+                }
+                if let Some(max_tokens) = config.max_output_tokens {
+                    request = request.with_max_tokens(max_tokens);
+                }
+                request
+            }
+
+            fn record_llm_usage(
+                response: &CompletionResponse,
+                state: &mut AgentState,
+                token_estimator: &mut TokenEstimator,
+                tracker: &ResourceTracker,
+                totals: &mut ExecutionTotals,
+            ) -> bool {
+                if let Some(usage) = &response.usage {
+                    totals.total_tokens += usage.total_tokens;
+                    // Calibrate token estimator with actual prompt tokens
+                    if usage.prompt_tokens > 0 {
+                        let est = context_manager::estimate_tokens(&state.messages);
+                        token_estimator.calibrate(est, usage.prompt_tokens);
+                    }
+                    if let Some(cost) = usage.cost_usd {
+                        totals.total_cost_usd += cost;
+                        tracker.record_cost(cost);
+                    }
+                }
+                if let Err(e) = tracker.check_cost() {
+                    state.resource_exhaust(e.to_string());
+                    return false;
+                }
+                true
+            }
+
+            async fn handle_terminal_response(
+                state: &mut AgentState,
+                response: CompletionResponse,
+                emitter: &mut dyn StreamEmitter,
+            ) -> Result<bool> {
+                let answer = response.content.unwrap_or_default();
+                state.add_message(Message::assistant(&answer));
+
+                match response.finish_reason {
+                    FinishReason::MaxTokens => {
+                        state.fail("Response truncated due to max token limit");
+                        Ok(true)
+                    }
+                    FinishReason::Error => {
+                        state.fail("LLM returned an error");
+                        Ok(true)
+                    }
+                    _ => {
+                        if answer.trim().is_empty() && state.iteration == 0 {
+                            tracing::warn!("Empty LLM response on first iteration, retrying");
+                            state.iteration += 1;
+                            return Ok(false);
+                        }
+                        emitter.emit_complete().await;
+                        state.complete(&answer);
+                        Ok(true)
+                    }
+                }
+            }
+
+            fn current_model_and_provider(&self, config: &AgentConfig) -> (String, String) {
+                let current_model = config
+                    .model_switcher
+                    .as_ref()
+                    .map(|switcher| switcher.current_model())
+                    .unwrap_or_else(|| self.llm.model().to_string());
+                let current_provider = config
+                    .model_switcher
+                    .as_ref()
+                    .map(|switcher| switcher.current_provider())
+                    .unwrap_or_else(|| self.llm.provider().to_string());
+                (current_model, current_provider)
+            }
+
+            #[allow(clippy::too_many_arguments)]
+            async fn execute_tool_round(
+                &self,
+                config: &AgentConfig,
+                response: &CompletionResponse,
+                state: &mut AgentState,
+                emitter: &mut dyn StreamEmitter,
+                tracker: &ResourceTracker,
+                deferred_manager: &DeferredExecutionManager,
+                stuck_detector: &mut Option<StuckDetector>,
+                current_model: &str,
+                current_provider: &str,
+            ) -> bool {
+                // Add assistant message WITH tool_calls to maintain proper conversation history.
+                // This is required by OpenAI/Anthropic APIs to correlate tool results with their calls.
+                // Preserve provider-specific reasoning_content (e.g. DeepSeek) so it can be
+                // round-tripped back on subsequent requests.
+                state.add_message(Message::assistant_with_tool_calls_and_reasoning(
+                    response.content.clone(),
+                    response.tool_calls.clone(),
+                    response.reasoning_content.clone(),
+                ));
+
+                if let Err(e) = tracker.check() {
+                    state.resource_exhaust(e.to_string());
+                    return false;
+                }
+
+                let parent_run_id = state.execution_id.as_str();
+                let results = self
+                    .execute_tools_with_events(
+                        &response.tool_calls,
+                        emitter,
+                        ToolExecutionOptions {
+                            tool_timeout: config.tool_timeout,
+                            yolo_mode: config.yolo_mode,
+                            max_concurrency: config.max_tool_concurrency,
+                            invocation: ToolInvocationContext {
+                                parent_run_id: Some(parent_run_id),
+                                model: Some(current_model),
+                                provider: Some(current_provider),
+                            },
+                            reviewer: config.tool_call_reviewer.as_ref(),
+                            review_messages: &state.messages,
+                        },
+                    )
+                    .await;
+                tracker.record_tool_calls(results.len());
+
+                let mut tool_failed = false;
+                for (tool_call_id, result) in results {
+                    let tool_call = response.tool_calls.iter().find(|tc| tc.id == tool_call_id);
+                    let mut result_str = match result {
+                        Ok(output) if output.success => {
+                            serde_json::to_string(&output.result).unwrap_or_default()
+                        }
+                        Ok(output) => {
+                            if output
+                                .result
+                                .get("pending_approval")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                            {
+                                self.defer_pending_approval(
+                                    deferred_manager,
+                                    tool_call,
+                                    &tool_call_id,
+                                    output.result.get("approval_id").and_then(Value::as_str),
+                                )
+                                .await
+                            } else {
+                                tool_failed = true;
+                                format!("Error: {}", output.error.unwrap_or_default())
+                            }
+                        }
+                        Err(e) => {
+                            tool_failed = true;
+                            format!("Error: {}", e)
+                        }
+                    };
+
+                    let tool_name_for_truncate =
+                        tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
+                    result_str = truncate_tool_output(
+                        &result_str,
+                        config.max_tool_result_length,
+                        config.tool_output_dir.as_deref(),
+                        &tool_call_id,
+                        tool_name_for_truncate,
+                    );
+
+                    if let Some(detector) = stuck_detector {
+                        let args_json = tool_call
+                            .map(|tc| serde_json::to_string(&tc.arguments).unwrap_or_default())
+                            .unwrap_or_default();
+                        let tool_name = tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
+                        detector.record(tool_name, &args_json);
+                    }
+
+                    state.add_message(Message::tool_result(tool_call_id.clone(), result_str));
+                }
+                tool_failed
+            }
+
+            async fn defer_pending_approval(
+                &self,
+                deferred_manager: &DeferredExecutionManager,
+                tool_call: Option<&ToolCall>,
+                tool_call_id: &str,
+                approval_id: Option<&str>,
+            ) -> String {
+                if let Some(tool_call) = tool_call {
+                    let approval_id = approval_id.map(str::to_string);
+                    let deferred_args =
+                        inject_approval_id(&tool_call.arguments, approval_id.as_deref());
+                    deferred_manager
+                        .defer(
+                            tool_call_id,
+                            &tool_call.name,
+                            deferred_args,
+                            approval_id.clone(),
+                        )
+                        .await;
+                    format!(
+                        "Deferred execution for tool '{}' (approval_id: {}). Continuing with other work.",
+                        tool_call.name,
+                        approval_id.unwrap_or_else(|| "unknown".to_string())
+                    )
+                } else {
+                    "Deferred execution pending user approval.".to_string()
+                }
+            }
+
+            fn apply_stuck_detection(
+                state: &mut AgentState,
+                stuck_detector: &Option<StuckDetector>,
+            ) -> bool {
+                let Some(detector) = stuck_detector else {
+                    return false;
+                };
+                let Some(stuck_info) = detector.is_stuck() else {
+                    return false;
+                };
+                match detector.config().action {
+                    StuckAction::Nudge => {
+                        tracing::warn!(
+                            tool = %stuck_info.repeated_tool,
+                            count = stuck_info.repeat_count,
+                            "Agent stuck detected, injecting nudge message"
+                        );
+                        state.add_message(Message::system(stuck_info.message));
+                        false
+                    }
+                    StuckAction::Stop => {
+                        tracing::warn!(
+                            tool = %stuck_info.repeated_tool,
+                            count = stuck_info.repeat_count,
+                            "Agent stuck detected, stopping execution"
+                        );
+                        state.fail(format!(
+                            "Agent stuck: repeated '{}' {} times",
+                            stuck_info.repeated_tool, stuck_info.repeat_count
+                        ));
+                        true
+                    }
+                }
+            }
+
+            async fn flush_streaming_buffer(
+                streaming_buffer: &mut StreamingBuffer,
+                emitter: &mut dyn StreamEmitter,
+            ) {
+                for (_id, content) in streaming_buffer.flush_all() {
+                    emitter.emit_text_delta(&content).await;
+                }
+            }
+
+            fn build_agent_result(
+                state: AgentState,
+                tracker: &ResourceTracker,
+                totals: ExecutionTotals,
+            ) -> AgentResult {
+                let resource_usage = tracker.usage_snapshot();
+                AgentResult {
+                    success: matches!(state.status, AgentStatus::Completed),
+                    answer: state.final_answer.clone(),
+                    error: match &state.status {
+                        AgentStatus::Failed { error } => Some(error.clone()),
+                        AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
+                        AgentStatus::Interrupted { reason } => {
+                            Some(format!("Interrupted: {}", reason))
+                        }
+                        AgentStatus::ResourceExhausted { error } => Some(error.clone()),
+                        _ => None,
+                    },
+                    iterations: state.iteration,
+                    total_tokens: totals.total_tokens,
+                    total_cost_usd: totals.total_cost_usd,
+                    state,
+                    resource_usage,
+                }
+            }
+
             async fn execute_with_mode(
                 &self,
                 config: AgentConfig,
@@ -6970,44 +7394,22 @@ pub mod agent {
                 execution_id_override: Option<String>,
                 initial_state: Option<AgentState>,
             ) -> Result<AgentResult> {
-                let execution_id =
-                    execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 let mut streaming_buffer = StreamingBuffer::for_mode(config.stream_display_mode);
-                let mut state = initial_state
-                    .unwrap_or_else(|| AgentState::new(execution_id, config.max_iterations));
-                state.max_iterations = config.max_iterations;
-                state.context.extend(config.context.clone());
-                let mut total_tokens: u32 = 0;
-                let mut total_cost_usd: f64 = 0.0;
+                let mut state = self
+                    .initialize_execution_state(&config, execution_id_override, initial_state)
+                    .await;
+                let mut totals = ExecutionTotals::default();
                 let tracker = ResourceTracker::new(config.resource_limits.clone());
                 let context_config = ContextManagerConfig::default()
                     .with_context_window(config.context_window)
                     .with_prune_tool_max(config.prune_tool_max_chars)
                     .with_compact_preserve_tokens(config.compact_preserve_tokens);
                 let mut token_estimator = TokenEstimator::default();
-
-                // Initialize stuck detector
                 let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
                 let mut had_failure = false;
                 let mut last_tool_names: Vec<String> = Vec::new();
                 let deferred_manager = DeferredExecutionManager::new(Duration::from_secs(300));
 
-                // Initialize conversation only for fresh executions.
-                if state.messages.is_empty() {
-                    let system_prompt = self.build_system_prompt(&config).await;
-                    let system_msg = Message::system(&system_prompt);
-                    let user_msg = Message::user(&config.goal);
-
-                    state.add_message(system_msg);
-                    state.add_message(user_msg);
-                }
-                if config.prompt_flags.include_workspace_context
-                    && let Some(message) = self.build_workspace_instruction_user_message().await
-                {
-                    Self::inject_workspace_instruction_message(&mut state, message);
-                }
-
-                // Core loop (Swarm-inspired simplicity)
                 while state.iteration < state.max_iterations && !state.is_terminal() {
                     self.apply_steer_messages(&mut state, &deferred_manager)
                         .await;
@@ -7033,106 +7435,13 @@ pub mod agent {
                         break;
                     }
 
-                    // 1. LLM call
-                    if let Some(routing) = config
-                        .model_routing
-                        .as_ref()
-                        .filter(|routing| routing.enabled)
-                        && let Some(switcher) = config.model_switcher.as_ref()
-                    {
-                        let tool_names: Vec<&str> =
-                            last_tool_names.iter().map(String::as_str).collect();
-                        let messages = state.messages.clone();
-                        let latest_signal = messages
-                            .iter()
-                            .rev()
-                            .find(|message| matches!(message.role, Role::User | Role::Assistant))
-                            .map(|message| message.content.as_str())
-                            .unwrap_or(config.goal.as_str());
-                        let should_escalate = routing.escalate_on_failure && had_failure;
-                        let tier = classify_task(
-                            &tool_names,
-                            latest_signal,
-                            state.iteration,
-                            should_escalate,
-                        );
-                        let current_model = switcher.current_model();
-                        let target_model = select_model(routing, tier, &current_model);
-                        if target_model != current_model {
-                            if let Err(error) = switcher.switch_model(&target_model) {
-                                debug!(
-                                    current_model = %current_model,
-                                    target_model = %target_model,
-                                    tier = ?tier,
-                                    error = %error,
-                                    "Failed to switch routed model"
-                                );
-                            } else {
-                                debug!(
-                                    current_model = %current_model,
-                                    target_model = %target_model,
-                                    tier = ?tier,
-                                    "Switched model via router"
-                                );
-                            }
-                        }
-                    }
-
-                    // Context management: compact if approaching context window limit
-                    token_estimator.tick_cooldown();
-                    let estimated = token_estimator.estimate(&state.messages);
-                    if token_estimator.compact_allowed()
-                        && context_manager::should_compact(estimated, &context_config)
-                    {
-                        match context_manager::compact(
-                            &mut state.messages,
-                            &context_config,
-                            self.llm.as_ref(),
-                        )
-                        .await
-                        {
-                            Ok(stats) => {
-                                tracing::info!(
-                                    messages_replaced = stats.messages_replaced,
-                                    tokens_before = stats.tokens_before,
-                                    tokens_after = stats.tokens_after,
-                                    "Context compacted"
-                                );
-                                if !context_manager::compact_was_effective(&stats) {
-                                    tracing::warn!("Compact was ineffective, entering cooldown");
-                                    token_estimator.start_compact_cooldown(5);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    error = %e,
-                                    "Context compaction failed, entering cooldown"
-                                );
-                                token_estimator.start_compact_cooldown(3);
-                            }
-                        }
-                    }
-
-                    let request_messages = sanitize_tool_call_history(state.messages.clone());
-                    // TODO(ToolSearch): Currently sends ALL tool schemas to the LLM every turn.
-                    // With 58+ tools this costs ~46K tokens per request. Instead:
-                    //   let loaded_tools = self.tools.partition_for_deferred_loading();
-                    //   let request = CompletionRequest::new(request_messages).with_tools(loaded_tools.schemas());
-                    // See types/src/tool.rs Tool trait TODO for the full plan.
-                    let mut request =
-                        CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
-
-                    // Only set temperature if explicitly configured (some models don't support it)
-                    if let Some(temp) = config.temperature {
-                        request = request.with_temperature(temp);
-                    }
-                    if let Some(max_tokens) = config.max_output_tokens {
-                        request = request.with_max_tokens(max_tokens);
-                    }
+                    Self::maybe_route_model(&config, &state, &last_tool_names, had_failure);
+                    self.maybe_compact_context(&mut state, &context_config, &mut token_estimator)
+                        .await;
 
                     let response = self
                         .execute_llm_completion(
-                            request,
+                            self.build_completion_request(&config, &state),
                             stream_llm,
                             emitter,
                             state.iteration + 1,
@@ -7141,227 +7450,56 @@ pub mod agent {
                             config.llm_timeout,
                         )
                         .await?;
-                    let current_model = config
-                        .model_switcher
-                        .as_ref()
-                        .map(|switcher| switcher.current_model())
-                        .unwrap_or_else(|| self.llm.model().to_string());
-                    let current_provider = config
-                        .model_switcher
-                        .as_ref()
-                        .map(|switcher| switcher.current_provider())
-                        .unwrap_or_else(|| self.llm.provider().to_string());
-                    // Track token usage
-                    if let Some(usage) = &response.usage {
-                        total_tokens += usage.total_tokens;
-                        // Calibrate token estimator with actual prompt tokens
-                        if usage.prompt_tokens > 0 {
-                            let est = context_manager::estimate_tokens(&state.messages);
-                            token_estimator.calibrate(est, usage.prompt_tokens);
-                        }
-                        if let Some(cost) = usage.cost_usd {
-                            total_cost_usd += cost;
-                            tracker.record_cost(cost);
-                        }
-                    }
-                    if let Err(e) = tracker.check_cost() {
-                        state.resource_exhaust(e.to_string());
+
+                    if !Self::record_llm_usage(
+                        &response,
+                        &mut state,
+                        &mut token_estimator,
+                        &tracker,
+                        &mut totals,
+                    ) {
                         break;
                     }
 
-                    // 2. No tool calls → check finish reason and complete
                     if response.tool_calls.is_empty() {
-                        let answer = response.content.unwrap_or_default();
-                        let assistant_msg = Message::assistant(&answer);
-                        state.add_message(assistant_msg);
                         last_tool_names.clear();
-
-                        match response.finish_reason {
-                            FinishReason::MaxTokens => {
-                                state.fail("Response truncated due to max token limit");
-                                break;
-                            }
-                            FinishReason::Error => {
-                                state.fail("LLM returned an error");
-                                break;
-                            }
-                            _ => {
-                                if answer.trim().is_empty() && state.iteration == 0 {
-                                    tracing::warn!(
-                                        "Empty LLM response on first iteration, retrying"
-                                    );
-                                    state.iteration += 1;
-                                    continue;
-                                }
-                                emitter.emit_complete().await;
-                                state.complete(&answer);
-                                break;
-                            }
+                        if Self::handle_terminal_response(&mut state, response, emitter).await? {
+                            break;
                         }
+                        continue;
                     }
 
-                    // Add assistant message WITH tool_calls to maintain proper conversation history
-                    // This is required by OpenAI/Anthropic APIs to correlate tool results with their calls.
-                    // Preserve provider-specific reasoning_content (e.g. DeepSeek) so it can be
-                    // round-tripped back on subsequent requests.
-                    let tool_call_msg = Message::assistant_with_tool_calls_and_reasoning(
-                        response.content.clone(),
-                        response.tool_calls.clone(),
-                        response.reasoning_content.clone(),
-                    );
-                    state.add_message(tool_call_msg);
-
-                    // Check all resource limits before tool execution
-                    if let Err(e) = tracker.check() {
-                        state.resource_exhaust(e.to_string());
-                        break;
-                    }
-
-                    // 3. Execute tools with timeout and optional stream events.
-                    let parent_run_id = state.execution_id.as_str();
-                    let results = self
-                        .execute_tools_with_events(
-                            &response.tool_calls,
-                            emitter,
-                            ToolExecutionOptions {
-                                tool_timeout: config.tool_timeout,
-                                yolo_mode: config.yolo_mode,
-                                max_concurrency: config.max_tool_concurrency,
-                                invocation: ToolInvocationContext {
-                                    parent_run_id: Some(parent_run_id),
-                                    model: Some(current_model.as_str()),
-                                    provider: Some(current_provider.as_str()),
-                                },
-                                reviewer: config.tool_call_reviewer.as_ref(),
-                                review_messages: &state.messages,
-                            },
-                        )
-                        .await;
-                    tracker.record_tool_calls(results.len());
+                    let (current_model, current_provider) =
+                        self.current_model_and_provider(&config);
                     last_tool_names = response
                         .tool_calls
                         .iter()
                         .map(|call| call.name.clone())
                         .collect();
-                    let mut tool_failed = false;
-
-                    for (tool_call_id, result) in results {
-                        let tool_call = response.tool_calls.iter().find(|tc| tc.id == tool_call_id);
-                        let mut result_str = match result {
-                            Ok(output) if output.success => {
-                                serde_json::to_string(&output.result).unwrap_or_default()
-                            }
-                            Ok(output) => {
-                                if output
-                                    .result
-                                    .get("pending_approval")
-                                    .and_then(Value::as_bool)
-                                    .unwrap_or(false)
-                                {
-                                    if let Some(tool_call) = tool_call {
-                                        let approval_id = output
-                                            .result
-                                            .get("approval_id")
-                                            .and_then(Value::as_str)
-                                            .map(str::to_string);
-                                        let deferred_args = inject_approval_id(
-                                            &tool_call.arguments,
-                                            approval_id.as_deref(),
-                                        );
-                                        deferred_manager
-                                            .defer(
-                                                &tool_call_id,
-                                                &tool_call.name,
-                                                deferred_args,
-                                                approval_id.clone(),
-                                            )
-                                            .await;
-                                        format!(
-                                            "Deferred execution for tool '{}' (approval_id: {}). Continuing with other work.",
-                                            tool_call.name,
-                                            approval_id.unwrap_or_else(|| "unknown".to_string())
-                                        )
-                                    } else {
-                                        "Deferred execution pending user approval.".to_string()
-                                    }
-                                } else {
-                                    tool_failed = true;
-                                    format!("Error: {}", output.error.unwrap_or_default())
-                                }
-                            }
-                            Err(e) => {
-                                tool_failed = true;
-                                format!("Error: {}", e)
-                            }
-                        };
-
-                        // Truncate long results with middle-truncation and disk persistence
-                        let tool_name_for_truncate =
-                            tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
-                        result_str = truncate_tool_output(
-                            &result_str,
-                            config.max_tool_result_length,
-                            config.tool_output_dir.as_deref(),
-                            &tool_call_id,
-                            tool_name_for_truncate,
-                        );
-
-                        // Record tool call for stuck detection
-                        if let Some(ref mut detector) = stuck_detector {
-                            let args_json = tool_call
-                                .map(|tc| serde_json::to_string(&tc.arguments).unwrap_or_default())
-                                .unwrap_or_default();
-                            let tool_name =
-                                tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
-                            detector.record(tool_name, &args_json);
-                        }
-
-                        // Add tool result to state
-                        let tool_result_msg =
-                            Message::tool_result(tool_call_id.clone(), result_str);
-                        state.add_message(tool_result_msg);
-                    }
-                    had_failure = tool_failed;
-
-                    // Check for stuck agent after tool execution
-                    if let Some(ref detector) = stuck_detector
-                        && let Some(stuck_info) = detector.is_stuck()
+                    had_failure = self
+                        .execute_tool_round(
+                            &config,
+                            &response,
+                            &mut state,
+                            emitter,
+                            &tracker,
+                            &deferred_manager,
+                            &mut stuck_detector,
+                            &current_model,
+                            &current_provider,
+                        )
+                        .await;
+                    if state.is_terminal()
+                        || Self::apply_stuck_detection(&mut state, &stuck_detector)
                     {
-                        match detector.config().action {
-                            StuckAction::Nudge => {
-                                tracing::warn!(
-                                    tool = %stuck_info.repeated_tool,
-                                    count = stuck_info.repeat_count,
-                                    "Agent stuck detected, injecting nudge message"
-                                );
-                                let nudge_msg = Message::system(stuck_info.message);
-                                state.add_message(nudge_msg);
-                            }
-                            StuckAction::Stop => {
-                                tracing::warn!(
-                                    tool = %stuck_info.repeated_tool,
-                                    count = stuck_info.repeat_count,
-                                    "Agent stuck detected, stopping execution"
-                                );
-                                state.fail(format!(
-                                    "Agent stuck: repeated '{}' {} times",
-                                    stuck_info.repeated_tool, stuck_info.repeat_count
-                                ));
-                                break;
-                            }
-                        }
+                        break;
                     }
 
                     state.increment_iteration();
-
-                    for (_id, content) in streaming_buffer.flush_all() {
-                        emitter.emit_text_delta(&content).await;
-                    }
+                    Self::flush_streaming_buffer(&mut streaming_buffer, emitter).await;
                 }
 
-                for (_id, content) in streaming_buffer.flush_all() {
-                    emitter.emit_text_delta(&content).await;
-                }
+                Self::flush_streaming_buffer(&mut streaming_buffer, emitter).await;
 
                 // Context management: prune old tool results after the loop.
                 let prune_stats = context_manager::prune(&mut state.messages, &context_config);
@@ -7373,26 +7511,7 @@ pub mod agent {
                     );
                 }
 
-                // Build result
-                let resource_usage = tracker.usage_snapshot();
-                Ok(AgentResult {
-                    success: matches!(state.status, AgentStatus::Completed),
-                    answer: state.final_answer.clone(),
-                    error: match &state.status {
-                        AgentStatus::Failed { error } => Some(error.clone()),
-                        AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
-                        AgentStatus::Interrupted { reason } => {
-                            Some(format!("Interrupted: {}", reason))
-                        }
-                        AgentStatus::ResourceExhausted { error } => Some(error.clone()),
-                        _ => None,
-                    },
-                    iterations: state.iteration,
-                    total_tokens,
-                    total_cost_usd,
-                    state,
-                    resource_usage,
-                })
+                Ok(Self::build_agent_result(state, &tracker, totals))
             }
         }
 

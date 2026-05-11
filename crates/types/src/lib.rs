@@ -4851,7 +4851,10 @@ pub mod session {
         pub name: String,
         /// ID of the agent this session is with
         pub agent_id: String,
-        /// Current provider for this session
+        /// Current provider for this session.
+        ///
+        /// Kept as a string for now because session JSON is a user-facing persistence
+        /// format. Prefer typed accessors at call sites before changing this field.
         #[serde(default)]
         pub provider: String,
         /// Current model for this session
