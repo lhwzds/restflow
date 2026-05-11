@@ -21,7 +21,6 @@ restflow-core = { workspace = true }
 # External dependencies
 anyhow = "1.0.101"
 async-trait = "0.1.89"
-chrono = "0.4.44"
 hex = "0.4.3"
 parking_lot = "0.12"
 regex = "1.11.1"

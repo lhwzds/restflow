@@ -2596,7 +2596,7 @@ mod prompt_files {
     - Do not try to execute skills through `load_skill`.
     - Treat external capabilities such as Python execution, HTTP calls, web search,
       browser automation, audio transcription, image analysis, and notifications as
-      external `skrun` skills, not core runtime tools.
+      optional `skrun` skills, not built-in runtime capabilities.
 
     ## Working Style
 
@@ -3706,11 +3706,11 @@ pub mod services {
     }
 
     pub mod adapters {
-        //! Storage-backed adapter implementations for tool traits.
+        //! Storage-backed adapter implementations for shared runtime traits.
         //!
-        //! Each adapter bridges a runtime storage type to a tool trait
-        //! defined in types, making storage functionality available
-        //! to tool implementations in tools.
+        //! Each adapter bridges a core storage type to a trait defined in
+        //! `types`, so runtime callers can access storage without depending on
+        //! core internals.
 
         pub mod agent {
             //! AgentStore adapter backed by AgentStorage.
@@ -7436,7 +7436,7 @@ pub mod services {
                 if !known_tools.contains(tool.as_str()) {
                     errors.push(ValidationError::new(
                         "suggested_tools",
-                        format!("Tool '{tool}' not found in registry"),
+                        format!("Tool '{tool}' not found in available tool set"),
                     ));
                 }
             }

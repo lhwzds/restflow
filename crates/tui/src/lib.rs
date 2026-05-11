@@ -394,7 +394,6 @@ mod composer {
     }
 
     impl ComposerState {
-        #[allow(dead_code)]
         pub fn draft(&self) -> &str {
             &self.draft
         }
@@ -11412,11 +11411,9 @@ mod state {
         transcript_cells,
     };
 
-    #[allow(dead_code)]
     #[derive(Debug, Clone)]
     pub enum WorkPickerItem {
         Run {
-            run_id: String,
             kind: RunKind,
             title: String,
             status: String,
@@ -11601,7 +11598,6 @@ mod state {
         }
     }
 
-    #[allow(dead_code)]
     #[derive(Debug, Clone)]
     pub enum OverlayState {
         CommandPicker { selected: usize },
@@ -12034,7 +12030,6 @@ mod state {
             self.selected_skill = None;
         }
 
-        #[allow(dead_code)]
         pub fn open_session_picker(&mut self) {
             self.overlay = Some(OverlayState::SessionPicker { selected: 0 });
         }
@@ -12073,12 +12068,10 @@ mod state {
             });
         }
 
-        #[allow(dead_code)]
         pub fn open_run_picker(&mut self) {
             self.overlay = Some(OverlayState::RunPicker { selected: 0 });
         }
 
-        #[allow(dead_code)]
         pub fn open_help_overlay(&mut self) {
             self.overlay = Some(OverlayState::Help);
         }
@@ -12307,8 +12300,7 @@ mod state {
     pub fn build_work_picker_items(runs: &[RunSummary]) -> Vec<WorkPickerItem> {
         let mut items = Vec::new();
         items.extend(runs.iter().filter_map(|run| {
-            run.run_id.as_ref().map(|run_id| WorkPickerItem::Run {
-                run_id: run_id.clone(),
+            run.run_id.as_ref().map(|_| WorkPickerItem::Run {
                 kind: run.kind,
                 title: run.title.clone(),
                 status: run.status.to_string(),
@@ -12762,7 +12754,7 @@ mod state {
             }
         }
 
-        #[allow(dead_code)]
+        #[cfg(test)]
         pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
             let mut cells = Vec::with_capacity(
                 self.conversation_cells.len()
@@ -13155,7 +13147,8 @@ mod state {
                 .collect::<Vec<_>>();
             assert_eq!(tool_subtitles.len(), 2);
             assert!(tool_subtitles[0].contains("#call-1 · running.."));
-            assert!(tool_subtitles[1].contains("#call-2 · running.."));
+            assert!(tool_subtitles[1].contains("#call-2 · running"));
+            assert!(tool_subtitles[1].contains("0s"));
         }
 
         #[test]

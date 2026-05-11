@@ -3354,7 +3354,6 @@ pub mod daemon {
             pub(super) use uuid::Uuid;
 
             pub(super) struct TestCoreEnv {
-                #[allow(dead_code)]
                 pub state: RestflowTestEnv,
             }
 

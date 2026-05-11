@@ -14,18 +14,12 @@ futures = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-chrono.workspace = true
-uuid.workspace = true
-tracing.workspace = true
 glob-match = "0.2"
 regex = "1.11.1"
 nix = { version = "0.31", features = ["signal", "process"] }
 parking_lot = "0.12"
-schemars = "1.2"
-shell-words = "1.1"
 skrun.workspace = true
 tempfile = "3.25.0"
-walkdir = "2"
 
 [dev-dependencies]
 agent = { workspace = true, features = ["test-utils"] }
