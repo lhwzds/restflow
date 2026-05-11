@@ -8079,11 +8079,81 @@ mod shell {
     }
 
     fn format_title(cell: &TranscriptCell) -> String {
-        match (&cell.subtitle, cell.is_active) {
-            (Some(subtitle), true) => format!("{} · {}", cell.title, subtitle),
-            (Some(subtitle), false) => format!("{} {}", cell.title, subtitle),
-            (None, _) => cell.title.clone(),
+        let title = match tool_title_input(cell) {
+            Some(input) => format!("{} {}", cell.title, input),
+            None => cell.title.clone(),
+        };
+        match (visible_subtitle(cell.subtitle.as_deref()), cell.is_active) {
+            (Some(subtitle), true) => format!("{title} · {subtitle}"),
+            (Some(subtitle), false) => format!("{title} {subtitle}"),
+            (None, _) => title,
         }
+    }
+
+    fn tool_title_input(cell: &TranscriptCell) -> Option<String> {
+        if cell.kind != TranscriptCellKind::Tool || cell.group != MessageGroup::ToolActivity {
+            return None;
+        }
+        summarize_tool_input_for_title(cell.body.as_str())
+    }
+
+    fn summarize_tool_input_for_title(body: &str) -> Option<String> {
+        if let Some(input) = json_after_tool_label(body, "Input:") {
+            return summarize_tool_input_json_for_title(&input).or_else(|| {
+                let input = compact_json(&input);
+                Some(format!("'{}'", escape_single_quoted(&input)))
+            });
+        }
+        text_after_tool_label(body, "Input:")
+            .map(compact_tool_text)
+            .filter(|input| !input.is_empty())
+            .map(|input| format!("'{}'", escape_single_quoted(&input)))
+    }
+
+    fn summarize_tool_input_json_for_title(value: &Value) -> Option<String> {
+        if let Some(command) = value
+            .get("command")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(format!(
+                "'{}'",
+                escape_single_quoted(&compact_command(command))
+            ));
+        }
+
+        if let Some(query) = value
+            .get("query")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(format!(
+                "'{}'",
+                escape_single_quoted(&compact_tool_text(query))
+            ));
+        }
+
+        summarize_tool_input_json(value)
+            .and_then(|summary| summary.strip_prefix("Input: ").map(ToOwned::to_owned))
+    }
+
+    fn escape_single_quoted(value: &str) -> String {
+        value.replace('\'', "\\'")
+    }
+
+    fn visible_subtitle(subtitle: Option<&str>) -> Option<&str> {
+        let subtitle = subtitle?.trim();
+        if subtitle.is_empty() {
+            return None;
+        }
+        let Some(rest) = subtitle.strip_prefix('#') else {
+            return Some(subtitle);
+        };
+        rest.split_once(" · ")
+            .map(|(_, visible)| visible.trim())
+            .filter(|visible| !visible.is_empty())
     }
 
     fn normalize_body_lines(body: &str) -> Vec<String> {
@@ -8121,11 +8191,13 @@ mod shell {
         {
             return vec![String::new()];
         }
-        if matches!(
-            cell.kind,
-            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
-        ) && cell.group == MessageGroup::ToolActivity
+        if cell.kind == TranscriptCellKind::Tool
+            && cell.group == MessageGroup::ToolActivity
+            && has_tool_activity_labels(cell.body.as_str())
         {
+            return structured_tool_activity_body_lines(cell.body.as_str());
+        }
+        if cell.kind == TranscriptCellKind::Subagent && cell.group == MessageGroup::ToolActivity {
             let lines = structured_tool_activity_body_lines(cell.body.as_str());
             if !lines.is_empty() {
                 return lines;
@@ -8134,20 +8206,12 @@ mod shell {
         normalize_body_lines(cell.body.as_str())
     }
 
+    fn has_tool_activity_labels(body: &str) -> bool {
+        body.contains("Input:") || body.contains("Output:") || body.contains("Error:")
+    }
+
     fn structured_tool_activity_body_lines(body: &str) -> Vec<String> {
         let mut lines = Vec::new();
-
-        match json_after_tool_label(body, "Input:") {
-            Some(input) => lines.push(
-                summarize_tool_input_json(&input)
-                    .unwrap_or_else(|| format!("Input: {}", compact_json(&input))),
-            ),
-            None => {
-                if let Some(input) = text_after_tool_label(body, "Input:") {
-                    lines.push(format!("Input: {}", compact_tool_text(input)));
-                }
-            }
-        }
 
         append_tool_result_lines(&mut lines, body, "Output:");
         append_tool_result_lines(&mut lines, body, "Error:");
@@ -8164,16 +8228,33 @@ mod shell {
                     _ => None,
                 }
                 .unwrap_or_else(|| format!("{display_label}: {}", compact_json(&value)));
-                lines.push(summary);
+                lines.push(visible_tool_result_line(label, &summary));
                 append_process_stream_lines(lines, &value, "stdout");
                 append_process_stream_lines(lines, &value, "stderr");
             }
             None => {
                 if let Some(value) = text_after_tool_label(body, label) {
-                    lines.push(format!("{display_label}: {}", compact_tool_text(value)));
+                    let value = compact_tool_text(value);
+                    if label == "Output:" {
+                        lines.push(value);
+                    } else {
+                        lines.push(format!("{display_label}: {value}"));
+                    }
                 }
             }
         }
+    }
+
+    fn visible_tool_result_line(label: &str, summary: &str) -> String {
+        if label != "Output:" {
+            return summary.to_string();
+        }
+        summary
+            .strip_prefix("Output:")
+            .map(str::trim_start)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(summary)
+            .to_string()
     }
 
     fn append_process_stream_lines(lines: &mut Vec<String>, value: &Value, field: &str) {
@@ -9336,6 +9417,46 @@ mod shell {
         }
 
         #[test]
+        fn tool_titles_hide_internal_call_ids() {
+            let inactive = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call_08b6e0db075f424386babde3".to_string()),
+                body: "Output: ok".to_string(),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+            assert_eq!(format_title(&inactive), "Tool · bash");
+
+            let active = TranscriptCell {
+                subtitle: Some("#call_08b6e0db075f424386babde3 · running... 6s".to_string()),
+                is_active: true,
+                ..inactive
+            };
+            assert_eq!(format_title(&active), "Tool · bash · running... 6s");
+        }
+
+        #[test]
+        fn tool_titles_render_input_after_tool_name() {
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-1 · running... 2s".to_string()),
+                body: format!(
+                    "Input: {}",
+                    serde_json::json!({"command": "ls   -la  /tmp"})
+                ),
+                group: MessageGroup::ToolActivity,
+                is_active: true,
+            };
+
+            assert_eq!(
+                format_title(&cell),
+                "Tool · bash 'ls -la /tmp' · running... 2s"
+            );
+        }
+
+        #[test]
         fn transcript_lines_style_user_assistant_and_tool_titles() {
             let lines = super::build_cell_lines(
                 &[
@@ -9868,18 +9989,24 @@ mod shell {
             let lines = line_texts(&super::build_message_lines(&state, 100, 12));
             let first_tool_index = lines
                 .iter()
-                .position(|line| line.contains("Tool · bash") && line.contains("#call-df"))
-                .expect("first tool cell");
+                .position(|line| line.contains("Tool · bash 'df -h"))
+                .expect("first tool title");
             let second_tool_index = lines
                 .iter()
-                .position(|line| line.contains("Tool · bash") && line.contains("#call-ls"))
-                .expect("second tool cell");
+                .position(|line| line.contains("Tool · bash 'ls'"))
+                .expect("second tool title");
 
             assert!(first_tool_index < second_tool_index);
+            assert_eq!(
+                lines
+                    .iter()
+                    .filter(|line| line.starts_with("Tool · bash"))
+                    .count(),
+                2
+            );
+            assert!(!lines.iter().any(|line| line.contains("#call-")));
+            assert!(!lines.iter().any(|line| line.contains("Input:")));
             assert!(!lines.iter().any(|line| line.contains("Tool activity")));
-            assert!(!lines[first_tool_index].contains("df -h"));
-            assert!(lines.iter().any(|line| line.contains("df -h")));
-            assert!(lines.iter().any(|line| line.contains("Input: $ ls")));
         }
 
         #[test]
@@ -10718,9 +10845,10 @@ mod shell {
             assert!(
                 rendered
                     .iter()
-                    .any(|line| line.contains("Tool · web_search #call-1"))
+                    .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
-            assert!(rendered.iter().any(|line| line.contains("Input:")));
+            assert!(!rendered.iter().any(|line| line.contains("#call-1")));
+            assert!(!rendered.iter().any(|line| line.contains("Input:")));
             assert!(rendered.iter().any(|line| line.contains("Final answer")));
         }
 
@@ -10771,8 +10899,14 @@ mod shell {
 
             let rendered = line_texts(&super::build_message_lines(&state, 100, 30));
 
-            assert!(rendered.iter().any(|line| line.contains("Input: $ printf")));
-            assert!(rendered.iter().any(|line| line.contains("Output: exit 0")));
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("Tool · bash 'printf"))
+            );
+            assert!(!rendered.iter().any(|line| line.contains("Input:")));
+            assert!(rendered.iter().any(|line| line.contains("exit 0")));
+            assert!(!rendered.iter().any(|line| line.contains("Output: exit 0")));
             assert!(rendered.iter().any(|line| line.trim() == "stdout:"));
             assert!(rendered.iter().any(|line| line.trim() == "LONG_TOOL_1"));
             assert!(rendered.iter().any(|line| line.trim() == "LONG_TOOL_2"));
@@ -10858,7 +10992,7 @@ mod shell {
                 Line::from("You"),
                 Line::from("  run lots of output"),
                 Line::from(""),
-                Line::from("Tool · bash #call-1"),
+                Line::from("Tool · bash"),
             ];
             lines.extend((1..=20).map(|index| Line::from(format!("  LONG_TOOL_{index}"))));
 
@@ -10866,7 +11000,7 @@ mod shell {
 
             assert_eq!(rendered[0], "You");
             assert_eq!(rendered[1], "  run lots of output");
-            assert!(rendered.iter().any(|line| line == "Tool · bash #call-1"));
+            assert!(rendered.iter().any(|line| line == "Tool · bash"));
             assert!(rendered.iter().any(|line| line == CLIPPED_CELL_MARKER));
             assert!(rendered.iter().any(|line| line.contains("LONG_TOOL_20")));
             assert_eq!(rendered.len(), 8);
