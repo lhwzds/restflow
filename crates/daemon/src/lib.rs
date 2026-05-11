@@ -1711,7 +1711,7 @@ pub mod daemon {
 
                 pub(super) async fn handle_get_available_tools(
                     core: &Arc<AppCore>,
-                    runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
+                    runtime_tool_registry: &OnceLock<types::toolset::ToolRegistry>,
                 ) -> IpcResponse {
                     match get_runtime_tool_registry(core, runtime_tool_registry) {
                         Ok(registry) => {
@@ -1728,7 +1728,7 @@ pub mod daemon {
 
                 pub(super) async fn handle_get_available_tool_definitions(
                     core: &Arc<AppCore>,
-                    runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
+                    runtime_tool_registry: &OnceLock<types::toolset::ToolRegistry>,
                 ) -> IpcResponse {
                     match get_runtime_tool_registry(core, runtime_tool_registry) {
                         Ok(registry) => {
@@ -1749,7 +1749,7 @@ pub mod daemon {
 
                 pub(super) async fn handle_execute_tool(
                     core: &Arc<AppCore>,
-                    runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
+                    runtime_tool_registry: &OnceLock<types::toolset::ToolRegistry>,
                     name: String,
                     input: serde_json::Value,
                 ) -> IpcResponse {
@@ -1782,7 +1782,7 @@ pub mod daemon {
 
                 pub(crate) async fn process(
                     core: &Arc<AppCore>,
-                    runtime_tool_registry: &OnceLock<::agent::tools::ToolRegistry>,
+                    runtime_tool_registry: &OnceLock<types::toolset::ToolRegistry>,
                     request: IpcRequest,
                 ) -> IpcResponse {
                     match request {
@@ -1990,7 +1990,7 @@ pub mod daemon {
 
             pub(super) fn create_runtime_tool_registry_with_assessment(
                 core: &Arc<AppCore>,
-            ) -> anyhow::Result<::agent::tools::ToolRegistry> {
+            ) -> anyhow::Result<types::toolset::ToolRegistry> {
                 create_runtime_tool_registry(core.storage.config.clone(), None, None)
             }
 
@@ -1998,7 +1998,7 @@ pub mod daemon {
                 config_storage: restflow_core::ConfigStorage,
                 agent_id: Option<String>,
                 security_gate: Option<Arc<dyn types::tool::SecurityGate>>,
-            ) -> anyhow::Result<::agent::tools::ToolRegistry> {
+            ) -> anyhow::Result<types::toolset::ToolRegistry> {
                 let config_storage = Arc::new(config_storage);
                 let agent_defaults = load_agent_defaults(&config_storage);
                 let skill_provider =
@@ -2057,8 +2057,8 @@ pub mod daemon {
 
             pub(super) fn get_runtime_tool_registry<'a>(
                 core: &Arc<AppCore>,
-                runtime_tool_registry: &'a OnceLock<::agent::tools::ToolRegistry>,
-            ) -> Result<&'a ::agent::tools::ToolRegistry, String> {
+                runtime_tool_registry: &'a OnceLock<types::toolset::ToolRegistry>,
+            ) -> Result<&'a types::toolset::ToolRegistry, String> {
                 if let Some(registry) = runtime_tool_registry.get() {
                     return Ok(registry);
                 }
@@ -2705,7 +2705,7 @@ pub mod daemon {
         pub struct IpcServer {
             core: Arc<AppCore>,
             socket_path: PathBuf,
-            runtime_tool_registry: Arc<OnceLock<::agent::tools::ToolRegistry>>,
+            runtime_tool_registry: Arc<OnceLock<types::toolset::ToolRegistry>>,
         }
 
         fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
@@ -3068,7 +3068,7 @@ pub mod daemon {
             async fn handle_client(
                 mut stream: UnixStream,
                 core: Arc<AppCore>,
-                runtime_tool_registry: Arc<OnceLock<::agent::tools::ToolRegistry>>,
+                runtime_tool_registry: Arc<OnceLock<types::toolset::ToolRegistry>>,
             ) -> Result<()> {
                 loop {
                     let mut len_buf = [0u8; 4];
@@ -4548,7 +4548,7 @@ pub mod daemon {
         }
 
         pub fn start_daemon() -> Result<u32> {
-            start_daemon_with_config(DaemonConfig::default())
+            start_daemon_with_config(DaemonConfig)
         }
 
         pub fn start_daemon_with_config(config: DaemonConfig) -> Result<u32> {
@@ -4583,7 +4583,7 @@ pub mod daemon {
         }
 
         pub async fn ensure_daemon_running() -> Result<()> {
-            ensure_daemon_running_with_config(DaemonConfig::default()).await
+            ensure_daemon_running_with_config(DaemonConfig).await
         }
 
         pub async fn ensure_daemon_running_with_config(config: DaemonConfig) -> Result<()> {
@@ -5439,7 +5439,6 @@ pub mod daemon {
     pub use restflow_core::session_events::{
         ChatSessionEvent, publish_session_event, subscribe_session_events,
     };
-    pub use types::{ToolDefinition, ToolExecutionResult};
 }
 
 #[cfg(test)]
@@ -5541,11 +5540,12 @@ mod integration_tests {
             SubagentDeps, SubagentManagerImpl, SubagentTracker,
         };
         use ::agent::llm::{MockLlmClient, MockStep};
-        use ::agent::tools::ToolRegistry;
-        use ::tools::{ListSubagentsTool, SpawnSubagentTool, Tool, WaitSubagentsTool};
+        use ::tools::{ListSubagentsTool, SpawnSubagentTool, WaitSubagentsTool};
         use serde_json::json;
         use tokio::sync::mpsc;
         use types::SubagentManager;
+        use types::tool::Tool;
+        use types::toolset::ToolRegistry;
 
         const TEST_PARENT_RUN_ID: &str = "parent-1";
 

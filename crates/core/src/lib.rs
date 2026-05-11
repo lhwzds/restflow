@@ -2749,8 +2749,7 @@ mod prompt_files {
 }
 pub mod provider_policy {
     use types::provider_meta;
-
-    use super::{ModelId, Provider};
+    use types::{ModelId, Provider};
 
     const DISPLAY_PROVIDER_ORDER: &[Provider] = &[
         Provider::OpenAI,
@@ -4074,6 +4073,12 @@ pub mod services {
             }
 
             pub struct OpsProviderAdapter;
+
+            impl Default for OpsProviderAdapter {
+                fn default() -> Self {
+                    Self::new()
+                }
+            }
 
             impl OpsProviderAdapter {
                 pub fn new() -> Self {
@@ -6220,7 +6225,7 @@ pub mod services {
                     })
                     .collect::<Vec<_>>();
 
-                containers.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+                containers.sort_by_key(|container| std::cmp::Reverse(container.updated_at));
                 Ok(containers)
             }
 
@@ -6239,7 +6244,7 @@ pub mod services {
                                     .map(|turn| workspace_run_summary(&session, turn)),
                             );
                         }
-                        runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+                        runs.sort_by_key(|run| std::cmp::Reverse(run.updated_at));
                         Ok(runs)
                     }
                 }
@@ -6766,17 +6771,21 @@ pub mod services {
         }
 
         fn turn_title(turn: &ChatTurn) -> Option<String> {
-            turn.events.iter().find_map(|event| match &event.kind {
-                ChatTurnEventKind::UserMessage { content } => Some(trim_title(content)),
-                ChatTurnEventKind::AssistantMessage { content } => Some(trim_title(content)),
-                ChatTurnEventKind::ToolCall { name, .. } => Some(format!("Tool: {name}")),
-                ChatTurnEventKind::ToolResult { call_id, .. } => {
-                    Some(format!("Tool result: {call_id}"))
-                }
-                ChatTurnEventKind::Progress { message } => Some(trim_title(message)),
-                ChatTurnEventKind::Error { message } => Some(trim_title(message)),
-                ChatTurnEventKind::Canceled => Some("Canceled turn".to_string()),
-            })
+            turn.events
+                .iter()
+                .map(|event| match &event.kind {
+                    ChatTurnEventKind::UserMessage { content } => Some(trim_title(content)),
+                    ChatTurnEventKind::AssistantMessage { content } => Some(trim_title(content)),
+                    ChatTurnEventKind::ToolCall { name, .. } => Some(format!("Tool: {name}")),
+                    ChatTurnEventKind::ToolResult { call_id, .. } => {
+                        Some(format!("Tool result: {call_id}"))
+                    }
+                    ChatTurnEventKind::Progress { message } => Some(trim_title(message)),
+                    ChatTurnEventKind::Error { message } => Some(trim_title(message)),
+                    ChatTurnEventKind::Canceled => Some("Canceled turn".to_string()),
+                })
+                .next()
+                .flatten()
         }
 
         fn trim_title(value: &str) -> String {
@@ -9969,20 +9978,12 @@ pub use config::{
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use services::agent_catalog::{AgentStorage, DEFAULT_ASSISTANT_NAME, StoredAgent};
 pub use steer::SteerRegistry;
-pub use types::{
-    AgentMeta, AgentNode, AgentType, ApiKeyConfig, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, CodexCliExecutionMode,
-    ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionStepInfo,
-    MessageExecution, ModelId, ModelMetadataDTO, ModelRoutingConfig, Provider, RunKind,
-    RunListQuery, RunStatus, RunSummary, Skill, SkillGating, SkillMeta, SkillReference,
-    SkillScript, SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError,
-    ValidationErrorResponse, encode_validation_error,
-};
 
 use anyhow::Context;
 use std::sync::Arc;
 use storage::Storage;
 use tracing::{info, warn};
+use types::AgentNode;
 use types::encode_validation_error as encode_agent_validation_error;
 
 fn normalize_agent_model_fields(agent: &mut AgentNode) -> anyhow::Result<()> {

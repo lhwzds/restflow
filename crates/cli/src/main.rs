@@ -2136,7 +2136,7 @@ mod commands {
         const DAEMON_STOP_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
         pub async fn restart_background() -> Result<()> {
-            let config = DaemonConfig::default();
+            let config = DaemonConfig;
 
             let previous_pid = current_daemon_pid().await?;
             let was_running = stop_daemon_effective().await?;
@@ -2209,7 +2209,7 @@ mod commands {
         }
 
         async fn start_background() -> Result<()> {
-            let config = DaemonConfig::default();
+            let config = DaemonConfig;
 
             let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
             if let EffectiveDaemonStatus::Running { pid, .. } = snapshot.daemon_status {
@@ -2228,7 +2228,7 @@ mod commands {
         }
 
         async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
-            let config = DaemonConfig::default();
+            let config = DaemonConfig;
 
             if foreground {
                 // In foreground mode, clean stale artifacts before binding.
@@ -2266,7 +2266,7 @@ mod commands {
 
         async fn restart(core: Arc<AppCore>, foreground: bool) -> Result<()> {
             if foreground {
-                let config = DaemonConfig::default();
+                let config = DaemonConfig;
                 let previous_pid = current_daemon_pid().await?;
                 let was_running = stop_daemon_effective().await?;
                 if was_running {

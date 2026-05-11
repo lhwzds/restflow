@@ -49,9 +49,12 @@ jobs:
       matrix:
         crate:
           - types
-          - ai
+          - llm
+          - restflow-core
+          - agent
           - tools
-          - runtime
+          - runner
+          - daemon
           - tui
           - cli
 
@@ -91,9 +94,12 @@ jobs:
       matrix:
         crate:
           - types
-          - ai
+          - llm
+          - restflow-core
+          - agent
           - tools
-          - runtime
+          - runner
+          - daemon
           - tui
           - cli
 

@@ -2361,8 +2361,7 @@ mod daemon_client {
 
             let report = ::daemon::daemon::recovery::recover().await?;
             let _ = report;
-            tokio::task::spawn_blocking(|| start_daemon_with_config(DaemonConfig::default()))
-                .await??;
+            tokio::task::spawn_blocking(|| start_daemon_with_config(DaemonConfig)).await??;
 
             for _ in 0..100 {
                 if self.daemon_running().await {

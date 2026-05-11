@@ -540,7 +540,7 @@ mod runtime {
 
             use ::tools::impls::RunSkillTool;
 
-            use ::agent::tools::SecretResolver;
+            use types::tool::SecretResolver;
             const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
             const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
@@ -745,7 +745,7 @@ mod runtime {
                         }
 
                         // --- Storage-backed tools ---
-                        tool_name if tool_name == "manage_agents" => {}
+                        "manage_agents" => {}
                         "manage_ops" => {
                             builder = builder.with_ops(Arc::new(OpsProviderAdapter::new()));
                         }
@@ -1759,8 +1759,9 @@ mod runtime {
             use ::agent::llm::{
                 FailoverConfig, FailoverManager, RetryConfig, RetryState, execute_with_failover,
             };
-            use ::tools::{BashConfig, ToolRegistry};
+            use ::tools::BashConfig;
             use preflight::SkillSnapshotCache;
+            use types::toolset::ToolRegistry;
 
             fn share_stream_emitter(
                 emitter: Option<Box<dyn StreamEmitter>>,
@@ -1812,7 +1813,7 @@ mod runtime {
                     .rev()
                     .find(|message| {
                         message.role == Role::Assistant
-                            && message.tool_calls.as_ref().map_or(true, Vec::is_empty)
+                            && message.tool_calls.as_ref().is_none_or(Vec::is_empty)
                             && !message.content.trim().is_empty()
                     })
                     .map(|message| message.content.trim().to_string())

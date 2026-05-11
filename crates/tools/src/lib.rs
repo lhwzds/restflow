@@ -14266,16 +14266,13 @@ pub mod impls {
     pub use wait_subagents::WaitSubagentsTool;
 }
 
-// Re-export core types from types at crate root}
-pub use types::error::{Result, ToolError};
-pub use types::tool::{
-    SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security,
-};
-pub use types::toolset::ToolRegistry;
-pub use types::toolset::{RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
-pub use types::toolset::{Toolset, ToolsetContext};
+// Keep crate-local aliases for implementation modules; external consumers should import
+// shared traits and type contracts directly from `types`.
+use types::error::{Result, ToolError};
+use types::tool::{Tool, ToolErrorCategory, ToolOutput, check_security};
+use types::toolset::ToolRegistry;
 
-pub use types::tool::{SecurityDecision, SecurityGate, ToolAction};
+use types::tool::{SecurityGate, ToolAction};
 
 // Store traits are defined in types::store.
 // Consumers should import them directly from types.
@@ -14308,19 +14305,10 @@ pub use impls::{
     default_registry,
 };
 
-// Re-export skill types from types
-pub use types::skill::{SkillContent, SkillInfo, SkillProvider};
-
 /// Bash command security configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BashSecurityConfig {
     pub allow_sudo: bool,
-}
-
-impl Default for BashSecurityConfig {
-    fn default() -> Self {
-        Self { allow_sudo: false }
-    }
 }
 
 #[cfg(test)]
