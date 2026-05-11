@@ -3983,8 +3983,9 @@ mod reducer {
     }
 
     fn should_reload_active_session(state: &AppState) -> bool {
-        (state.active_refresh_session_id().is_some() || state.active_turn_has_tool_call())
-            && (state.is_streaming || state.active_turn.is_some())
+        state.pending_runtime_refresh_session_id().is_some()
+            || ((state.active_refresh_session_id().is_some() || state.active_turn_has_tool_call())
+                && (state.is_streaming || state.active_turn.is_some()))
     }
 
     fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
@@ -5571,7 +5572,9 @@ mod reducer {
             state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
             assert!(!state.is_streaming);
-            assert!(state.active_turn.is_some());
+            assert!(state.active_turn.is_none());
+            assert!(state.pending_runtime_refresh_session_id().is_some());
+            assert!(!state.runtime_cells.is_empty());
 
             let output = reduce(&mut state, ShellAction::RefreshTick);
 
@@ -5593,6 +5596,7 @@ mod reducer {
             state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
             state.thread.clear_session();
 
+            assert!(state.pending_runtime_refresh_session_id().is_some());
             let output = reduce(&mut state, ShellAction::RefreshTick);
 
             assert!(matches!(
@@ -11642,6 +11646,7 @@ mod state {
         // Active turn is the latest live viewport. Stable history comes from session projection only.
         pub active_turn: Option<ActiveTurn>,
         active_turn_session_id: Option<String>,
+        pending_runtime_refresh_session_id: Option<String>,
         active_progress_started_at_ms: Option<i64>,
         active_tool_progress_started_at_ms: HashMap<String, i64>,
         active_assistant_stream_body: String,
@@ -11681,6 +11686,7 @@ mod state {
                 activity: ActivityState::default(),
                 active_turn: None,
                 active_turn_session_id: None,
+                pending_runtime_refresh_session_id: None,
                 active_progress_started_at_ms: None,
                 active_tool_progress_started_at_ms: HashMap::new(),
                 active_assistant_stream_body: String::new(),
@@ -11713,7 +11719,12 @@ mod state {
         pub fn active_refresh_session_id(&self) -> Option<&str> {
             self.active_turn_session_id
                 .as_deref()
+                .or(self.pending_runtime_refresh_session_id.as_deref())
                 .or_else(|| self.current_session_id())
+        }
+
+        pub fn pending_runtime_refresh_session_id(&self) -> Option<&str> {
+            self.pending_runtime_refresh_session_id.as_deref()
         }
 
         pub fn active_turn_has_tool_call(&self) -> bool {
@@ -11820,6 +11831,7 @@ mod state {
             self.runtime_cells.clear();
             self.activity.clear();
             self.clear_active_response();
+            self.pending_runtime_refresh_session_id = None;
             self.reset_message_scroll();
             self.conversation_cells =
                 transcript_cells(&messages_from_session(&session), self.assistant_name());
@@ -11845,6 +11857,9 @@ mod state {
             self.replace_session_projection(messages_from_session(&session));
             self.reanchor_runtime_cells(&old_cells);
             self.reconcile_runtime_conversation_cells();
+            if self.pending_runtime_refresh_session_id.as_deref() == Some(session.id.as_str()) {
+                self.pending_runtime_refresh_session_id = None;
+            }
         }
 
         fn current_stream_finished_in_session(&self, session: &ChatSession) -> bool {
@@ -12719,13 +12734,10 @@ mod state {
                     if self.ignore_stream_frames {
                         return false;
                     }
-                    let should_flush_completed_turn = self.thread.session.is_none();
                     self.is_streaming = false;
                     self.current_stream_id = None;
                     self.finish_active_assistant_segment();
-                    if should_flush_completed_turn {
-                        self.flush_active_turn_to_runtime();
-                    }
+                    self.flush_active_turn_to_runtime();
                     self.status = match total_tokens {
                         Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
                         None => "Stream finished".to_string(),
@@ -12810,7 +12822,12 @@ mod state {
                 self.clear_active_response();
                 return;
             };
+            let refresh_session_id = self
+                .active_turn_session_id
+                .clone()
+                .or_else(|| self.current_session_id().map(ToOwned::to_owned));
             let base_cell_index = self.conversation_cells.len();
+            let mut pushed_any = false;
             for mut cell in active_turn.cells.drain(..) {
                 if cell.is_active {
                     let _ = cell.finalize();
@@ -12833,8 +12850,12 @@ mod state {
                     base_cell_index,
                     cell,
                 });
+                pushed_any = true;
             }
             self.clear_active_response();
+            if pushed_any {
+                self.pending_runtime_refresh_session_id = refresh_session_id;
+            }
         }
 
         fn reconcile_runtime_conversation_cells(&mut self) {
@@ -13527,7 +13548,7 @@ mod state {
         }
 
         #[test]
-        fn refresh_current_session_keeps_completed_live_turn_until_session_persists_answer() {
+        fn refresh_current_session_keeps_completed_runtime_turn_until_session_persists_answer() {
             let mut state = AppState::empty();
             let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
             state.set_current_session(session.clone());
@@ -13540,13 +13561,12 @@ mod state {
             session.messages.push(types::ChatMessage::user("hello"));
             state.refresh_current_session(session);
 
-            assert!(state.active_turn.is_some());
-            assert!(state.runtime_cells.is_empty());
+            assert!(state.active_turn.is_none());
+            assert_eq!(state.runtime_cells.len(), 1);
             let rendered = state.transcript_cells_for_render();
-            assert_eq!(rendered.len(), 3);
+            assert_eq!(rendered.len(), 2);
             assert_eq!(rendered[0].body, "hello");
-            assert_eq!(rendered[1].body, "hello");
-            assert_eq!(rendered[2].body, "done");
+            assert_eq!(rendered[1].body, "done");
         }
 
         #[test]
@@ -13923,7 +13943,7 @@ mod state {
         }
 
         #[test]
-        fn daemon_backed_stream_done_waits_for_session_refresh_before_stable_runtime() {
+        fn daemon_backed_stream_done_moves_completed_turn_to_stable_runtime() {
             let mut state = AppState::empty();
             let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
             state.set_current_session(session);
@@ -13934,7 +13954,8 @@ mod state {
 
             state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-            assert!(state.runtime_cells.is_empty());
+            assert!(state.active_turn.is_none());
+            assert_eq!(state.runtime_cells.len(), 2);
             let rendered = state.transcript_cells_for_render();
             assert_eq!(rendered.len(), 2);
             assert_eq!(rendered[0].kind, TranscriptCellKind::User);

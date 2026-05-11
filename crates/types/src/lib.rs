@@ -2086,7 +2086,7 @@ pub mod defaults {
     //! Shared runtime default constants used across crates.
 
     /// Default maximum ReAct iterations for agent/sub-agent execution.
-    pub const DEFAULT_AGENT_MAX_ITERATIONS: usize = 100;
+    pub const DEFAULT_AGENT_MAX_ITERATIONS: usize = 1000;
 
     /// Default maximum tool calls per agent run.
     pub const DEFAULT_AGENT_MAX_TOOL_CALLS: usize = 200;
@@ -6872,7 +6872,7 @@ pub mod subagent {
                 effective_limits: SubagentEffectiveLimits {
                     timeout_secs: 300,
                     timeout_source: SubagentLimitSource::ConfigDefault,
-                    max_iterations: 100,
+                    max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
                     max_iterations_source: SubagentLimitSource::ConfigDefault,
                 },
             };

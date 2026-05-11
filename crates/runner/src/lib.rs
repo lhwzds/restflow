@@ -1721,10 +1721,10 @@ mod runtime {
             use crate::runtime::execution_context::ExecutionContext;
             use crate::runtime::orchestrator::AgentOrchestratorImpl;
             use ::agent::agent::{LlmToolCallReviewer, SharedStreamEmitter, StreamEmitter};
-            use ::agent::llm::Message;
+            use ::agent::llm::{Message, Role};
             use ::agent::{
-                AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, CodexClient,
-                DefaultLlmClientFactory, LlmClient, LlmClientFactory,
+                AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AgentResult,
+                AgentStatus, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory,
                 ResourceLimits as AgentResourceLimits, SwappableLlm,
             };
             use ::tools::{ReplyTool, SwitchModelTool};
@@ -1799,6 +1799,36 @@ mod runtime {
             const TOOL_RESULT_MIN_CHARS: usize = 512;
             const TOOL_RESULT_MAX_CHARS: usize = 24_000;
             const TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+            const MAX_ITERATIONS_NOTICE: &str = "Max iterations reached before a final answer. The partial work above has been preserved; send another message to continue.";
+
+            fn is_max_iterations_result(result: &AgentResult) -> bool {
+                matches!(result.state.status, AgentStatus::MaxIterations)
+                    || result.error.as_deref() == Some("Max iterations reached")
+            }
+
+            fn latest_plain_assistant_message(messages: &[Message]) -> Option<String> {
+                messages
+                    .iter()
+                    .rev()
+                    .find(|message| {
+                        message.role == Role::Assistant
+                            && message.tool_calls.as_ref().map_or(true, Vec::is_empty)
+                            && !message.content.trim().is_empty()
+                    })
+                    .map(|message| message.content.trim().to_string())
+            }
+
+            fn recover_max_iterations_output(result: &AgentResult) -> String {
+                result
+                    .answer
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|answer| !answer.is_empty())
+                    .map(ToOwned::to_owned)
+                    .or_else(|| latest_plain_assistant_message(&result.state.messages))
+                    .unwrap_or_else(|| MAX_ITERATIONS_NOTICE.to_string())
+            }
+
             /// Controls whether the latest user input has already been persisted
             /// to the chat session before execution.
             #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3200,12 +3230,20 @@ mod runtime {
                         } else {
                             agent.run_from_state(config, state).await?
                         };
-                        if !result.success {
+                        let recovered_output = if is_max_iterations_result(&result) {
+                            Some(recover_max_iterations_output(&result))
+                        } else {
+                            None
+                        };
+                        if !result.success && recovered_output.is_none() {
                             return Err(anyhow!(
                                 "Agent execution failed: {}",
                                 result.error.unwrap_or_else(|| "unknown error".to_string())
                             ));
                         }
+                        let output = result.answer.clone().unwrap_or_else(|| {
+                            recovered_output.unwrap_or_else(|| MAX_ITERATIONS_NOTICE.to_string())
+                        });
 
                         let active_model = swappable.current_model();
                         let final_model =
@@ -3214,7 +3252,7 @@ mod runtime {
                                 .or_else(|| ModelId::from_canonical_id(&active_model))
                                 .unwrap_or(model);
                         let mut execution = SessionExecutionResult::new(
-                            result.answer.unwrap_or_default(),
+                            output,
                             result.iterations as u32,
                             active_model,
                             final_model,
@@ -3416,6 +3454,65 @@ mod runtime {
                     fn session_turn_runtime_options_default_to_buffered_display() {
                         let options = SessionTurnRuntimeOptions::default();
                         assert_eq!(options.stream_display_mode, StreamDisplayMode::Buffered);
+                    }
+
+                    #[test]
+                    fn max_iterations_result_recovers_latest_plain_assistant_message() {
+                        let mut state = ::agent::AgentState::new("run-1".to_string(), 1);
+                        state.status = ::agent::AgentStatus::MaxIterations;
+                        state.add_message(Message::assistant_with_tool_calls(
+                            Some("planning".to_string()),
+                            vec![::agent::llm::ToolCall {
+                                id: "call-1".to_string(),
+                                name: "bash".to_string(),
+                                arguments: serde_json::json!({"command": "pwd"}),
+                            }],
+                        ));
+                        state.add_message(Message::assistant("  partial answer  "));
+                        let result = ::agent::AgentResult {
+                            success: false,
+                            answer: None,
+                            error: Some("Max iterations reached".to_string()),
+                            iterations: 1,
+                            total_tokens: 0,
+                            total_cost_usd: 0.0,
+                            state,
+                            resource_usage: ::agent::ResourceUsage {
+                                tool_calls: 0,
+                                wall_clock: Duration::ZERO,
+                                depth: 0,
+                                total_cost_usd: 0.0,
+                            },
+                        };
+
+                        assert!(is_max_iterations_result(&result));
+                        assert_eq!(recover_max_iterations_output(&result), "partial answer");
+                    }
+
+                    #[test]
+                    fn max_iterations_result_uses_notice_without_answer() {
+                        let mut state = ::agent::AgentState::new("run-1".to_string(), 1);
+                        state.status = ::agent::AgentStatus::MaxIterations;
+                        let result = ::agent::AgentResult {
+                            success: false,
+                            answer: None,
+                            error: Some("Max iterations reached".to_string()),
+                            iterations: 1,
+                            total_tokens: 0,
+                            total_cost_usd: 0.0,
+                            state,
+                            resource_usage: ::agent::ResourceUsage {
+                                tool_calls: 0,
+                                wall_clock: Duration::ZERO,
+                                depth: 0,
+                                total_cost_usd: 0.0,
+                            },
+                        };
+
+                        assert_eq!(
+                            recover_max_iterations_output(&result),
+                            MAX_ITERATIONS_NOTICE
+                        );
                     }
 
                     #[test]

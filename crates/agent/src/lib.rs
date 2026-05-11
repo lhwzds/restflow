@@ -11813,7 +11813,7 @@ pub mod agent {
                         effective_limits: SubagentEffectiveLimits {
                             timeout_secs: 300,
                             timeout_source: SubagentLimitSource::ConfigDefault,
-                            max_iterations: 100,
+                            max_iterations: types::DEFAULT_AGENT_MAX_ITERATIONS,
                             max_iterations_source: SubagentLimitSource::ConfigDefault,
                         },
                     };
