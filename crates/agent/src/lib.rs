@@ -2749,7 +2749,7 @@ pub mod agent {
             use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
             use crate::agent::reviewer::{ToolCallReviewer, ToolReviewRequest};
             use crate::agent::state::AgentState;
-            use crate::error::AiError;
+            use crate::error::AgentError;
             use crate::llm::{Message, ToolCall};
             use crate::steer::SteerMessage;
 
@@ -2992,7 +2992,10 @@ pub mod agent {
                                 )
                                 .await
                                 .map_err(|_| {
-                                    AiError::Tool(format!("Tool {} timed out", deferred.tool_name))
+                                    AgentError::Tool(format!(
+                                        "Tool {} timed out",
+                                        deferred.tool_name
+                                    ))
                                 })
                                 .and_then(|result| result);
                                 let mut text = match result {
@@ -3274,7 +3277,7 @@ pub mod agent {
 
             use crate::agent::reviewer::{ToolCallReviewer, ToolReviewRequest};
             use crate::agent::stream::StreamEmitter;
-            use crate::error::{AiError, Result};
+            use crate::error::{AgentError, Result};
             use crate::llm::{Message, ToolCall};
             use crate::tools::{ToolErrorCategory, ToolRegistry};
 
@@ -3557,7 +3560,7 @@ pub mod agent {
                             tools.execute_safe(&name, args.clone()),
                         )
                         .await
-                        .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                        .map_err(|_| AgentError::Tool(format!("Tool {} timed out", name)))
                         .and_then(|r| r.map_err(Into::into))?;
 
                         if output.success {
@@ -3716,7 +3719,9 @@ pub mod agent {
                         let handle: JoinHandle<Result<crate::tools::ToolOutput>> =
                             tokio::spawn(async move {
                                 let _permit = sem.acquire().await.map_err(|_| {
-                                    AiError::Tool("Tool concurrency semaphore closed".to_string())
+                                    AgentError::Tool(
+                                        "Tool concurrency semaphore closed".to_string(),
+                                    )
                                 })?;
                                 if let Some(reviewer) = reviewer
                                     && !Self::uses_runtime_policy(&name)
@@ -3757,9 +3762,11 @@ pub mod agent {
                             let result = match handle.await {
                                 Ok(r) => r,
                                 Err(e) if e.is_cancelled() => {
-                                    Err(AiError::Tool("Tool call cancelled".to_string()))
+                                    Err(AgentError::Tool("Tool call cancelled".to_string()))
                                 }
-                                Err(e) => Err(AiError::Tool(format!("Tool task panicked: {}", e))),
+                                Err(e) => {
+                                    Err(AgentError::Tool(format!("Tool task panicked: {}", e)))
+                                }
                             };
                             (tool_call_id, tool_name, result)
                         });
@@ -6657,7 +6664,7 @@ pub mod agent {
         use crate::agent::streaming_buffer::StreamingBuffer;
         use crate::agent::stuck::{StuckAction, StuckDetector};
         use crate::agent::sub_agent::SubagentTracker;
-        use crate::error::{AiError, Result};
+        use crate::error::{AgentError, Result};
         use crate::llm::{
             CompletionRequest, CompletionResponse, FinishReason, LlmClient, Message, Role, ToolCall,
         };
@@ -6865,7 +6872,7 @@ pub mod agent {
                         )
                         .await
                     } else {
-                        self.llm.complete(request).await.map_err(AiError::from)
+                        self.llm.complete(request).await.map_err(AgentError::from)
                     }
                 };
 
@@ -6873,7 +6880,7 @@ pub mod agent {
                     return tokio::time::timeout(timeout, completion)
                         .await
                         .map_err(|_| {
-                            AiError::Agent(format!(
+                            AgentError::Agent(format!(
                                 "LLM completion timed out after {}s",
                                 timeout.as_secs()
                             ))
@@ -8202,7 +8209,7 @@ pub mod agent {
         use serde::Deserialize;
         use serde_json::Value;
 
-        use crate::error::{AiError, Result};
+        use crate::error::{AgentError, Result};
         use crate::llm::{CompletionRequest, LlmClient, Message, ToolCall};
 
         const REVIEWER_MAX_ENTRY_CHARS: usize = 8_000;
@@ -8303,7 +8310,9 @@ pub mod agent {
                             .complete(build_review_completion_request(retry_prompt))
                             .await?;
                         parse_review_response(retry.content.as_deref()).map_err(|retry_error| {
-                            AiError::Llm(format!("{first_error}; retry also failed: {retry_error}"))
+                            AgentError::Llm(format!(
+                                "{first_error}; retry also failed: {retry_error}"
+                            ))
                         })
                     }
                 }
@@ -8342,7 +8351,9 @@ pub mod agent {
             let content = content
                 .map(str::trim)
                 .filter(|content| !content.is_empty())
-                .ok_or_else(|| AiError::Llm("Reviewer returned an empty response".to_string()))?;
+                .ok_or_else(|| {
+                    AgentError::Llm("Reviewer returned an empty response".to_string())
+                })?;
 
             let json_text =
                 if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
@@ -8351,7 +8362,7 @@ pub mod agent {
                     content
                 };
             let parsed: ReviewResponse = serde_json::from_str(json_text).map_err(|error| {
-                AiError::Llm(format!("Reviewer returned invalid JSON: {error}"))
+                AgentError::Llm(format!("Reviewer returned invalid JSON: {error}"))
             })?;
 
             let reason = parsed
@@ -8361,7 +8372,7 @@ pub mod agent {
             match parsed.decision.trim().to_ascii_lowercase().as_str() {
                 "allow" => Ok(ToolReviewOutcome::allow(reason)),
                 "deny" => Ok(ToolReviewOutcome::deny(reason)),
-                other => Err(AiError::Llm(format!(
+                other => Err(AgentError::Llm(format!(
                     "Reviewer returned unsupported decision '{other}'"
                 ))),
             }
@@ -9985,7 +9996,7 @@ pub mod agent {
         mod model_resolution {
             use std::sync::Arc;
 
-            use crate::error::{AiError, Result};
+            use crate::error::{AgentError, Result};
             use crate::llm::{LlmClient, LlmClientFactory};
             use types::{
                 parse_model_reference, parse_provider_selector, resolve_available_model_name,
@@ -10011,7 +10022,7 @@ pub mod agent {
                 let resolved_model =
                     resolve_model_with_provider(model, request_provider, factory.as_ref())?;
                 let provider = factory.provider_for_model(&resolved_model).ok_or_else(|| {
-                    AiError::Agent(format!("Unknown model for sub-agent: {model}"))
+                    AgentError::Agent(format!("Unknown model for sub-agent: {model}"))
                 })?;
                 let api_key = factory.resolve_api_key(provider);
                 Ok(factory.create_client(&resolved_model, api_key.as_deref())?)
@@ -10039,7 +10050,7 @@ pub mod agent {
                 };
 
                 let requested_provider = parse_provider_selector(provider_selector).ok_or_else(|| {
-                    AiError::Agent(format!(
+                    AgentError::Agent(format!(
                         "Unknown provider for sub-agent: {provider_selector}. \
             Try one of: openai-codex, anthropic, deepseek, google, groq, openrouter, xai, qwen, zai, minimax, opencode-cli, gemini-cli."
                     ))
@@ -10062,7 +10073,7 @@ pub mod agent {
                                 .map(|provider| provider.as_str().to_string())
                         })
                         .unwrap_or_else(|| "unknown".to_string());
-                    return Err(AiError::Agent(format!(
+                    return Err(AgentError::Agent(format!(
                         "Model '{resolved_model}' does not belong to provider '{provider_selector}' (actual: '{}').",
                         actual_provider
                     )));
@@ -10074,14 +10085,14 @@ pub mod agent {
             fn resolve_model_name(model: &str, factory: &dyn LlmClientFactory) -> Result<String> {
                 let query = model.trim();
                 if query.is_empty() {
-                    return Err(AiError::Agent(
+                    return Err(AgentError::Agent(
                         "Unknown model for sub-agent: empty model".to_string(),
                     ));
                 }
 
                 let available = factory.available_models();
                 if available.is_empty() {
-                    return Err(AiError::Agent(format!(
+                    return Err(AgentError::Agent(format!(
                         "Unknown model for sub-agent: {model}. No model catalog is available."
                     )));
                 }
@@ -10096,7 +10107,7 @@ pub mod agent {
                     .cloned()
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(AiError::Agent(format!(
+                Err(AgentError::Agent(format!(
                     "Unknown model for sub-agent: {model}. Try one of: {suggestions}"
                 )))
             }
@@ -10287,7 +10298,7 @@ pub mod agent {
             use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
             use crate::agent::stream::StreamEmitter;
             use crate::agent::{AgentState, ResourceUsage};
-            use crate::error::{AiError, Result};
+            use crate::error::{AgentError, Result};
             use crate::llm::{LlmClient, LlmClientFactory};
             use crate::steer::SteerMessage;
             use crate::tools::{FilteredToolset, ToolRegistry};
@@ -10493,7 +10504,7 @@ pub mod agent {
                     provider,
                     ..plan.clone()
                 };
-                normalized_plan.validate().map_err(AiError::from)?;
+                normalized_plan.validate().map_err(AgentError::from)?;
                 let parent_run_id = normalized_plan.parent_run_id().map(ToOwned::to_owned);
                 let run_id = normalized_plan.run_id.clone();
 
@@ -10512,7 +10523,7 @@ pub mod agent {
                         .filter(|value| !value.is_empty())
                         .map(ToOwned::to_owned)
                         .ok_or_else(|| {
-                            AiError::Tool(
+                            AgentError::Tool(
                                 "Subagent execution requires non-empty 'input'.".to_string(),
                             )
                         })?,
@@ -10812,9 +10823,9 @@ pub mod agent {
                     .map(str::trim)
                     .filter(|id| !id.is_empty())
                 {
-                    return definitions
-                        .lookup(agent_id)
-                        .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {agent_id}")));
+                    return definitions.lookup(agent_id).ok_or_else(|| {
+                        AgentError::Agent(format!("Unknown agent type: {agent_id}"))
+                    });
                 }
 
                 Ok(build_temporary_subagent_definition(
@@ -10972,12 +10983,12 @@ pub mod agent {
                     ..ExecutionPlan::default()
                 };
                 plan.validate()
-                    .map_err(|error| AiError::Agent(error.to_string()))?;
+                    .map_err(|error| AgentError::Agent(error.to_string()))?;
 
                 let outcome = orchestrator
                     .run(plan)
                     .await
-                    .map_err(|error| AiError::Agent(error.to_string()))?;
+                    .map_err(|error| AgentError::Agent(error.to_string()))?;
                 Ok(agent_result_from_outcome(outcome))
             }
 
@@ -12166,7 +12177,7 @@ pub mod agent {
             use tokio::time::Duration;
 
             use crate::Result;
-            use crate::error::AiError;
+            use crate::error::AgentError;
             use crate::steer::SteerMessage;
 
             pub use types::subagent::{
@@ -12356,7 +12367,7 @@ pub mod agent {
                     completion_rx: oneshot::Receiver<SubagentResult>,
                 ) -> Result<()> {
                     if !self.states.contains_key(&id) {
-                        return Err(AiError::Agent(format!(
+                        return Err(AgentError::Agent(format!(
                             "Cannot attach sub-agent execution for unknown id: {id}"
                         )));
                     }
@@ -12418,18 +12429,20 @@ pub mod agent {
                     let _guard = self
                         .spawn_lock
                         .lock()
-                        .map_err(|_| AiError::Agent("spawn lock poisoned".to_string()))?;
+                        .map_err(|_| AgentError::Agent("spawn lock poisoned".to_string()))?;
 
                     self.cleanup_completed(300_000);
 
                     let running = self.running_count();
                     if running >= max_parallel {
-                        return Err(AiError::Agent(format!(
+                        return Err(AgentError::Agent(format!(
                             "Max parallel agents ({max_parallel}) reached"
                         )));
                     }
                     if self.states.contains_key(&id) {
-                        return Err(AiError::Agent(format!("Sub-agent id already exists: {id}")));
+                        return Err(AgentError::Agent(format!(
+                            "Sub-agent id already exists: {id}"
+                        )));
                     }
                     self.insert_running_state(id, agent_name, task, parent_run_id)?;
                     Ok(())
@@ -12646,7 +12659,7 @@ pub mod agent {
                     let now = chrono::Utc::now().timestamp_millis();
                     if let Some(mut scope) = self.parent_scopes.get_mut(&parent_key) {
                         if scope.closed {
-                            return Err(AiError::Agent(format!(
+                            return Err(AgentError::Agent(format!(
                                 "Parent sub-agent scope is closed: {parent_key}"
                             )));
                         }
@@ -13250,7 +13263,7 @@ pub mod error {
 
     /// AI module error types
     #[derive(Error, Debug)]
-    pub enum AiError {
+    pub enum AgentError {
         #[error("LLM error: {0}")]
         Llm(String),
 
@@ -13287,48 +13300,48 @@ pub mod error {
         Io(#[from] std::io::Error),
     }
 
-    impl From<crate::tools::ToolError> for AiError {
+    impl From<crate::tools::ToolError> for AgentError {
         fn from(e: crate::tools::ToolError) -> Self {
             match e {
-                crate::tools::ToolError::Tool(msg) => AiError::Tool(msg),
-                crate::tools::ToolError::NotFound(msg) => AiError::ToolNotFound(msg),
-                crate::tools::ToolError::Json(e) => AiError::Json(e),
-                crate::tools::ToolError::Execution(e) => AiError::Io(e),
-                other => AiError::Tool(other.to_string()),
+                crate::tools::ToolError::Tool(msg) => AgentError::Tool(msg),
+                crate::tools::ToolError::NotFound(msg) => AgentError::ToolNotFound(msg),
+                crate::tools::ToolError::Json(e) => AgentError::Json(e),
+                crate::tools::ToolError::Execution(e) => AgentError::Io(e),
+                other => AgentError::Tool(other.to_string()),
             }
         }
     }
 
-    impl From<llm::AiError> for AiError {
+    impl From<llm::AiError> for AgentError {
         fn from(e: llm::AiError) -> Self {
             match e {
-                llm::AiError::Llm(message) => AiError::Llm(message),
+                llm::AiError::Llm(message) => AgentError::Llm(message),
                 llm::AiError::LlmHttp {
                     provider,
                     status,
                     message,
                     retry_after_secs,
-                } => AiError::LlmHttp {
+                } => AgentError::LlmHttp {
                     provider,
                     status,
                     message,
                     retry_after_secs,
                 },
-                llm::AiError::InvalidFormat(message) => AiError::InvalidFormat(message),
-                llm::AiError::Http(error) => AiError::Http(error),
-                llm::AiError::Json(error) => AiError::Json(error),
-                llm::AiError::Io(error) => AiError::Io(error),
+                llm::AiError::InvalidFormat(message) => AgentError::InvalidFormat(message),
+                llm::AiError::Http(error) => AgentError::Http(error),
+                llm::AiError::Json(error) => AgentError::Json(error),
+                llm::AiError::Io(error) => AgentError::Io(error),
             }
         }
     }
 
-    impl From<AiError> for crate::tools::ToolError {
-        fn from(e: AiError) -> Self {
+    impl From<AgentError> for crate::tools::ToolError {
+        fn from(e: AgentError) -> Self {
             crate::tools::ToolError::Tool(e.to_string())
         }
     }
 
-    impl AiError {
+    impl AgentError {
         pub fn is_retryable(&self) -> bool {
             match self {
                 Self::LlmHttp { status, .. } => matches!(status, 429 | 500 | 502 | 503 | 504),
@@ -13359,7 +13372,7 @@ pub mod error {
     }
 
     /// Result type alias for AI operations
-    pub type Result<T> = std::result::Result<T, AiError>;
+    pub type Result<T> = std::result::Result<T, AgentError>;
 
     #[cfg(test)]
     mod tests {
@@ -13367,34 +13380,34 @@ pub mod error {
 
         #[test]
         fn test_cli_errors_retryable() {
-            let codex_err = AiError::Llm(
+            let codex_err = AgentError::Llm(
                 "Codex CLI error: state db missing rollout path for thread 019c5096".to_string(),
             );
             assert!(codex_err.is_retryable());
 
-            let usage_err = AiError::Llm("Usage limit exceeded".to_string());
+            let usage_err = AgentError::Llm("Usage limit exceeded".to_string());
             assert!(usage_err.is_retryable());
 
-            let quota_err = AiError::Llm("API quota exhausted".to_string());
+            let quota_err = AgentError::Llm("API quota exhausted".to_string());
             assert!(quota_err.is_retryable());
         }
 
         #[test]
         fn test_non_retryable_errors() {
-            let auth_err = AiError::Llm("Authentication failed".to_string());
+            let auth_err = AgentError::Llm("Authentication failed".to_string());
             assert!(!auth_err.is_retryable());
 
-            let tool_err = AiError::ToolNotFound("bash".to_string());
+            let tool_err = AgentError::ToolNotFound("bash".to_string());
             assert!(!tool_err.is_retryable());
 
-            let format_err = AiError::InvalidFormat("bad json".to_string());
+            let format_err = AgentError::InvalidFormat("bad json".to_string());
             assert!(!format_err.is_retryable());
         }
 
         #[test]
         fn test_http_status_retryable() {
             for status in [429, 500, 502, 503, 504] {
-                let err = AiError::LlmHttp {
+                let err = AgentError::LlmHttp {
                     provider: "test".to_string(),
                     status,
                     message: "error".to_string(),
@@ -13404,7 +13417,7 @@ pub mod error {
             }
 
             for status in [400, 401, 403, 404, 422] {
-                let err = AiError::LlmHttp {
+                let err = AgentError::LlmHttp {
                     provider: "test".to_string(),
                     status,
                     message: "error".to_string(),
@@ -13632,7 +13645,7 @@ pub use agent::{
     ResourceLimits, ResourceUsage, StreamDisplayMode, SubagentDeps, SubagentExecutionBridge,
     SubagentManagerImpl,
 };
-pub use error::{AiError, Result};
+pub use error::{AgentError, Result};
 pub use llm::{
     AnthropicClient, CodexClient, DefaultLlmClientFactory, GeminiCliClient, LlmClient,
     LlmClientFactory, LlmSwitcherImpl, Message, OpenAIClient, OpenCodeClient, Role, SwappableLlm,

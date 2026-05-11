@@ -2497,7 +2497,7 @@ mod daemon_client {
         pub async fn get_session(&self, session_id: &str) -> Result<ChatSession> {
             SessionService::from_storage(&self.core.storage)
                 .get_session_view(session_id)?
-                .ok_or_else(|| anyhow::anyhow!("Session not found: {session_id}"))
+                .ok_or_else(|| anyhow::anyhow!(types::session_not_found_message(session_id)))
         }
 
         pub async fn switch_session_model(
@@ -2514,7 +2514,7 @@ mod daemon_client {
             let session_service = SessionService::from_storage(&self.core.storage);
             let mut session = session_service
                 .get_session_view(session_id)?
-                .ok_or_else(|| anyhow::anyhow!("Session not found: {session_id}"))?;
+                .ok_or_else(|| anyhow::anyhow!(types::session_not_found_message(session_id)))?;
             session.set_model_identity_from_raw(&model);
             session_service.save_session_metadata(&session)?;
             Ok(session)
@@ -10540,7 +10540,7 @@ mod shell {
                     root_run_id: Some(format!("run-internal-{index}")),
                     title: format!("Work {index}"),
                     subtitle: None,
-                    status: "running".to_string(),
+                    status: types::RunStatus::Running,
                     updated_at: index as i64,
                     started_at: Some(index as i64),
                     ended_at: None,
@@ -12311,7 +12311,7 @@ mod state {
                 run_id: run_id.clone(),
                 kind: run.kind,
                 title: run.title.clone(),
-                status: run.status.clone(),
+                status: run.status.to_string(),
             })
         }));
         items
@@ -13426,7 +13426,7 @@ mod state {
                 root_run_id: Some("run-local".to_string()),
                 title: "Run One".to_string(),
                 subtitle: None,
-                status: "running".to_string(),
+                status: types::RunStatus::Running,
                 updated_at: 1,
                 started_at: Some(1),
                 ended_at: None,

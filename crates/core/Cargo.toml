@@ -16,7 +16,6 @@ test-utils = []
 keyring = { version = "3.6", optional = true, features = ["apple-native"] }
 # Internal dependencies
 types = { workspace = true, features = ["specta"] }
-tools = { workspace = true }
 
 # External dependencies
 aes-gcm = "0.10"

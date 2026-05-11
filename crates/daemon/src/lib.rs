@@ -546,7 +546,6 @@ pub mod daemon {
                 role: ChatRole,
                 content: String,
             ) -> Result<ChatSession> {
-                let role = to_contract(role)?;
                 self.request_typed(IpcRequest::AddMessage {
                     session_id,
                     role,
@@ -1022,7 +1021,7 @@ pub mod daemon {
             #[test]
             fn test_daemon_status_roundtrip() {
                 let status = IpcDaemonStatus {
-                    status: "running".to_string(),
+                    status: types::DaemonRuntimeStatus::Running,
                     protocol_version: IPC_PROTOCOL_VERSION.to_string(),
                     daemon_version: "0.4.0".to_string(),
                     pid: 1234,
@@ -1870,12 +1869,7 @@ pub mod daemon {
                             session_id,
                             role,
                             content,
-                        } => match from_contract(role) {
-                            Ok(role) => {
-                                Self::handle_add_message(core, session_id, role, content).await
-                            }
-                            Err(err) => invalid_request_response(err),
-                        },
+                        } => Self::handle_add_message(core, session_id, role, content).await,
                         IpcRequest::AppendMessage {
                             session_id,
                             message,
@@ -1963,7 +1957,7 @@ pub mod daemon {
 
             #[derive(Debug, Error)]
             pub(super) enum ExecuteChatSessionError {
-                #[error("Session not found")]
+                #[error("{}", types::SESSION_NOT_FOUND)]
                 SessionNotFound,
                 #[error("No user message found in session")]
                 MissingUserMessage,
@@ -1997,11 +1991,68 @@ pub mod daemon {
             pub(super) fn create_runtime_tool_registry_with_assessment(
                 core: &Arc<AppCore>,
             ) -> anyhow::Result<::agent::tools::ToolRegistry> {
-                crate::services::tool_registry::create_tool_registry(
-                    core.storage.config.clone(),
-                    None,
-                    None,
-                )
+                create_runtime_tool_registry(core.storage.config.clone(), None, None)
+            }
+
+            fn create_runtime_tool_registry(
+                config_storage: restflow_core::ConfigStorage,
+                agent_id: Option<String>,
+                security_gate: Option<Arc<dyn types::tool::SecurityGate>>,
+            ) -> anyhow::Result<::agent::tools::ToolRegistry> {
+                let config_storage = Arc::new(config_storage);
+                let agent_defaults = load_agent_defaults(&config_storage);
+                let skill_provider =
+                    Arc::new(crate::services::adapters::SkrunSkillProvider::default());
+
+                let mut builder = ::tools::ToolRegistryBuilder::new();
+                let security_agent_id = agent_id.as_deref().unwrap_or("unknown-agent");
+                builder = builder.with_bash(::tools::BashConfig {
+                    timeout_secs: agent_defaults.bash_timeout_secs,
+                    ..Default::default()
+                });
+                builder = builder.with_file(::tools::FileConfig {
+                    allow_write: false,
+                    ..Default::default()
+                });
+                builder = if let Some(gate) = security_gate.clone() {
+                    builder.with_load_skill_with_security(
+                        skill_provider,
+                        gate,
+                        security_agent_id,
+                        "tool-registry",
+                    )
+                } else {
+                    builder.with_load_skill(skill_provider)
+                };
+
+                let mut run_skill_tool = ::tools::RunSkillTool::new()
+                    .with_root(crate::services::skills::skill_catalog_root()?);
+                if let Some(gate) = security_gate {
+                    run_skill_tool =
+                        run_skill_tool.with_security(gate, security_agent_id, "tool-registry");
+                }
+                builder.registry.register(run_skill_tool);
+
+                Ok(builder
+                    .with_patch_and_base_dir(None)
+                    .with_edit_and_base_dir(None)
+                    .with_multiedit_and_base_dir(None)
+                    .with_glob_and_base_dir(None)
+                    .with_grep_and_base_dir(None)
+                    .build())
+            }
+
+            fn load_agent_defaults(config_storage: &restflow_core::ConfigStorage) -> AgentDefaults {
+                match config_storage.get_effective_config() {
+                    Ok(config) => config.agent,
+                    Err(error) => {
+                        warn!(
+                            error = %error,
+                            "Failed to load system config defaults; falling back to built-in defaults"
+                        );
+                        restflow_core::SystemConfig::default().agent
+                    }
+                }
             }
 
             pub(super) fn get_runtime_tool_registry<'a>(
@@ -2742,7 +2793,7 @@ pub mod daemon {
             let uptime_secs = ((now_ms - started_at_ms).max(0) / 1000) as u64;
 
             IpcDaemonStatus {
-                status: "running".to_string(),
+                status: types::DaemonRuntimeStatus::Running,
                 protocol_version: IPC_PROTOCOL_VERSION.to_string(),
                 daemon_version: env!("CARGO_PKG_VERSION").to_string(),
                 pid: std::process::id(),
@@ -4160,12 +4211,12 @@ pub mod daemon {
                     let second = rx.recv().await.expect("error frame");
                     assert!(matches!(
                         second,
-                        StreamFrame::Error(error) if error.message == "Session not found"
+                        StreamFrame::Error(error) if error.message == types::SESSION_NOT_FOUND
                     ));
                 }
 
                 #[tokio::test]
-                async fn add_message_returns_bad_request_for_invalid_role_payload() {
+                async fn add_message_returns_not_found_for_missing_session() {
                     let (core, _temp) = create_test_core().await;
                     let runtime_tool_registry = OnceLock::new();
 
@@ -4174,7 +4225,7 @@ pub mod daemon {
                         &runtime_tool_registry,
                         IpcRequest::AddMessage {
                             session_id: "missing-session".to_string(),
-                            role: "not_a_role".to_string(),
+                            role: ChatRole::User,
                             content: "hello".to_string(),
                         },
                     )
@@ -4182,9 +4233,9 @@ pub mod daemon {
 
                     match response {
                         IpcResponse::Error(error) => {
-                            assert_eq!(error.code, 400);
-                            assert_eq!(error.kind, types::ErrorKind::Validation);
-                            assert!(error.message.contains("Invalid request payload"));
+                            assert_eq!(error.code, 404);
+                            assert_eq!(error.kind, types::ErrorKind::NotFound);
+                            assert!(error.message.contains("Session"));
                         }
                         other => panic!("expected error response, got {other:?}"),
                     }

@@ -2202,6 +2202,12 @@ pub mod error {
     })
     }
 
+    pub const SESSION_NOT_FOUND: &str = "Session not found";
+
+    pub fn session_not_found_message(session_id: &str) -> String {
+        format!("{SESSION_NOT_FOUND}: {session_id}")
+    }
+
     /// Tool-specific error types.
     #[derive(Error, Debug)]
     pub enum ToolError {
@@ -4276,6 +4282,32 @@ pub mod run {
         SubagentRun,
     }
 
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RunStatus {
+        Running,
+        Completed,
+        Interrupted,
+        Failed,
+    }
+
+    impl RunStatus {
+        pub const fn as_str(self) -> &'static str {
+            match self {
+                Self::Running => "running",
+                Self::Completed => "completed",
+                Self::Interrupted => "interrupted",
+                Self::Failed => "failed",
+            }
+        }
+    }
+
+    impl std::fmt::Display for RunStatus {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.as_str())
+        }
+    }
+
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
     pub struct ExecutionContainerSummary {
         pub id: String,
@@ -4312,7 +4344,7 @@ pub mod run {
         pub title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub subtitle: Option<String>,
-        pub status: String,
+        pub status: RunStatus,
         pub updated_at: i64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub started_at: Option<i64>,
@@ -4352,7 +4384,7 @@ pub mod run {
                 root_run_id: Some("run-1".to_string()),
                 title: "Example Run".to_string(),
                 subtitle: None,
-                status: "completed".to_string(),
+                status: RunStatus::Completed,
                 updated_at: 1,
                 started_at: Some(1),
                 ended_at: Some(2),
@@ -7812,6 +7844,7 @@ pub mod contracts {
         use std::collections::HashMap;
 
         use super::ExecutionScope;
+        use crate::ChatRole;
 
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
         #[serde(tag = "type", content = "data")]
@@ -7909,7 +7942,7 @@ pub mod contracts {
             },
             AddMessage {
                 session_id: String,
-                role: String,
+                role: ChatRole,
                 content: String,
             },
             AppendMessage {
@@ -8141,7 +8174,7 @@ pub mod contracts {
         pub struct ChatMessage {
             #[serde(default)]
             pub id: String,
-            pub role: String,
+            pub role: ChatRole,
             pub content: String,
             pub timestamp: i64,
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -8417,7 +8450,7 @@ pub mod contracts {
                     session_id: "session-1".to_string(),
                     message: ChatMessage {
                         id: "msg-1".to_string(),
-                        role: "user".to_string(),
+                        role: ChatRole::User,
                         content: "hello".to_string(),
                         timestamp: 1,
                         execution: Some(MessageExecution {
@@ -8771,9 +8804,15 @@ pub mod contracts {
         pub daemon_log_files: usize,
     }
 
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum DaemonRuntimeStatus {
+        Running,
+    }
+
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub struct IpcDaemonStatus {
-        pub status: String,
+        pub status: DaemonRuntimeStatus,
         pub protocol_version: String,
         pub daemon_version: String,
         pub pid: u32,
@@ -8850,7 +8889,7 @@ pub mod contracts {
             let _ = OkResponse { ok: true };
             let _ = IpcRequest::Ping;
             let _ = IpcDaemonStatus {
-                status: "running".to_string(),
+                status: DaemonRuntimeStatus::Running,
                 protocol_version: "2".to_string(),
                 daemon_version: "0.4.0".to_string(),
                 pid: 1,
@@ -8985,7 +9024,7 @@ pub mod contracts {
                 prompt: "hello".to_string(),
             });
             assert_roundtrip(&IpcDaemonStatus {
-                status: "running".to_string(),
+                status: DaemonRuntimeStatus::Running,
                 protocol_version: "2".to_string(),
                 daemon_version: "0.4.0".to_string(),
                 pid: 42,
@@ -9027,8 +9066,8 @@ pub mod contracts {
 
 // Error types
 pub use error::{
-    Result as ToolResult, ToolError, ValidationError, ValidationErrorResponse,
-    encode_validation_error,
+    Result as ToolResult, SESSION_NOT_FOUND, ToolError, ValidationError, ValidationErrorResponse,
+    encode_validation_error, session_not_found_message,
 };
 
 // Assessment types
@@ -9038,7 +9077,7 @@ pub use agent::{
 };
 pub use run::{
     ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, RunKind,
-    RunListQuery, RunSummary,
+    RunListQuery, RunStatus, RunSummary,
 };
 pub use session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
@@ -9192,10 +9231,10 @@ pub use steer::{SteerCommand, SteerMessage, SteerSource};
 pub use contracts::request;
 pub use contracts::{
     ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse, ChatSessionEvent,
-    CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, ErrorKind,
-    ErrorPayload, ExecutionScope, IdResponse, IpcDaemonStatus, IpcRequest, IpcStreamEvent,
-    OkResponse, PromptResponse, ResponseEnvelope, SecretResponse, SteerResponse, StreamEnvelope,
-    StreamFrame, ToolDefinition, ToolExecutionResult,
+    CleanupReportResponse, ClearResponse, DaemonRuntimeStatus, DeleteResponse,
+    DeleteWithIdResponse, ErrorKind, ErrorPayload, ExecutionScope, IdResponse, IpcDaemonStatus,
+    IpcRequest, IpcStreamEvent, OkResponse, PromptResponse, ResponseEnvelope, SecretResponse,
+    SteerResponse, StreamEnvelope, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
 
 // Shared default constants

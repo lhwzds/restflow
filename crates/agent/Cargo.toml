@@ -33,7 +33,7 @@ regex = "1.11.1"
 
 [features]
 default = []
-test-utils = []
+test-utils = ["llm/test-utils"]
 
 [lints.rust]
 

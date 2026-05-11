@@ -3554,24 +3554,7 @@ pub mod services {
             agent: &AgentNode,
             core: &AppCore,
         ) -> Result<(), Vec<ValidationError>> {
-            let tool_registry = match crate::services::tool_registry::create_tool_registry(
-                core.storage.config.clone(),
-                None,
-                None,
-            ) {
-                Ok(registry) => registry,
-                Err(err) => {
-                    return Err(vec![ValidationError::new(
-                        "tools",
-                        format!("Failed to create tool registry: {err}"),
-                    )]);
-                }
-            };
-            validate_agent_node_with_tools(
-                agent,
-                |tool| tool_registry.has(tool),
-                Some(&core.storage.secrets),
-            )
+            validate_agent_node_with_tools(agent, |_| true, Some(&core.storage.secrets))
         }
 
         pub fn validate_agent_node_with_known_tools(
@@ -3735,10 +3718,10 @@ pub mod services {
             use crate::AgentStorage;
             use crate::services::agent_validation::validate_agent_node_with_known_tools;
             use crate::storage::SecretStorage;
-            use crate::tools::ToolError;
             use serde_json::{Value, json};
             use std::collections::HashSet;
             use std::sync::{Arc, RwLock};
+            use types::ToolError;
             use types::request::AgentNode as ContractAgentNode;
             use types::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 
@@ -3780,12 +3763,12 @@ pub mod services {
             }
 
             impl AgentStore for AgentStoreAdapter {
-                fn list_agents(&self) -> crate::tools::Result<Value> {
+                fn list_agents(&self) -> types::ToolResult<Value> {
                     let agents = self.storage.list_agents()?;
                     serde_json::to_value(agents).map_err(ToolError::from)
                 }
 
-                fn get_agent(&self, id: &str) -> crate::tools::Result<Value> {
+                fn get_agent(&self, id: &str) -> types::ToolResult<Value> {
                     let agent = self
                         .storage
                         .get_agent(id.to_string())?
@@ -3793,14 +3776,14 @@ pub mod services {
                     serde_json::to_value(agent).map_err(ToolError::from)
                 }
 
-                fn create_agent(&self, request: AgentCreateRequest) -> crate::tools::Result<Value> {
+                fn create_agent(&self, request: AgentCreateRequest) -> types::ToolResult<Value> {
                     let agent = Self::parse_agent_node(request.agent)?;
                     self.validate_agent_node(&agent)?;
                     let created = self.storage.create_agent(request.name, agent)?;
                     serde_json::to_value(created).map_err(ToolError::from)
                 }
 
-                fn update_agent(&self, request: AgentUpdateRequest) -> crate::tools::Result<Value> {
+                fn update_agent(&self, request: AgentUpdateRequest) -> types::ToolResult<Value> {
                     let agent = match request.agent {
                         Some(value) => {
                             let node = Self::parse_agent_node(value)?;
@@ -3813,7 +3796,7 @@ pub mod services {
                     serde_json::to_value(updated).map_err(ToolError::from)
                 }
 
-                fn delete_agent(&self, id: &str) -> crate::tools::Result<Value> {
+                fn delete_agent(&self, id: &str) -> types::ToolResult<Value> {
                     self.storage.delete_agent(id.to_string())?;
                     Ok(json!({ "id": id, "deleted": true }))
                 }
@@ -4076,9 +4059,9 @@ pub mod services {
         pub mod ops {
             //! OpsProvider adapter for operational queries.
 
-            use crate::tools::ToolError;
             use serde_json::{Value, json};
             use std::path::{Path, PathBuf};
+            use types::ToolError;
             use types::store::OpsProvider;
 
             /// Build a standard ops response envelope.
@@ -4121,7 +4104,7 @@ pub mod services {
 
                 pub(crate) fn resolve_log_tail_path(
                     path: Option<&str>,
-                ) -> crate::tools::Result<PathBuf> {
+                ) -> types::ToolResult<PathBuf> {
                     let logs_dir = crate::paths::logs_dir()?;
                     let resolved = match path
                         .map(str::trim)
@@ -4173,7 +4156,7 @@ pub mod services {
                 fn daemon_health(
                     &self,
                 ) -> std::pin::Pin<
-                    Box<dyn std::future::Future<Output = crate::tools::Result<Value>> + Send + '_>,
+                    Box<dyn std::future::Future<Output = types::ToolResult<Value>> + Send + '_>,
                 > {
                     Box::pin(async move {
                         let socket = crate::paths::socket_path()?;
@@ -4191,11 +4174,7 @@ pub mod services {
                     })
                 }
 
-                fn log_tail(
-                    &self,
-                    lines: usize,
-                    path: Option<&str>,
-                ) -> crate::tools::Result<Value> {
+                fn log_tail(&self, lines: usize, path: Option<&str>) -> types::ToolResult<Value> {
                     let resolved = Self::resolve_log_tail_path(path)?;
                     if !resolved.exists() {
                         let evidence = json!({
@@ -4332,8 +4311,8 @@ pub mod services {
             use crate::AgentStorage;
             use crate::services::session::SessionService;
             use crate::session_log::FileSessionStore;
-            use crate::tools::ToolError;
             use serde_json::{Value, json};
+            use types::ToolError;
             use types::store::{
                 SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
             };
@@ -4358,7 +4337,7 @@ pub mod services {
             }
 
             impl SessionStore for SessionStorageAdapter {
-                fn list_sessions(&self, filter: SessionListFilter) -> crate::tools::Result<Value> {
+                fn list_sessions(&self, filter: SessionListFilter) -> types::ToolResult<Value> {
                     let include_archived = filter.include_archived.unwrap_or(false);
                     let sessions = self.session_service().list_session_views(
                         filter.agent_id.as_deref(),
@@ -4377,18 +4356,18 @@ pub mod services {
                     }
                 }
 
-                fn get_session(&self, id: &str) -> crate::tools::Result<Value> {
+                fn get_session(&self, id: &str) -> types::ToolResult<Value> {
                     let session = self
                         .session_service()
                         .get_session_view(id)?
-                        .ok_or_else(|| ToolError::Tool(format!("Session {} not found", id)))?;
+                        .ok_or_else(|| ToolError::Tool(types::session_not_found_message(id)))?;
                     Ok(serde_json::to_value(session)?)
                 }
 
                 fn create_session(
                     &self,
                     request: SessionCreateRequest,
-                ) -> crate::tools::Result<Value> {
+                ) -> types::ToolResult<Value> {
                     let resolved_agent_id = self
                         .agent_storage
                         .resolve_existing_agent_id(&request.agent_id)?;
@@ -4402,29 +4381,26 @@ pub mod services {
                     Ok(serde_json::to_value(session)?)
                 }
 
-                fn archive_session(&self, id: &str) -> crate::tools::Result<Value> {
+                fn archive_session(&self, id: &str) -> types::ToolResult<Value> {
                     let archived = self.session_service().archive_workspace_session(id)?;
                     Ok(json!({ "id": id, "archived": archived }))
                 }
 
-                fn unarchive_session(&self, id: &str) -> crate::tools::Result<Value> {
+                fn unarchive_session(&self, id: &str) -> types::ToolResult<Value> {
                     let unarchived = self.session_service().unarchive_workspace_session(id)?;
                     Ok(json!({ "id": id, "unarchived": unarchived }))
                 }
 
-                fn purge_session(&self, id: &str) -> crate::tools::Result<Value> {
+                fn purge_session(&self, id: &str) -> types::ToolResult<Value> {
                     let purged = self.session_service().delete_workspace_session(id)?;
                     Ok(json!({ "id": id, "purged": purged }))
                 }
 
-                fn delete_session(&self, id: &str) -> crate::tools::Result<Value> {
+                fn delete_session(&self, id: &str) -> types::ToolResult<Value> {
                     self.purge_session(id)
                 }
 
-                fn search_sessions(
-                    &self,
-                    query: SessionSearchQuery,
-                ) -> crate::tools::Result<Value> {
+                fn search_sessions(&self, query: SessionSearchQuery) -> types::ToolResult<Value> {
                     let matched = self.session_service().search_session_views(
                         &query.query,
                         query.agent_id.as_deref(),
@@ -4436,7 +4412,7 @@ pub mod services {
                     Ok(serde_json::to_value(matched)?)
                 }
 
-                fn cleanup_sessions(&self) -> crate::tools::Result<Value> {
+                fn cleanup_sessions(&self) -> types::ToolResult<Value> {
                     let now_ms = chrono::Utc::now().timestamp_millis();
                     let stats = self
                         .session_service()
@@ -6128,7 +6104,7 @@ pub mod services {
         use types::{
             ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, ChatTurn,
             ChatTurnEventKind, ChatTurnStatus, ExecutionContainerKind, ExecutionContainerSummary,
-            MessageExecution, ModelId, RunKind, RunListQuery, RunSummary,
+            MessageExecution, ModelId, RunKind, RunListQuery, RunStatus, RunSummary,
         };
 
         #[derive(Clone)]
@@ -6386,7 +6362,7 @@ pub mod services {
                     let _guard = session_lock.lock().expect("session append lock");
                     let mut session = self
                         .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
                     session.add_message(user_message);
                     session.add_message(assistant_message);
 
@@ -6434,7 +6410,7 @@ pub mod services {
                     let _guard = session_lock.lock().expect("session append lock");
                     let mut session = self
                         .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
                     session.add_message(user_message);
                     self.persist_session_view(&session, "append_user_message")?;
                     session
@@ -6766,7 +6742,7 @@ pub mod services {
                 root_run_id: Some(turn.id.clone()),
                 title: turn_title(turn).unwrap_or_else(|| session.name.clone()),
                 subtitle: Some(session.model.clone()).filter(|value| !value.is_empty()),
-                status: turn_status(turn.status).to_string(),
+                status: turn_status(turn.status),
                 updated_at: turn.updated_at,
                 started_at: Some(turn.started_at),
                 ended_at: turn.completed_at,
@@ -6780,12 +6756,12 @@ pub mod services {
             }
         }
 
-        fn turn_status(status: ChatTurnStatus) -> &'static str {
+        fn turn_status(status: ChatTurnStatus) -> RunStatus {
             match status {
-                ChatTurnStatus::Running => "running",
-                ChatTurnStatus::Completed => "completed",
-                ChatTurnStatus::Canceled => "interrupted",
-                ChatTurnStatus::Failed => "failed",
+                ChatTurnStatus::Running => RunStatus::Running,
+                ChatTurnStatus::Completed => RunStatus::Completed,
+                ChatTurnStatus::Canceled => RunStatus::Interrupted,
+                ChatTurnStatus::Failed => RunStatus::Failed,
             }
         }
 
@@ -7759,113 +7735,6 @@ pub mod services {
             }
         }
     }
-    pub mod tool_registry {
-        //! Tool registry service for creating tool registries with storage access.
-        //!
-        //! Adapter implementations live in [`super::adapters`]. This module provides
-        //! the [`create_tool_registry`] function that wires adapters into tools.
-
-        use crate::services::adapters::*;
-        use crate::storage::ConfigStorage;
-        use crate::tools::ToolRegistryBuilder;
-        use crate::{AgentDefaults, SystemConfig};
-        use std::sync::Arc;
-        use tracing::warn;
-        use types::tool::SecurityGate;
-        use types::toolset::ToolRegistry;
-
-        const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
-        const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
-
-        mod assembly {
-            use super::*;
-            use crate::tools::{BashConfig, FileConfig};
-
-            /// Create the daemon-owned minimal tool registry.
-            ///
-            /// This function creates a registry with:
-            /// - Core execution tools (`bash`, file/edit/patch/search helpers)
-            /// - `load_skill` for read-only skill discovery
-            /// - `run_skill` for executing installed skrun skills
-            /// - Optional security gate wiring for execution tools; `None` keeps default permissive behavior
-            #[allow(clippy::too_many_arguments)]
-            pub fn create_tool_registry(
-                config_storage: ConfigStorage,
-                agent_id: Option<String>,
-                security_gate: Option<Arc<dyn SecurityGate>>,
-            ) -> anyhow::Result<ToolRegistry> {
-                let config_storage = Arc::new(config_storage);
-                let agent_defaults = load_agent_defaults(&config_storage);
-                let skill_provider = Arc::new(SkrunSkillProvider::default());
-
-                let mut builder = ToolRegistryBuilder::new();
-                let security_agent_id = agent_id.as_deref().unwrap_or(DEFAULT_SECURITY_AGENT_ID);
-                builder = builder.with_bash(BashConfig {
-                    timeout_secs: agent_defaults.bash_timeout_secs,
-                    ..Default::default()
-                });
-                builder = builder.with_file(FileConfig {
-                    allow_write: false,
-                    ..Default::default()
-                });
-                builder = if let Some(gate) = security_gate.clone() {
-                    builder.with_load_skill_with_security(
-                        skill_provider,
-                        gate,
-                        security_agent_id,
-                        DEFAULT_SECURITY_TASK_ID,
-                    )
-                } else {
-                    builder.with_load_skill(skill_provider)
-                };
-
-                let mut run_skill_tool = crate::tools::RunSkillTool::new()
-                    .with_root(crate::services::skills::skill_catalog_root()?);
-                if let Some(gate) = security_gate.clone() {
-                    run_skill_tool = run_skill_tool.with_security(
-                        gate,
-                        security_agent_id,
-                        DEFAULT_SECURITY_TASK_ID,
-                    );
-                }
-                builder.registry.register(run_skill_tool);
-
-                let registry = builder
-                    .with_patch_and_base_dir(None)
-                    .with_edit_and_base_dir(None)
-                    .with_multiedit_and_base_dir(None)
-                    .with_glob_and_base_dir(None)
-                    .with_grep_and_base_dir(None)
-                    .build();
-
-                Ok(registry)
-            }
-        }
-        mod config {
-            use super::*;
-
-            fn load_system_config(config_storage: &ConfigStorage) -> SystemConfig {
-                match config_storage.get_effective_config() {
-                    Ok(config) => config,
-                    Err(error) => {
-                        warn!(
-                            error = %error,
-                            "Failed to load system config defaults; falling back to built-in defaults"
-                        );
-                        SystemConfig::default()
-                    }
-                }
-            }
-
-            pub(super) fn load_agent_defaults(config_storage: &ConfigStorage) -> AgentDefaults {
-                load_system_config(config_storage).agent
-            }
-        }
-
-        use self::config::load_agent_defaults;
-
-        pub use self::assembly::create_tool_registry;
-    }
 }
 pub mod session_events {
     use std::sync::OnceLock;
@@ -8659,7 +8528,7 @@ pub mod session_log {
         pub fn append_event(&self, session_id: &str, event: &SessionLogEvent) -> Result<()> {
             let path = self
                 .find_session_path(session_id)?
-                .ok_or_else(|| anyhow!("Session not found: {session_id}"))?;
+                .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
             let mut file = OpenOptions::new().append(true).open(path)?;
             write_event_line(&mut file, event)?;
             invalidate_session_caches(&self.root);
@@ -10090,8 +9959,6 @@ pub mod test_support {
         }
     }
 }
-pub use tools;
-
 pub use config::{
     AgentDefaults, AgentSettings, ApiDefaults, ApiSettings, CliConfig, ConfigDocument,
     ConfigSourcePathInfo, ConfigStorage, ConfigValueSourceInfo, ConfigValueSourceKind,
@@ -10107,9 +9974,9 @@ pub use types::{
     ChatSession, ChatSessionMetadata, ChatSessionSummary, ChatSessionUpdate, CodexCliExecutionMode,
     ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary, ExecutionStepInfo,
     MessageExecution, ModelId, ModelMetadataDTO, ModelRoutingConfig, Provider, RunKind,
-    RunListQuery, RunSummary, Skill, SkillGating, SkillMeta, SkillReference, SkillScript,
-    SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError, ValidationErrorResponse,
-    encode_validation_error,
+    RunListQuery, RunStatus, RunSummary, Skill, SkillGating, SkillMeta, SkillReference,
+    SkillScript, SkillSource, SkillStatus, SteerMessage, SteerSource, ValidationError,
+    ValidationErrorResponse, encode_validation_error,
 };
 
 use anyhow::Context;

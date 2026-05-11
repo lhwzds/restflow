@@ -1818,7 +1818,7 @@ mod runtime {
                 pub(crate) fn load_chat_session(&self, session_id: &str) -> Result<ChatSession> {
                     self.session_service
                         .get_session_view(session_id)?
-                        .ok_or_else(|| anyhow!("Session not found: {}", session_id))
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))
                 }
 
                 pub(crate) async fn execute_subagent_plan(
