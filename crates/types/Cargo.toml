@@ -18,7 +18,6 @@ uuid.workspace = true
 
 # Crate-specific
 thiserror = "2.0"
-url = "2.5"
 specta = { version = "=2.0.0-rc.23", features = ["derive", "serde_json"] }
 
 [features]
