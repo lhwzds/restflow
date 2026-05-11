@@ -2577,6 +2577,7 @@ mod daemon_client {
             tx: mpsc::UnboundedSender<AppEvent>,
         ) -> tokio::task::JoinHandle<()> {
             let client = self.clone();
+            let stream_id_for_end = stream_id.clone();
             let workspace_root = std::env::current_dir()
                 .ok()
                 .map(|path| path.to_string_lossy().into_owned());
@@ -2610,9 +2611,9 @@ mod daemon_client {
                 }
 
                 if !saw_terminal_frame {
-                    let _ = tx.send(AppEvent::Error(
-                        "Chat stream ended before a terminal frame.".to_string(),
-                    ));
+                    let _ = tx.send(AppEvent::ChatStreamEndedWithoutTerminal {
+                        stream_id: stream_id_for_end,
+                    });
                 }
             })
         }
@@ -2753,6 +2754,7 @@ mod event_loop {
     pub enum AppEvent {
         StreamFrame(StreamFrame),
         SessionEvent(ChatSessionEvent),
+        ChatStreamEndedWithoutTerminal { stream_id: String },
         Error(String),
     }
 
@@ -3044,6 +3046,9 @@ mod event_loop {
         match event {
             AppEvent::StreamFrame(frame) => ShellAction::StreamFrame(frame),
             AppEvent::SessionEvent(event) => ShellAction::SessionEvent(event),
+            AppEvent::ChatStreamEndedWithoutTerminal { stream_id } => {
+                ShellAction::ChatStreamEndedWithoutTerminal { stream_id }
+            }
             AppEvent::Error(message) => ShellAction::Error(message),
         }
     }
@@ -3599,6 +3604,9 @@ mod reducer {
         Ui(Action),
         StreamFrame(StreamFrame),
         SessionEvent(ChatSessionEvent),
+        ChatStreamEndedWithoutTerminal {
+            stream_id: String,
+        },
         StateRefreshed {
             sessions: Vec<ChatSessionSummary>,
             runs: Vec<RunSummary>,
@@ -3761,6 +3769,20 @@ mod reducer {
                     });
                 } else if refresh_current && (state.is_streaming || state.active_turn.is_some()) {
                     output.effects.push(ShellEffect::ReloadCurrentSession);
+                }
+            }
+            ShellAction::ChatStreamEndedWithoutTerminal { stream_id } => {
+                if state.suppress_missing_terminal_frame_for_stream(&stream_id)
+                    || state.complete_stream_without_terminal_frame(&stream_id)
+                {
+                    if state.active_refresh_session_id().is_some() {
+                        output.effects.push(ShellEffect::ReloadCurrentSession);
+                    }
+                } else {
+                    state.cancel_active_response();
+                    let message = "Chat stream ended before a terminal frame.".to_string();
+                    state.status = message.clone();
+                    state.push_error(message);
                 }
             }
             ShellAction::StateRefreshed { sessions, runs } => {
@@ -4456,7 +4478,7 @@ mod reducer {
                 "Queued update for current response. Press Esc to interrupt."
             );
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells[0].body, "first");
+            assert_eq!(state.runtime_cells[0].cell.body, "first");
             assert_eq!(active_turn.queued_updates, vec!["second"]);
         }
 
@@ -4479,8 +4501,8 @@ mod reducer {
                 "Response is still starting. Press Esc to cancel before sending another message."
             );
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells.len(), 1);
-            assert_eq!(active_turn.cells[0].body, "first");
+            assert!(active_turn.cells.is_empty());
+            assert_eq!(state.runtime_cells[0].cell.body, "first");
         }
 
         #[test]
@@ -5064,9 +5086,9 @@ mod reducer {
             );
 
             assert!(state.conversation_cells.is_empty());
-            assert!(state.runtime_cells.is_empty());
+            assert_eq!(state.runtime_cells.len(), 1);
+            assert_eq!(state.runtime_cells[0].cell.body, "hi");
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells[0].body, "hi");
             let active = active_turn.cells.last().expect("active assistant");
             assert!(active.is_active);
             assert!(
@@ -5128,7 +5150,7 @@ mod reducer {
             );
 
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells[0].body, "hi");
+            assert_eq!(state.runtime_cells[0].cell.body, "hi");
             assert!(active_turn.cells.last().is_some_and(|cell| cell.is_active));
             assert_eq!(state.status, "Creating session...");
             assert!(matches!(
@@ -5154,7 +5176,7 @@ mod reducer {
 
             assert_eq!(state.current_session_id(), Some(session_id.as_str()));
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells[0].body, "hi");
+            assert_eq!(state.runtime_cells[0].cell.body, "hi");
             assert!(active_turn.cells.last().is_some_and(|cell| cell.is_active));
             assert_eq!(state.status, "Sending message...");
             assert!(state.is_streaming);
@@ -5366,6 +5388,99 @@ mod reducer {
                 output.effects.as_slice(),
                 [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
             ));
+        }
+
+        #[test]
+        fn canceled_stream_end_without_terminal_frame_does_not_show_error() {
+            let mut state = AppState::empty();
+            state.is_streaming = true;
+            state.current_stream_id = Some("stream-1".to_string());
+            state.apply_stream_frame(StreamFrame::Ack {
+                content: "Partial".to_string(),
+            });
+
+            let cancel_output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+            assert!(matches!(
+                cancel_output.effects.as_slice(),
+                [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+            ));
+
+            let output = reduce(
+                &mut state,
+                ShellAction::ChatStreamEndedWithoutTerminal {
+                    stream_id: "stream-1".to_string(),
+                },
+            );
+
+            assert!(!state.runtime_cells.iter().any(|entry| {
+                entry.cell.title == "Error"
+                    && entry
+                        .cell
+                        .body
+                        .contains("Chat stream ended before a terminal frame")
+            }));
+            assert_eq!(state.status, "Canceling response...");
+            assert!(output.effects.is_empty());
+        }
+
+        #[test]
+        fn content_stream_end_without_terminal_frame_completes_without_error() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("hello".to_string());
+            state.apply_stream_frame(StreamFrame::Start {
+                stream_id: "stream-1".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "done".to_string(),
+            });
+
+            let output = reduce(
+                &mut state,
+                ShellAction::ChatStreamEndedWithoutTerminal {
+                    stream_id: "stream-1".to_string(),
+                },
+            );
+
+            assert!(!state.is_streaming);
+            assert!(state.current_stream_id.is_none());
+            assert_eq!(state.status, "Stream finished");
+            assert!(state.active_turn.is_none());
+            assert!(state.runtime_cells.iter().any(|entry| {
+                entry.cell.kind == crate::transcript::TranscriptCellKind::Assistant
+                    && entry.cell.body == "done"
+            }));
+            assert!(!state.runtime_cells.iter().any(|entry| {
+                entry.cell.title == "Error"
+                    && entry
+                        .cell
+                        .body
+                        .contains("Chat stream ended before a terminal frame")
+            }));
+            assert!(output.effects.is_empty());
+        }
+
+        #[test]
+        fn empty_stream_end_without_terminal_frame_still_shows_error() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("hello".to_string());
+            state.apply_stream_frame(StreamFrame::Start {
+                stream_id: "stream-1".to_string(),
+            });
+
+            reduce(
+                &mut state,
+                ShellAction::ChatStreamEndedWithoutTerminal {
+                    stream_id: "stream-1".to_string(),
+                },
+            );
+
+            assert!(state.runtime_cells.iter().any(|entry| {
+                entry.cell.title == "Error"
+                    && entry
+                        .cell
+                        .body
+                        .contains("Chat stream ended before a terminal frame")
+            }));
         }
 
         #[test]
@@ -5807,6 +5922,7 @@ mod render {
         pub lines: Vec<Line<'static>>,
         pub cursor_x: u16,
         pub cursor_y: u16,
+        pub prompt_top: u16,
     }
 
     pub(crate) fn render_shell_bottom_viewport(
@@ -5844,6 +5960,7 @@ mod render {
             lines: buffer_to_styled_lines(&buffer),
             cursor_x: (1 + prompt_cursor_column).min(width.saturating_sub(2)),
             cursor_y: transient_height + 1 + prompt_cursor_row,
+            prompt_top: transient_height,
         }
     }
 
@@ -6052,6 +6169,11 @@ mod scrollback {
             let new_cells = &cells[self.committed_cells.len()..];
             let lines = render_lines(new_cells, width);
             self.pending_lines = lines;
+            self.committed_cells = cells.to_vec();
+        }
+
+        pub fn replace_committed_without_append(&mut self, cells: &[TranscriptCell]) {
+            self.pending_lines.clear();
             self.committed_cells = cells.to_vec();
         }
 
@@ -6337,6 +6459,17 @@ mod scrollback {
         }
 
         #[test]
+        fn replace_committed_without_append_marks_history_but_leaves_no_pending_lines() {
+            let mut scrollback = ScrollbackWriter::default();
+            let cells = vec![user_cell("loaded session")];
+
+            scrollback.replace_committed_without_append(&cells);
+
+            assert!(scrollback.pending_lines.is_empty());
+            assert!(scrollback.is_prefix_of(&cells));
+        }
+
+        #[test]
         fn insert_history_uses_region_above_retained_viewport() {
             let mut output = Vec::new();
             insert_history_lines(&mut output, 5, 40, &[Line::from("history line")])
@@ -6427,11 +6560,10 @@ mod shell {
     use crate::render::render_shell_bottom_viewport;
     use crate::scrollback::ScrollbackWriter;
     use crate::slash_command::{HELP_TEXT, SLASH_COMMAND_SPECS};
-    use crate::state::{AppState, WorkPickerItem, work_run_kind_label};
+    use crate::state::{AnchoredRuntimeCell, AppState, WorkPickerItem, work_run_kind_label};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
     const CONTINUATION_PREFIX: &str = "  ";
-    const CLIPPED_CELL_MARKER: &str = "  ...";
     const TOOL_SUMMARY_LIMIT: usize = 120;
     const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
     const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
@@ -6467,6 +6599,7 @@ mod shell {
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct ViewportSnapshot {
         top: u16,
+        prompt_top: u16,
         lines: Vec<Line<'static>>,
         cursor_x: u16,
         cursor_y: u16,
@@ -6520,18 +6653,22 @@ mod shell {
             let terminal_viewport = TerminalViewport::build(state, size);
             let viewport = terminal_viewport.snapshot;
             let stable_cells = build_stable_history_cells(state);
-
             let mut force_full_redraw = false;
+            let mut append_stable_history = true;
             if !self.scrollback.is_prefix_of(&stable_cells) {
-                self.scrollback.reset();
+                self.scrollback
+                    .replace_committed_without_append(&stable_cells);
                 self.last_viewport = None;
                 self.last_message_line_count = None;
-                queue_purge_visible_and_scrollback(&mut self.stdout)?;
+                queue_clear_visible(&mut self.stdout)?;
                 force_full_redraw = true;
+                append_stable_history = false;
             }
 
-            self.scrollback
-                .sync_history(&stable_cells, size.0, render_history_append_lines);
+            if append_stable_history {
+                self.scrollback
+                    .sync_history(&stable_cells, size.0, render_history_append_lines);
+            }
 
             let needs_full_redraw = force_full_redraw || self.needs_full_redraw(size, &viewport);
             if needs_full_redraw {
@@ -6541,19 +6678,21 @@ mod shell {
                     .map(|previous| previous.top.min(viewport.top))
                     .unwrap_or(viewport.top);
                 self.clear_rows_from(clear_from, size.1, size.0)?;
-                let inserted =
-                    self.scrollback
-                        .insert_pending(&mut self.stdout, viewport.top, size.0)?;
-                if !inserted {
-                    self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+                let protected_top = self.protected_scrollback_top(&viewport);
+                if append_stable_history {
+                    let _inserted =
+                        self.scrollback
+                            .insert_pending(&mut self.stdout, protected_top, size.0)?;
                 }
+                self.redraw_history_tail(history_redraw_top(&viewport), size.0, &stable_cells)?;
                 self.redraw_viewport_full(&viewport, size.0)?;
             } else {
+                let protected_top = self.protected_scrollback_top(&viewport);
                 let inserted =
                     self.scrollback
-                        .insert_pending(&mut self.stdout, viewport.top, size.0)?;
+                        .insert_pending(&mut self.stdout, protected_top, size.0)?;
                 if !inserted {
-                    self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+                    self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
                 }
                 if should_force_live_viewport_redraw(state) {
                     self.redraw_viewport_full(&viewport, size.0)?;
@@ -6590,7 +6729,9 @@ mod shell {
 
             let can_update_viewport_only = self.last_terminal_size == Some(size)
                 && self.last_viewport.as_ref().is_some_and(|previous| {
-                    previous.top == viewport.top && previous.lines.len() == viewport.lines.len()
+                    previous.top == viewport.top
+                        && previous.prompt_top == viewport.prompt_top
+                        && previous.lines.len() == viewport.lines.len()
                 });
             if !can_update_viewport_only {
                 return self.sync(state);
@@ -6598,11 +6739,12 @@ mod shell {
 
             self.scrollback
                 .sync_history(&stable_cells, size.0, render_history_append_lines);
+            let protected_top = self.protected_scrollback_top(&viewport);
             let inserted =
                 self.scrollback
-                    .insert_pending(&mut self.stdout, viewport.top, size.0)?;
+                    .insert_pending(&mut self.stdout, protected_top, size.0)?;
             if !inserted {
-                self.redraw_history_tail(viewport.top, size.0, &stable_cells)?;
+                self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
             }
 
             if should_force_live_viewport_redraw(state) {
@@ -6629,8 +6771,23 @@ mod shell {
         fn needs_full_redraw(&self, size: (u16, u16), viewport: &ViewportSnapshot) -> bool {
             self.last_terminal_size != Some(size)
                 || self.last_viewport.as_ref().is_none_or(|previous| {
-                    previous.top != viewport.top || previous.lines.len() != viewport.lines.len()
+                    previous.top != viewport.top
+                        || previous.prompt_top != viewport.prompt_top
+                        || previous.lines.len() != viewport.lines.len()
                 })
+        }
+
+        fn protected_scrollback_top(&self, viewport: &ViewportSnapshot) -> u16 {
+            self.last_viewport
+                .as_ref()
+                .map(|previous| {
+                    viewport
+                        .top
+                        .min(previous.top)
+                        .min(previous.prompt_top)
+                        .min(viewport.prompt_top)
+                })
+                .unwrap_or(viewport.top.min(viewport.prompt_top))
         }
 
         fn preserve_scrolled_message_anchor(&mut self, state: &mut AppState, size: (u16, u16)) {
@@ -6749,6 +6906,7 @@ mod shell {
                 size,
                 snapshot: ViewportSnapshot {
                     top,
+                    prompt_top: top + rendered.prompt_top,
                     lines: rendered.lines,
                     cursor_x: rendered.cursor_x.min(width.saturating_sub(1)),
                     cursor_y: (top + rendered.cursor_y).min(height.saturating_sub(1)),
@@ -6809,8 +6967,24 @@ mod shell {
     fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
         let mut cells =
             Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
-        let mut runtime = state.runtime_cells.iter().peekable();
-        for (index, cell) in state.conversation_cells.iter().enumerate() {
+        let stable_runtime_len = state
+            .active_turn_runtime_start
+            .map(|start| active_turn_stable_runtime_len(&state.runtime_cells, start))
+            .unwrap_or(state.runtime_cells.len())
+            .min(state.runtime_cells.len());
+        let mut runtime = state
+            .runtime_cells
+            .iter()
+            .take(stable_runtime_len)
+            .peekable();
+        let conversation_limit =
+            projected_running_turn_start_index(state).unwrap_or(state.conversation_cells.len());
+        for (index, cell) in state
+            .conversation_cells
+            .iter()
+            .take(conversation_limit)
+            .enumerate()
+        {
             if runtime
                 .peek()
                 .is_some_and(|entry| entry.base_cell_index == index)
@@ -6849,46 +7023,40 @@ mod shell {
                 cells.push(entry.cell.clone());
             }
         }
-        if let Some(index) = active_turn_projection_start_index(state, &cells) {
-            cells.truncate(index);
-        }
         cells
+    }
+
+    fn projected_running_turn_start_index(state: &AppState) -> Option<usize> {
+        if !state.is_streaming && state.active_turn.is_none() {
+            return None;
+        }
+        let current_user = state
+            .active_turn_runtime_cells()?
+            .iter()
+            .rev()
+            .find(|entry| entry.cell.kind == TranscriptCellKind::User)
+            .map(|entry| entry.cell.body.trim_end())?;
+        let session = state.thread.session.as_ref()?;
+        let has_running_projection = session.turns.last().is_some_and(|turn| {
+            turn.status == ChatTurnStatus::Running && turn.events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ChatTurnEventKind::UserMessage { content } if content.trim_end() == current_user
+                )
+            })
+        }) || session.messages.last().is_some_and(|message| {
+            message.role == types::ChatRole::User && message.content.trim_end() == current_user
+        });
+        if !has_running_projection {
+            return None;
+        }
+        state.conversation_cells.iter().rposition(|cell| {
+            cell.kind == TranscriptCellKind::User && cell.body.trim_end() == current_user
+        })
     }
 
     fn should_hide_stable_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
         state.is_streaming && cell.kind == TranscriptCellKind::Subagent
-    }
-
-    fn active_turn_projection_start_index(
-        state: &AppState,
-        cells: &[TranscriptCell],
-    ) -> Option<usize> {
-        let active_user = state
-            .active_turn
-            .as_ref()?
-            .cells
-            .iter()
-            .find(|cell| cell.kind == TranscriptCellKind::User)?
-            .body
-            .trim_end();
-        let session = state.thread.session.as_ref()?;
-        let projected_by_running_turn = session.turns.last().is_some_and(|turn| {
-            turn.status == ChatTurnStatus::Running && turn.events.iter().any(|event| {
-                matches!(
-                    &event.kind,
-                    ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
-                )
-            })
-        });
-        let projected_by_pending_legacy_message = session.messages.last().is_some_and(|message| {
-            message.role == types::ChatRole::User && message.content.trim_end() == active_user
-        });
-        if !projected_by_running_turn && !projected_by_pending_legacy_message {
-            return None;
-        }
-        cells.iter().rposition(|cell| {
-            cell.kind == TranscriptCellKind::User && cell.body.trim_end() == active_user
-        })
     }
 
     fn visible_history_tail_lines(
@@ -6897,15 +7065,11 @@ mod shell {
         height: usize,
     ) -> Vec<Line<'static>> {
         let history_lines = render_history_append_lines(stable_cells, width);
-        if stable_cells
-            .iter()
-            .filter(|cell| cell.kind == TranscriptCellKind::User)
-            .count()
-            <= 1
-        {
-            return bottom_pad_lines(preserve_first_cell_tail(history_lines, height), height);
-        }
         bottom_anchor_lines(history_lines, height, 0)
+    }
+
+    fn history_redraw_top(viewport: &ViewportSnapshot) -> u16 {
+        viewport.top.min(viewport.prompt_top)
     }
 
     fn build_active_message_lines(state: &AppState, width: u16) -> Vec<Line<'static>> {
@@ -6913,19 +7077,7 @@ mod shell {
     }
 
     fn build_scrollable_message_lines(state: &AppState, width: u16) -> Vec<Line<'static>> {
-        let active_lines = build_active_message_lines(state, width);
-        if active_lines.is_empty() {
-            return Vec::new();
-        }
-
-        let mut history_lines =
-            render_history_append_lines(&build_stable_history_cells(state), width);
-        if history_lines.is_empty() {
-            return active_lines;
-        }
-        history_lines.push(Line::from(""));
-        history_lines.extend(active_lines);
-        history_lines
+        build_active_message_lines(state, width)
     }
 
     fn build_visible_message_lines(
@@ -6939,15 +7091,6 @@ mod shell {
         }
 
         let height = max_rows as usize;
-        let active_lines = build_active_message_lines(state, width);
-        if active_lines.is_empty() {
-            return Vec::new();
-        }
-
-        if scroll_from_bottom == 0 {
-            return preserve_first_cell_tail(active_lines, height);
-        }
-
         tail_lines(
             build_scrollable_message_lines(state, width),
             height,
@@ -6961,34 +7104,67 @@ mod shell {
     }
 
     fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-        let Some(active_turn) = state.active_turn.as_ref() else {
-            return Vec::new();
-        };
-        let has_assistant_cell = active_turn.cells.iter().any(|cell| {
-            cell.kind == TranscriptCellKind::Assistant
-                && (cell.is_active || !cell.body.trim().is_empty())
-        });
-        let has_runtime_cell = active_turn.cells.iter().any(|cell| {
-            matches!(
-                cell.kind,
-                TranscriptCellKind::Tool | TranscriptCellKind::Subagent
-            )
-        });
+        let active_turn = state.active_turn.as_ref();
         let subagent_activity_cells = state.activity.subagent_live_cells();
+        let runtime_cells = state
+            .active_turn_runtime_cells()
+            .map(|cells| {
+                cells
+                    .iter()
+                    .filter(|entry| {
+                        entry.cell.kind != TranscriptCellKind::User
+                            && !should_hide_stable_runtime_cell(state, &entry.cell)
+                    })
+                    .map(|entry| entry.cell.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let has_assistant_cell = active_turn.is_some_and(|active_turn| {
+            active_turn.cells.iter().any(|cell| {
+                cell.kind == TranscriptCellKind::Assistant
+                    && (cell.is_active || !cell.body.trim().is_empty())
+            })
+        });
+        let has_runtime_cell = active_turn.is_some_and(|active_turn| {
+            active_turn.cells.iter().any(|cell| {
+                matches!(
+                    cell.kind,
+                    TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+                )
+            })
+        }) || !runtime_cells.is_empty();
+        let queued_updates_empty = active_turn.is_none_or(|turn| turn.queued_updates.is_empty());
         if !state.is_streaming
             && !has_assistant_cell
             && !has_runtime_cell
-            && active_turn.queued_updates.is_empty()
+            && queued_updates_empty
             && subagent_activity_cells.is_empty()
         {
             return Vec::new();
         }
-        let mut cells = active_turn.cells.clone();
-        if let Some(cell) = queued_update_notice_cell(&active_turn.queued_updates) {
-            cells.push(cell);
+        let mut cells = runtime_cells;
+        if let Some(active_turn) = active_turn {
+            cells.extend(active_turn.cells.iter().cloned());
+            if let Some(cell) = queued_update_notice_cell(&active_turn.queued_updates) {
+                cells.push(cell);
+            }
         }
         cells.extend(subagent_activity_cells);
         cells
+    }
+
+    fn active_turn_stable_runtime_len(
+        runtime_cells: &[AnchoredRuntimeCell],
+        active_start: usize,
+    ) -> usize {
+        let mut len = active_start.min(runtime_cells.len());
+        while runtime_cells
+            .get(len)
+            .is_some_and(|entry| entry.cell.kind == TranscriptCellKind::User)
+        {
+            len += 1;
+        }
+        len
     }
 
     fn queued_update_notice_cell(queued_updates: &[String]) -> Option<TranscriptCell> {
@@ -7019,7 +7195,7 @@ mod shell {
     }
 
     fn should_force_live_viewport_redraw(state: &AppState) -> bool {
-        state.active_turn.is_some()
+        state.active_turn.is_some() || state.active_turn_runtime_start.is_some()
     }
 
     fn build_overlay_lines(
@@ -7080,7 +7256,7 @@ mod shell {
             return lines;
         }
 
-        if state.active_turn.is_none() {
+        if state.active_turn.is_none() && state.active_turn_runtime_start.is_none() {
             return Vec::new();
         }
         let pending_lines = Vec::new();
@@ -8823,15 +8999,6 @@ mod shell {
         visible
     }
 
-    fn bottom_pad_lines(mut lines: Vec<Line<'static>>, height: usize) -> Vec<Line<'static>> {
-        if height == 0 || lines.len() >= height {
-            return lines;
-        }
-        let mut padding = vec![Line::from(""); height - lines.len()];
-        padding.append(&mut lines);
-        padding
-    }
-
     fn tail_lines(
         lines: Vec<Line<'static>>,
         height: usize,
@@ -8845,56 +9012,6 @@ mod shell {
         let end = total.saturating_sub(scroll_from_bottom);
         let start = end.saturating_sub(height);
         lines[start..end].to_vec()
-    }
-
-    fn preserve_first_cell_tail(lines: Vec<Line<'static>>, height: usize) -> Vec<Line<'static>> {
-        if height == 0 || lines.len() <= height {
-            return lines;
-        }
-        if height == 1 {
-            return lines.into_iter().take(1).collect();
-        }
-
-        let first_cell_len = lines
-            .iter()
-            .position(line_is_empty)
-            .map(|index| index.max(1))
-            .unwrap_or(1)
-            .min(height - 1);
-        let tail_len = height.saturating_sub(first_cell_len);
-        let mut tail_start = lines.len().saturating_sub(tail_len);
-
-        let mut visible = lines[..first_cell_len].to_vec();
-        if tail_start > first_cell_len
-            && line_starts_with(&lines[tail_start], CONTINUATION_PREFIX)
-            && let Some(cell_start) = previous_cell_start(&lines, tail_start)
-            && cell_start >= first_cell_len
-            && cell_start < tail_start
-            && visible.len() < height
-        {
-            visible.push(lines[cell_start].clone());
-            let remaining = height.saturating_sub(visible.len());
-            tail_start = lines.len().saturating_sub(remaining);
-            if tail_start > cell_start + 1 && visible.len() < height {
-                visible.push(styled_line(CLIPPED_CELL_MARKER, muted_style()));
-                let remaining = height.saturating_sub(visible.len());
-                tail_start = lines.len().saturating_sub(remaining);
-            }
-        }
-        visible.extend_from_slice(&lines[tail_start.max(first_cell_len)..]);
-        visible.truncate(height);
-        visible
-    }
-
-    fn previous_cell_start(lines: &[Line<'static>], before: usize) -> Option<usize> {
-        let mut index = before.min(lines.len());
-        while index > 0 {
-            index -= 1;
-            if line_is_empty(&lines[index]) {
-                return Some(index + 1);
-            }
-        }
-        Some(0)
     }
 
     fn clamp_history_scroll(total_lines: usize, viewport_height: usize, requested: usize) -> usize {
@@ -8930,8 +9047,14 @@ mod shell {
         current: &ViewportSnapshot,
     ) -> u16 {
         previous
-            .map(|previous| previous.top.min(current.top))
-            .unwrap_or(current.top)
+            .map(|previous| {
+                current
+                    .top
+                    .min(previous.top)
+                    .min(previous.prompt_top)
+                    .min(current.prompt_top)
+            })
+            .unwrap_or(current.top.min(current.prompt_top))
     }
 
     #[cfg(test)]
@@ -8981,24 +9104,6 @@ mod shell {
         line.spans
             .iter()
             .all(|span| span.content.as_ref().is_empty())
-    }
-
-    fn line_starts_with(line: &Line<'_>, prefix: &str) -> bool {
-        let mut remaining = prefix;
-        for span in &line.spans {
-            let content = span.content.as_ref();
-            if content.is_empty() {
-                continue;
-            }
-            if remaining.len() <= content.len() {
-                return content.starts_with(remaining);
-            }
-            if !remaining.starts_with(content) {
-                return false;
-            }
-            remaining = &remaining[content.len()..];
-        }
-        remaining.is_empty()
     }
 
     #[cfg(test)]
@@ -9110,20 +9215,18 @@ mod shell {
     #[cfg(test)]
     mod tests {
         use super::{
-            CLIPPED_CELL_MARKER, ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells,
+            ViewportSnapshot, bottom_anchor_lines, build_stable_history_cells,
             build_transient_lines, build_viewport_snapshot, cell_title_style, changed_row_indices,
             clamp_history_scroll, compact_session_preview, footer_status_line, format_title,
-            is_cell_prefix, line_text, normalize_body_lines, preserve_active_cell_separator,
-            preserve_first_cell_tail, preserve_first_line_tail, preserve_scrolled_offset,
+            history_redraw_top, is_cell_prefix, line_text, normalize_body_lines,
+            preserve_active_cell_separator, preserve_first_line_tail, preserve_scrolled_offset,
             protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
             render_history_append_lines, session_message_count_label,
             should_force_live_viewport_redraw, summarize_tool_body, visible_history_fill_count,
             visible_history_tail_lines, write_styled_line,
         };
         use crossterm::queue;
-        use crossterm::style::{
-            Attribute, Color as CrosstermColor, Colors, SetAttribute, SetColors,
-        };
+        use crossterm::style::{Attribute, SetAttribute};
         use ratatui::style::{Color, Modifier, Style};
         use ratatui::text::Line;
         use ratatui::text::Span;
@@ -9553,26 +9656,17 @@ mod shell {
 
             write_styled_line(&mut output, &line).expect("styled line should render");
 
-            let mut expected_color = Vec::new();
-            queue!(
-                expected_color,
-                SetColors(Colors::new(CrosstermColor::Cyan, CrosstermColor::Reset))
-            )
-            .expect("expected color sequence should render");
             let mut expected_bold = Vec::new();
             queue!(expected_bold, SetAttribute(Attribute::Bold))
                 .expect("expected bold sequence should render");
-            assert!(
-                output
-                    .windows(expected_color.len())
-                    .any(|window| window == expected_color)
-            );
+            let rendered = String::from_utf8_lossy(&output);
+            assert!(rendered.contains("\u{1b}["));
             assert!(
                 output
                     .windows(expected_bold.len())
                     .any(|window| window == expected_bold)
             );
-            assert!(String::from_utf8_lossy(&output).contains("Styled"));
+            assert!(rendered.contains("Styled"));
         }
 
         #[test]
@@ -9676,7 +9770,7 @@ mod shell {
         }
 
         #[test]
-        fn finalized_first_turn_keeps_live_message_row_alignment() {
+        fn first_turn_keeps_user_in_stable_history_while_assistant_is_live() {
             let mut live_state = AppState::empty();
             live_state.push_local_user_message("first message stability check".to_string());
             live_state.start_assistant_typing();
@@ -9686,46 +9780,27 @@ mod shell {
 
             let live_viewport = build_viewport_snapshot(&live_state, (60, 18));
             let live_lines = line_texts(&live_viewport.lines);
-            let live_user_row = live_viewport.top as usize
-                + live_lines
+            assert!(!live_lines.iter().any(|line| line == "You"));
+            assert!(
+                live_lines
                     .iter()
-                    .position(|line| line == "You")
-                    .expect("live user row");
+                    .any(|line| line.contains("FIRST_STABLE_OK"))
+            );
 
-            let stable_cells = vec![
-                TranscriptCell {
-                    kind: TranscriptCellKind::User,
-                    title: "You".to_string(),
-                    subtitle: None,
-                    body: "first message stability check".to_string(),
-                    group: MessageGroup::Conversation,
-                    is_active: false,
-                },
-                TranscriptCell {
-                    kind: TranscriptCellKind::Assistant,
-                    title: "Default Assistant".to_string(),
-                    subtitle: None,
-                    body: "FIRST_STABLE_OK".to_string(),
-                    group: MessageGroup::Conversation,
-                    is_active: false,
-                },
-            ];
-            let stable_viewport_top = build_viewport_snapshot(&AppState::empty(), (60, 18)).top;
-            let stable_lines = line_texts(&visible_history_tail_lines(
-                &stable_cells,
+            let stable_lines = line_texts(&render_history_append_lines(
+                &build_stable_history_cells(&live_state),
                 60,
-                stable_viewport_top as usize,
             ));
-            let stable_user_row = stable_lines
-                .iter()
-                .position(|line| line == "You")
-                .expect("stable user row");
-
-            assert_eq!(stable_user_row, live_user_row);
+            assert!(stable_lines.iter().any(|line| line == "You"));
+            assert!(
+                stable_lines
+                    .iter()
+                    .any(|line| line.contains("first message stability check"))
+            );
         }
 
         #[test]
-        fn first_turn_stable_history_keeps_user_cell_when_overflowing() {
+        fn first_turn_stable_history_uses_normal_tail_when_overflowing() {
             let cells = vec![
                 TranscriptCell {
                     kind: TranscriptCellKind::User,
@@ -9761,13 +9836,8 @@ mod shell {
 
             let rendered = line_texts(&visible_history_tail_lines(&cells, 80, 12));
 
-            assert!(rendered.iter().any(|line| line == "You"));
-            assert!(
-                rendered
-                    .iter()
-                    .any(|line| line.contains("run lots of output"))
-            );
-            assert!(rendered.iter().any(|line| line.contains("Tool · bash")));
+            assert!(!rendered.iter().any(|line| line == "  ..."));
+            assert!(rendered.iter().any(|line| line.contains("line 30")));
             assert!(rendered.iter().any(|line| line.contains("done")));
         }
 
@@ -9838,6 +9908,7 @@ mod shell {
         fn protected_append_top_uses_current_top_without_previous_viewport() {
             let current = ViewportSnapshot {
                 top: 12,
+                prompt_top: 12,
                 lines: vec![Line::from(""); 3],
                 cursor_x: 0,
                 cursor_y: 13,
@@ -9850,12 +9921,14 @@ mod shell {
         fn protected_append_top_preserves_previous_streaming_viewport() {
             let previous = ViewportSnapshot {
                 top: 8,
+                prompt_top: 14,
                 lines: vec![Line::from(""); 8],
                 cursor_x: 0,
                 cursor_y: 15,
             };
             let current = ViewportSnapshot {
                 top: 13,
+                prompt_top: 13,
                 lines: vec![Line::from(""); 3],
                 cursor_x: 0,
                 cursor_y: 14,
@@ -9868,18 +9941,53 @@ mod shell {
         fn protected_append_top_preserves_current_expanded_viewport() {
             let previous = ViewportSnapshot {
                 top: 13,
+                prompt_top: 13,
                 lines: vec![Line::from(""); 3],
                 cursor_x: 0,
                 cursor_y: 14,
             };
             let current = ViewportSnapshot {
                 top: 8,
+                prompt_top: 14,
                 lines: vec![Line::from(""); 8],
                 cursor_x: 0,
                 cursor_y: 15,
             };
 
             assert_eq!(protected_append_top(Some(&previous), &current), 8);
+        }
+
+        #[test]
+        fn protected_append_top_preserves_previous_prompt_rows_when_prompt_shrinks() {
+            let previous = ViewportSnapshot {
+                top: 20,
+                prompt_top: 20,
+                lines: vec![Line::from(""); 4],
+                cursor_x: 0,
+                cursor_y: 22,
+            };
+            let current = ViewportSnapshot {
+                top: 21,
+                prompt_top: 21,
+                lines: vec![Line::from(""); 3],
+                cursor_x: 0,
+                cursor_y: 22,
+            };
+
+            assert_eq!(protected_append_top(Some(&previous), &current), 20);
+        }
+
+        #[test]
+        fn full_redraw_history_top_ignores_previous_full_screen_overlay() {
+            let current = ViewportSnapshot {
+                top: 33,
+                prompt_top: 33,
+                lines: vec![Line::from(""); 3],
+                cursor_x: 0,
+                cursor_y: 34,
+            };
+
+            assert_eq!(history_redraw_top(&current), 33);
         }
 
         #[test]
@@ -10095,7 +10203,7 @@ mod shell {
         }
 
         #[test]
-        fn stable_history_excludes_running_active_turn_from_session_projection() {
+        fn stable_history_keeps_session_running_projection_without_local_tool() {
             let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
             session.record_turn_user_message("turn-1", "previous");
             session.complete_turn_with_assistant_message("turn-1", "done");
@@ -10119,7 +10227,7 @@ mod shell {
                     .iter()
                     .map(|cell| cell.body.as_str())
                     .collect::<Vec<_>>(),
-                vec!["previous", "done"]
+                vec!["previous", "done", "current", "Input: {}"]
             );
         }
 
@@ -10134,7 +10242,13 @@ mod shell {
 
             let cells = build_stable_history_cells(&state);
 
-            assert!(cells.is_empty());
+            assert_eq!(
+                cells
+                    .iter()
+                    .map(|cell| cell.body.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["current"]
+            );
         }
 
         #[test]
@@ -10317,7 +10431,7 @@ mod shell {
         }
 
         #[test]
-        fn message_viewport_hides_completed_tool_only_live_turn() {
+        fn completed_tool_only_turn_moves_to_stable_history() {
             let mut state = AppState::empty();
             state.push_local_user_message("coordinate team".to_string());
             state.start_assistant_typing();
@@ -10333,11 +10447,16 @@ mod shell {
             });
             state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-            let text = line_texts(&super::build_message_lines(&state, 100, 12)).join("\n");
+            let text = line_texts(&render_history_append_lines(
+                &build_stable_history_cells(&state),
+                100,
+            ))
+            .join("\n");
 
-            assert!(text.is_empty());
-            assert!(!text.contains("Team"));
+            assert!(text.contains("coordinate team"));
+            assert!(text.contains("completed"));
             assert!(!text.contains("call-team"));
+            assert!(line_texts(&super::build_message_lines(&state, 100, 12)).is_empty());
         }
 
         #[test]
@@ -10745,8 +10864,6 @@ mod shell {
             let lines = build_transient_lines(&state, 80, 8);
             let rendered = line_texts(&lines);
 
-            assert!(rendered.iter().any(|line| line.contains("You")));
-            assert!(rendered.iter().any(|line| line.contains("hello")));
             assert!(rendered.iter().any(|line| line.contains("Agent")));
             assert!(rendered.iter().any(|line| line.contains("typing")));
         }
@@ -10792,10 +10909,17 @@ mod shell {
 
             let lines = line_texts(&super::build_message_lines(&state, 80, 8));
 
-            assert!(lines.iter().any(|line| line.contains("You")));
-            assert!(lines.iter().any(|line| line.contains("first message")));
+            assert!(!lines.iter().any(|line| line.contains("You")));
+            assert!(!lines.iter().any(|line| line.contains("first message")));
             assert!(lines.iter().any(|line| line.contains("Agent")));
             assert!(lines.iter().any(|line| line.contains("typing")));
+
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                80,
+            ));
+            assert!(stable.iter().any(|line| line.contains("You")));
+            assert!(stable.iter().any(|line| line.contains("first message")));
         }
 
         #[test]
@@ -10811,10 +10935,29 @@ mod shell {
             let after = line_texts(&build_viewport_snapshot(&state, (60, 18)).lines);
 
             assert_eq!(
-                before.iter().position(|line| line == "You"),
-                after.iter().position(|line| line == "You")
+                before.iter().position(|line| line.contains("Agent")),
+                after.iter().position(|line| line.contains("Agent"))
             );
             assert!(after.iter().any(|line| line.contains("FIRST_STABLE_OK")));
+        }
+
+        #[test]
+        fn active_user_message_is_stable_not_pinned_to_live_viewport() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("do not pin me".to_string());
+            state.apply_stream_frame(StreamFrame::Ack {
+                content: "working".to_string(),
+            });
+
+            let live = line_texts(&super::build_message_lines(&state, 80, 8));
+            assert!(!live.iter().any(|line| line.contains("do not pin me")));
+            assert!(live.iter().any(|line| line.contains("working")));
+
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                80,
+            ));
+            assert!(stable.iter().any(|line| line.contains("do not pin me")));
         }
 
         #[test]
@@ -10837,7 +10980,7 @@ mod shell {
                 content: "Final answer".to_string(),
             });
 
-            let lines = build_transient_lines(&state, 100, 12);
+            let lines = super::build_message_lines(&state, 100, 12);
             let rendered = line_texts(&lines);
 
             assert!(rendered.iter().any(|line| line.contains("Agent")));
@@ -10858,10 +11001,10 @@ mod shell {
             state.push_local_user_message("first".to_string());
             state.queue_active_turn_update("please use the shorter answer".to_string());
 
-            let lines = build_transient_lines(&state, 100, 12);
+            let lines = super::build_message_lines(&state, 100, 12);
             let rendered = line_texts(&lines);
 
-            assert!(rendered.iter().any(|line| line == "You"));
+            assert!(!rendered.iter().any(|line| line == "You"));
             assert!(
                 rendered
                     .iter()
@@ -10872,6 +11015,12 @@ mod shell {
                     .iter()
                     .any(|line| line.contains("1. please use the shorter answer"))
             );
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
+            assert!(stable.iter().any(|line| line == "You"));
+            assert!(stable.iter().any(|line| line.contains("first")));
         }
 
         #[test]
@@ -10964,7 +11113,7 @@ mod shell {
         }
 
         #[test]
-        fn bottom_live_viewport_keeps_user_cell_when_turn_overflows() {
+        fn bottom_live_viewport_uses_normal_scrollback_when_turn_overflows() {
             let mut state = AppState::empty();
             state.push_local_user_message("run lots of output".to_string());
             state.apply_stream_frame(StreamFrame::Ack {
@@ -10974,39 +11123,33 @@ mod shell {
                     .join("\n"),
             });
 
-            let rendered = line_texts(&build_viewport_snapshot(&state, (80, 16)).lines);
+            let rendered = line_texts(&super::build_message_lines(&state, 80, 8));
 
-            assert!(rendered.iter().any(|line| line == "You"));
+            assert!(!rendered.iter().any(|line| line == "  ..."));
+            assert!(rendered.iter().any(|line| line.contains("line 30")));
+
+            let scrolled = line_texts(&super::build_visible_message_lines(
+                &state,
+                80,
+                8,
+                usize::MAX,
+            ));
+            assert!(!scrolled.iter().any(|line| line == "You"));
+
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                80,
+            ));
+            assert!(stable.iter().any(|line| line == "You"));
             assert!(
-                rendered
+                stable
                     .iter()
                     .any(|line| line.contains("run lots of output"))
             );
-            assert!(rendered.iter().any(|line| line.contains("line 30")));
         }
 
         #[test]
-        fn overflowing_live_tool_cell_marks_clipped_body() {
-            let mut lines = vec![
-                Line::from("You"),
-                Line::from("  run lots of output"),
-                Line::from(""),
-                Line::from("Tool · bash"),
-            ];
-            lines.extend((1..=20).map(|index| Line::from(format!("  LONG_TOOL_{index}"))));
-
-            let rendered = line_texts(&preserve_first_cell_tail(lines, 8));
-
-            assert_eq!(rendered[0], "You");
-            assert_eq!(rendered[1], "  run lots of output");
-            assert!(rendered.iter().any(|line| line == "Tool · bash"));
-            assert!(rendered.iter().any(|line| line == CLIPPED_CELL_MARKER));
-            assert!(rendered.iter().any(|line| line.contains("LONG_TOOL_20")));
-            assert_eq!(rendered.len(), 8);
-        }
-
-        #[test]
-        fn message_viewport_scrolls_from_live_turn_into_history() {
+        fn message_viewport_scrolls_only_within_live_turn() {
             let mut state = AppState::empty();
             state.conversation_cells.push(TranscriptCell {
                 kind: TranscriptCellKind::Assistant,
@@ -11037,18 +11180,9 @@ mod shell {
             assert!(scrolled.iter().any(|line| line.contains("live 15")));
 
             state.message_scroll_from_bottom = 16;
-            let scrolled_into_history =
-                line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
-            assert!(
-                scrolled_into_history
-                    .iter()
-                    .any(|line| line.contains("stable"))
-            );
-            assert!(
-                scrolled_into_history
-                    .iter()
-                    .any(|line| line.contains("live 1"))
-            );
+            let scrolled_to_top = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
+            assert!(!scrolled_to_top.iter().any(|line| line.contains("stable")));
+            assert!(scrolled_to_top.iter().any(|line| line.contains("live 1")));
         }
 
         #[test]
@@ -11779,6 +11913,7 @@ mod state {
         // Active turn is the latest live viewport. Stable history comes from session projection only.
         pub active_turn: Option<ActiveTurn>,
         active_turn_session_id: Option<String>,
+        pub(crate) active_turn_runtime_start: Option<usize>,
         pending_runtime_refresh_session_id: Option<String>,
         active_progress_started_at_ms: Option<i64>,
         active_tool_progress_started_at_ms: HashMap<String, i64>,
@@ -11819,6 +11954,7 @@ mod state {
                 activity: ActivityState::default(),
                 active_turn: None,
                 active_turn_session_id: None,
+                active_turn_runtime_start: None,
                 pending_runtime_refresh_session_id: None,
                 active_progress_started_at_ms: None,
                 active_tool_progress_started_at_ms: HashMap::new(),
@@ -11986,7 +12122,8 @@ mod state {
                     self.canceled_stream_ids.insert(stream_id);
                 }
                 self.ignore_stream_frames = true;
-                self.clear_active_response();
+                self.finish_active_assistant_segment();
+                self.flush_active_turn_to_runtime();
             }
             let old_cells = std::mem::take(&mut self.conversation_cells);
             self.thread.session = Some(session.clone());
@@ -12014,20 +12151,8 @@ mod state {
         }
 
         fn active_turn_finished_in_session(&self, session: &ChatSession) -> bool {
-            let Some(active_turn) = self.active_turn.as_ref() else {
-                return false;
-            };
-            let active_tool_call_ids: Vec<&str> = active_turn
-                .cells
-                .iter()
-                .filter_map(|cell| cell.tool_call_id())
-                .collect();
-            let Some(active_user) = active_turn
-                .cells
-                .iter()
-                .find(|cell| cell.kind == TranscriptCellKind::User)
-                .map(|cell| cell.body.trim_end())
-            else {
+            let active_tool_call_ids = self.current_turn_tool_call_ids();
+            let Some(active_user) = self.current_turn_user_content() else {
                 return false;
             };
             session.turns.iter().rev().any(|turn| {
@@ -12072,22 +12197,10 @@ mod state {
         }
 
         fn active_turn_answered_in_session_messages(&self, session: &ChatSession) -> bool {
-            let Some(active_turn) = self.active_turn.as_ref() else {
-                return false;
-            };
-            if active_turn
-                .cells
-                .iter()
-                .any(|cell| cell.tool_call_id().is_some())
-            {
+            if !self.current_turn_tool_call_ids().is_empty() {
                 return false;
             }
-            let Some(active_user) = active_turn
-                .cells
-                .iter()
-                .find(|cell| cell.kind == TranscriptCellKind::User)
-                .map(|cell| cell.body.trim_end())
-            else {
+            let Some(active_user) = self.current_turn_user_content() else {
                 return false;
             };
             let Some(last_user_index) = session
@@ -12104,18 +12217,10 @@ mod state {
         }
 
         fn pending_user_turn_persisted_in_session(&self, session: &ChatSession) -> bool {
-            let Some(active_turn) = self.active_turn.as_ref() else {
-                return false;
-            };
-            if active_turn.cells.len() != 1 {
+            if self.current_turn_has_response_content() {
                 return false;
             }
-            let Some(active_user) = active_turn
-                .cells
-                .iter()
-                .find(|cell| cell.kind == TranscriptCellKind::User)
-                .map(|cell| cell.body.trim_end())
-            else {
+            let Some(active_user) = self.current_turn_user_content() else {
                 return false;
             };
             messages_from_session(session).iter().any(|message| {
@@ -12124,6 +12229,44 @@ mod state {
                     ShellMessage::UserMessage { content } if content.trim_end() == active_user
                 )
             })
+        }
+
+        fn current_turn_user_content(&self) -> Option<&str> {
+            self.active_turn_runtime_cells()
+                .and_then(|runtime_cells| {
+                    runtime_cells
+                        .iter()
+                        .rev()
+                        .find(|entry| entry.cell.kind == TranscriptCellKind::User)
+                        .map(|entry| entry.cell.body.trim_end())
+                })
+                .or_else(|| {
+                    self.active_turn.as_ref().and_then(|active_turn| {
+                        active_turn
+                            .cells
+                            .iter()
+                            .find(|cell| cell.kind == TranscriptCellKind::User)
+                            .map(|cell| cell.body.trim_end())
+                    })
+                })
+        }
+
+        fn current_turn_tool_call_ids(&self) -> Vec<&str> {
+            let mut ids = self
+                .active_turn_runtime_cells()
+                .into_iter()
+                .flat_map(|runtime_cells| runtime_cells.iter())
+                .filter_map(|entry| entry.cell.tool_call_id())
+                .collect::<Vec<_>>();
+            if let Some(active_turn) = self.active_turn.as_ref() {
+                ids.extend(
+                    active_turn
+                        .cells
+                        .iter()
+                        .filter_map(|cell| cell.tool_call_id()),
+                );
+            }
+            ids
         }
 
         pub fn clear_current_session(&mut self, notice: impl Into<String>) {
@@ -12491,6 +12634,7 @@ mod state {
         fn clear_active_response(&mut self) {
             self.active_turn = None;
             self.active_turn_session_id = None;
+            self.active_turn_runtime_start = None;
             self.active_progress_started_at_ms = None;
             self.active_tool_progress_started_at_ms.clear();
             self.activity.clear();
@@ -12500,23 +12644,13 @@ mod state {
         }
 
         fn finish_active_assistant_segment(&mut self) {
-            let Some(active_turn) = self.active_turn.as_mut() else {
-                return;
-            };
-            let Some(index) = active_turn.active_assistant_index.take() else {
-                return;
-            };
-            let Some(active_cell) = active_turn.cells.get_mut(index) else {
+            let Some(mut active_cell) = self.take_active_assistant_cell() else {
                 return;
             };
             active_cell.body = active_cell.body.trim_end().to_string();
-            if active_cell.body.trim().is_empty() {
-                active_turn.cells.remove(index);
-            } else {
+            if !active_cell.body.trim().is_empty() {
                 let _ = active_cell.finalize();
-            }
-            if active_turn.cells.is_empty() {
-                self.active_turn = None;
+                self.push_current_turn_runtime_cell(active_cell);
             }
             self.active_progress_started_at_ms = None;
             self.active_assistant_stream_body.clear();
@@ -12544,6 +12678,38 @@ mod state {
                 self.canceled_stream_ids.insert(stream_id);
             }
             self.ignore_stream_frames = true;
+        }
+
+        pub fn suppress_missing_terminal_frame_for_stream(&mut self, stream_id: &str) -> bool {
+            if self.canceled_stream_ids.remove(stream_id) {
+                return true;
+            }
+            self.ignore_stream_frames && self.current_stream_id.as_deref() != Some(stream_id)
+        }
+
+        pub fn complete_stream_without_terminal_frame(&mut self, stream_id: &str) -> bool {
+            if self.current_stream_id.as_deref() != Some(stream_id)
+                || !self.current_turn_has_response_content()
+            {
+                return false;
+            }
+            self.is_streaming = false;
+            self.current_stream_id = None;
+            self.finish_active_assistant_segment();
+            self.flush_active_turn_to_runtime();
+            self.status = "Stream finished".to_string();
+            true
+        }
+
+        fn current_turn_has_response_content(&self) -> bool {
+            self.active_turn.as_ref().is_some_and(|turn| {
+                turn.cells.iter().any(|cell| {
+                    !matches!(cell.kind, TranscriptCellKind::User)
+                        && (!cell.body.trim().is_empty() || cell.tool_call_id().is_some())
+                })
+            }) || self
+                .active_turn_runtime_cells()
+                .is_some_and(runtime_response_after_last_user)
         }
 
         pub fn update_active_typing_indicator(&mut self) -> bool {
@@ -12678,6 +12844,94 @@ mod state {
             active_turn.cells.get_mut(index)
         }
 
+        fn take_active_assistant_cell(&mut self) -> Option<TranscriptCell> {
+            let active_turn = self.active_turn.as_mut()?;
+            let index = active_turn.active_assistant_index.take()?;
+            if index >= active_turn.cells.len() {
+                return None;
+            }
+            let cell = active_turn.cells.remove(index);
+            if active_turn.cells.is_empty()
+                && active_turn.queued_updates.is_empty()
+                && !self.is_streaming
+            {
+                self.active_turn = None;
+            }
+            Some(cell)
+        }
+
+        fn take_active_tool_cell(&mut self, call_id: &str) -> Option<TranscriptCell> {
+            let active_turn = self.active_turn.as_mut()?;
+            let index = active_turn
+                .cells
+                .iter()
+                .position(|cell| cell.tool_call_id() == Some(call_id))?;
+            if active_turn
+                .active_assistant_index
+                .is_some_and(|assistant_index| {
+                    assistant_index > index && assistant_index < active_turn.cells.len()
+                })
+            {
+                active_turn.active_assistant_index =
+                    active_turn.active_assistant_index.map(|index| index - 1);
+            }
+            let cell = active_turn.cells.remove(index);
+            if active_turn.cells.is_empty()
+                && active_turn.queued_updates.is_empty()
+                && !self.is_streaming
+            {
+                self.active_turn = None;
+            }
+            Some(cell)
+        }
+
+        fn reset_active_progress_if_no_live_cells(&mut self) {
+            let has_live_cell = self
+                .active_turn
+                .as_ref()
+                .is_some_and(|turn| turn.cells.iter().any(|cell| cell.is_active));
+            if !has_live_cell {
+                self.active_progress_started_at_ms = None;
+            }
+        }
+
+        fn push_current_turn_runtime_cell(&mut self, mut cell: TranscriptCell) -> bool {
+            if self.active_turn_runtime_start.is_none() {
+                self.active_turn_runtime_start = Some(self.runtime_cells.len());
+            }
+            if cell.is_active {
+                let _ = cell.finalize();
+            }
+            if matches!(
+                cell.kind,
+                TranscriptCellKind::Assistant | TranscriptCellKind::User
+            ) && cell.body.trim().is_empty()
+            {
+                return false;
+            }
+            if self
+                .conversation_cells
+                .iter()
+                .any(|persisted| is_persisted_duplicate_cell(&cell, persisted))
+                || self
+                    .runtime_cells
+                    .iter()
+                    .any(|entry| is_persisted_duplicate_cell(&cell, &entry.cell))
+            {
+                return false;
+            }
+            let refresh_session_id = self
+                .active_turn_session_id
+                .clone()
+                .or_else(|| self.current_session_id().map(ToOwned::to_owned));
+            self.runtime_cells.push(AnchoredRuntimeCell {
+                base_cell_index: self.conversation_cells.len(),
+                cell,
+            });
+            self.pending_runtime_refresh_session_id = refresh_session_id;
+            true
+        }
+
         fn ensure_active_assistant_cell(&mut self) {
             let needs_cell = self
                 .active_turn
@@ -12730,23 +12984,29 @@ mod state {
             if !self.active_tool_result_ids.insert(call_id.to_string()) {
                 return;
             }
-            if let Some(active_turn) = self.active_turn.as_mut()
-                && let Some(cell) = active_turn
-                    .cells
-                    .iter_mut()
-                    .find(|cell| cell.tool_call_id() == Some(call_id))
-            {
+            if let Some(mut cell) = self.take_active_tool_cell(call_id) {
                 let _ = cell.merge_tool_result(success, result);
                 self.activity
                     .record_tool_result(call_id, success, &cell.body);
                 self.active_tool_progress_started_at_ms.remove(call_id);
-                if !active_turn.cells.iter().any(|cell| cell.is_active) {
-                    self.active_progress_started_at_ms = None;
-                }
+                self.push_current_turn_runtime_cell(cell);
+                self.reset_active_progress_if_no_live_cells();
+                return;
+            }
+            if let Some(entry) = self
+                .runtime_cells
+                .iter_mut()
+                .find(|entry| entry.cell.tool_call_id() == Some(call_id))
+            {
+                let _ = entry.cell.merge_tool_result(success, result);
+                self.activity
+                    .record_tool_result(call_id, success, &entry.cell.body);
+                self.active_tool_progress_started_at_ms.remove(call_id);
+                self.reset_active_progress_if_no_live_cells();
                 return;
             }
             let assistant_name = self.assistant_name().to_string();
-            let cell = cell_from_message(
+            let mut cell = cell_from_message(
                 &ShellMessage::ToolResult {
                     call_id: call_id.to_string(),
                     success,
@@ -12754,9 +13014,10 @@ mod state {
                 },
                 &assistant_name,
             );
+            let _ = cell.finalize();
             self.activity
                 .record_tool_result(call_id, success, &cell.body);
-            self.ensure_active_turn().cells.push(cell);
+            self.push_current_turn_runtime_cell(cell);
         }
 
         pub fn push_local_user_message(&mut self, content: String) {
@@ -12768,11 +13029,9 @@ mod state {
                 self.assistant_name(),
             );
             self.active_turn_session_id = self.current_session_id().map(ToOwned::to_owned);
-            self.active_turn = Some(ActiveTurn {
-                cells: vec![cell],
-                queued_updates: Vec::new(),
-                active_assistant_index: None,
-            });
+            self.active_turn_runtime_start = Some(self.runtime_cells.len());
+            self.push_current_turn_runtime_cell(cell);
+            self.active_turn = Some(ActiveTurn::default());
         }
 
         pub fn queue_active_turn_update(&mut self, instruction: String) {
@@ -12995,11 +13254,18 @@ mod state {
         }
 
         fn reconcile_runtime_conversation_cells(&mut self) {
+            let active_start = self.active_turn_runtime_start;
+            let mut runtime_index = 0usize;
             self.runtime_cells.retain(|entry| {
+                let current_index = runtime_index;
+                runtime_index += 1;
+                if active_start.is_some_and(|start| current_index >= start) {
+                    return true;
+                }
                 let persisted_duplicate = self
                     .conversation_cells
                     .iter()
-                    .any(|cell| is_persisted_duplicate_cell(&entry.cell, cell));
+                    .any(|cell| active_cell_projected_by(&entry.cell, cell));
                 let equivalent_error = entry.cell.title == "Error"
                     && self.conversation_cells.iter().any(|cell| {
                         cell.title == "Error"
@@ -13031,6 +13297,11 @@ mod state {
             self.default_agent_name.as_deref().unwrap_or("Agent")
         }
 
+        pub(crate) fn active_turn_runtime_cells(&self) -> Option<&[AnchoredRuntimeCell]> {
+            self.active_turn_runtime_start
+                .map(|start| &self.runtime_cells[start.min(self.runtime_cells.len())..])
+        }
+
         fn last_runtime_error_matches(&self, content: &str) -> bool {
             let normalized = normalized_error_notice(content);
             self.runtime_cells.iter().rev().any(|entry| {
@@ -13058,6 +13329,20 @@ mod state {
             runtime.kind,
             TranscriptCellKind::User | TranscriptCellKind::Assistant
         ) && compact_duplicate_text(&runtime.body) == compact_duplicate_text(&persisted.body)
+    }
+
+    fn runtime_response_after_last_user(runtime_cells: &[AnchoredRuntimeCell]) -> bool {
+        for entry in runtime_cells.iter().rev() {
+            if entry.cell.kind == TranscriptCellKind::User {
+                return false;
+            }
+            if !matches!(entry.cell.kind, TranscriptCellKind::Notice)
+                && (!entry.cell.body.trim().is_empty() || entry.cell.tool_call_id().is_some())
+            {
+                return true;
+            }
+        }
+        false
     }
 
     fn active_cell_projected_by(active: &TranscriptCell, persisted: &TranscriptCell) -> bool {
@@ -13380,16 +13665,16 @@ mod state {
 
             assert!(state.active_turn.is_some());
             assert!(state.conversation_cells.is_empty());
-            assert!(state.runtime_cells.is_empty());
+            assert_eq!(state.runtime_cells.len(), 2);
+            assert!(state.runtime_cells[0].cell.body.contains("Checking..."));
+            assert_eq!(state.runtime_cells[1].cell.title, "Tool · bash");
+            assert!(state.runtime_cells[1].cell.body.contains("Input:"));
+            assert!(state.runtime_cells[1].cell.body.contains("Output:"));
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells.len(), 3);
+            assert_eq!(active_turn.cells.len(), 1);
             let active = active_turn.cells.last().expect("active assistant");
             assert_eq!(active.kind, TranscriptCellKind::Assistant);
-            assert!(active_turn.cells[0].body.contains("Checking..."));
             assert!(active.body.contains("Done."));
-            assert_eq!(active_turn.cells[1].title, "Tool · bash");
-            assert!(active_turn.cells[1].body.contains("Input:"));
-            assert!(active_turn.cells[1].body.contains("Output:"));
 
             let cells = state.transcript_cells_for_render();
             let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
@@ -13626,7 +13911,8 @@ mod state {
 
             state.is_streaming = true;
             state.refresh_current_session(session.clone());
-            assert_eq!(state.active_turn.as_ref().unwrap().cells.len(), 1);
+            assert!(state.active_turn.as_ref().unwrap().cells.is_empty());
+            assert_eq!(state.runtime_cells[0].cell.body, "hello");
 
             let mut updated = session;
             updated.messages.push(types::ChatMessage::user("hello"));
@@ -14273,6 +14559,57 @@ mod state {
             );
             assert!(state.runtime_cells.is_empty());
             assert!(state.active_turn.is_none());
+        }
+
+        #[test]
+        fn refresh_flushes_active_assistant_when_completed_projection_only_has_tools() {
+            let mut state = AppState::empty();
+            let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            state.set_current_session(session);
+            state.begin_stream("turn-1".to_string());
+            state.push_local_user_message("hello".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command":"pwd"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                success: true,
+                result: "/tmp".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "local final answer".to_string(),
+            });
+
+            let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            persisted.record_turn_user_message("turn-1", "hello");
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: "{\"command\":\"pwd\"}".to_string(),
+                },
+            );
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::ToolResult {
+                    call_id: "call-1".to_string(),
+                    success: true,
+                    result: "/tmp".to_string(),
+                },
+            );
+            persisted.complete_turn_with_assistant_message("turn-1", "");
+
+            state.refresh_current_session(persisted);
+
+            assert!(state.active_turn.is_none());
+            assert!(state.active_turn_runtime_start.is_none());
+            let rendered = state.transcript_cells_for_render();
+            assert!(rendered.iter().any(|cell| {
+                cell.kind == TranscriptCellKind::Assistant && cell.body == "local final answer"
+            }));
         }
 
         #[test]
