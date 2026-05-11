@@ -3,9 +3,6 @@
 pub use restflow_core::{
     AppCore, DEFAULT_ASSISTANT_NAME, Secret, StoredAgent, paths, services, storage,
 };
-pub use runner;
-pub use tools;
-
 pub mod runtime {
     pub use runner::{
         AgentOrchestratorImpl, AgentRuntimeExecutor, InteractiveSessionRequest, SessionInputMode,
@@ -5455,7 +5452,7 @@ mod integration_tests {
     }
 
     mod tool_agent_integration {
-        use crate::tools::{BashConfig, FileConfig, ToolRegistryBuilder};
+        use ::tools::{BashConfig, FileConfig, ToolRegistryBuilder};
 
         #[test]
         fn minimal_registry_excludes_external_capabilities() {
@@ -5489,13 +5486,13 @@ mod integration_tests {
         use std::collections::HashMap;
         use std::sync::Arc;
 
-        use crate::tools::{ListSubagentsTool, SpawnSubagentTool, Tool, WaitSubagentsTool};
         use ::agent::agent::{
             SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
             SubagentDeps, SubagentManagerImpl, SubagentTracker,
         };
         use ::agent::llm::{MockLlmClient, MockStep};
         use ::agent::tools::ToolRegistry;
+        use ::tools::{ListSubagentsTool, SpawnSubagentTool, Tool, WaitSubagentsTool};
         use serde_json::json;
         use tokio::sync::mpsc;
         use types::SubagentManager;

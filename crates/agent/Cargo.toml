@@ -15,7 +15,7 @@ tokio.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 types.workspace = true
-llm = { workspace = true, features = ["test-utils"] }
+llm = { workspace = true }
 
 # AI-specific dependencies
 async-stream = "0.3"
@@ -38,6 +38,7 @@ test-utils = []
 [lints.rust]
 
 [dev-dependencies]
+llm = { workspace = true, features = ["test-utils"] }
 tempfile = "3.25"
 tokio = { version = "1.51", features = ["rt-multi-thread", "macros"] }
 wiremock = "0.6"

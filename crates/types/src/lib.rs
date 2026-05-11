@@ -812,18 +812,6 @@ pub mod catalog {
             })
     }
 
-    pub fn lookup_by_canonical_family(
-        provider: Provider,
-        canonical_family: &str,
-    ) -> Option<ModelId> {
-        provider_catalog(provider)?
-            .models
-            .iter()
-            .find_map(|descriptor| {
-                (descriptor.canonical_family == Some(canonical_family)).then_some(descriptor.id)
-            })
-    }
-
     fn descriptor_matches_lookup_key(descriptor: &ModelDescriptor, key: &str) -> bool {
         descriptor.id.as_serialized_str().eq_ignore_ascii_case(key)
             || descriptor.api_name.eq_ignore_ascii_case(key)
@@ -7415,14 +7403,6 @@ pub mod toolset {
             let wrapped = Arc::new(WrappedTool::new(tool, wrappers));
             let name = wrapped.name().to_string();
             self.tools.insert(name, wrapped);
-        }
-
-        pub fn register_wrapped<T: Tool + 'static>(
-            &mut self,
-            tool: T,
-            wrappers: Vec<Arc<dyn ToolWrapper>>,
-        ) {
-            self.register_wrapped_arc(Arc::new(tool), wrappers);
         }
 
         pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {

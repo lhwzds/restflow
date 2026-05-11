@@ -3291,30 +3291,6 @@ mod runtime {
                         .await
                     }
 
-                    /// Execute a chat turn for an existing chat session with optional stream emitter.
-                    pub async fn execute_session_turn_with_emitter(
-                        &self,
-                        session: &mut ChatSession,
-                        user_input: &str,
-                        max_history: usize,
-                        input_mode: SessionInputMode,
-                        emitter: Option<Box<dyn StreamEmitter>>,
-                    ) -> Result<SessionExecutionResult> {
-                        self.execute_session_turn_with_emitter_and_steer(
-                            session,
-                            user_input,
-                            max_history,
-                            input_mode,
-                            emitter,
-                            SessionTurnRuntimeOptions {
-                                steer_rx: None,
-                                stream_display_mode: StreamDisplayMode::Buffered,
-                                workspace_root: None,
-                            },
-                        )
-                        .await
-                    }
-
                     /// Execute a chat turn for an existing chat session with optional stream emitter
                     /// and optional steer channel.
                     pub async fn execute_session_turn_with_emitter_and_steer(

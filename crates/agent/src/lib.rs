@@ -12161,7 +12161,7 @@ pub mod agent {
             use std::sync::Arc;
 
             use dashmap::DashMap;
-            use tokio::sync::{Mutex, mpsc, oneshot};
+            use tokio::sync::{mpsc, oneshot};
             use tokio::task::{AbortHandle, JoinHandle};
             use tokio::time::Duration;
 
@@ -12189,12 +12189,6 @@ pub mod agent {
 
                 /// Live steer senders for running sub-agents.
                 steer_senders: DashMap<String, mpsc::Sender<SteerMessage>>,
-
-                /// Completion notification sender.
-                completion_tx: mpsc::Sender<SubagentCompletion>,
-
-                /// Completion notification receiver.
-                completion_rx: Mutex<mpsc::Receiver<SubagentCompletion>>,
 
                 /// Lock to prevent TOCTOU race between running_count() check and register().
                 spawn_lock: std::sync::Mutex<()>,
@@ -12276,7 +12270,6 @@ pub mod agent {
                             result,
                         };
                         self.record_parent_completion(&completion);
-                        let _ = self.completion_tx.try_send(completion);
                         return true;
                     }
 
@@ -12285,8 +12278,8 @@ pub mod agent {
 
                 /// Create a new tracker.
                 pub fn new(
-                    completion_tx: mpsc::Sender<SubagentCompletion>,
-                    completion_rx: mpsc::Receiver<SubagentCompletion>,
+                    _completion_tx: mpsc::Sender<SubagentCompletion>,
+                    _completion_rx: mpsc::Receiver<SubagentCompletion>,
                 ) -> Self {
                     Self {
                         states: DashMap::new(),
@@ -12294,8 +12287,6 @@ pub mod agent {
                         abort_handles: DashMap::new(),
                         completion_waiters: DashMap::new(),
                         steer_senders: DashMap::new(),
-                        completion_tx,
-                        completion_rx: Mutex::new(completion_rx),
                         spawn_lock: std::sync::Mutex::new(()),
                     }
                 }
@@ -12557,29 +12548,6 @@ pub mod agent {
                     }
                 }
 
-                /// Wait for all running sub-agents to complete.
-                pub async fn wait_all(&self) -> Vec<SubagentCompletion> {
-                    let ids: Vec<String> = self
-                        .abort_handles
-                        .iter()
-                        .map(|record| record.key().clone())
-                        .collect();
-
-                    let mut results = Vec::new();
-                    for id in ids {
-                        if let Some(result) = self.wait(&id).await {
-                            results.push(result);
-                        }
-                    }
-                    results
-                }
-
-                /// Wait for any sub-agent to complete.
-                pub async fn wait_any(&self) -> Option<SubagentCompletion> {
-                    let mut rx = self.completion_rx.lock().await;
-                    rx.recv().await
-                }
-
                 /// Cancel a running sub-agent.
                 pub fn cancel(&self, id: &str) -> bool {
                     if let Some((_, handle)) = self.abort_handles.remove(id) {
@@ -12635,18 +12603,6 @@ pub mod agent {
                     }
 
                     self.cleanup_parent_scopes(max_age_ms);
-                }
-
-                /// Poll completion notifications without blocking.
-                pub async fn poll_completions(&self) -> Vec<SubagentCompletion> {
-                    let mut rx = self.completion_rx.lock().await;
-                    let mut completions = Vec::new();
-
-                    while let Ok(completion) = rx.try_recv() {
-                        completions.push(completion);
-                    }
-
-                    completions
                 }
 
                 pub fn poll_completions_for_parent(
