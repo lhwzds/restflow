@@ -104,6 +104,10 @@ mod activity {
             )]
         }
 
+        pub fn has_subagent_activity_for(&self, call_id: &str) -> bool {
+            self.subagents.contains_key(call_id)
+        }
+
         fn bump(&mut self) {
             self.revision = self.revision.saturating_add(1);
         }
@@ -6177,6 +6181,10 @@ mod scrollback {
             self.committed_cells = cells.to_vec();
         }
 
+        pub fn discard_pending(&mut self) {
+            self.pending_lines.clear();
+        }
+
         pub fn insert_pending(
             &mut self,
             writer: &mut impl Write,
@@ -6470,6 +6478,25 @@ mod scrollback {
         }
 
         #[test]
+        fn discard_pending_keeps_committed_history_without_inserting_lines() {
+            let mut scrollback = ScrollbackWriter::default();
+            let cells = vec![user_cell("loaded session")];
+
+            scrollback.sync_history(&cells, 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(cell.body.clone()))
+                    .collect()
+            });
+            assert_eq!(scrollback.pending_lines.len(), 1);
+
+            scrollback.discard_pending();
+
+            assert!(scrollback.pending_lines.is_empty());
+            assert!(scrollback.is_prefix_of(&cells));
+        }
+
+        #[test]
         fn insert_history_uses_region_above_retained_viewport() {
             let mut output = Vec::new();
             insert_history_lines(&mut output, 5, 40, &[Line::from("history line")])
@@ -6540,6 +6567,359 @@ mod scrollback {
     }
 }
 
+mod visual_timeline {
+    use std::collections::HashSet;
+
+    use types::{ChatTurnEventKind, ChatTurnStatus};
+
+    use crate::state::AppState;
+    use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct VisualTimeline {
+        scrollback_cells: Vec<TranscriptCell>,
+        live_cells: Vec<TranscriptCell>,
+    }
+
+    impl VisualTimeline {
+        pub fn from_state(state: &AppState) -> Self {
+            let scrollback_cells = build_scrollback_cells(state);
+            let live_cells = build_live_message_cells(state);
+            debug_assert!(
+                !has_cross_band_duplicate(&scrollback_cells, &live_cells),
+                "a visual cell cannot be owned by both scrollback and live bands"
+            );
+
+            Self {
+                scrollback_cells,
+                live_cells,
+            }
+        }
+
+        pub fn scrollback_cells(&self) -> &[TranscriptCell] {
+            &self.scrollback_cells
+        }
+
+        pub fn live_cells(&self) -> &[TranscriptCell] {
+            &self.live_cells
+        }
+
+        #[cfg(test)]
+        pub fn render_cells(&self) -> Vec<TranscriptCell> {
+            let mut cells = Vec::with_capacity(
+                self.scrollback_cells
+                    .len()
+                    .saturating_add(self.live_cells.len()),
+            );
+            cells.extend(self.scrollback_cells.iter().cloned());
+            cells.extend(self.live_cells.iter().cloned());
+            cells
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum VisualKey {
+        ToolCall(String),
+        SubagentCall(String),
+    }
+
+    fn build_scrollback_cells(state: &AppState) -> Vec<TranscriptCell> {
+        let mut cells =
+            Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
+        let mut runtime = state.runtime_cells.iter().peekable();
+        let conversation_limit =
+            projected_running_turn_start_index(state).unwrap_or(state.conversation_cells.len());
+        for (index, cell) in state
+            .conversation_cells
+            .iter()
+            .take(conversation_limit)
+            .enumerate()
+        {
+            if runtime.peek().is_some_and(|entry| {
+                entry.base_cell_index == index && entry.cell.kind != TranscriptCellKind::User
+            }) && cell.kind == TranscriptCellKind::User
+            {
+                cells.push(cell.clone());
+                while let Some(entry) = runtime.peek() {
+                    if entry.base_cell_index == index {
+                        push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
+                        runtime.next();
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            while let Some(entry) = runtime.peek() {
+                if entry.base_cell_index == index {
+                    push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
+                    runtime.next();
+                } else {
+                    break;
+                }
+            }
+
+            cells.push(cell.clone());
+        }
+
+        for entry in runtime {
+            push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
+        }
+        cells
+    }
+
+    fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
+        let active_turn = state.active_turn.as_ref();
+        let subagent_activity_cells = state.activity.subagent_live_cells();
+        let has_assistant_cell = active_turn.is_some_and(|active_turn| {
+            active_turn.cells.iter().any(|cell| {
+                cell.kind == TranscriptCellKind::Assistant
+                    && (cell.is_active || !cell.body.trim().is_empty())
+            })
+        });
+        let has_runtime_cell = active_turn.is_some_and(|active_turn| {
+            active_turn.cells.iter().any(|cell| {
+                matches!(
+                    cell.kind,
+                    TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+                )
+            })
+        });
+        let queued_updates_empty = active_turn.is_none_or(|turn| turn.queued_updates.is_empty());
+        if !state.is_streaming
+            && !has_assistant_cell
+            && !has_runtime_cell
+            && queued_updates_empty
+            && subagent_activity_cells.is_empty()
+        {
+            return Vec::new();
+        }
+
+        let mut cells = Vec::new();
+        if let Some(active_turn) = active_turn {
+            for active_cell in &active_turn.cells {
+                if active_cell.is_active {
+                    cells.push(active_cell.clone());
+                }
+            }
+            if let Some(cell) = queued_update_notice_cell(&active_turn.queued_updates) {
+                cells.push(cell);
+            }
+        }
+        cells.extend(subagent_activity_cells);
+        cells
+    }
+
+    fn push_runtime_cell_if_visible(
+        state: &AppState,
+        cells: &mut Vec<TranscriptCell>,
+        cell: &TranscriptCell,
+    ) {
+        if !should_hide_runtime_cell(state, cell) {
+            cells.push(cell.clone());
+        }
+    }
+
+    fn should_hide_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
+        if !state.is_streaming || cell.kind != TranscriptCellKind::Subagent {
+            return false;
+        }
+        cell.tool_call_id()
+            .is_some_and(|call_id| state.activity.has_subagent_activity_for(call_id))
+    }
+
+    fn visual_key(cell: &TranscriptCell) -> Option<VisualKey> {
+        match cell.kind {
+            TranscriptCellKind::Tool => cell
+                .tool_call_id()
+                .map(|call_id| VisualKey::ToolCall(call_id.to_string())),
+            TranscriptCellKind::Subagent => cell
+                .tool_call_id()
+                .map(|call_id| VisualKey::SubagentCall(call_id.to_string())),
+            _ => None,
+        }
+    }
+
+    fn has_cross_band_duplicate(
+        scrollback_cells: &[TranscriptCell],
+        live_cells: &[TranscriptCell],
+    ) -> bool {
+        let scrollback_keys = scrollback_cells
+            .iter()
+            .filter_map(visual_key)
+            .collect::<HashSet<_>>();
+        live_cells
+            .iter()
+            .filter_map(visual_key)
+            .any(|key| scrollback_keys.contains(&key))
+    }
+
+    fn projected_running_turn_start_index(state: &AppState) -> Option<usize> {
+        if !state.is_streaming && state.active_turn.is_none() {
+            return None;
+        }
+        let current_user = state
+            .active_turn_runtime_cells()?
+            .iter()
+            .rev()
+            .find(|entry| entry.cell.kind == TranscriptCellKind::User)
+            .map(|entry| entry.cell.body.trim_end())?;
+        let session = state.thread.session.as_ref()?;
+        let has_running_projection = session.turns.last().is_some_and(|turn| {
+            turn.status == ChatTurnStatus::Running && turn.events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ChatTurnEventKind::UserMessage { content } if content.trim_end() == current_user
+                )
+            })
+        }) || session.messages.last().is_some_and(|message| {
+            message.role == types::ChatRole::User && message.content.trim_end() == current_user
+        });
+        if !has_running_projection {
+            return None;
+        }
+        state.conversation_cells.iter().rposition(|cell| {
+            cell.kind == TranscriptCellKind::User && cell.body.trim_end() == current_user
+        })
+    }
+
+    fn queued_update_notice_cell(queued_updates: &[String]) -> Option<TranscriptCell> {
+        if queued_updates.is_empty() {
+            return None;
+        }
+        let body = queued_updates
+            .iter()
+            .enumerate()
+            .map(|(index, update)| {
+                let update = update.split_whitespace().collect::<Vec<_>>().join(" ");
+                format!("{}. {}", index + 1, update)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(TranscriptCell {
+            kind: TranscriptCellKind::Notice,
+            title: if queued_updates.len() == 1 {
+                "Queued update".to_string()
+            } else {
+                "Queued updates".to_string()
+            },
+            subtitle: Some("waiting".to_string()),
+            body,
+            group: MessageGroup::RuntimeNotice,
+            is_active: false,
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::VisualTimeline;
+        use crate::state::{AnchoredRuntimeCell, AppState};
+        use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
+        use types::StreamFrame;
+
+        fn subagent_cell(call_id: &str, body: &str) -> TranscriptCell {
+            TranscriptCell {
+                kind: TranscriptCellKind::Subagent,
+                title: "Subagent".to_string(),
+                subtitle: Some(format!("#{call_id}")),
+                body: body.to_string(),
+                group: MessageGroup::RuntimeNotice,
+                is_active: false,
+            }
+        }
+
+        #[test]
+        fn subagent_activity_hides_only_matching_runtime_cell() {
+            let mut state = AppState::empty();
+            state.is_streaming = true;
+            state.runtime_cells.push(AnchoredRuntimeCell {
+                base_cell_index: 0,
+                cell: subagent_cell("done-call", "done"),
+            });
+            state.runtime_cells.push(AnchoredRuntimeCell {
+                base_cell_index: 0,
+                cell: subagent_cell("running-call", "running"),
+            });
+            state
+                .activity
+                .record_tool_call("running-call", "spawn_subagent", "running");
+
+            let timeline = VisualTimeline::from_state(&state);
+            let scrollback = timeline.scrollback_cells();
+
+            assert!(
+                scrollback
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("done-call"))
+            );
+            assert!(
+                !scrollback
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("running-call"))
+            );
+            assert!(
+                timeline
+                    .live_cells()
+                    .iter()
+                    .any(|cell| cell.title == "Subagents")
+            );
+        }
+
+        #[test]
+        fn completed_tool_moves_to_scrollback_while_assistant_stays_live() {
+            let mut state = AppState::empty();
+            state.begin_stream("turn-1".to_string());
+            state.push_local_user_message("inspect workspace".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "pwd"}),
+            });
+
+            let running = VisualTimeline::from_state(&state);
+            assert!(
+                running
+                    .live_cells()
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("call-1"))
+            );
+            assert!(
+                !running
+                    .scrollback_cells()
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("call-1"))
+            );
+
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                result: "{\"stdout\":\"/tmp\"}".to_string(),
+                success: true,
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "Done.".to_string(),
+            });
+
+            let completed = VisualTimeline::from_state(&state);
+            assert!(
+                completed
+                    .scrollback_cells()
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("call-1"))
+            );
+            assert!(
+                !completed
+                    .live_cells()
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("call-1"))
+            );
+            assert!(completed.live_cells().iter().any(|cell| {
+                cell.kind == TranscriptCellKind::Assistant && cell.body.contains("Done.")
+            }));
+        }
+    }
+}
+
 mod shell {
     use std::io::{Result as IoResult, Stdout, Write};
     use std::path::Path;
@@ -6555,12 +6935,11 @@ mod shell {
     use ratatui::text::{Line, Span};
     use serde_json::Value;
     use types::SkillSource;
-    use types::{ChatTurnEventKind, ChatTurnStatus};
 
     use crate::render::render_shell_bottom_viewport;
     use crate::scrollback::ScrollbackWriter;
     use crate::slash_command::{HELP_TEXT, SLASH_COMMAND_SPECS};
-    use crate::state::{AnchoredRuntimeCell, AppState, WorkPickerItem, work_run_kind_label};
+    use crate::state::{AppState, WorkPickerItem, work_run_kind_label};
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
     const CONTINUATION_PREFIX: &str = "  ";
@@ -6678,11 +7057,8 @@ mod shell {
                     .map(|previous| previous.top.min(viewport.top))
                     .unwrap_or(viewport.top);
                 self.clear_rows_from(clear_from, size.1, size.0)?;
-                let protected_top = self.protected_scrollback_top(&viewport);
                 if append_stable_history {
-                    let _inserted =
-                        self.scrollback
-                            .insert_pending(&mut self.stdout, protected_top, size.0)?;
+                    self.scrollback.discard_pending();
                 }
                 self.redraw_history_tail(history_redraw_top(&viewport), size.0, &stable_cells)?;
                 self.redraw_viewport_full(&viewport, size.0)?;
@@ -6965,98 +7341,9 @@ mod shell {
     }
 
     fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
-        let mut cells =
-            Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
-        let stable_runtime_len = state
-            .active_turn_runtime_start
-            .map(|start| active_turn_stable_runtime_len(&state.runtime_cells, start))
-            .unwrap_or(state.runtime_cells.len())
-            .min(state.runtime_cells.len());
-        let mut runtime = state
-            .runtime_cells
-            .iter()
-            .take(stable_runtime_len)
-            .peekable();
-        let conversation_limit =
-            projected_running_turn_start_index(state).unwrap_or(state.conversation_cells.len());
-        for (index, cell) in state
-            .conversation_cells
-            .iter()
-            .take(conversation_limit)
-            .enumerate()
-        {
-            if runtime
-                .peek()
-                .is_some_and(|entry| entry.base_cell_index == index)
-                && cell.kind == TranscriptCellKind::User
-            {
-                cells.push(cell.clone());
-                while let Some(entry) = runtime.peek() {
-                    if entry.base_cell_index == index {
-                        if !should_hide_stable_runtime_cell(state, &entry.cell) {
-                            cells.push(entry.cell.clone());
-                        }
-                        runtime.next();
-                    } else {
-                        break;
-                    }
-                }
-                continue;
-            }
-
-            while let Some(entry) = runtime.peek() {
-                if entry.base_cell_index == index {
-                    if !should_hide_stable_runtime_cell(state, &entry.cell) {
-                        cells.push(entry.cell.clone());
-                    }
-                    runtime.next();
-                } else {
-                    break;
-                }
-            }
-
-            cells.push(cell.clone());
-        }
-
-        for entry in runtime {
-            if !should_hide_stable_runtime_cell(state, &entry.cell) {
-                cells.push(entry.cell.clone());
-            }
-        }
-        cells
-    }
-
-    fn projected_running_turn_start_index(state: &AppState) -> Option<usize> {
-        if !state.is_streaming && state.active_turn.is_none() {
-            return None;
-        }
-        let current_user = state
-            .active_turn_runtime_cells()?
-            .iter()
-            .rev()
-            .find(|entry| entry.cell.kind == TranscriptCellKind::User)
-            .map(|entry| entry.cell.body.trim_end())?;
-        let session = state.thread.session.as_ref()?;
-        let has_running_projection = session.turns.last().is_some_and(|turn| {
-            turn.status == ChatTurnStatus::Running && turn.events.iter().any(|event| {
-                matches!(
-                    &event.kind,
-                    ChatTurnEventKind::UserMessage { content } if content.trim_end() == current_user
-                )
-            })
-        }) || session.messages.last().is_some_and(|message| {
-            message.role == types::ChatRole::User && message.content.trim_end() == current_user
-        });
-        if !has_running_projection {
-            return None;
-        }
-        state.conversation_cells.iter().rposition(|cell| {
-            cell.kind == TranscriptCellKind::User && cell.body.trim_end() == current_user
-        })
-    }
-
-    fn should_hide_stable_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
-        state.is_streaming && cell.kind == TranscriptCellKind::Subagent
+        crate::visual_timeline::VisualTimeline::from_state(state)
+            .scrollback_cells()
+            .to_vec()
     }
 
     fn visible_history_tail_lines(
@@ -7104,94 +7391,9 @@ mod shell {
     }
 
     fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-        let active_turn = state.active_turn.as_ref();
-        let subagent_activity_cells = state.activity.subagent_live_cells();
-        let runtime_cells = state
-            .active_turn_runtime_cells()
-            .map(|cells| {
-                cells
-                    .iter()
-                    .filter(|entry| {
-                        entry.cell.kind != TranscriptCellKind::User
-                            && !should_hide_stable_runtime_cell(state, &entry.cell)
-                    })
-                    .map(|entry| entry.cell.clone())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let has_assistant_cell = active_turn.is_some_and(|active_turn| {
-            active_turn.cells.iter().any(|cell| {
-                cell.kind == TranscriptCellKind::Assistant
-                    && (cell.is_active || !cell.body.trim().is_empty())
-            })
-        });
-        let has_runtime_cell = active_turn.is_some_and(|active_turn| {
-            active_turn.cells.iter().any(|cell| {
-                matches!(
-                    cell.kind,
-                    TranscriptCellKind::Tool | TranscriptCellKind::Subagent
-                )
-            })
-        }) || !runtime_cells.is_empty();
-        let queued_updates_empty = active_turn.is_none_or(|turn| turn.queued_updates.is_empty());
-        if !state.is_streaming
-            && !has_assistant_cell
-            && !has_runtime_cell
-            && queued_updates_empty
-            && subagent_activity_cells.is_empty()
-        {
-            return Vec::new();
-        }
-        let mut cells = runtime_cells;
-        if let Some(active_turn) = active_turn {
-            cells.extend(active_turn.cells.iter().cloned());
-            if let Some(cell) = queued_update_notice_cell(&active_turn.queued_updates) {
-                cells.push(cell);
-            }
-        }
-        cells.extend(subagent_activity_cells);
-        cells
-    }
-
-    fn active_turn_stable_runtime_len(
-        runtime_cells: &[AnchoredRuntimeCell],
-        active_start: usize,
-    ) -> usize {
-        let mut len = active_start.min(runtime_cells.len());
-        while runtime_cells
-            .get(len)
-            .is_some_and(|entry| entry.cell.kind == TranscriptCellKind::User)
-        {
-            len += 1;
-        }
-        len
-    }
-
-    fn queued_update_notice_cell(queued_updates: &[String]) -> Option<TranscriptCell> {
-        if queued_updates.is_empty() {
-            return None;
-        }
-        let body = queued_updates
-            .iter()
-            .enumerate()
-            .map(|(index, update)| {
-                let update = update.split_whitespace().collect::<Vec<_>>().join(" ");
-                format!("{}. {}", index + 1, update)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        Some(TranscriptCell {
-            kind: TranscriptCellKind::Notice,
-            title: if queued_updates.len() == 1 {
-                "Queued update".to_string()
-            } else {
-                "Queued updates".to_string()
-            },
-            subtitle: Some("waiting".to_string()),
-            body,
-            group: MessageGroup::RuntimeNotice,
-            is_active: false,
-        })
+        crate::visual_timeline::VisualTimeline::from_state(state)
+            .live_cells()
+            .to_vec()
     }
 
     fn should_force_live_viewport_redraw(state: &AppState) -> bool {
@@ -10982,15 +11184,24 @@ mod shell {
 
             let lines = super::build_message_lines(&state, 100, 12);
             let rendered = line_texts(&lines);
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
 
             assert!(rendered.iter().any(|line| line.contains("Agent")));
             assert!(
-                rendered
+                !rendered
                     .iter()
                     .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
-            assert!(!rendered.iter().any(|line| line.contains("#call-1")));
-            assert!(!rendered.iter().any(|line| line.contains("Input:")));
+            assert!(
+                stable
+                    .iter()
+                    .any(|line| line == "Tool · web_search '离骚全文 屈原'")
+            );
+            assert!(!stable.iter().any(|line| line.contains("#call-1")));
+            assert!(!stable.iter().any(|line| line.contains("Input:")));
             assert!(rendered.iter().any(|line| line.contains("Final answer")));
         }
 
@@ -11045,7 +11256,10 @@ mod shell {
                 success: true,
             });
 
-            let rendered = line_texts(&super::build_message_lines(&state, 100, 30));
+            let rendered = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
 
             assert!(
                 rendered
@@ -11068,6 +11282,7 @@ mod shell {
         #[test]
         fn failed_subagent_wait_does_not_leave_live_summary() {
             let mut state = AppState::empty();
+            state.begin_stream("turn-1".to_string());
             state.push_local_user_message("wait for subagents".to_string());
             state.apply_stream_frame(StreamFrame::ToolCall {
                 id: "wait-call".to_string(),
@@ -11083,7 +11298,10 @@ mod shell {
                 result: "Tool error: Tool wait_subagents timed out".to_string(),
             });
 
-            let rendered = line_texts(&super::build_message_lines(&state, 100, 30));
+            let rendered = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
 
             assert!(rendered.iter().any(|line| line.contains("Tool error")));
             assert!(
@@ -13163,53 +13381,7 @@ mod state {
 
         #[cfg(test)]
         pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
-            let mut cells = Vec::with_capacity(
-                self.conversation_cells.len()
-                    + self.runtime_cells.len()
-                    + self
-                        .active_turn
-                        .as_ref()
-                        .map(|turn| turn.cells.len())
-                        .unwrap_or_default(),
-            );
-
-            let mut runtime = self.runtime_cells.iter().peekable();
-            for (index, cell) in self.conversation_cells.iter().enumerate() {
-                if runtime.peek().is_some_and(|entry| {
-                    entry.base_cell_index == index && entry.cell.kind != TranscriptCellKind::User
-                }) && cell.kind == TranscriptCellKind::User
-                {
-                    cells.push(cell.clone());
-                    while let Some(entry) = runtime.peek() {
-                        if entry.base_cell_index == index {
-                            cells.push(entry.cell.clone());
-                            runtime.next();
-                        } else {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-
-                while let Some(entry) = runtime.peek() {
-                    if entry.base_cell_index == index {
-                        cells.push(entry.cell.clone());
-                        runtime.next();
-                    } else {
-                        break;
-                    }
-                }
-
-                cells.push(cell.clone());
-            }
-
-            for entry in runtime {
-                cells.push(entry.cell.clone());
-            }
-            if let Some(active_turn) = self.active_turn.as_ref() {
-                cells.extend(active_turn.cells.iter().cloned());
-            }
-            cells
+            crate::visual_timeline::VisualTimeline::from_state(self).render_cells()
         }
 
         fn flush_active_turn_to_runtime(&mut self) {
