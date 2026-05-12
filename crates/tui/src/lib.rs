@@ -3600,9 +3600,6 @@ mod reducer {
     use types::{ChatSession, ChatSessionSummary, ModelMetadataDTO, RunSummary};
     use types::{ChatSessionEvent, StreamFrame};
 
-    const MESSAGE_SCROLL_PAGE_ROWS: usize = 8;
-    const MESSAGE_SCROLL_WHEEL_ROWS: usize = 1;
-
     #[derive(Debug)]
     pub enum ShellAction {
         Ui(Action),
@@ -4082,24 +4079,17 @@ mod reducer {
                 state.composer.move_end();
             }
             Action::ScrollUp => {
-                if state.overlay.is_none() {
-                    state.scroll_message_up(MESSAGE_SCROLL_PAGE_ROWS);
-                }
+                // Main transcript history is owned by the terminal's native scrollback.
+                // RestFlow only handles scrollable overlay widgets.
             }
             Action::ScrollDown => {
-                if state.overlay.is_none() {
-                    state.scroll_message_down(MESSAGE_SCROLL_PAGE_ROWS);
-                }
+                // Main transcript history is owned by the terminal's native scrollback.
             }
             Action::WheelUp => {
-                if state.overlay.is_none() {
-                    state.scroll_message_up(MESSAGE_SCROLL_WHEEL_ROWS);
-                }
+                // Let the terminal own wheel scrolling for native scrollback.
             }
             Action::WheelDown => {
-                if state.overlay.is_none() {
-                    state.scroll_message_down(MESSAGE_SCROLL_WHEEL_ROWS);
-                }
+                // Let the terminal own wheel scrolling for native scrollback.
             }
             Action::DeleteSelected => {
                 if matches!(
@@ -4399,9 +4389,7 @@ mod reducer {
 
     #[cfg(test)]
     mod tests {
-        use super::{
-            MESSAGE_SCROLL_PAGE_ROWS, MESSAGE_SCROLL_WHEEL_ROWS, ShellAction, ShellEffect, reduce,
-        };
+        use super::{ShellAction, ShellEffect, reduce};
         use crate::keymap::Action;
         use crate::slash_command::SlashCommand;
         use crate::state::{
@@ -4735,25 +4723,23 @@ mod reducer {
         }
 
         #[test]
-        fn page_scroll_updates_history_offset_without_overlay() {
+        fn page_scroll_is_ignored_for_native_scrollback() {
             let mut state = AppState::empty();
 
             reduce(&mut state, ShellAction::Ui(Action::ScrollUp));
-            assert_eq!(state.message_scroll_from_bottom, MESSAGE_SCROLL_PAGE_ROWS);
 
             reduce(&mut state, ShellAction::Ui(Action::ScrollDown));
-            assert_eq!(state.message_scroll_from_bottom, 0);
+            assert!(state.overlay.is_none());
         }
 
         #[test]
-        fn wheel_scroll_uses_fine_grained_offset() {
+        fn wheel_scroll_is_ignored_for_native_scrollback() {
             let mut state = AppState::empty();
 
             reduce(&mut state, ShellAction::Ui(Action::WheelUp));
-            assert_eq!(state.message_scroll_from_bottom, MESSAGE_SCROLL_WHEEL_ROWS);
 
             reduce(&mut state, ShellAction::Ui(Action::WheelDown));
-            assert_eq!(state.message_scroll_from_bottom, 0);
+            assert!(state.overlay.is_none());
         }
 
         #[test]
@@ -4762,8 +4748,10 @@ mod reducer {
             state.open_command_picker();
 
             reduce(&mut state, ShellAction::Ui(Action::ScrollUp));
-
-            assert_eq!(state.message_scroll_from_bottom, 0);
+            assert!(matches!(
+                state.overlay,
+                Some(crate::state::OverlayState::CommandPicker { .. })
+            ));
         }
 
         #[test]
@@ -6972,7 +6960,6 @@ mod shell {
         scrollback: ScrollbackWriter,
         last_viewport: Option<ViewportSnapshot>,
         last_terminal_size: Option<(u16, u16)>,
-        last_message_line_count: Option<usize>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7004,7 +6991,6 @@ mod shell {
                 scrollback: ScrollbackWriter::default(),
                 last_viewport: None,
                 last_terminal_size: None,
-                last_message_line_count: None,
             }
         }
 
@@ -7013,7 +6999,6 @@ mod shell {
             self.scrollback.reset();
             self.last_viewport = None;
             self.last_terminal_size = None;
-            self.last_message_line_count = None;
             self.stdout.flush()
         }
 
@@ -7022,13 +7007,11 @@ mod shell {
             self.scrollback.reset();
             self.last_viewport = None;
             self.last_terminal_size = None;
-            self.last_message_line_count = None;
             self.stdout.flush()
         }
 
         pub fn sync(&mut self, state: &mut AppState) -> IoResult<()> {
             let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
-            self.preserve_scrolled_message_anchor(state, size);
             let terminal_viewport = TerminalViewport::build(state, size);
             let viewport = terminal_viewport.snapshot;
             let stable_cells = build_stable_history_cells(state);
@@ -7038,7 +7021,6 @@ mod shell {
                 self.scrollback
                     .replace_committed_without_append(&stable_cells);
                 self.last_viewport = None;
-                self.last_message_line_count = None;
                 queue_clear_visible(&mut self.stdout)?;
                 force_full_redraw = true;
                 append_stable_history = false;
@@ -7094,7 +7076,6 @@ mod shell {
 
         pub fn sync_viewport_only(&mut self, state: &mut AppState) -> IoResult<()> {
             let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
-            self.preserve_scrolled_message_anchor(state, size);
             let terminal_viewport = TerminalViewport::build(state, size);
             let viewport = terminal_viewport.snapshot;
             let stable_cells = build_stable_history_cells(state);
@@ -7164,20 +7145,6 @@ mod shell {
                         .min(viewport.prompt_top)
                 })
                 .unwrap_or(viewport.top.min(viewport.prompt_top))
-        }
-
-        fn preserve_scrolled_message_anchor(&mut self, state: &mut AppState, size: (u16, u16)) {
-            let message_line_count = message_layout_line_count(state, size);
-            if let Some(previous_count) = self.last_message_line_count
-                && state.message_scroll_from_bottom > 0
-            {
-                state.message_scroll_from_bottom = preserve_scrolled_offset(
-                    previous_count,
-                    message_line_count,
-                    state.message_scroll_from_bottom,
-                );
-            }
-            self.last_message_line_count = Some(message_line_count);
         }
 
         fn clear_rows_from(&mut self, start_row: u16, height: u16, width: u16) -> IoResult<()> {
@@ -7258,12 +7225,8 @@ mod shell {
             let available_above_prompt = available_above_prompt.saturating_sub(overlay_height);
             let spacer_height = u16::from(available_above_prompt > 0);
             let message_height = available_above_prompt.saturating_sub(spacer_height);
-            let mut visible_message_lines = build_visible_message_lines(
-                state,
-                width,
-                message_height,
-                state.message_scroll_from_bottom,
-            );
+            let mut visible_message_lines =
+                build_visible_message_lines(state, width, message_height, 0);
             if spacer_height > 0 && !visible_message_lines.is_empty() {
                 visible_message_lines.push(Line::from(""));
             }
@@ -7333,11 +7296,6 @@ mod shell {
             cursor_column,
             cursor_row,
         }
-    }
-
-    fn message_layout_line_count(state: &AppState, size: (u16, u16)) -> usize {
-        let (width, _) = size;
-        build_scrollable_message_lines(state, width).len()
     }
 
     fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
@@ -9220,18 +9178,6 @@ mod shell {
         requested.min(total_lines.saturating_sub(viewport_height))
     }
 
-    fn preserve_scrolled_offset(
-        previous_line_count: usize,
-        current_line_count: usize,
-        current_scroll_from_bottom: usize,
-    ) -> usize {
-        if current_line_count > previous_line_count {
-            current_scroll_from_bottom.saturating_add(current_line_count - previous_line_count)
-        } else {
-            current_scroll_from_bottom.saturating_sub(previous_line_count - current_line_count)
-        }
-    }
-
     fn changed_row_indices(previous: &[Line<'static>], current: &[Line<'static>]) -> Vec<usize> {
         let max_len = previous.len().max(current.len());
         let mut rows = Vec::new();
@@ -9421,11 +9367,10 @@ mod shell {
             build_transient_lines, build_viewport_snapshot, cell_title_style, changed_row_indices,
             clamp_history_scroll, compact_session_preview, footer_status_line, format_title,
             history_redraw_top, is_cell_prefix, line_text, normalize_body_lines,
-            preserve_active_cell_separator, preserve_first_line_tail, preserve_scrolled_offset,
-            protected_append_top, queue_clear_visible, queue_purge_visible_and_scrollback,
-            render_history_append_lines, session_message_count_label,
-            should_force_live_viewport_redraw, summarize_tool_body, visible_history_fill_count,
-            visible_history_tail_lines, write_styled_line,
+            preserve_active_cell_separator, preserve_first_line_tail, protected_append_top,
+            queue_clear_visible, queue_purge_visible_and_scrollback, render_history_append_lines,
+            session_message_count_label, should_force_live_viewport_redraw, summarize_tool_body,
+            visible_history_fill_count, visible_history_tail_lines, write_styled_line,
         };
         use crossterm::queue;
         use crossterm::style::{Attribute, SetAttribute};
@@ -11367,7 +11312,7 @@ mod shell {
         }
 
         #[test]
-        fn message_viewport_scrolls_only_within_live_turn() {
+        fn message_viewport_ignores_app_scroll_for_native_scrollback() {
             let mut state = AppState::empty();
             state.conversation_cells.push(TranscriptCell {
                 kind: TranscriptCellKind::Assistant,
@@ -11391,16 +11336,8 @@ mod shell {
             assert!(bottom.iter().any(|line| line.contains("live 20")));
             assert!(!bottom.iter().any(|line| line.contains("stable")));
 
-            state.message_scroll_from_bottom = 5;
-            let scrolled = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
-            assert!(!scrolled.iter().any(|line| line.contains("stable")));
-            assert!(!scrolled.iter().any(|line| line.contains("live 20")));
-            assert!(scrolled.iter().any(|line| line.contains("live 15")));
-
-            state.message_scroll_from_bottom = 16;
-            let scrolled_to_top = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
-            assert!(!scrolled_to_top.iter().any(|line| line.contains("stable")));
-            assert!(scrolled_to_top.iter().any(|line| line.contains("live 1")));
+            let redrawn = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
+            assert_eq!(redrawn, bottom);
         }
 
         #[test]
@@ -11567,13 +11504,6 @@ mod shell {
         fn clamp_history_scroll_prevents_empty_overscroll() {
             assert_eq!(clamp_history_scroll(5, 2, 99), 3);
             assert_eq!(clamp_history_scroll(2, 5, 99), 0);
-        }
-
-        #[test]
-        fn preserve_scrolled_offset_keeps_visible_anchor_when_content_changes() {
-            assert_eq!(preserve_scrolled_offset(10, 13, 4), 7);
-            assert_eq!(preserve_scrolled_offset(13, 10, 7), 4);
-            assert_eq!(preserve_scrolled_offset(13, 10, 1), 0);
         }
     }
 }
@@ -12144,7 +12074,6 @@ mod state {
         pub overlay: Option<OverlayState>,
         pub composer: ComposerState,
         pub input_mode: InputMode,
-        pub message_scroll_from_bottom: usize,
         pub status: String,
         pub is_streaming: bool,
         pub current_stream_id: Option<String>,
@@ -12185,7 +12114,6 @@ mod state {
                 overlay: None,
                 composer: ComposerState::default(),
                 input_mode: InputMode::default(),
-                message_scroll_from_bottom: 0,
                 status: "Connecting to daemon...".to_string(),
                 is_streaming: false,
                 current_stream_id: None,
@@ -12322,7 +12250,6 @@ mod state {
             self.activity.clear();
             self.clear_active_response();
             self.pending_runtime_refresh_session_id = None;
-            self.reset_message_scroll();
             self.conversation_cells =
                 transcript_cells(&messages_from_session(&session), self.assistant_name());
         }
@@ -12493,7 +12420,6 @@ mod state {
             self.runtime_cells.clear();
             self.activity.clear();
             self.clear_active_response();
-            self.reset_message_scroll();
             self.push_info(notice);
         }
 
@@ -12529,7 +12455,6 @@ mod state {
             self.runtime_cells.clear();
             self.activity.clear();
             self.clear_active_response();
-            self.reset_message_scroll();
             self.pending_session = pending_session;
             self.clear_overlay();
             self.composer.clear();
@@ -13239,7 +13164,6 @@ mod state {
         }
 
         pub fn push_local_user_message(&mut self, content: String) {
-            self.reset_message_scroll();
             self.last_error_notice = None;
             self.flush_active_turn_to_runtime();
             let cell = cell_from_message(
@@ -13278,18 +13202,6 @@ mod state {
             }
             self.last_error_notice = Some(normalized);
             self.push_message(ShellMessage::ErrorNotice { content });
-        }
-
-        pub fn scroll_message_up(&mut self, rows: usize) {
-            self.message_scroll_from_bottom = self.message_scroll_from_bottom.saturating_add(rows);
-        }
-
-        pub fn scroll_message_down(&mut self, rows: usize) {
-            self.message_scroll_from_bottom = self.message_scroll_from_bottom.saturating_sub(rows);
-        }
-
-        pub fn reset_message_scroll(&mut self) {
-            self.message_scroll_from_bottom = 0;
         }
 
         fn append_assistant_stream_chunk(&mut self, chunk: &str) {
