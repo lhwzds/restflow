@@ -292,7 +292,7 @@ mod activity {
 mod app {
     use anyhow::Result;
     use crossterm::cursor::{Hide, Show};
-    use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+    use crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste};
     use crossterm::execute;
     use crossterm::style::Print;
     use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
@@ -315,7 +315,7 @@ mod app {
         fn new() -> Result<Self> {
             enable_raw_mode()?;
             let mut stdout = io::stdout();
-            execute!(stdout, EnableBracketedPaste, Hide)?;
+            execute!(stdout, DisableMouseCapture, EnableBracketedPaste, Hide)?;
             install_terminal_panic_hook();
             Ok(Self { stdout })
         }
@@ -329,7 +329,13 @@ mod app {
 
     fn restore_terminal(stdout: &mut io::Stdout) {
         let _ = disable_raw_mode();
-        let _ = execute!(stdout, Print("\x1b[r"), DisableBracketedPaste, Show);
+        let _ = execute!(
+            stdout,
+            Print("\x1b[r"),
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            Show
+        );
     }
 
     fn install_terminal_panic_hook() {
@@ -6112,10 +6118,8 @@ mod render {
 }
 
 mod scrollback {
-    use std::fmt;
     use std::io::{ErrorKind, Result as IoResult, Write};
 
-    use crossterm::Command;
     use crossterm::cursor::{MoveTo, MoveToColumn};
     use crossterm::queue;
     use crossterm::style::{
@@ -6169,21 +6173,21 @@ mod scrollback {
             self.committed_cells = cells.to_vec();
         }
 
-        pub fn discard_pending(&mut self) {
-            self.pending_lines.clear();
+        pub fn has_pending(&self) -> bool {
+            !self.pending_lines.is_empty()
         }
 
         pub fn insert_pending(
             &mut self,
             writer: &mut impl Write,
-            viewport_top: u16,
+            terminal_height: u16,
             width: u16,
         ) -> IoResult<bool> {
-            if self.pending_lines.is_empty() || viewport_top == 0 {
+            if self.pending_lines.is_empty() || terminal_height == 0 {
                 return Ok(false);
             }
             let lines = std::mem::take(&mut self.pending_lines);
-            match insert_history_lines(writer, viewport_top, width, &lines) {
+            match insert_history_lines(writer, terminal_height, width, &lines) {
                 Ok(()) => Ok(true),
                 Err(error) if error.kind() == ErrorKind::Unsupported => {
                     self.reset();
@@ -6196,32 +6200,27 @@ mod scrollback {
 
     pub fn insert_history_lines(
         writer: &mut impl Write,
-        viewport_top: u16,
+        terminal_height: u16,
         width: u16,
         lines: &[Line<'static>],
     ) -> IoResult<()> {
-        if lines.is_empty() || viewport_top == 0 {
+        if lines.is_empty() || terminal_height == 0 {
             return Ok(());
         }
 
-        queue!(
-            writer,
-            SetScrollRegion(1..viewport_top),
-            MoveTo(0, viewport_top.saturating_sub(1))
-        )?;
+        let bottom_row = terminal_height.saturating_sub(1);
         for line in lines {
             queue!(
                 writer,
-                Print("\r\n"),
-                MoveToColumn(0),
+                MoveTo(0, bottom_row),
                 SetForegroundColor(CrosstermColor::Reset),
                 SetBackgroundColor(CrosstermColor::Reset),
                 SetAttribute(Attribute::Reset),
                 Clear(ClearType::CurrentLine),
             )?;
             write_styled_line(writer, &truncate_line_to_width(line, width))?;
+            queue!(writer, Print("\r\n"), MoveToColumn(0))?;
         }
-        queue!(writer, ResetScrollRegion)?;
         Ok(())
     }
 
@@ -6333,50 +6332,6 @@ mod scrollback {
         spans.push(Span::styled(ch.to_string(), style));
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    struct SetScrollRegion(std::ops::Range<u16>);
-
-    impl Command for SetScrollRegion {
-        fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-            write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
-        }
-
-        #[cfg(windows)]
-        fn execute_winapi(&self) -> std::io::Result<()> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "SetScrollRegion requires ANSI support",
-            ))
-        }
-
-        #[cfg(windows)]
-        fn is_ansi_code_supported(&self) -> bool {
-            true
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct ResetScrollRegion;
-
-    impl Command for ResetScrollRegion {
-        fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-            write!(f, "\x1b[r")
-        }
-
-        #[cfg(windows)]
-        fn execute_winapi(&self) -> std::io::Result<()> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "ResetScrollRegion requires ANSI support",
-            ))
-        }
-
-        #[cfg(windows)]
-        fn is_ansi_code_supported(&self) -> bool {
-            true
-        }
-    }
-
     #[cfg(test)]
     mod tests {
         use super::{ScrollbackWriter, insert_history_lines};
@@ -6466,34 +6421,16 @@ mod scrollback {
         }
 
         #[test]
-        fn discard_pending_keeps_committed_history_without_inserting_lines() {
-            let mut scrollback = ScrollbackWriter::default();
-            let cells = vec![user_cell("loaded session")];
-
-            scrollback.sync_history(&cells, 80, |new_cells, _| {
-                new_cells
-                    .iter()
-                    .map(|cell| Line::from(cell.body.clone()))
-                    .collect()
-            });
-            assert_eq!(scrollback.pending_lines.len(), 1);
-
-            scrollback.discard_pending();
-
-            assert!(scrollback.pending_lines.is_empty());
-            assert!(scrollback.is_prefix_of(&cells));
-        }
-
-        #[test]
-        fn insert_history_uses_region_above_retained_viewport() {
+        fn insert_history_uses_native_fullscreen_scrollback() {
             let mut output = Vec::new();
             insert_history_lines(&mut output, 5, 40, &[Line::from("history line")])
                 .expect("history insertion should render");
             let ansi = String::from_utf8(output).expect("history insertion should be utf8");
 
-            assert!(ansi.contains("\u{1b}[1;5r"));
+            assert!(!ansi.contains("\u{1b}[1;5r"));
+            assert!(!ansi.contains("\u{1b}[r"));
             assert!(ansi.contains("history line"));
-            assert!(ansi.contains("\u{1b}[r"));
+            assert!(ansi.contains("\r\n"));
         }
 
         #[test]
@@ -7039,19 +6976,24 @@ mod shell {
                     .map(|previous| previous.top.min(viewport.top))
                     .unwrap_or(viewport.top);
                 self.clear_rows_from(clear_from, size.1, size.0)?;
-                if append_stable_history {
-                    self.scrollback.discard_pending();
+                if append_stable_history && self.scrollback.has_pending() {
+                    self.clear_rows_from(viewport.top, size.1, size.0)?;
+                    let _ = self
+                        .scrollback
+                        .insert_pending(&mut self.stdout, size.1, size.0)?;
                 }
                 self.redraw_history_tail(history_redraw_top(&viewport), size.0, &stable_cells)?;
                 self.redraw_viewport_full(&viewport, size.0)?;
             } else {
                 let protected_top = self.protected_scrollback_top(&viewport);
-                let inserted =
-                    self.scrollback
-                        .insert_pending(&mut self.stdout, protected_top, size.0)?;
-                if !inserted {
-                    self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
+                let has_pending_history = self.scrollback.has_pending();
+                if has_pending_history {
+                    self.clear_rows_from(protected_top, size.1, size.0)?;
                 }
+                let _inserted = self
+                    .scrollback
+                    .insert_pending(&mut self.stdout, size.1, size.0)?;
+                self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
                 if should_force_live_viewport_redraw(state) {
                     self.redraw_viewport_full(&viewport, size.0)?;
                 } else {
@@ -7097,12 +7039,14 @@ mod shell {
             self.scrollback
                 .sync_history(&stable_cells, size.0, render_history_append_lines);
             let protected_top = self.protected_scrollback_top(&viewport);
-            let inserted =
-                self.scrollback
-                    .insert_pending(&mut self.stdout, protected_top, size.0)?;
-            if !inserted {
-                self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
+            let has_pending_history = self.scrollback.has_pending();
+            if has_pending_history {
+                self.clear_rows_from(protected_top, size.1, size.0)?;
             }
+            let _inserted = self
+                .scrollback
+                .insert_pending(&mut self.stdout, size.1, size.0)?;
+            self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
 
             if should_force_live_viewport_redraw(state) {
                 self.redraw_viewport_full(&viewport, size.0)?;
