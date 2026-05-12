@@ -6551,7 +6551,7 @@ mod timeline {
     fn build_committed_cells(state: &AppState) -> Vec<TranscriptCell> {
         let mut cells =
             Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
-        let mut runtime = state.runtime_cells.iter().peekable();
+        let mut runtime = state.runtime_cells.iter().enumerate().peekable();
         let conversation_limit =
             projected_running_turn_start_index(state).unwrap_or(state.conversation_cells.len());
         for (index, cell) in state
@@ -6560,14 +6560,19 @@ mod timeline {
             .take(conversation_limit)
             .enumerate()
         {
-            if runtime.peek().is_some_and(|entry| {
+            if runtime.peek().is_some_and(|(_, entry)| {
                 entry.base_cell_index == index && entry.cell.kind != TranscriptCellKind::User
             }) && cell.kind == TranscriptCellKind::User
             {
                 cells.push(cell.clone());
-                while let Some(entry) = runtime.peek() {
+                while let Some((runtime_index, entry)) = runtime.peek() {
                     if entry.base_cell_index == index {
-                        push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
+                        push_runtime_cell_if_visible(
+                            state,
+                            &mut cells,
+                            *runtime_index,
+                            &entry.cell,
+                        );
                         runtime.next();
                     } else {
                         break;
@@ -6576,9 +6581,9 @@ mod timeline {
                 continue;
             }
 
-            while let Some(entry) = runtime.peek() {
+            while let Some((runtime_index, entry)) = runtime.peek() {
                 if entry.base_cell_index == index {
-                    push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
+                    push_runtime_cell_if_visible(state, &mut cells, *runtime_index, &entry.cell);
                     runtime.next();
                 } else {
                     break;
@@ -6588,8 +6593,8 @@ mod timeline {
             cells.push(cell.clone());
         }
 
-        for entry in runtime {
-            push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
+        for (runtime_index, entry) in runtime {
+            push_runtime_cell_if_visible(state, &mut cells, runtime_index, &entry.cell);
         }
         cells
     }
@@ -6624,7 +6629,13 @@ mod timeline {
         let mut cells = Vec::new();
         if let Some(active_turn) = active_turn {
             for active_cell in &active_turn.cells {
-                if active_cell.is_active {
+                if active_cell.is_active
+                    || !matches!(
+                        active_cell.kind,
+                        TranscriptCellKind::Assistant | TranscriptCellKind::User
+                    )
+                    || !active_cell.body.trim().is_empty()
+                {
                     cells.push(active_cell.clone());
                 }
             }
@@ -6639,14 +6650,28 @@ mod timeline {
     fn push_runtime_cell_if_visible(
         state: &AppState,
         cells: &mut Vec<TranscriptCell>,
+        runtime_index: usize,
         cell: &TranscriptCell,
     ) {
-        if !should_hide_runtime_cell(state, cell) {
+        if !should_hide_runtime_cell(state, runtime_index, cell) {
             cells.push(cell.clone());
         }
     }
 
-    fn should_hide_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
+    fn should_hide_runtime_cell(
+        state: &AppState,
+        runtime_index: usize,
+        cell: &TranscriptCell,
+    ) -> bool {
+        if state.active_turn.is_some()
+            && state
+                .active_turn_runtime_start
+                .is_some_and(|start| runtime_index >= start)
+            && cell.kind != TranscriptCellKind::User
+        {
+            return true;
+        }
+
         if !state.is_streaming || cell.kind != TranscriptCellKind::Subagent {
             return false;
         }
@@ -6792,7 +6817,7 @@ mod timeline {
         }
 
         #[test]
-        fn completed_tool_moves_to_committed_while_assistant_stays_active() {
+        fn completed_tool_stays_active_until_turn_finishes() {
             let mut state = AppState::empty();
             state.begin_stream("turn-1".to_string());
             state.push_local_user_message("inspect workspace".to_string());
@@ -6827,13 +6852,13 @@ mod timeline {
 
             let completed = Timeline::from_state(&state);
             assert!(
-                completed
+                !completed
                     .committed_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
             assert!(
-                !completed
+                completed
                     .active_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
@@ -6841,6 +6866,16 @@ mod timeline {
             assert!(completed.active_cells().iter().any(|cell| {
                 cell.kind == TranscriptCellKind::Assistant && cell.body.contains("Done.")
             }));
+
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+            let finished = Timeline::from_state(&state);
+            assert!(
+                finished
+                    .committed_cells()
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("call-1"))
+            );
+            assert!(finished.active_cells().is_empty());
         }
     }
 }
@@ -10214,6 +10249,39 @@ mod shell {
         }
 
         #[test]
+        fn completed_tool_remains_visible_while_assistant_continues() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("check workspace".to_string());
+            state.apply_stream_frame(StreamFrame::Ack {
+                content: "Checking...".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-pwd".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command":"pwd"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-pwd".to_string(),
+                success: true,
+                result: "/Volumes/samsung/GitHub/restflow".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "Done.".to_string(),
+            });
+
+            let lines = line_texts(&super::build_message_lines(&state, 100, 20));
+
+            assert!(lines.iter().any(|line| line.contains("Checking...")));
+            assert!(lines.iter().any(|line| line.contains("Tool · bash 'pwd'")));
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.contains("/Volumes/samsung/GitHub/restflow"))
+            );
+            assert!(lines.iter().any(|line| line.contains("Done.")));
+        }
+
+        #[test]
         fn stable_history_keeps_runtime_cells_between_user_and_final_assistant() {
             let mut state = AppState::empty();
             state.conversation_cells.push(TranscriptCell {
@@ -11086,12 +11154,12 @@ mod shell {
 
             assert!(rendered.iter().any(|line| line.contains("Agent")));
             assert!(
-                !rendered
+                rendered
                     .iter()
                     .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
             assert!(
-                stable
+                !stable
                     .iter()
                     .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
@@ -11151,10 +11219,7 @@ mod shell {
                 success: true,
             });
 
-            let rendered = line_texts(&super::render_history_append_lines(
-                &super::build_stable_history_cells(&state),
-                100,
-            ));
+            let rendered = line_texts(&super::build_message_lines(&state, 100, 20));
 
             assert!(
                 rendered
@@ -11193,10 +11258,7 @@ mod shell {
                 result: "Tool error: Tool wait_subagents timed out".to_string(),
             });
 
-            let rendered = line_texts(&super::render_history_append_lines(
-                &super::build_stable_history_cells(&state),
-                100,
-            ));
+            let rendered = line_texts(&super::build_message_lines(&state, 100, 20));
 
             assert!(rendered.iter().any(|line| line.contains("Tool error")));
             assert!(
@@ -12738,13 +12800,22 @@ mod state {
         }
 
         fn finish_active_assistant_segment(&mut self) {
-            let Some(mut active_cell) = self.take_active_assistant_cell() else {
+            let Some(active_turn) = self.active_turn.as_mut() else {
                 return;
             };
-            active_cell.body = active_cell.body.trim_end().to_string();
-            if !active_cell.body.trim().is_empty() {
-                let _ = active_cell.finalize();
-                self.push_current_turn_runtime_cell(active_cell);
+            let Some(index) = active_turn.active_assistant_index.take() else {
+                return;
+            };
+            if index >= active_turn.cells.len() {
+                return;
+            }
+            active_turn.cells[index].body = active_turn.cells[index].body.trim_end().to_string();
+            if active_turn.cells[index].body.trim().is_empty() {
+                active_turn.cells.remove(index);
+            } else {
+                let _ = active_turn.cells[index].finalize();
+                let cell = active_turn.cells[index].clone();
+                self.push_current_turn_runtime_cell(cell);
             }
             self.active_progress_started_at_ms = None;
             self.active_assistant_stream_body.clear();
@@ -12938,47 +13009,6 @@ mod state {
             active_turn.cells.get_mut(index)
         }
 
-        fn take_active_assistant_cell(&mut self) -> Option<TranscriptCell> {
-            let active_turn = self.active_turn.as_mut()?;
-            let index = active_turn.active_assistant_index.take()?;
-            if index >= active_turn.cells.len() {
-                return None;
-            }
-            let cell = active_turn.cells.remove(index);
-            if active_turn.cells.is_empty()
-                && active_turn.queued_updates.is_empty()
-                && !self.is_streaming
-            {
-                self.active_turn = None;
-            }
-            Some(cell)
-        }
-
-        fn take_active_tool_cell(&mut self, call_id: &str) -> Option<TranscriptCell> {
-            let active_turn = self.active_turn.as_mut()?;
-            let index = active_turn
-                .cells
-                .iter()
-                .position(|cell| cell.tool_call_id() == Some(call_id))?;
-            if active_turn
-                .active_assistant_index
-                .is_some_and(|assistant_index| {
-                    assistant_index > index && assistant_index < active_turn.cells.len()
-                })
-            {
-                active_turn.active_assistant_index =
-                    active_turn.active_assistant_index.map(|index| index - 1);
-            }
-            let cell = active_turn.cells.remove(index);
-            if active_turn.cells.is_empty()
-                && active_turn.queued_updates.is_empty()
-                && !self.is_streaming
-            {
-                self.active_turn = None;
-            }
-            Some(cell)
-        }
-
         fn reset_active_progress_if_no_live_cells(&mut self) {
             let has_live_cell = self
                 .active_turn
@@ -13078,12 +13108,18 @@ mod state {
             if !self.active_tool_result_ids.insert(call_id.to_string()) {
                 return;
             }
-            if let Some(mut cell) = self.take_active_tool_cell(call_id) {
+            if let Some(cell) = self.active_turn.as_mut().and_then(|active_turn| {
+                active_turn
+                    .cells
+                    .iter_mut()
+                    .find(|cell| cell.tool_call_id() == Some(call_id))
+            }) {
                 let _ = cell.merge_tool_result(success, result);
-                self.activity
-                    .record_tool_result(call_id, success, &cell.body);
+                let runtime_cell = cell.clone();
+                let body = cell.body.clone();
+                self.activity.record_tool_result(call_id, success, &body);
                 self.active_tool_progress_started_at_ms.remove(call_id);
-                self.push_current_turn_runtime_cell(cell);
+                self.push_current_turn_runtime_cell(runtime_cell);
                 self.reset_active_progress_if_no_live_cells();
                 return;
             }
@@ -13273,6 +13309,10 @@ mod state {
                     .conversation_cells
                     .iter()
                     .any(|persisted| is_persisted_duplicate_cell(&cell, persisted))
+                    || self
+                        .runtime_cells
+                        .iter()
+                        .any(|entry| is_persisted_duplicate_cell(&cell, &entry.cell))
                 {
                     continue;
                 }
@@ -13706,10 +13746,14 @@ mod state {
             assert!(state.runtime_cells[1].cell.body.contains("Input:"));
             assert!(state.runtime_cells[1].cell.body.contains("Output:"));
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells.len(), 1);
-            let active = active_turn.cells.last().expect("active assistant");
-            assert_eq!(active.kind, TranscriptCellKind::Assistant);
-            assert!(active.body.contains("Done."));
+            assert_eq!(active_turn.cells.len(), 3);
+            assert_eq!(active_turn.cells[0].kind, TranscriptCellKind::Assistant);
+            assert!(active_turn.cells[0].body.contains("Checking..."));
+            assert_eq!(active_turn.cells[1].kind, TranscriptCellKind::Tool);
+            assert!(active_turn.cells[1].body.contains("Output:"));
+            assert!(!active_turn.cells[1].is_active);
+            assert_eq!(active_turn.cells[2].kind, TranscriptCellKind::Assistant);
+            assert!(active_turn.cells[2].body.contains("Done."));
 
             let cells = state.transcript_cells_for_render();
             let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
