@@ -6492,7 +6492,7 @@ mod scrollback {
     }
 }
 
-mod visual_timeline {
+mod timeline {
     use std::collections::HashSet;
 
     use types::{ChatTurnEventKind, ChatTurnStatus};
@@ -6501,43 +6501,43 @@ mod visual_timeline {
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct VisualTimeline {
-        scrollback_cells: Vec<TranscriptCell>,
-        live_cells: Vec<TranscriptCell>,
+    pub struct Timeline {
+        committed_cells: Vec<TranscriptCell>,
+        active_cells: Vec<TranscriptCell>,
     }
 
-    impl VisualTimeline {
+    impl Timeline {
         pub fn from_state(state: &AppState) -> Self {
-            let scrollback_cells = build_scrollback_cells(state);
-            let live_cells = build_live_message_cells(state);
+            let committed_cells = build_committed_cells(state);
+            let active_cells = build_active_cells(state);
             debug_assert!(
-                !has_cross_band_duplicate(&scrollback_cells, &live_cells),
-                "a visual cell cannot be owned by both scrollback and live bands"
+                !has_cross_band_duplicate(&committed_cells, &active_cells),
+                "a visual cell cannot be owned by both committed and active bands"
             );
 
             Self {
-                scrollback_cells,
-                live_cells,
+                committed_cells,
+                active_cells,
             }
         }
 
-        pub fn scrollback_cells(&self) -> &[TranscriptCell] {
-            &self.scrollback_cells
+        pub fn committed_cells(&self) -> &[TranscriptCell] {
+            &self.committed_cells
         }
 
-        pub fn live_cells(&self) -> &[TranscriptCell] {
-            &self.live_cells
+        pub fn active_cells(&self) -> &[TranscriptCell] {
+            &self.active_cells
         }
 
         #[cfg(test)]
         pub fn render_cells(&self) -> Vec<TranscriptCell> {
             let mut cells = Vec::with_capacity(
-                self.scrollback_cells
+                self.committed_cells
                     .len()
-                    .saturating_add(self.live_cells.len()),
+                    .saturating_add(self.active_cells.len()),
             );
-            cells.extend(self.scrollback_cells.iter().cloned());
-            cells.extend(self.live_cells.iter().cloned());
+            cells.extend(self.committed_cells.iter().cloned());
+            cells.extend(self.active_cells.iter().cloned());
             cells
         }
     }
@@ -6548,7 +6548,7 @@ mod visual_timeline {
         SubagentCall(String),
     }
 
-    fn build_scrollback_cells(state: &AppState) -> Vec<TranscriptCell> {
+    fn build_committed_cells(state: &AppState) -> Vec<TranscriptCell> {
         let mut cells =
             Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
         let mut runtime = state.runtime_cells.iter().peekable();
@@ -6594,7 +6594,7 @@ mod visual_timeline {
         cells
     }
 
-    fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
+    fn build_active_cells(state: &AppState) -> Vec<TranscriptCell> {
         let active_turn = state.active_turn.as_ref();
         let subagent_activity_cells = state.activity.subagent_live_cells();
         let has_assistant_cell = active_turn.is_some_and(|active_turn| {
@@ -6667,17 +6667,17 @@ mod visual_timeline {
     }
 
     fn has_cross_band_duplicate(
-        scrollback_cells: &[TranscriptCell],
-        live_cells: &[TranscriptCell],
+        committed_cells: &[TranscriptCell],
+        active_cells: &[TranscriptCell],
     ) -> bool {
-        let scrollback_keys = scrollback_cells
+        let committed_keys = committed_cells
             .iter()
             .filter_map(visual_key)
             .collect::<HashSet<_>>();
-        live_cells
+        active_cells
             .iter()
             .filter_map(visual_key)
-            .any(|key| scrollback_keys.contains(&key))
+            .any(|key| committed_keys.contains(&key))
     }
 
     fn projected_running_turn_start_index(state: &AppState) -> Option<usize> {
@@ -6738,7 +6738,7 @@ mod visual_timeline {
 
     #[cfg(test)]
     mod tests {
-        use super::VisualTimeline;
+        use super::Timeline;
         use crate::state::{AnchoredRuntimeCell, AppState};
         use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
         use types::StreamFrame;
@@ -6770,29 +6770,29 @@ mod visual_timeline {
                 .activity
                 .record_tool_call("running-call", "spawn_subagent", "running");
 
-            let timeline = VisualTimeline::from_state(&state);
-            let scrollback = timeline.scrollback_cells();
+            let timeline = Timeline::from_state(&state);
+            let committed = timeline.committed_cells();
 
             assert!(
-                scrollback
+                committed
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("done-call"))
             );
             assert!(
-                !scrollback
+                !committed
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("running-call"))
             );
             assert!(
                 timeline
-                    .live_cells()
+                    .active_cells()
                     .iter()
                     .any(|cell| cell.title == "Subagents")
             );
         }
 
         #[test]
-        fn completed_tool_moves_to_scrollback_while_assistant_stays_live() {
+        fn completed_tool_moves_to_committed_while_assistant_stays_active() {
             let mut state = AppState::empty();
             state.begin_stream("turn-1".to_string());
             state.push_local_user_message("inspect workspace".to_string());
@@ -6802,16 +6802,16 @@ mod visual_timeline {
                 arguments: serde_json::json!({"command": "pwd"}),
             });
 
-            let running = VisualTimeline::from_state(&state);
+            let running = Timeline::from_state(&state);
             assert!(
                 running
-                    .live_cells()
+                    .active_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
             assert!(
                 !running
-                    .scrollback_cells()
+                    .committed_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
@@ -6825,20 +6825,20 @@ mod visual_timeline {
                 content: "Done.".to_string(),
             });
 
-            let completed = VisualTimeline::from_state(&state);
+            let completed = Timeline::from_state(&state);
             assert!(
                 completed
-                    .scrollback_cells()
+                    .committed_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
             assert!(
                 !completed
-                    .live_cells()
+                    .active_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
-            assert!(completed.live_cells().iter().any(|cell| {
+            assert!(completed.active_cells().iter().any(|cell| {
                 cell.kind == TranscriptCellKind::Assistant && cell.body.contains("Done.")
             }));
         }
@@ -6865,6 +6865,7 @@ mod shell {
     use crate::scrollback::ScrollbackWriter;
     use crate::slash_command::{HELP_TEXT, SLASH_COMMAND_SPECS};
     use crate::state::{AppState, WorkPickerItem, work_run_kind_label};
+    use crate::timeline::Timeline;
     use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
 
     const CONTINUATION_PREFIX: &str = "  ";
@@ -6949,14 +6950,15 @@ mod shell {
 
         pub fn sync(&mut self, state: &mut AppState) -> IoResult<()> {
             let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
-            let terminal_viewport = TerminalViewport::build(state, size);
+            let timeline = Timeline::from_state(state);
+            let terminal_viewport = TerminalViewport::build(state, &timeline, size);
             let viewport = terminal_viewport.snapshot;
-            let stable_cells = build_stable_history_cells(state);
+            let stable_cells = timeline.committed_cells();
             let mut force_full_redraw = false;
             let mut append_stable_history = true;
-            if !self.scrollback.is_prefix_of(&stable_cells) {
+            if !self.scrollback.is_prefix_of(stable_cells) {
                 self.scrollback
-                    .replace_committed_without_append(&stable_cells);
+                    .replace_committed_without_append(stable_cells);
                 self.last_viewport = None;
                 queue_clear_visible(&mut self.stdout)?;
                 force_full_redraw = true;
@@ -6965,7 +6967,7 @@ mod shell {
 
             if append_stable_history {
                 self.scrollback
-                    .sync_history(&stable_cells, size.0, render_history_append_lines);
+                    .sync_history(stable_cells, size.0, render_history_append_lines);
             }
 
             let needs_full_redraw = force_full_redraw || self.needs_full_redraw(size, &viewport);
@@ -6982,7 +6984,7 @@ mod shell {
                         .scrollback
                         .insert_pending(&mut self.stdout, size.1, size.0)?;
                 }
-                self.redraw_history_tail(history_redraw_top(&viewport), size.0, &stable_cells)?;
+                self.redraw_history_tail(history_redraw_top(&viewport), size.0, stable_cells)?;
                 self.redraw_viewport_full(&viewport, size.0)?;
             } else {
                 let protected_top = self.protected_scrollback_top(&viewport);
@@ -6993,7 +6995,7 @@ mod shell {
                 let _inserted = self
                     .scrollback
                     .insert_pending(&mut self.stdout, size.1, size.0)?;
-                self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
+                self.redraw_history_tail(protected_top, size.0, stable_cells)?;
                 if should_force_live_viewport_redraw(state) {
                     self.redraw_viewport_full(&viewport, size.0)?;
                 } else {
@@ -7018,11 +7020,12 @@ mod shell {
 
         pub fn sync_viewport_only(&mut self, state: &mut AppState) -> IoResult<()> {
             let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
-            let terminal_viewport = TerminalViewport::build(state, size);
+            let timeline = Timeline::from_state(state);
+            let terminal_viewport = TerminalViewport::build(state, &timeline, size);
             let viewport = terminal_viewport.snapshot;
-            let stable_cells = build_stable_history_cells(state);
+            let stable_cells = timeline.committed_cells();
 
-            if !self.scrollback.is_prefix_of(&stable_cells) {
+            if !self.scrollback.is_prefix_of(stable_cells) {
                 return self.sync(state);
             }
 
@@ -7037,7 +7040,7 @@ mod shell {
             }
 
             self.scrollback
-                .sync_history(&stable_cells, size.0, render_history_append_lines);
+                .sync_history(stable_cells, size.0, render_history_append_lines);
             let protected_top = self.protected_scrollback_top(&viewport);
             let has_pending_history = self.scrollback.has_pending();
             if has_pending_history {
@@ -7046,7 +7049,7 @@ mod shell {
             let _inserted = self
                 .scrollback
                 .insert_pending(&mut self.stdout, size.1, size.0)?;
-            self.redraw_history_tail(protected_top, size.0, &stable_cells)?;
+            self.redraw_history_tail(protected_top, size.0, stable_cells)?;
 
             if should_force_live_viewport_redraw(state) {
                 self.redraw_viewport_full(&viewport, size.0)?;
@@ -7157,7 +7160,7 @@ mod shell {
     }
 
     impl TerminalViewport {
-        fn build(state: &AppState, size: (u16, u16)) -> Self {
+        fn build(state: &AppState, timeline: &Timeline, size: (u16, u16)) -> Self {
             let (width, height) = size;
             let prompt = build_prompt_snapshot(state, width, height);
             let prompt_height = prompt.lines.len() as u16 + 2;
@@ -7170,7 +7173,7 @@ mod shell {
             let spacer_height = u16::from(available_above_prompt > 0);
             let message_height = available_above_prompt.saturating_sub(spacer_height);
             let mut visible_message_lines =
-                build_visible_message_lines(state, width, message_height, 0);
+                build_visible_message_lines(timeline.active_cells(), width, message_height, 0);
             if spacer_height > 0 && !visible_message_lines.is_empty() {
                 visible_message_lines.push(Line::from(""));
             }
@@ -7200,7 +7203,8 @@ mod shell {
 
     #[cfg(test)]
     fn build_viewport_snapshot(state: &AppState, size: (u16, u16)) -> ViewportSnapshot {
-        TerminalViewport::build(state, size).snapshot
+        let timeline = Timeline::from_state(state);
+        TerminalViewport::build(state, &timeline, size).snapshot
     }
 
     fn build_prompt_snapshot(state: &AppState, width: u16, height: u16) -> PromptSnapshot {
@@ -7242,10 +7246,9 @@ mod shell {
         }
     }
 
+    #[cfg(test)]
     fn build_stable_history_cells(state: &AppState) -> Vec<TranscriptCell> {
-        crate::visual_timeline::VisualTimeline::from_state(state)
-            .scrollback_cells()
-            .to_vec()
+        Timeline::from_state(state).committed_cells().to_vec()
     }
 
     fn visible_history_tail_lines(
@@ -7261,16 +7264,22 @@ mod shell {
         viewport.top.min(viewport.prompt_top)
     }
 
-    fn build_active_message_lines(state: &AppState, width: u16) -> Vec<Line<'static>> {
-        build_cell_lines(&build_live_message_cells(state), width)
+    fn build_active_message_lines(
+        active_cells: &[TranscriptCell],
+        width: u16,
+    ) -> Vec<Line<'static>> {
+        build_cell_lines(active_cells, width)
     }
 
-    fn build_scrollable_message_lines(state: &AppState, width: u16) -> Vec<Line<'static>> {
-        build_active_message_lines(state, width)
+    fn build_scrollable_message_lines(
+        active_cells: &[TranscriptCell],
+        width: u16,
+    ) -> Vec<Line<'static>> {
+        build_active_message_lines(active_cells, width)
     }
 
     fn build_visible_message_lines(
-        state: &AppState,
+        active_cells: &[TranscriptCell],
         width: u16,
         max_rows: u16,
         scroll_from_bottom: usize,
@@ -7281,7 +7290,7 @@ mod shell {
 
         let height = max_rows as usize;
         tail_lines(
-            build_scrollable_message_lines(state, width),
+            build_scrollable_message_lines(active_cells, width),
             height,
             scroll_from_bottom,
         )
@@ -7289,13 +7298,8 @@ mod shell {
 
     #[cfg(test)]
     fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
-        build_visible_message_lines(state, width, max_rows, 0)
-    }
-
-    fn build_live_message_cells(state: &AppState) -> Vec<TranscriptCell> {
-        crate::visual_timeline::VisualTimeline::from_state(state)
-            .live_cells()
-            .to_vec()
+        let timeline = Timeline::from_state(state);
+        build_visible_message_lines(timeline.active_cells(), width, max_rows, 0)
     }
 
     fn should_force_live_viewport_redraw(state: &AppState) -> bool {
@@ -7364,10 +7368,11 @@ mod shell {
             return Vec::new();
         }
         let pending_lines = Vec::new();
-        let live_cells = build_live_message_cells(state);
-        let mut active_lines = build_cell_lines(&live_cells, width);
-        if live_cells.len() > 1 && active_lines.len() >= max_rows as usize {
-            active_lines = live_cells
+        let timeline = Timeline::from_state(state);
+        let active_cells = timeline.active_cells();
+        let mut active_lines = build_cell_lines(active_cells, width);
+        if active_cells.len() > 1 && active_lines.len() >= max_rows as usize {
+            active_lines = active_cells
                 .last()
                 .map(|cell| build_cell_lines(std::slice::from_ref(cell), width))
                 .unwrap_or_default();
@@ -9328,6 +9333,7 @@ mod shell {
             AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem,
             PendingSessionState, ProviderPickerItem, SkillPickerItem,
         };
+        use crate::timeline::Timeline;
         use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
         use types::StreamFrame;
         use types::{
@@ -11235,8 +11241,9 @@ mod shell {
             assert!(!rendered.iter().any(|line| line == "  ..."));
             assert!(rendered.iter().any(|line| line.contains("line 30")));
 
+            let timeline = Timeline::from_state(&state);
             let scrolled = line_texts(&super::build_visible_message_lines(
-                &state,
+                timeline.active_cells(),
                 80,
                 8,
                 usize::MAX,
@@ -13237,7 +13244,7 @@ mod state {
 
         #[cfg(test)]
         pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
-            crate::visual_timeline::VisualTimeline::from_state(self).render_cells()
+            crate::timeline::Timeline::from_state(self).render_cells()
         }
 
         fn flush_active_turn_to_runtime(&mut self) {
