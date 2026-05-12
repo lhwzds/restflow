@@ -6511,8 +6511,9 @@ mod timeline {
             let committed_cells = build_committed_cells(state);
             let active_cells = build_active_cells(state);
             debug_assert!(
-                !has_cross_band_duplicate(&committed_cells, &active_cells),
-                "a visual cell cannot be owned by both committed and active bands"
+                state.active_turn.is_some()
+                    || !has_cross_band_duplicate(&committed_cells, &active_cells),
+                "completed visual cells cannot be owned by both committed and active bands"
             );
 
             Self {
@@ -6551,7 +6552,7 @@ mod timeline {
     fn build_committed_cells(state: &AppState) -> Vec<TranscriptCell> {
         let mut cells =
             Vec::with_capacity(state.conversation_cells.len() + state.runtime_cells.len());
-        let mut runtime = state.runtime_cells.iter().enumerate().peekable();
+        let mut runtime = state.runtime_cells.iter().peekable();
         let conversation_limit =
             projected_running_turn_start_index(state).unwrap_or(state.conversation_cells.len());
         for (index, cell) in state
@@ -6560,19 +6561,14 @@ mod timeline {
             .take(conversation_limit)
             .enumerate()
         {
-            if runtime.peek().is_some_and(|(_, entry)| {
+            if runtime.peek().is_some_and(|entry| {
                 entry.base_cell_index == index && entry.cell.kind != TranscriptCellKind::User
             }) && cell.kind == TranscriptCellKind::User
             {
                 cells.push(cell.clone());
-                while let Some((runtime_index, entry)) = runtime.peek() {
+                while let Some(entry) = runtime.peek() {
                     if entry.base_cell_index == index {
-                        push_runtime_cell_if_visible(
-                            state,
-                            &mut cells,
-                            *runtime_index,
-                            &entry.cell,
-                        );
+                        push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
                         runtime.next();
                     } else {
                         break;
@@ -6581,9 +6577,9 @@ mod timeline {
                 continue;
             }
 
-            while let Some((runtime_index, entry)) = runtime.peek() {
+            while let Some(entry) = runtime.peek() {
                 if entry.base_cell_index == index {
-                    push_runtime_cell_if_visible(state, &mut cells, *runtime_index, &entry.cell);
+                    push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
                     runtime.next();
                 } else {
                     break;
@@ -6593,8 +6589,8 @@ mod timeline {
             cells.push(cell.clone());
         }
 
-        for (runtime_index, entry) in runtime {
-            push_runtime_cell_if_visible(state, &mut cells, runtime_index, &entry.cell);
+        for entry in runtime {
+            push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
         }
         cells
     }
@@ -6650,28 +6646,14 @@ mod timeline {
     fn push_runtime_cell_if_visible(
         state: &AppState,
         cells: &mut Vec<TranscriptCell>,
-        runtime_index: usize,
         cell: &TranscriptCell,
     ) {
-        if !should_hide_runtime_cell(state, runtime_index, cell) {
+        if !should_hide_runtime_cell(state, cell) {
             cells.push(cell.clone());
         }
     }
 
-    fn should_hide_runtime_cell(
-        state: &AppState,
-        runtime_index: usize,
-        cell: &TranscriptCell,
-    ) -> bool {
-        if state.active_turn.is_some()
-            && state
-                .active_turn_runtime_start
-                .is_some_and(|start| runtime_index >= start)
-            && cell.kind != TranscriptCellKind::User
-        {
-            return true;
-        }
-
+    fn should_hide_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
         if !state.is_streaming || cell.kind != TranscriptCellKind::Subagent {
             return false;
         }
@@ -6817,7 +6799,7 @@ mod timeline {
         }
 
         #[test]
-        fn completed_tool_stays_active_until_turn_finishes() {
+        fn completed_tool_reaches_scrollback_and_stays_active_until_turn_finishes() {
             let mut state = AppState::empty();
             state.begin_stream("turn-1".to_string());
             state.push_local_user_message("inspect workspace".to_string());
@@ -6852,7 +6834,7 @@ mod timeline {
 
             let completed = Timeline::from_state(&state);
             assert!(
-                !completed
+                completed
                     .committed_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
@@ -10270,6 +10252,10 @@ mod shell {
             });
 
             let lines = line_texts(&super::build_message_lines(&state, 100, 20));
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
 
             assert!(lines.iter().any(|line| line.contains("Checking...")));
             assert!(lines.iter().any(|line| line.contains("Tool · bash 'pwd'")));
@@ -10279,6 +10265,8 @@ mod shell {
                     .any(|line| line.contains("/Volumes/samsung/GitHub/restflow"))
             );
             assert!(lines.iter().any(|line| line.contains("Done.")));
+            assert!(stable.iter().any(|line| line.contains("Checking...")));
+            assert!(stable.iter().any(|line| line.contains("Tool · bash 'pwd'")));
         }
 
         #[test]
@@ -11159,7 +11147,7 @@ mod shell {
                     .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
             assert!(
-                !stable
+                stable
                     .iter()
                     .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
@@ -13760,6 +13748,8 @@ mod state {
             assert_eq!(
                 kinds,
                 vec![
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
                     TranscriptCellKind::Assistant,
                     TranscriptCellKind::Tool,
                     TranscriptCellKind::Assistant,
