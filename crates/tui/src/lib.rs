@@ -6410,6 +6410,53 @@ mod scrollback {
         }
 
         #[test]
+        fn sync_history_appends_completed_tool_preview_once() {
+            let mut scrollback = ScrollbackWriter::default();
+            let cells = vec![
+                user_cell("run tool"),
+                TranscriptCell {
+                    kind: TranscriptCellKind::Tool,
+                    title: "Tool · bash".to_string(),
+                    subtitle: Some("#call-1".to_string()),
+                    body: "Output: line 1\nline 2".to_string(),
+                    group: MessageGroup::ToolActivity,
+                    is_active: false,
+                },
+                TranscriptCell {
+                    kind: TranscriptCellKind::Assistant,
+                    title: "Agent".to_string(),
+                    subtitle: None,
+                    body: "continuing".to_string(),
+                    group: MessageGroup::Conversation,
+                    is_active: true,
+                },
+            ];
+
+            scrollback.sync_history(&cells, 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(format!("{} {}", cell.title, cell.body)))
+                    .collect()
+            });
+            let rendered = scrollback
+                .pending_lines
+                .iter()
+                .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert_eq!(rendered.matches("Tool · bash").count(), 1);
+            assert!(rendered.contains("line 1"));
+
+            scrollback.sync_history(&cells, 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(format!("{} {}", cell.title, cell.body)))
+                    .collect()
+            });
+            assert!(scrollback.pending_lines.is_empty());
+        }
+
+        #[test]
         fn replace_committed_without_append_marks_history_but_leaves_no_pending_lines() {
             let mut scrollback = ScrollbackWriter::default();
             let cells = vec![user_cell("loaded session")];
@@ -6664,17 +6711,40 @@ mod timeline {
         if should_hide_runtime_cell(state, cell) {
             return;
         }
-        let Some(key) = visual_key(cell) else {
-            return;
-        };
-        if cells
-            .iter()
-            .filter_map(visual_key)
-            .any(|existing| existing == key)
-        {
-            return;
+        if let Some(key) = visual_key(cell) {
+            if cells
+                .iter()
+                .filter_map(visual_key)
+                .any(|existing| existing == key)
+            {
+                return;
+            }
+        } else {
+            if !matches!(cell.kind, TranscriptCellKind::Assistant) {
+                return;
+            }
+            if cells
+                .iter()
+                .any(|existing| completed_assistant_matches(cell, existing))
+            {
+                return;
+            }
         }
         cells.push(cell.clone());
+    }
+
+    fn completed_assistant_matches(completed: &TranscriptCell, existing: &TranscriptCell) -> bool {
+        if completed.kind != TranscriptCellKind::Assistant
+            || existing.kind != TranscriptCellKind::Assistant
+        {
+            return false;
+        }
+        let completed_text = compact_visual_text(&completed.body);
+        !completed_text.is_empty() && completed_text == compact_visual_text(&existing.body)
+    }
+
+    fn compact_visual_text(content: &str) -> String {
+        content.chars().filter(|ch| !ch.is_whitespace()).collect()
     }
 
     fn should_hide_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
@@ -6913,6 +6983,7 @@ mod shell {
 
     const CONTINUATION_PREFIX: &str = "  ";
     const TOOL_SUMMARY_LIMIT: usize = 120;
+    const TOOL_OUTPUT_PREVIEW_LINES: usize = 20;
     const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
     const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
     const OVERLAY_MAX_ROWS: u16 = 10;
@@ -8579,11 +8650,15 @@ mod shell {
             }
             None => {
                 if let Some(value) = text_after_tool_label(body, label) {
-                    let value = compact_tool_text(value);
                     if label == "Output:" {
-                        lines.push(value);
+                        append_tool_output_preview_lines(lines, value, "output");
                     } else {
-                        lines.push(format!("{display_label}: {value}"));
+                        lines.push(format!("{display_label}:"));
+                        append_tool_output_preview_lines(
+                            lines,
+                            value,
+                            &display_label.to_lowercase(),
+                        );
                     }
                 }
             }
@@ -8611,7 +8686,17 @@ mod shell {
             return;
         };
         lines.push(format!("{field}:"));
-        lines.extend(normalize_body_lines(output));
+        append_tool_output_preview_lines(lines, output, field);
+    }
+
+    fn append_tool_output_preview_lines(lines: &mut Vec<String>, output: &str, label: &str) {
+        let output_lines = normalize_body_lines(output);
+        let hidden = output_lines.len().saturating_sub(TOOL_OUTPUT_PREVIEW_LINES);
+        lines.extend(output_lines.into_iter().take(TOOL_OUTPUT_PREVIEW_LINES));
+        if hidden > 0 {
+            let suffix = if hidden == 1 { "line" } else { "lines" };
+            lines.push(format!("... {hidden} more {label} {suffix} hidden"));
+        }
     }
 
     fn compact_json(value: &Value) -> String {
@@ -9995,7 +10080,12 @@ mod shell {
             let rendered = line_texts(&visible_history_tail_lines(&cells, 80, 12));
 
             assert!(!rendered.iter().any(|line| line == "  ..."));
-            assert!(rendered.iter().any(|line| line.contains("line 30")));
+            assert!(!rendered.iter().any(|line| line.contains("line 30")));
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("10 more output lines hidden"))
+            );
             assert!(rendered.iter().any(|line| line.contains("done")));
         }
 
@@ -11283,6 +11373,212 @@ mod shell {
                     .iter()
                     .any(|line| line.contains("Output:") && line.contains("\\nLONG_TOOL_2"))
             );
+        }
+
+        #[test]
+        fn tool_output_preview_limits_json_stdout_and_preserves_raw_body() {
+            let mut state = AppState::empty();
+            let stdout = (1..=25)
+                .map(|index| format!("STDOUT_LINE_{index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state.push_local_user_message("run long output".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-stdout".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "printf lots"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-stdout".to_string(),
+                result: serde_json::json!({
+                    "duration_ms": 3,
+                    "exit_code": 0,
+                    "stderr": "",
+                    "stdout": stdout,
+                    "truncated": false
+                })
+                .to_string(),
+                success: true,
+            });
+
+            let raw = state
+                .active_turn
+                .as_ref()
+                .expect("active turn")
+                .completed_cells
+                .iter()
+                .find(|cell| cell.tool_call_id() == Some("call-stdout"))
+                .expect("completed tool cell");
+            assert!(raw.body.contains("STDOUT_LINE_25"));
+
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
+            assert!(stable.iter().any(|line| line.trim() == "STDOUT_LINE_1"));
+            assert!(stable.iter().any(|line| line.trim() == "STDOUT_LINE_20"));
+            assert!(!stable.iter().any(|line| line.contains("STDOUT_LINE_21")));
+            assert!(!stable.iter().any(|line| line.contains("STDOUT_LINE_25")));
+            assert!(
+                stable
+                    .iter()
+                    .any(|line| line.contains("5 more stdout lines hidden"))
+            );
+        }
+
+        #[test]
+        fn tool_output_preview_limits_json_stderr() {
+            let stderr = (1..=22)
+                .map(|index| format!("STDERR_LINE_{index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-stderr".to_string()),
+                body: format!(
+                    "Error: {}",
+                    serde_json::json!({
+                        "duration_ms": 7,
+                        "exit_code": 1,
+                        "stderr": stderr,
+                        "stdout": "",
+                        "truncated": false
+                    })
+                ),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(rendered.iter().any(|line| line.trim() == "STDERR_LINE_1"));
+            assert!(rendered.iter().any(|line| line.trim() == "STDERR_LINE_20"));
+            assert!(!rendered.iter().any(|line| line.contains("STDERR_LINE_21")));
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("2 more stderr lines hidden"))
+            );
+        }
+
+        #[test]
+        fn failed_tool_result_previews_stderr_and_preserves_raw_body() {
+            let mut state = AppState::empty();
+            let stderr = (1..=24)
+                .map(|index| format!("FAIL_STDERR_LINE_{index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state.push_local_user_message("run failing command".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-fail".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "cargo test"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-fail".to_string(),
+                result: serde_json::json!({
+                    "duration_ms": 9,
+                    "exit_code": 101,
+                    "stderr": stderr,
+                    "stdout": "",
+                    "truncated": false
+                })
+                .to_string(),
+                success: false,
+            });
+
+            let raw = state
+                .active_turn
+                .as_ref()
+                .expect("active turn")
+                .completed_cells
+                .iter()
+                .find(|cell| cell.tool_call_id() == Some("call-fail"))
+                .expect("completed failed tool");
+            assert!(raw.body.contains("FAIL_STDERR_LINE_24"));
+
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
+            assert!(
+                stable
+                    .iter()
+                    .any(|line| line.trim() == "FAIL_STDERR_LINE_1")
+            );
+            assert!(
+                stable
+                    .iter()
+                    .any(|line| line.trim() == "FAIL_STDERR_LINE_20")
+            );
+            assert!(
+                !stable
+                    .iter()
+                    .any(|line| line.contains("FAIL_STDERR_LINE_21"))
+            );
+            assert!(
+                stable
+                    .iter()
+                    .any(|line| line.contains("4 more stderr lines hidden"))
+            );
+        }
+
+        #[test]
+        fn tool_output_preview_limits_plain_output() {
+            let output = (1..=23)
+                .map(|index| format!("PLAIN_LINE_{index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · custom".to_string(),
+                subtitle: Some("#call-plain".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(rendered.iter().any(|line| line.trim() == "PLAIN_LINE_1"));
+            assert!(rendered.iter().any(|line| line.trim() == "PLAIN_LINE_20"));
+            assert!(!rendered.iter().any(|line| line.contains("PLAIN_LINE_21")));
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("3 more output lines hidden"))
+            );
+        }
+
+        #[test]
+        fn tool_output_preview_handles_boundaries() {
+            let twenty_lines = (1..=20)
+                .map(|index| format!("line {index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let twenty_one_lines = (1..=21)
+                .map(|index| format!("line {index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let cases = [
+                ("".to_string(), None),
+                ("one".to_string(), None),
+                (twenty_lines, None),
+                (twenty_one_lines, Some("... 1 more output line hidden")),
+                ("\n\none\n\n\n two \n\n".to_string(), None),
+            ];
+
+            for (output, hidden_line) in cases {
+                let mut lines = Vec::new();
+                super::append_tool_output_preview_lines(&mut lines, &output, "output");
+                match hidden_line {
+                    Some(hidden_line) => assert!(lines.iter().any(|line| line == hidden_line)),
+                    None => assert!(!lines.iter().any(|line| line.contains("hidden"))),
+                }
+                assert!(
+                    lines.len()
+                        <= super::TOOL_OUTPUT_PREVIEW_LINES + usize::from(hidden_line.is_some())
+                );
+            }
         }
 
         #[test]
@@ -12944,12 +13240,15 @@ mod state {
             if index >= active_turn.cells.len() {
                 return;
             }
-            active_turn.cells[index].body = active_turn.cells[index].body.trim_end().to_string();
-            if active_turn.cells[index].body.trim().is_empty() {
-                active_turn.cells.remove(index);
+            let mut cell = active_turn.cells.remove(index);
+            cell.body = cell.body.trim_end().to_string();
+            if cell.body.trim().is_empty() {
+                self.active_progress_started_at_ms = None;
+                self.active_assistant_stream_body.clear();
+                return;
             } else {
-                let _ = active_turn.cells[index].finalize();
-                let cell = active_turn.cells[index].clone();
+                let _ = cell.finalize();
+                self.push_active_turn_completed_cell(cell.clone());
                 self.push_current_turn_runtime_cell(cell);
             }
             self.active_progress_started_at_ms = None;
@@ -13905,18 +14204,21 @@ mod state {
             assert!(state.runtime_cells[1].cell.body.contains("Input:"));
             assert!(state.runtime_cells[1].cell.body.contains("Output:"));
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.completed_cells.len(), 1);
+            assert_eq!(active_turn.completed_cells.len(), 2);
             assert_eq!(
                 active_turn.completed_cells[0].kind,
+                TranscriptCellKind::Assistant
+            );
+            assert!(active_turn.completed_cells[0].body.contains("Checking..."));
+            assert_eq!(
+                active_turn.completed_cells[1].kind,
                 TranscriptCellKind::Tool
             );
-            assert!(active_turn.completed_cells[0].body.contains("Output:"));
-            assert!(!active_turn.completed_cells[0].is_active);
-            assert_eq!(active_turn.cells.len(), 2);
+            assert!(active_turn.completed_cells[1].body.contains("Output:"));
+            assert!(!active_turn.completed_cells[1].is_active);
+            assert_eq!(active_turn.cells.len(), 1);
             assert_eq!(active_turn.cells[0].kind, TranscriptCellKind::Assistant);
-            assert!(active_turn.cells[0].body.contains("Checking..."));
-            assert_eq!(active_turn.cells[1].kind, TranscriptCellKind::Assistant);
-            assert!(active_turn.cells[1].body.contains("Done."));
+            assert!(active_turn.cells[0].body.contains("Done."));
 
             let cells = state.transcript_cells_for_render();
             let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
@@ -13939,6 +14241,94 @@ mod state {
                     .cell
                     .body
                     .contains("Tool · bash #call-1")
+            );
+        }
+
+        #[test]
+        fn repeated_assistant_tool_segments_keep_order_without_duplicates() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("multi step".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "First".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "pwd"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                result: "one".to_string(),
+                success: true,
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "Second".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-2".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "ls"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-2".to_string(),
+                result: "two".to_string(),
+                success: true,
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "Third".to_string(),
+            });
+
+            let rendered = state.transcript_cells_for_render();
+            let rendered_kinds = rendered.iter().map(|cell| cell.kind).collect::<Vec<_>>();
+            assert_eq!(
+                rendered_kinds,
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
+            assert_eq!(rendered[1].body, "First");
+            assert_eq!(rendered[2].tool_call_id(), Some("call-1"));
+            assert_eq!(rendered[3].body, "Second");
+            assert_eq!(rendered[4].tool_call_id(), Some("call-2"));
+            assert_eq!(rendered[5].body, "Third");
+            assert_eq!(
+                rendered
+                    .iter()
+                    .filter(|cell| cell.tool_call_id() == Some("call-1"))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                rendered
+                    .iter()
+                    .filter(|cell| cell.tool_call_id() == Some("call-2"))
+                    .count(),
+                1
+            );
+
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+            assert!(state.active_turn.is_none());
+            assert_eq!(state.runtime_cells.len(), 6);
+            assert_eq!(
+                state
+                    .runtime_cells
+                    .iter()
+                    .filter(|entry| entry.cell.tool_call_id() == Some("call-1"))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                state
+                    .runtime_cells
+                    .iter()
+                    .filter(|entry| entry.cell.tool_call_id() == Some("call-2"))
+                    .count(),
+                1
             );
         }
 
