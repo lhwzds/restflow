@@ -6592,6 +6592,11 @@ mod timeline {
         for entry in runtime {
             push_runtime_cell_if_visible(state, &mut cells, &entry.cell);
         }
+        if let Some(active_turn) = state.active_turn.as_ref() {
+            for cell in &active_turn.completed_cells {
+                push_completed_cell_if_missing(state, &mut cells, cell);
+            }
+        }
         cells
     }
 
@@ -6649,6 +6654,27 @@ mod timeline {
         if !should_hide_runtime_cell(state, cell) {
             cells.push(cell.clone());
         }
+    }
+
+    fn push_completed_cell_if_missing(
+        state: &AppState,
+        cells: &mut Vec<TranscriptCell>,
+        cell: &TranscriptCell,
+    ) {
+        if should_hide_runtime_cell(state, cell) {
+            return;
+        }
+        let Some(key) = visual_key(cell) else {
+            return;
+        };
+        if cells
+            .iter()
+            .filter_map(visual_key)
+            .any(|existing| existing == key)
+        {
+            return;
+        }
+        cells.push(cell.clone());
     }
 
     fn should_hide_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
@@ -7190,7 +7216,7 @@ mod shell {
             let spacer_height = u16::from(available_above_prompt > 0);
             let message_height = available_above_prompt.saturating_sub(spacer_height);
             let mut visible_message_lines =
-                build_turn_viewport_lines(state, timeline, width, message_height, 0);
+                build_turn_viewport_lines(timeline, width, message_height, 0);
             if spacer_height > 0 && !visible_message_lines.is_empty() {
                 visible_message_lines.push(Line::from(""));
             }
@@ -7315,7 +7341,6 @@ mod shell {
     }
 
     fn build_turn_viewport_lines(
-        state: &AppState,
         timeline: &Timeline,
         width: u16,
         max_rows: u16,
@@ -7325,37 +7350,17 @@ mod shell {
             return Vec::new();
         }
 
-        let mut lines = build_cell_lines(&current_turn_context_cells(state), width);
-        let active_lines = build_scrollable_message_lines(timeline.active_cells(), width);
-        if !lines.is_empty() && !active_lines.is_empty() {
-            lines.push(Line::from(""));
-        }
-        lines.extend(active_lines);
-        tail_lines(lines, max_rows as usize, scroll_from_bottom)
-    }
-
-    fn current_turn_context_cells(state: &AppState) -> Vec<TranscriptCell> {
-        if state.active_turn.is_none() && state.active_turn_runtime_start.is_none() {
-            return Vec::new();
-        }
-        state
-            .active_turn_runtime_cells()
-            .into_iter()
-            .flat_map(|runtime_cells| runtime_cells.iter())
-            .filter(|entry| {
-                matches!(
-                    entry.cell.kind,
-                    TranscriptCellKind::Tool | TranscriptCellKind::Subagent
-                )
-            })
-            .map(|entry| entry.cell.clone())
-            .collect()
+        tail_lines(
+            build_scrollable_message_lines(timeline.active_cells(), width),
+            max_rows as usize,
+            scroll_from_bottom,
+        )
     }
 
     #[cfg(test)]
     fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
         let timeline = Timeline::from_state(state);
-        build_turn_viewport_lines(state, &timeline, width, max_rows, 0)
+        build_turn_viewport_lines(&timeline, width, max_rows, 0)
     }
 
     fn should_force_live_viewport_redraw(state: &AppState) -> bool {
@@ -10297,9 +10302,9 @@ mod shell {
             ));
 
             assert!(!lines.iter().any(|line| line.contains("Checking...")));
-            assert!(lines.iter().any(|line| line.contains("Tool · bash 'pwd'")));
+            assert!(!lines.iter().any(|line| line.contains("Tool · bash 'pwd'")));
             assert!(
-                lines
+                !lines
                     .iter()
                     .any(|line| line.contains("/Volumes/samsung/GitHub/restflow"))
             );
@@ -11186,7 +11191,7 @@ mod shell {
 
             assert!(rendered.iter().any(|line| line.contains("Agent")));
             assert!(
-                rendered
+                !rendered
                     .iter()
                     .any(|line| line == "Tool · web_search '离骚全文 屈原'")
             );
@@ -11258,7 +11263,7 @@ mod shell {
             ));
 
             assert!(
-                rendered
+                !rendered
                     .iter()
                     .any(|line| line.contains("Tool · bash 'printf"))
             );
@@ -11278,6 +11283,52 @@ mod shell {
                     .iter()
                     .any(|line| line.contains("Output:") && line.contains("\\nLONG_TOOL_2"))
             );
+        }
+
+        #[test]
+        fn completed_tool_tail_survives_runtime_projection_reconcile() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("run pwd".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "pwd"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                success: true,
+                result: "/tmp".to_string(),
+            });
+
+            let completed = state
+                .active_turn
+                .as_ref()
+                .expect("active turn")
+                .completed_cells
+                .iter()
+                .find(|cell| cell.tool_call_id() == Some("call-1"))
+                .expect("completed tool is stable active-turn state");
+            assert!(completed.body.contains("/tmp"));
+
+            state.runtime_cells.clear();
+            state.active_turn_runtime_start = Some(0);
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "done".to_string(),
+            });
+
+            let rendered = line_texts(&super::build_message_lines(&state, 100, 20));
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Tool · bash 'pwd'"))
+            );
+            assert!(stable.iter().any(|line| line.contains("Tool · bash 'pwd'")));
+            assert!(stable.iter().any(|line| line.contains("/tmp")));
+            assert!(rendered.iter().any(|line| line.contains("done")));
         }
 
         #[test]
@@ -11305,7 +11356,7 @@ mod shell {
                 100,
             ));
 
-            assert!(rendered.iter().any(|line| line.contains("Tool error")));
+            assert!(!rendered.iter().any(|line| line.contains("Tool error")));
             assert!(stable.iter().any(|line| line.contains("Tool error")));
             assert!(
                 !rendered
@@ -12023,6 +12074,7 @@ mod state {
 
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
     pub struct ActiveTurn {
+        pub completed_cells: Vec<TranscriptCell>,
         pub cells: Vec<TranscriptCell>,
         pub queued_updates: Vec<String>,
         active_assistant_index: Option<usize>,
@@ -12203,9 +12255,7 @@ mod state {
         }
 
         pub fn active_turn_has_tool_call(&self) -> bool {
-            self.active_turn
-                .as_ref()
-                .is_some_and(|turn| turn.cells.iter().any(|cell| cell.tool_call_id().is_some()))
+            !self.current_turn_tool_call_ids().is_empty()
         }
 
         pub fn is_startup_mode(&self) -> bool {
@@ -12389,12 +12439,17 @@ mod state {
             let Some(active_turn) = self.active_turn.as_ref() else {
                 return false;
             };
-            if active_turn.cells.len() <= 1 {
+            let active_cells = active_turn
+                .completed_cells
+                .iter()
+                .chain(active_turn.cells.iter())
+                .collect::<Vec<_>>();
+            if active_cells.is_empty() {
                 return false;
             }
             let persisted_cells =
                 transcript_cells(&messages_from_session(session), self.assistant_name());
-            active_turn.cells.iter().all(|active| {
+            active_cells.iter().all(|active| {
                 persisted_cells
                     .iter()
                     .any(|persisted| active_cell_projected_by(active, persisted))
@@ -12466,12 +12521,45 @@ mod state {
             if let Some(active_turn) = self.active_turn.as_ref() {
                 ids.extend(
                     active_turn
-                        .cells
+                        .completed_cells
                         .iter()
+                        .chain(active_turn.cells.iter())
                         .filter_map(|cell| cell.tool_call_id()),
                 );
             }
             ids
+        }
+
+        fn push_active_turn_completed_cell(&mut self, cell: TranscriptCell) {
+            let active_turn = self.ensure_active_turn();
+            if active_turn
+                .completed_cells
+                .iter()
+                .any(|existing| is_persisted_duplicate_cell(existing, &cell))
+            {
+                return;
+            }
+            active_turn.completed_cells.push(cell);
+        }
+
+        fn active_turn_completed_tool_cell(&self, call_id: &str) -> Option<&TranscriptCell> {
+            self.active_turn
+                .as_ref()?
+                .completed_cells
+                .iter()
+                .find(|cell| cell.tool_call_id() == Some(call_id))
+        }
+
+        fn active_turn_all_cells(&self) -> impl Iterator<Item = &TranscriptCell> {
+            self.active_turn
+                .as_ref()
+                .into_iter()
+                .flat_map(|active_turn| {
+                    active_turn
+                        .completed_cells
+                        .iter()
+                        .chain(active_turn.cells.iter())
+                })
         }
 
         pub fn clear_current_session(&mut self, notice: impl Into<String>) {
@@ -12914,11 +13002,9 @@ mod state {
         }
 
         fn current_turn_has_response_content(&self) -> bool {
-            self.active_turn.as_ref().is_some_and(|turn| {
-                turn.cells.iter().any(|cell| {
-                    !matches!(cell.kind, TranscriptCellKind::User)
-                        && (!cell.body.trim().is_empty() || cell.tool_call_id().is_some())
-                })
+            self.active_turn_all_cells().any(|cell| {
+                !matches!(cell.kind, TranscriptCellKind::User)
+                    && (!cell.body.trim().is_empty() || cell.tool_call_id().is_some())
             }) || self
                 .active_turn_runtime_cells()
                 .is_some_and(runtime_response_after_last_user)
@@ -13155,18 +13241,37 @@ mod state {
             if !self.active_tool_result_ids.insert(call_id.to_string()) {
                 return;
             }
-            if let Some(cell) = self.active_turn.as_mut().and_then(|active_turn| {
-                active_turn
+            let completed_cell = self.active_turn.as_mut().and_then(|active_turn| {
+                let position = active_turn
                     .cells
-                    .iter_mut()
-                    .find(|cell| cell.tool_call_id() == Some(call_id))
-            }) {
+                    .iter()
+                    .position(|cell| cell.tool_call_id() == Some(call_id))?;
+                if active_turn
+                    .active_assistant_index
+                    .is_some_and(|index| index > position)
+                {
+                    active_turn.active_assistant_index =
+                        active_turn.active_assistant_index.map(|index| index - 1);
+                }
+                let mut cell = active_turn.cells.remove(position);
                 let _ = cell.merge_tool_result(success, result);
-                let runtime_cell = cell.clone();
+                Some(cell)
+            });
+            if let Some(cell) = completed_cell {
                 let body = cell.body.clone();
                 self.activity.record_tool_result(call_id, success, &body);
                 self.active_tool_progress_started_at_ms.remove(call_id);
-                self.push_current_turn_runtime_cell(runtime_cell);
+                self.push_active_turn_completed_cell(cell.clone());
+                self.push_current_turn_runtime_cell(cell);
+                self.reset_active_progress_if_no_live_cells();
+                return;
+            }
+            if let Some(body) = self
+                .active_turn_completed_tool_cell(call_id)
+                .map(|cell| cell.body.clone())
+            {
+                self.activity.record_tool_result(call_id, success, &body);
+                self.active_tool_progress_started_at_ms.remove(call_id);
                 self.reset_active_progress_if_no_live_cells();
                 return;
             }
@@ -13176,9 +13281,11 @@ mod state {
                 .find(|entry| entry.cell.tool_call_id() == Some(call_id))
             {
                 let _ = entry.cell.merge_tool_result(success, result);
-                self.activity
-                    .record_tool_result(call_id, success, &entry.cell.body);
+                let completed_cell = entry.cell.clone();
+                let body = completed_cell.body.clone();
+                self.activity.record_tool_result(call_id, success, &body);
                 self.active_tool_progress_started_at_ms.remove(call_id);
+                self.push_active_turn_completed_cell(completed_cell);
                 self.reset_active_progress_if_no_live_cells();
                 return;
             }
@@ -13194,6 +13301,7 @@ mod state {
             let _ = cell.finalize();
             self.activity
                 .record_tool_result(call_id, success, &cell.body);
+            self.push_active_turn_completed_cell(cell.clone());
             self.push_current_turn_runtime_cell(cell);
         }
 
@@ -13341,7 +13449,11 @@ mod state {
                 .or_else(|| self.current_session_id().map(ToOwned::to_owned));
             let base_cell_index = self.conversation_cells.len();
             let mut pushed_any = false;
-            for mut cell in active_turn.cells.drain(..) {
+            for mut cell in active_turn
+                .completed_cells
+                .drain(..)
+                .chain(active_turn.cells.drain(..))
+            {
                 if cell.is_active {
                     let _ = cell.finalize();
                 }
@@ -13793,14 +13905,18 @@ mod state {
             assert!(state.runtime_cells[1].cell.body.contains("Input:"));
             assert!(state.runtime_cells[1].cell.body.contains("Output:"));
             let active_turn = state.active_turn.as_ref().expect("active turn");
-            assert_eq!(active_turn.cells.len(), 3);
+            assert_eq!(active_turn.completed_cells.len(), 1);
+            assert_eq!(
+                active_turn.completed_cells[0].kind,
+                TranscriptCellKind::Tool
+            );
+            assert!(active_turn.completed_cells[0].body.contains("Output:"));
+            assert!(!active_turn.completed_cells[0].is_active);
+            assert_eq!(active_turn.cells.len(), 2);
             assert_eq!(active_turn.cells[0].kind, TranscriptCellKind::Assistant);
             assert!(active_turn.cells[0].body.contains("Checking..."));
-            assert_eq!(active_turn.cells[1].kind, TranscriptCellKind::Tool);
-            assert!(active_turn.cells[1].body.contains("Output:"));
-            assert!(!active_turn.cells[1].is_active);
-            assert_eq!(active_turn.cells[2].kind, TranscriptCellKind::Assistant);
-            assert!(active_turn.cells[2].body.contains("Done."));
+            assert_eq!(active_turn.cells[1].kind, TranscriptCellKind::Assistant);
+            assert!(active_turn.cells[1].body.contains("Done."));
 
             let cells = state.transcript_cells_for_render();
             let kinds = cells.iter().map(|cell| cell.kind).collect::<Vec<_>>();
