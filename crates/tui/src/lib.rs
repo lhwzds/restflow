@@ -6118,8 +6118,11 @@ mod render {
 }
 
 mod scrollback {
+    use std::fmt;
     use std::io::{ErrorKind, Result as IoResult, Write};
+    use std::ops::Range;
 
+    use crossterm::Command;
     use crossterm::cursor::{MoveTo, MoveToColumn};
     use crossterm::queue;
     use crossterm::style::{
@@ -6135,13 +6138,17 @@ mod scrollback {
 
     #[derive(Default)]
     pub struct ScrollbackWriter {
+        // Cells that have actually been inserted into native terminal scrollback.
         committed_cells: Vec<TranscriptCell>,
+        // Cells rendered to pending_lines but not yet inserted.
+        pending_cells: Vec<TranscriptCell>,
         pending_lines: Vec<Line<'static>>,
     }
 
     impl ScrollbackWriter {
         pub fn reset(&mut self) {
             self.committed_cells.clear();
+            self.pending_cells.clear();
             self.pending_lines.clear();
         }
 
@@ -6162,14 +6169,14 @@ mod scrollback {
                 self.pending_lines.clear();
             }
 
-            let new_cells = &cells[self.committed_cells.len()..];
-            let lines = render_lines(new_cells, width);
-            self.pending_lines = lines;
-            self.committed_cells = cells.to_vec();
+            let pending_start = self.committed_cells.len().min(cells.len());
+            self.pending_cells = cells[pending_start..].to_vec();
+            self.pending_lines = render_lines(&self.pending_cells, width);
         }
 
         pub fn replace_committed_without_append(&mut self, cells: &[TranscriptCell]) {
             self.pending_lines.clear();
+            self.pending_cells.clear();
             self.committed_cells = cells.to_vec();
         }
 
@@ -6182,13 +6189,21 @@ mod scrollback {
             writer: &mut impl Write,
             terminal_height: u16,
             width: u16,
+            protected_top: u16,
         ) -> IoResult<bool> {
             if self.pending_lines.is_empty() || terminal_height == 0 {
                 return Ok(false);
             }
+            let protected_top = protected_top.min(terminal_height);
+            if protected_top < 2 {
+                return Ok(false);
+            }
             let lines = std::mem::take(&mut self.pending_lines);
-            match insert_history_lines(writer, terminal_height, width, &lines) {
-                Ok(()) => Ok(true),
+            match insert_history_lines(writer, protected_top, width, &lines) {
+                Ok(()) => {
+                    self.committed_cells.append(&mut self.pending_cells);
+                    Ok(true)
+                }
                 Err(error) if error.kind() == ErrorKind::Unsupported => {
                     self.reset();
                     Ok(false)
@@ -6200,28 +6215,72 @@ mod scrollback {
 
     pub fn insert_history_lines(
         writer: &mut impl Write,
-        terminal_height: u16,
+        protected_top: u16,
         width: u16,
         lines: &[Line<'static>],
     ) -> IoResult<()> {
-        if lines.is_empty() || terminal_height == 0 {
+        if lines.is_empty() || protected_top < 2 {
             return Ok(());
         }
 
-        let bottom_row = terminal_height.saturating_sub(1);
+        let bottom_row = protected_top.saturating_sub(1);
+        queue!(
+            writer,
+            SetScrollRegion(1..protected_top),
+            MoveTo(0, bottom_row)
+        )?;
         for line in lines {
             queue!(
                 writer,
-                MoveTo(0, bottom_row),
+                Print("\r\n"),
+                MoveToColumn(0),
                 SetForegroundColor(CrosstermColor::Reset),
                 SetBackgroundColor(CrosstermColor::Reset),
                 SetAttribute(Attribute::Reset),
                 Clear(ClearType::CurrentLine),
             )?;
             write_styled_line(writer, &truncate_line_to_width(line, width))?;
-            queue!(writer, Print("\r\n"), MoveToColumn(0))?;
         }
+        queue!(writer, ResetScrollRegion)?;
         Ok(())
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct SetScrollRegion(Range<u16>);
+
+    impl Command for SetScrollRegion {
+        fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+            write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
+        }
+
+        #[cfg(windows)]
+        fn execute_winapi(&self) -> std::io::Result<()> {
+            panic!("SetScrollRegion requires ANSI support")
+        }
+
+        #[cfg(windows)]
+        fn is_ansi_code_supported(&self) -> bool {
+            true
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct ResetScrollRegion;
+
+    impl Command for ResetScrollRegion {
+        fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+            write!(f, "\x1b[r")
+        }
+
+        #[cfg(windows)]
+        fn execute_winapi(&self) -> std::io::Result<()> {
+            panic!("ResetScrollRegion requires ANSI support")
+        }
+
+        #[cfg(windows)]
+        fn is_ansi_code_supported(&self) -> bool {
+            true
+        }
     }
 
     fn is_cell_prefix(previous: &[TranscriptCell], current: &[TranscriptCell]) -> bool {
@@ -6362,6 +6421,12 @@ mod scrollback {
                     .collect()
             });
             assert_eq!(scrollback.pending_lines.len(), 1);
+            let mut output = Vec::new();
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 5, 80, 5)
+                    .expect("pending line should insert")
+            );
 
             scrollback.sync_history(&cells, 80, |new_cells, _| {
                 new_cells
@@ -6446,6 +6511,12 @@ mod scrollback {
                 .join("\n");
             assert_eq!(rendered.matches("Tool · bash").count(), 1);
             assert!(rendered.contains("line 1"));
+            let mut output = Vec::new();
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 10, 80, 10)
+                    .expect("completed tool should insert")
+            );
 
             scrollback.sync_history(&cells, 80, |new_cells, _| {
                 new_cells
@@ -6474,10 +6545,18 @@ mod scrollback {
                 .expect("history insertion should render");
             let ansi = String::from_utf8(output).expect("history insertion should be utf8");
 
-            assert!(!ansi.contains("\u{1b}[1;5r"));
-            assert!(!ansi.contains("\u{1b}[r"));
+            assert!(ansi.contains("\u{1b}[1;5r"));
+            assert!(ansi.contains("\u{1b}[r"));
             assert!(ansi.contains("history line"));
             assert!(ansi.contains("\r\n"));
+        }
+
+        #[test]
+        fn insert_history_requires_multi_line_protected_region() {
+            let mut output = Vec::new();
+            insert_history_lines(&mut output, 1, 40, &[Line::from("history line")])
+                .expect("single-row protected region should be ignored");
+            assert!(output.is_empty());
         }
 
         #[test]
@@ -6486,7 +6565,7 @@ mod scrollback {
             let mut output = Vec::new();
 
             let inserted = scrollback
-                .insert_pending(&mut output, 5, 40)
+                .insert_pending(&mut output, 5, 40, 5)
                 .expect("empty insert should be valid");
             assert!(!inserted);
             assert!(output.is_empty());
@@ -6498,12 +6577,49 @@ mod scrollback {
                     .collect()
             });
             let inserted = scrollback
-                .insert_pending(&mut output, 5, 40)
+                .insert_pending(&mut output, 5, 40, 5)
                 .expect("pending insert should be valid");
 
             assert!(inserted);
             assert!(scrollback.pending_lines.is_empty());
             assert!(String::from_utf8(output).unwrap().contains("one"));
+        }
+
+        #[test]
+        fn insert_pending_waits_when_no_protected_scrollback_region_exists() {
+            let mut scrollback = ScrollbackWriter::default();
+            scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(cell.body.clone()))
+                    .collect()
+            });
+            let mut output = Vec::new();
+
+            let inserted = scrollback
+                .insert_pending(&mut output, 5, 40, 0)
+                .expect("zero protected top should be valid");
+
+            assert!(!inserted);
+            assert!(output.is_empty());
+            assert!(scrollback.has_pending());
+
+            scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(cell.body.clone()))
+                    .collect()
+            });
+            assert!(
+                scrollback.has_pending(),
+                "uninserted history must survive a later sync"
+            );
+
+            let inserted = scrollback
+                .insert_pending(&mut output, 5, 40, 2)
+                .expect("pending history should insert once a protected region exists");
+            assert!(inserted);
+            assert!(!scrollback.has_pending());
         }
 
         #[test]
@@ -6529,7 +6645,7 @@ mod scrollback {
             });
 
             let inserted = scrollback
-                .insert_pending(&mut UnsupportedWriter, 5, 40)
+                .insert_pending(&mut UnsupportedWriter, 5, 40, 5)
                 .expect("unsupported terminal should fall back to full redraw");
 
             assert!(!inserted);
@@ -6549,7 +6665,9 @@ mod timeline {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Timeline {
+        // Completed cells owned by native scrollback.
         committed_cells: Vec<TranscriptCell>,
+        // Mutable cells owned by the current live viewport.
         active_cells: Vec<TranscriptCell>,
     }
 
@@ -7025,6 +7143,7 @@ mod shell {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct PromptSnapshot {
+        // Composer/input rows. These are never appended to ScrollbackWriter.
         lines: Vec<Line<'static>>,
         cursor_column: u16,
         cursor_row: u16,
@@ -7068,16 +7187,8 @@ mod shell {
             let terminal_viewport = TerminalViewport::build(state, &timeline, size);
             let viewport = terminal_viewport.snapshot;
             let stable_cells = timeline.committed_cells();
-            let mut force_full_redraw = false;
-            let mut append_stable_history = true;
-            if !self.scrollback.is_prefix_of(stable_cells) {
-                self.scrollback
-                    .replace_committed_without_append(stable_cells);
-                self.last_viewport = None;
-                queue_clear_visible(&mut self.stdout)?;
-                force_full_redraw = true;
-                append_stable_history = false;
-            }
+            let append_stable_history = self.reconcile_scrollback_prefix(stable_cells)?;
+            let force_full_redraw = !append_stable_history;
 
             if append_stable_history {
                 self.scrollback
@@ -7092,36 +7203,39 @@ mod shell {
                     .map(|previous| previous.top.min(viewport.top))
                     .unwrap_or(viewport.top);
                 self.clear_rows_from(clear_from, size.1, size.0)?;
+                let mut inserted_history = false;
                 if append_stable_history && self.scrollback.has_pending() {
-                    self.clear_rows_from(viewport.top, size.1, size.0)?;
-                    let _ = self
-                        .scrollback
-                        .insert_pending(&mut self.stdout, size.1, size.0)?;
+                    inserted_history = self.insert_pending_history(&viewport, size)?;
+                    if inserted_history {
+                        let protected_top = self.protected_scrollback_top(&viewport);
+                        self.clear_rows_from(protected_top, size.1, size.0)?;
+                    }
                 }
-                self.redraw_history_tail(history_redraw_top(&viewport), size.0, stable_cells)?;
+                if !inserted_history {
+                    self.redraw_history_tail(history_redraw_top(&viewport), size.0, stable_cells)?;
+                }
                 self.redraw_viewport_full(&viewport, size.0)?;
             } else {
                 let protected_top = self.protected_scrollback_top(&viewport);
-                let has_pending_history = self.scrollback.has_pending();
-                if has_pending_history {
+                let inserted_history = self.insert_pending_history(&viewport, size)?;
+                if inserted_history {
                     self.clear_rows_from(protected_top, size.1, size.0)?;
-                }
-                let _inserted = self
-                    .scrollback
-                    .insert_pending(&mut self.stdout, size.1, size.0)?;
-                self.redraw_history_tail(protected_top, size.0, stable_cells)?;
-                if should_force_live_viewport_redraw(state) {
                     self.redraw_viewport_full(&viewport, size.0)?;
                 } else {
-                    match self.last_viewport.clone() {
-                        Some(previous) if previous == viewport => {
-                            self.restore_cursor(&viewport)?;
-                        }
-                        Some(previous) => {
-                            self.redraw_viewport_diff(&previous, &viewport, size.0)?;
-                        }
-                        None => {
-                            self.redraw_viewport_full(&viewport, size.0)?;
+                    self.redraw_history_tail(protected_top, size.0, stable_cells)?;
+                    if should_force_live_viewport_redraw(state) {
+                        self.redraw_viewport_full(&viewport, size.0)?;
+                    } else {
+                        match self.last_viewport.clone() {
+                            Some(previous) if previous == viewport => {
+                                self.restore_cursor(&viewport)?;
+                            }
+                            Some(previous) => {
+                                self.redraw_viewport_diff(&previous, &viewport, size.0)?;
+                            }
+                            None => {
+                                self.redraw_viewport_full(&viewport, size.0)?;
+                            }
                         }
                     }
                 }
@@ -7130,6 +7244,30 @@ mod shell {
             self.last_viewport = Some(viewport);
             self.last_terminal_size = Some(terminal_viewport.size);
             self.stdout.flush()
+        }
+
+        fn reconcile_scrollback_prefix(
+            &mut self,
+            stable_cells: &[TranscriptCell],
+        ) -> IoResult<bool> {
+            if self.scrollback.is_prefix_of(stable_cells) {
+                return Ok(true);
+            }
+            self.scrollback
+                .replace_committed_without_append(stable_cells);
+            self.last_viewport = None;
+            queue_clear_visible(&mut self.stdout)?;
+            Ok(false)
+        }
+
+        fn insert_pending_history(
+            &mut self,
+            viewport: &ViewportSnapshot,
+            size: (u16, u16),
+        ) -> IoResult<bool> {
+            let protected_top = self.protected_scrollback_top(viewport);
+            self.scrollback
+                .insert_pending(&mut self.stdout, size.1, size.0, protected_top)
         }
 
         pub fn sync_viewport_only(&mut self, state: &mut AppState) -> IoResult<()> {
@@ -7156,27 +7294,26 @@ mod shell {
             self.scrollback
                 .sync_history(stable_cells, size.0, render_history_append_lines);
             let protected_top = self.protected_scrollback_top(&viewport);
-            let has_pending_history = self.scrollback.has_pending();
-            if has_pending_history {
+            let inserted_history = self.insert_pending_history(&viewport, size)?;
+            if inserted_history {
                 self.clear_rows_from(protected_top, size.1, size.0)?;
-            }
-            let _inserted = self
-                .scrollback
-                .insert_pending(&mut self.stdout, size.1, size.0)?;
-            self.redraw_history_tail(protected_top, size.0, stable_cells)?;
-
-            if should_force_live_viewport_redraw(state) {
                 self.redraw_viewport_full(&viewport, size.0)?;
             } else {
-                match self.last_viewport.clone() {
-                    Some(previous) if previous == viewport => {
-                        self.restore_cursor(&viewport)?;
-                    }
-                    Some(previous) => {
-                        self.redraw_viewport_diff(&previous, &viewport, size.0)?;
-                    }
-                    None => {
-                        self.redraw_viewport_full(&viewport, size.0)?;
+                self.redraw_history_tail(protected_top, size.0, stable_cells)?;
+
+                if should_force_live_viewport_redraw(state) {
+                    self.redraw_viewport_full(&viewport, size.0)?;
+                } else {
+                    match self.last_viewport.clone() {
+                        Some(previous) if previous == viewport => {
+                            self.restore_cursor(&viewport)?;
+                        }
+                        Some(previous) => {
+                            self.redraw_viewport_diff(&previous, &viewport, size.0)?;
+                        }
+                        None => {
+                            self.redraw_viewport_full(&viewport, size.0)?;
+                        }
                     }
                 }
             }
@@ -7421,11 +7558,12 @@ mod shell {
             return Vec::new();
         }
 
-        tail_lines(
-            build_scrollable_message_lines(timeline.active_cells(), width),
-            max_rows as usize,
-            scroll_from_bottom,
-        )
+        let lines = build_scrollable_message_lines(timeline.active_cells(), width);
+        if scroll_from_bottom == 0 {
+            preserve_first_line_tail(lines, max_rows as usize)
+        } else {
+            tail_lines(lines, max_rows as usize, scroll_from_bottom)
+        }
     }
 
     #[cfg(test)]
@@ -9123,7 +9261,6 @@ mod shell {
         styled_line(truncate_to_width(placeholder, inner_width), muted_style())
     }
 
-    #[cfg(test)]
     fn preserve_first_line_tail(lines: Vec<Line<'static>>, max_rows: usize) -> Vec<Line<'static>> {
         if max_rows == 0 || lines.len() <= max_rows {
             return lines;
@@ -10150,6 +10287,38 @@ mod shell {
 
             assert!(live_row < overlay_row);
             assert!(overlay_row < composer_top);
+        }
+
+        #[test]
+        fn prompt_snapshot_stays_out_of_timeline_committed_history() {
+            let mut state = AppState::empty();
+            state.conversation_cells.push(TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Agent".to_string(),
+                subtitle: None,
+                body: "committed answer".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            });
+            state.composer.replace("DRAFT_ONLY_IN_PROMPT");
+
+            let stable = line_texts(&render_history_append_lines(
+                &build_stable_history_cells(&state),
+                80,
+            ));
+            let viewport = line_texts(&build_viewport_snapshot(&state, (80, 12)).lines);
+
+            assert!(stable.iter().any(|line| line.contains("committed answer")));
+            assert!(
+                !stable
+                    .iter()
+                    .any(|line| line.contains("DRAFT_ONLY_IN_PROMPT"))
+            );
+            assert!(
+                viewport
+                    .iter()
+                    .any(|line| line.contains("DRAFT_ONLY_IN_PROMPT"))
+            );
         }
 
         #[test]
@@ -11695,6 +11864,7 @@ mod shell {
             let rendered = line_texts(&super::build_message_lines(&state, 80, 8));
 
             assert!(!rendered.iter().any(|line| line == "  ..."));
+            assert!(rendered.iter().any(|line| line.contains("Agent")));
             assert!(rendered.iter().any(|line| line.contains("line 30")));
 
             let timeline = Timeline::from_state(&state);
