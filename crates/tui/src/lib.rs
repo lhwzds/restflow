@@ -6625,13 +6625,7 @@ mod timeline {
         let mut cells = Vec::new();
         if let Some(active_turn) = active_turn {
             for active_cell in &active_turn.cells {
-                if active_cell.is_active
-                    || !matches!(
-                        active_cell.kind,
-                        TranscriptCellKind::Assistant | TranscriptCellKind::User
-                    )
-                    || !active_cell.body.trim().is_empty()
-                {
+                if is_live_active_cell(active_cell) {
                     cells.push(active_cell.clone());
                 }
             }
@@ -6641,6 +6635,10 @@ mod timeline {
         }
         cells.extend(subagent_activity_cells);
         cells
+    }
+
+    fn is_live_active_cell(cell: &TranscriptCell) -> bool {
+        cell.is_active
     }
 
     fn push_runtime_cell_if_visible(
@@ -6799,7 +6797,7 @@ mod timeline {
         }
 
         #[test]
-        fn completed_tool_reaches_scrollback_and_stays_active_until_turn_finishes() {
+        fn completed_tool_reaches_scrollback_and_live_assistant_stays_active() {
             let mut state = AppState::empty();
             state.begin_stream("turn-1".to_string());
             state.push_local_user_message("inspect workspace".to_string());
@@ -6840,13 +6838,15 @@ mod timeline {
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
             assert!(
-                completed
+                !completed
                     .active_cells()
                     .iter()
                     .any(|cell| cell.tool_call_id() == Some("call-1"))
             );
             assert!(completed.active_cells().iter().any(|cell| {
-                cell.kind == TranscriptCellKind::Assistant && cell.body.contains("Done.")
+                cell.kind == TranscriptCellKind::Assistant
+                    && cell.is_active
+                    && cell.body.contains("Done.")
             }));
 
             state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
@@ -7190,7 +7190,7 @@ mod shell {
             let spacer_height = u16::from(available_above_prompt > 0);
             let message_height = available_above_prompt.saturating_sub(spacer_height);
             let mut visible_message_lines =
-                build_visible_message_lines(timeline.active_cells(), width, message_height, 0);
+                build_turn_viewport_lines(state, timeline, width, message_height, 0);
             if spacer_height > 0 && !visible_message_lines.is_empty() {
                 visible_message_lines.push(Line::from(""));
             }
@@ -7295,6 +7295,7 @@ mod shell {
         build_active_message_lines(active_cells, width)
     }
 
+    #[cfg(test)]
     fn build_visible_message_lines(
         active_cells: &[TranscriptCell],
         width: u16,
@@ -7313,10 +7314,48 @@ mod shell {
         )
     }
 
+    fn build_turn_viewport_lines(
+        state: &AppState,
+        timeline: &Timeline,
+        width: u16,
+        max_rows: u16,
+        scroll_from_bottom: usize,
+    ) -> Vec<Line<'static>> {
+        if max_rows == 0 {
+            return Vec::new();
+        }
+
+        let mut lines = build_cell_lines(&current_turn_context_cells(state), width);
+        let active_lines = build_scrollable_message_lines(timeline.active_cells(), width);
+        if !lines.is_empty() && !active_lines.is_empty() {
+            lines.push(Line::from(""));
+        }
+        lines.extend(active_lines);
+        tail_lines(lines, max_rows as usize, scroll_from_bottom)
+    }
+
+    fn current_turn_context_cells(state: &AppState) -> Vec<TranscriptCell> {
+        if state.active_turn.is_none() && state.active_turn_runtime_start.is_none() {
+            return Vec::new();
+        }
+        state
+            .active_turn_runtime_cells()
+            .into_iter()
+            .flat_map(|runtime_cells| runtime_cells.iter())
+            .filter(|entry| {
+                matches!(
+                    entry.cell.kind,
+                    TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+                )
+            })
+            .map(|entry| entry.cell.clone())
+            .collect()
+    }
+
     #[cfg(test)]
     fn build_message_lines(state: &AppState, width: u16, max_rows: u16) -> Vec<Line<'static>> {
         let timeline = Timeline::from_state(state);
-        build_visible_message_lines(timeline.active_cells(), width, max_rows, 0)
+        build_turn_viewport_lines(state, &timeline, width, max_rows, 0)
     }
 
     fn should_force_live_viewport_redraw(state: &AppState) -> bool {
@@ -10231,7 +10270,7 @@ mod shell {
         }
 
         #[test]
-        fn completed_tool_remains_visible_while_assistant_continues() {
+        fn completed_tool_moves_to_history_while_assistant_continues() {
             let mut state = AppState::empty();
             state.push_local_user_message("check workspace".to_string());
             state.apply_stream_frame(StreamFrame::Ack {
@@ -10257,7 +10296,7 @@ mod shell {
                 100,
             ));
 
-            assert!(lines.iter().any(|line| line.contains("Checking...")));
+            assert!(!lines.iter().any(|line| line.contains("Checking...")));
             assert!(lines.iter().any(|line| line.contains("Tool · bash 'pwd'")));
             assert!(
                 lines
@@ -10267,6 +10306,11 @@ mod shell {
             assert!(lines.iter().any(|line| line.contains("Done.")));
             assert!(stable.iter().any(|line| line.contains("Checking...")));
             assert!(stable.iter().any(|line| line.contains("Tool · bash 'pwd'")));
+            assert!(
+                stable
+                    .iter()
+                    .any(|line| line.contains("/Volumes/samsung/GitHub/restflow"))
+            );
         }
 
         #[test]
@@ -11208,20 +11252,29 @@ mod shell {
             });
 
             let rendered = line_texts(&super::build_message_lines(&state, 100, 20));
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
 
             assert!(
                 rendered
                     .iter()
                     .any(|line| line.contains("Tool · bash 'printf"))
             );
-            assert!(!rendered.iter().any(|line| line.contains("Input:")));
-            assert!(rendered.iter().any(|line| line.contains("exit 0")));
-            assert!(!rendered.iter().any(|line| line.contains("Output: exit 0")));
-            assert!(rendered.iter().any(|line| line.trim() == "stdout:"));
-            assert!(rendered.iter().any(|line| line.trim() == "LONG_TOOL_1"));
-            assert!(rendered.iter().any(|line| line.trim() == "LONG_TOOL_2"));
             assert!(
-                !rendered
+                stable
+                    .iter()
+                    .any(|line| line.contains("Tool · bash 'printf"))
+            );
+            assert!(!stable.iter().any(|line| line.contains("Input:")));
+            assert!(stable.iter().any(|line| line.contains("exit 0")));
+            assert!(!stable.iter().any(|line| line.contains("Output: exit 0")));
+            assert!(stable.iter().any(|line| line.trim() == "stdout:"));
+            assert!(stable.iter().any(|line| line.trim() == "LONG_TOOL_1"));
+            assert!(stable.iter().any(|line| line.trim() == "LONG_TOOL_2"));
+            assert!(
+                !stable
                     .iter()
                     .any(|line| line.contains("Output:") && line.contains("\\nLONG_TOOL_2"))
             );
@@ -11247,13 +11300,19 @@ mod shell {
             });
 
             let rendered = line_texts(&super::build_message_lines(&state, 100, 20));
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                100,
+            ));
 
             assert!(rendered.iter().any(|line| line.contains("Tool error")));
+            assert!(stable.iter().any(|line| line.contains("Tool error")));
             assert!(
                 !rendered
                     .iter()
                     .any(|line| line.contains("Subagents updated"))
             );
+            assert!(!stable.iter().any(|line| line.contains("Subagents updated")));
         }
 
         #[test]
@@ -13748,8 +13807,6 @@ mod state {
             assert_eq!(
                 kinds,
                 vec![
-                    TranscriptCellKind::Assistant,
-                    TranscriptCellKind::Tool,
                     TranscriptCellKind::Assistant,
                     TranscriptCellKind::Tool,
                     TranscriptCellKind::Assistant,
