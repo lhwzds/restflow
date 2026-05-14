@@ -6198,9 +6198,10 @@ mod scrollback {
             if protected_top < 2 {
                 return Ok(false);
             }
-            let lines = std::mem::take(&mut self.pending_lines);
+            let lines = self.pending_lines.clone();
             match insert_history_lines(writer, protected_top, width, &lines) {
                 Ok(()) => {
+                    self.pending_lines.clear();
                     self.committed_cells.append(&mut self.pending_cells);
                     Ok(true)
                 }
@@ -6229,8 +6230,9 @@ mod scrollback {
             SetScrollRegion(1..protected_top),
             MoveTo(0, bottom_row)
         )?;
+        let mut error = None;
         for line in lines {
-            queue!(
+            if let Err(err) = queue!(
                 writer,
                 Print("\r\n"),
                 MoveToColumn(0),
@@ -6238,10 +6240,21 @@ mod scrollback {
                 SetBackgroundColor(CrosstermColor::Reset),
                 SetAttribute(Attribute::Reset),
                 Clear(ClearType::CurrentLine),
-            )?;
-            write_styled_line(writer, &truncate_line_to_width(line, width))?;
+            ) {
+                error = Some(err);
+                break;
+            }
+            if let Err(err) = write_styled_line(writer, &truncate_line_to_width(line, width)) {
+                error = Some(err);
+                break;
+            }
         }
-        queue!(writer, ResetScrollRegion)?;
+        let reset_result = queue!(writer, ResetScrollRegion);
+        if let Some(err) = error {
+            let _ = reset_result;
+            return Err(err);
+        }
+        reset_result?;
         Ok(())
     }
 
@@ -6651,6 +6664,77 @@ mod scrollback {
             assert!(!inserted);
             assert!(scrollback.pending_lines.is_empty());
             assert!(scrollback.committed_cells.is_empty());
+        }
+
+        #[test]
+        fn insert_pending_retains_history_after_transient_write_error() {
+            struct FailingWriter;
+
+            impl Write for FailingWriter {
+                fn write(&mut self, _buf: &[u8]) -> IoResult<usize> {
+                    Err(Error::other("transient write failure"))
+                }
+
+                fn flush(&mut self) -> IoResult<()> {
+                    Ok(())
+                }
+            }
+
+            let mut scrollback = ScrollbackWriter::default();
+            scrollback.sync_history(&[user_cell("one")], 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(cell.body.clone()))
+                    .collect()
+            });
+
+            let err = scrollback
+                .insert_pending(&mut FailingWriter, 5, 40, 5)
+                .expect_err("transient terminal error should bubble");
+
+            assert_eq!(err.kind(), ErrorKind::Other);
+            assert!(scrollback.has_pending());
+            assert!(scrollback.committed_cells.is_empty());
+        }
+
+        #[test]
+        fn insert_history_resets_scroll_region_after_mid_write_error() {
+            struct FailOnceOnLine {
+                output: Vec<u8>,
+                failed: bool,
+            }
+
+            impl Write for FailOnceOnLine {
+                fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+                    if !self.failed
+                        && buf
+                            .windows("broken line".len())
+                            .any(|w| w == b"broken line")
+                    {
+                        self.failed = true;
+                        return Err(Error::other("line write failed"));
+                    }
+                    self.output.extend_from_slice(buf);
+                    Ok(buf.len())
+                }
+
+                fn flush(&mut self) -> IoResult<()> {
+                    Ok(())
+                }
+            }
+
+            let mut writer = FailOnceOnLine {
+                output: Vec::new(),
+                failed: false,
+            };
+
+            let err = insert_history_lines(&mut writer, 5, 40, &[Line::from("broken line")])
+                .expect_err("line write should fail");
+            let ansi = String::from_utf8(writer.output).expect("output should be utf8");
+
+            assert_eq!(err.kind(), ErrorKind::Other);
+            assert!(ansi.contains("\u{1b}[1;5r"));
+            assert!(ansi.contains("\u{1b}[r"));
         }
     }
 }
@@ -9611,6 +9695,7 @@ mod shell {
         use ratatui::text::Span;
 
         use crate::render::render_shell_bottom_viewport;
+        use crate::scrollback::ScrollbackWriter;
         use crate::slash_command::SLASH_COMMAND_SPECS;
         use crate::state::{
             AnchoredRuntimeCell, AppState, ModelPickerCategory, ModelPickerItem,
@@ -10319,6 +10404,48 @@ mod shell {
                     .iter()
                     .any(|line| line.contains("DRAFT_ONLY_IN_PROMPT"))
             );
+        }
+
+        #[test]
+        fn native_history_append_never_writes_prompt_snapshot() {
+            let mut state = AppState::empty();
+            state.conversation_cells.push(TranscriptCell {
+                kind: TranscriptCellKind::User,
+                title: "You".to_string(),
+                subtitle: None,
+                body: "completed user message".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            });
+            state.conversation_cells.push(TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Agent".to_string(),
+                subtitle: None,
+                body: "completed assistant message".to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            });
+            state.composer.replace("DRAFT_ONLY_IN_PROMPT");
+
+            let timeline = Timeline::from_state(&state);
+            let viewport = build_viewport_snapshot(&state, (80, 18));
+            let mut scrollback = ScrollbackWriter::default();
+            scrollback.sync_history(timeline.committed_cells(), 80, render_history_append_lines);
+            let mut output = Vec::new();
+
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 18, 80, viewport.top.min(viewport.prompt_top))
+                    .expect("completed history should append")
+            );
+            let ansi = String::from_utf8(output).expect("history append should be utf8");
+
+            assert!(ansi.contains("completed user message"));
+            assert!(ansi.contains("completed assistant message"));
+            assert!(!ansi.contains("DRAFT_ONLY_IN_PROMPT"));
+            assert!(!ansi.contains("Type your message or use /help"));
+            assert!(!ansi.contains('┌'));
+            assert!(!ansi.contains('└'));
         }
 
         #[test]
