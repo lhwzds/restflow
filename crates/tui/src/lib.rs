@@ -908,7 +908,7 @@ mod controller {
                 ShellEffect::ListSkillsForMention => self.skill_mention_picker_actions().await,
                 ShellEffect::ListSessionsInline => self.session_picker_actions().await,
                 ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
-                ShellEffect::ClearScreen => Ok(Vec::new()),
+                ShellEffect::ClearScreen | ShellEffect::PurgeScreen => Ok(Vec::new()),
             }
         }
 
@@ -3110,6 +3110,10 @@ mod event_loop {
                     renderer.clear_screen()?;
                     continue;
                 }
+                if matches!(effect, ShellEffect::PurgeScreen) {
+                    renderer.purge_screen()?;
+                    continue;
+                }
 
                 if output.immediate_render {
                     renderer.sync(state)?;
@@ -3708,6 +3712,7 @@ mod reducer {
     #[derive(Debug, Clone)]
     pub enum ShellEffect {
         ClearScreen,
+        PurgeScreen,
         RefreshState,
         ReloadCurrentSession,
         ActivateOverlaySelection,
@@ -4056,7 +4061,7 @@ mod reducer {
             Action::Resize => output.effects.push(ShellEffect::ClearScreen),
             Action::Redraw => {
                 state.status = "Screen redrawn".to_string();
-                output.effects.push(ShellEffect::ClearScreen);
+                output.effects.push(ShellEffect::PurgeScreen);
             }
             Action::NavUp => {
                 if state.overlay.is_some() {
@@ -5816,6 +5821,19 @@ mod reducer {
         }
 
         #[test]
+        fn redraw_purges_scrollback_to_rebuild_from_clean_timeline() {
+            let mut state = AppState::empty();
+
+            let output = reduce(&mut state, ShellAction::Ui(Action::Redraw));
+
+            assert_eq!(state.status, "Screen redrawn");
+            assert!(matches!(
+                output.effects.as_slice(),
+                [ShellEffect::PurgeScreen]
+            ));
+        }
+
+        #[test]
         fn plain_text_when_daemon_offline_pushes_start_hint() {
             let mut state = AppState::empty();
             state.enter_startup(None, None);
@@ -6172,12 +6190,6 @@ mod scrollback {
             let pending_start = self.committed_cells.len().min(cells.len());
             self.pending_cells = cells[pending_start..].to_vec();
             self.pending_lines = render_lines(&self.pending_cells, width);
-        }
-
-        pub fn replace_committed_without_append(&mut self, cells: &[TranscriptCell]) {
-            self.pending_lines.clear();
-            self.pending_cells.clear();
-            self.committed_cells = cells.to_vec();
         }
 
         pub fn has_pending(&self) -> bool {
@@ -6538,17 +6550,6 @@ mod scrollback {
                     .collect()
             });
             assert!(scrollback.pending_lines.is_empty());
-        }
-
-        #[test]
-        fn replace_committed_without_append_marks_history_but_leaves_no_pending_lines() {
-            let mut scrollback = ScrollbackWriter::default();
-            let cells = vec![user_cell("loaded session")];
-
-            scrollback.replace_committed_without_append(&cells);
-
-            assert!(scrollback.pending_lines.is_empty());
-            assert!(scrollback.is_prefix_of(&cells));
         }
 
         #[test]
@@ -7186,6 +7187,7 @@ mod shell {
     const CONTINUATION_PREFIX: &str = "  ";
     const TOOL_SUMMARY_LIMIT: usize = 120;
     const TOOL_OUTPUT_PREVIEW_LINES: usize = 20;
+    const TOOL_ACTIVITY_BODY_PREVIEW_LINES: usize = 2;
     const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
     const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
     const OVERLAY_MAX_ROWS: u16 = 10;
@@ -7271,15 +7273,12 @@ mod shell {
             let terminal_viewport = TerminalViewport::build(state, &timeline, size);
             let viewport = terminal_viewport.snapshot;
             let stable_cells = timeline.committed_cells();
-            let append_stable_history = self.reconcile_scrollback_prefix(stable_cells)?;
-            let force_full_redraw = !append_stable_history;
+            self.reconcile_scrollback_prefix(stable_cells)?;
 
-            if append_stable_history {
-                self.scrollback
-                    .sync_history(stable_cells, size.0, render_history_append_lines);
-            }
+            self.scrollback
+                .sync_history(stable_cells, size.0, render_history_append_lines);
 
-            let needs_full_redraw = force_full_redraw || self.needs_full_redraw(size, &viewport);
+            let needs_full_redraw = self.needs_full_redraw(size, &viewport);
             if needs_full_redraw {
                 let clear_from = self
                     .last_viewport
@@ -7288,7 +7287,7 @@ mod shell {
                     .unwrap_or(viewport.top);
                 self.clear_rows_from(clear_from, size.1, size.0)?;
                 let mut inserted_history = false;
-                if append_stable_history && self.scrollback.has_pending() {
+                if self.scrollback.has_pending() {
                     inserted_history = self.insert_pending_history(&viewport, size)?;
                     if inserted_history {
                         let protected_top = self.protected_scrollback_top(&viewport);
@@ -7330,18 +7329,14 @@ mod shell {
             self.stdout.flush()
         }
 
-        fn reconcile_scrollback_prefix(
-            &mut self,
-            stable_cells: &[TranscriptCell],
-        ) -> IoResult<bool> {
+        fn reconcile_scrollback_prefix(&mut self, stable_cells: &[TranscriptCell]) -> IoResult<()> {
             if self.scrollback.is_prefix_of(stable_cells) {
-                return Ok(true);
+                return Ok(());
             }
-            self.scrollback
-                .replace_committed_without_append(stable_cells);
+            self.scrollback.reset();
             self.last_viewport = None;
-            queue_clear_visible(&mut self.stdout)?;
-            Ok(false)
+            queue_purge_visible_and_scrollback(&mut self.stdout)?;
+            Ok(())
         }
 
         fn insert_pending_history(
@@ -8560,14 +8555,7 @@ mod shell {
                         width,
                         cell_title_style(cell),
                     ));
-                    for line in cell_body_lines(cell) {
-                        lines.extend(wrap_prefixed_line(
-                            CONTINUATION_PREFIX,
-                            &line,
-                            width,
-                            cell_body_style(cell),
-                        ));
-                    }
+                    append_limited_activity_body_lines(&mut lines, cell, width);
                 }
                 TranscriptCellKind::Tool | TranscriptCellKind::Subagent => {
                     let title = format_title(cell);
@@ -8607,6 +8595,64 @@ mod shell {
             lines.pop();
         }
         lines
+    }
+
+    fn append_limited_activity_body_lines(
+        lines: &mut Vec<Line<'static>>,
+        cell: &TranscriptCell,
+        width: u16,
+    ) {
+        let style = cell_body_style(cell);
+        let mut rendered = Vec::new();
+        for line in activity_body_preview_source_lines(cell) {
+            rendered.extend(wrap_prefixed_line(CONTINUATION_PREFIX, &line, width, style));
+        }
+        if rendered.len() <= TOOL_ACTIVITY_BODY_PREVIEW_LINES {
+            lines.extend(rendered);
+            return;
+        }
+
+        let hidden = rendered.len() - TOOL_ACTIVITY_BODY_PREVIEW_LINES;
+        lines.extend(rendered.into_iter().take(TOOL_ACTIVITY_BODY_PREVIEW_LINES));
+        append_hidden_rendered_line_count(lines, hidden, style);
+    }
+
+    fn activity_body_preview_source_lines(cell: &TranscriptCell) -> Vec<String> {
+        let lines = cell_body_lines(cell);
+        if lines.len() <= TOOL_ACTIVITY_BODY_PREVIEW_LINES {
+            return lines;
+        }
+        let content_lines = lines
+            .iter()
+            .filter(|line| !is_tool_activity_display_metadata_line(line))
+            .cloned()
+            .collect::<Vec<_>>();
+        if content_lines.is_empty() {
+            lines
+        } else {
+            content_lines
+        }
+    }
+
+    fn is_tool_activity_display_metadata_line(line: &str) -> bool {
+        let trimmed = line.trim();
+        trimmed == "stdout:"
+            || trimmed == "stderr:"
+            || trimmed == "output:"
+            || trimmed.starts_with("exit ")
+            || trimmed.starts_with("Error: exit ")
+    }
+
+    fn append_hidden_rendered_line_count(
+        lines: &mut Vec<Line<'static>>,
+        hidden: usize,
+        style: Style,
+    ) {
+        let label = if hidden == 1 { "line" } else { "lines" };
+        lines.push(Line::from(vec![
+            Span::raw(CONTINUATION_PREFIX),
+            Span::styled(format!("... {hidden} more {label} hidden"), style),
+        ]));
     }
 
     #[cfg(test)]
@@ -10306,7 +10352,7 @@ mod shell {
             assert!(
                 rendered
                     .iter()
-                    .any(|line| line.contains("10 more output lines hidden"))
+                    .any(|line| line.contains("19 more lines hidden"))
             );
             assert!(rendered.iter().any(|line| line.contains("done")));
         }
@@ -11627,7 +11673,7 @@ mod shell {
             state.apply_stream_frame(StreamFrame::ToolCall {
                 id: "call-1".to_string(),
                 name: "bash".to_string(),
-                arguments: serde_json::json!({"command": "printf 'LONG_TOOL_1\\nLONG_TOOL_2\\n'"}),
+                arguments: serde_json::json!({"command": "printf sample output"}),
             });
             state.apply_stream_frame(StreamFrame::ToolResult {
                 id: "call-1".to_string(),
@@ -11659,11 +11705,12 @@ mod shell {
                     .any(|line| line.contains("Tool · bash 'printf"))
             );
             assert!(!stable.iter().any(|line| line.contains("Input:")));
-            assert!(stable.iter().any(|line| line.contains("exit 0")));
+            assert!(!stable.iter().any(|line| line.contains("exit 0")));
             assert!(!stable.iter().any(|line| line.contains("Output: exit 0")));
-            assert!(stable.iter().any(|line| line.trim() == "stdout:"));
-            assert!(stable.iter().any(|line| line.trim() == "LONG_TOOL_1"));
-            assert!(stable.iter().any(|line| line.trim() == "LONG_TOOL_2"));
+            assert!(!stable.iter().any(|line| line.contains("2 stdout lines")));
+            assert!(stable.iter().any(|line| line.contains("LONG_TOOL_1")));
+            assert!(stable.iter().any(|line| line.contains("LONG_TOOL_2")));
+            assert!(!stable.iter().any(|line| line.contains("more lines hidden")));
             assert!(
                 !stable
                     .iter()
@@ -11711,14 +11758,13 @@ mod shell {
                 &super::build_stable_history_cells(&state),
                 100,
             ));
-            assert!(stable.iter().any(|line| line.trim() == "STDOUT_LINE_1"));
-            assert!(stable.iter().any(|line| line.trim() == "STDOUT_LINE_20"));
-            assert!(!stable.iter().any(|line| line.contains("STDOUT_LINE_21")));
+            assert!(stable.iter().any(|line| line.contains("STDOUT_LINE_1")));
+            assert!(stable.iter().any(|line| line.contains("STDOUT_LINE_2")));
             assert!(!stable.iter().any(|line| line.contains("STDOUT_LINE_25")));
             assert!(
                 stable
                     .iter()
-                    .any(|line| line.contains("5 more stdout lines hidden"))
+                    .any(|line| line.contains("19 more lines hidden"))
             );
         }
 
@@ -11747,14 +11793,14 @@ mod shell {
             };
 
             let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
-            assert!(rendered.iter().any(|line| line.trim() == "STDERR_LINE_1"));
-            assert!(rendered.iter().any(|line| line.trim() == "STDERR_LINE_20"));
-            assert!(!rendered.iter().any(|line| line.contains("STDERR_LINE_21")));
+            assert!(rendered.iter().any(|line| line.contains("STDERR_LINE_1")));
+            assert!(rendered.iter().any(|line| line.contains("STDERR_LINE_2")));
             assert!(
                 rendered
                     .iter()
-                    .any(|line| line.contains("2 more stderr lines hidden"))
+                    .any(|line| line.contains("19 more lines hidden"))
             );
+            assert!(rendered.len() <= 4);
         }
 
         #[test]
@@ -11800,22 +11846,17 @@ mod shell {
             assert!(
                 stable
                     .iter()
-                    .any(|line| line.trim() == "FAIL_STDERR_LINE_1")
+                    .any(|line| line.contains("FAIL_STDERR_LINE_1"))
             );
             assert!(
                 stable
                     .iter()
-                    .any(|line| line.trim() == "FAIL_STDERR_LINE_20")
-            );
-            assert!(
-                !stable
-                    .iter()
-                    .any(|line| line.contains("FAIL_STDERR_LINE_21"))
+                    .any(|line| line.contains("FAIL_STDERR_LINE_2"))
             );
             assert!(
                 stable
                     .iter()
-                    .any(|line| line.contains("4 more stderr lines hidden"))
+                    .any(|line| line.contains("19 more lines hidden"))
             );
         }
 
@@ -11836,12 +11877,79 @@ mod shell {
 
             let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
             assert!(rendered.iter().any(|line| line.trim() == "PLAIN_LINE_1"));
-            assert!(rendered.iter().any(|line| line.trim() == "PLAIN_LINE_20"));
-            assert!(!rendered.iter().any(|line| line.contains("PLAIN_LINE_21")));
+            assert!(rendered.iter().any(|line| line.contains("PLAIN_LINE_2")));
+            assert!(!rendered.iter().any(|line| line.contains("PLAIN_LINE_3")));
             assert!(
                 rendered
                     .iter()
-                    .any(|line| line.contains("3 more output lines hidden"))
+                    .any(|line| line.contains("19 more lines hidden"))
+            );
+        }
+
+        #[test]
+        fn tool_activity_renderer_limits_captured_composer_text() {
+            let output = [
+                "┌────────────────────────────────────────────────────────────────┐",
+                "│Type your message or use /help                                  │",
+                "└ zai-coding-plan · zai-coding-plan-glm-5-1 ─────────────────────┘",
+                "REAL_OUTPUT_1",
+                "REAL_OUTPUT_2",
+                "REAL_OUTPUT_3",
+            ]
+            .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-chrome".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(rendered.len() <= 4);
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("Type your message or use /help"))
+            );
+            assert!(!rendered.iter().any(|line| line.contains("REAL_OUTPUT_3")));
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("4 more lines hidden"))
+            );
+        }
+
+        #[test]
+        fn file_read_json_content_is_visually_limited_by_activity_renderer() {
+            let content = (1..=2000)
+                .map(|index| format!("{index} | SOURCE_LINE_{index}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · file read".to_string(),
+                subtitle: Some("#call-read".to_string()),
+                body: format!(
+                    "Output: {}",
+                    serde_json::json!({
+                        "content": content,
+                        "path": "/Volumes/samsung/GitHub/restflow/crates/tui/src/lib.rs",
+                        "showing": "1-2000",
+                        "total_lines": 16930
+                    })
+                ),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(rendered.len() <= 4);
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("SOURCE_LINE_2000"))
             );
         }
 
@@ -11867,7 +11975,9 @@ mod shell {
                 let mut lines = Vec::new();
                 super::append_tool_output_preview_lines(&mut lines, &output, "output");
                 match hidden_line {
-                    Some(hidden_line) => assert!(lines.iter().any(|line| line == hidden_line)),
+                    Some(hidden_line) => {
+                        assert!(lines.iter().any(|line| line.contains(hidden_line)))
+                    }
                     None => assert!(!lines.iter().any(|line| line.contains("hidden"))),
                 }
                 assert!(
