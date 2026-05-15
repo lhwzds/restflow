@@ -34,7 +34,7 @@ tempfile = "3.25.0"
 thiserror = "2.0.17"
 tokio = { version = "1.51.1", features = ["full"] }
 tracing = "0.1"
-uuid = { version = "1.21.0", features = ["v4", "serde"] }
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 agent = { workspace = true, features = ["test-utils"] }
