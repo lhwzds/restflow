@@ -38,6 +38,27 @@ jobs:
             exit 1
           fi
 
+          TAG_NAME="${GITHUB_REF_NAME:-${GITHUB_REF#refs/tags/}}"
+          TAG_VERSION="${TAG_NAME#cli-v}"
+          CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          NPM_VERSION="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' npm/package.json | head -n 1)"
+          HOMEBREW_VERSION="$(sed -n 's/^  version "\(.*\)"$/\1/p' homebrew-tap-template/Formula/restflow.rb | head -n 1)"
+
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Release tag version ($TAG_VERSION) must match Cargo version ($CARGO_VERSION)."
+            exit 1
+          fi
+
+          if [ "$TAG_VERSION" != "$NPM_VERSION" ]; then
+            echo "::error::Release tag version ($TAG_VERSION) must match npm package version ($NPM_VERSION)."
+            exit 1
+          fi
+
+          if [ "$TAG_VERSION" != "$HOMEBREW_VERSION" ]; then
+            echo "::error::Release tag version ($TAG_VERSION) must match Homebrew formula template version ($HOMEBREW_VERSION)."
+            exit 1
+          fi
+
           TEST_RUN="$(gh run list \
             --workflow Tests \
             --branch main \
@@ -67,12 +88,15 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libssl-dev
+          sudo apt-get install -y pkg-config libssl-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
+
+      - name: Run release test checks
+        run: make test
 
       - name: Run release lint checks
         run: make lint
@@ -113,7 +137,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libssl-dev
+          sudo apt-get install -y pkg-config libssl-dev
 
       - name: Build
         run: cargo build --release --package cli --target ${{ matrix.target }}
@@ -124,6 +148,7 @@ jobs:
           cd target/${{ matrix.target }}/release
           ln -sfn restflow rf
           tar -czvf restflow-${{ matrix.target }}.tar.gz restflow rf
+          tar -tzf restflow-${{ matrix.target }}.tar.gz | grep -qx "rf"
           mv restflow-${{ matrix.target }}.tar.gz ../../../
 
       - name: Package (Windows)
@@ -135,6 +160,7 @@ jobs:
           "%~dp0restflow.exe" %*
           "@ | Set-Content -NoNewline rf.cmd
           7z a restflow-${{ matrix.target }}.zip restflow.exe rf.cmd
+          7z l restflow-${{ matrix.target }}.zip | findstr rf.cmd
           mv restflow-${{ matrix.target }}.zip ../../../
 
       - name: Upload artifact
@@ -169,15 +195,17 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            artifacts/*.tar.gz
-            artifacts/*.zip
-            artifacts/checksums.txt
-          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#cli-v}"
+          gh release create "cli-v${VERSION}" \
+            artifacts/*.tar.gz \
+            artifacts/*.zip \
+            artifacts/checksums.txt \
+            --title "RestFlow CLI ${VERSION}" \
+            --generate-notes
 
   update-homebrew:
     name: Update Homebrew Formula
@@ -190,12 +218,14 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/cli-v}" >> $GITHUB_OUTPUT
 
       - name: Trigger Homebrew tap update
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          repository: lhwzds/homebrew-tap
-          event-type: update-formula
-          client-payload: '{"version": "${{ steps.version.outputs.VERSION }}"}'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          gh api repos/lhwzds/homebrew-tap/dispatches --method POST --input - <<EOF
+          {"event_type":"update-formula","client_payload":{"version":"${VERSION}"}}
+          EOF
 
   publish-npm:
     name: Publish to npm
@@ -222,14 +252,49 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/cli-v}" >> $GITHUB_OUTPUT
 
-      - name: Update package.json version
+      - name: Embed release checksums in npm package
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          cd npm
-          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
+          set -euo pipefail
+          curl -fsSL "https://github.com/lhwzds/restflow/releases/download/cli-v${VERSION}/checksums.txt" -o npm/checksums.txt
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+          const required = [
+            "restflow-aarch64-apple-darwin.tar.gz",
+            "restflow-x86_64-apple-darwin.tar.gz",
+            "restflow-aarch64-unknown-linux-gnu.tar.gz",
+            "restflow-x86_64-unknown-linux-gnu.tar.gz",
+            "restflow-x86_64-pc-windows-msvc.zip",
+          ];
+          const lines = fs.readFileSync("npm/checksums.txt", "utf8").split(/\r?\n/);
+          const checksums = {};
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const [hash, filename] = trimmed.split(/\s+/);
+            if (/^[0-9a-f]{64}$/.test(hash) && filename) {
+              checksums[filename.replace(/^\*?/, "")] = hash;
+            }
+          }
+          for (const filename of required) {
+            if (!checksums[filename]) {
+              throw new Error(`Missing checksum for ${filename}`);
+            }
+          }
+          fs.writeFileSync(
+            path.join("npm", "checksums.json"),
+            `${JSON.stringify(checksums, null, 2)}\n`,
+          );
+          fs.rmSync("npm/checksums.txt");
+          NODE
 
       - name: Publish to npm with provenance (OIDC)
         run: |
           unset NODE_AUTH_TOKEN
           unset NPM_CONFIG_USERCONFIG
           cd npm
+          npm test
+          npm pack --dry-run
           npm publish --provenance --access public

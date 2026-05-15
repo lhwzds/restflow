@@ -4,9 +4,10 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 
 const VERSION = require("../package.json").version;
+const EMBEDDED_CHECKSUMS = require("../checksums.json");
 const REPO = "lhwzds/restflow";
 
 const PLATFORM_MAP = {
@@ -20,6 +21,8 @@ const PLATFORM_MAP = {
   },
   win32: {
     x64: "x86_64-pc-windows-msvc",
+    // Windows on ARM64 can run the x64 CLI through the platform emulation layer.
+    arm64: "x86_64-pc-windows-msvc",
   },
 };
 
@@ -43,10 +46,6 @@ function getPlatformTarget() {
 function getDownloadUrl(target) {
   const ext = process.platform === "win32" ? "zip" : "tar.gz";
   return `https://github.com/${REPO}/releases/download/cli-v${VERSION}/restflow-${target}.${ext}`;
-}
-
-function getChecksumUrl() {
-  return `https://github.com/${REPO}/releases/download/cli-v${VERSION}/checksums.txt`;
 }
 
 function download(url) {
@@ -90,14 +89,18 @@ function parseChecksums(text) {
   return map;
 }
 
-async function verifyChecksum(buffer, filename) {
-  const checksumUrl = getChecksumUrl();
-  const checksumText = (await download(checksumUrl)).toString("utf8");
-  const checksums = parseChecksums(checksumText);
-  const expected = checksums.get(filename);
-  if (!expected) {
-    throw new Error(`Checksum not found for ${filename}`);
+function expectedChecksum(filename) {
+  const expected = EMBEDDED_CHECKSUMS[filename];
+  if (typeof expected !== "string" || !/^[0-9a-f]{64}$/.test(expected)) {
+    throw new Error(
+      `Embedded checksum not found for ${filename}; reinstall from the official npm package`,
+    );
   }
+  return expected;
+}
+
+async function verifyChecksum(buffer, filename) {
+  const expected = expectedChecksum(filename);
   const actual = computeSha256(buffer);
   if (actual !== expected) {
     throw new Error(`Checksum mismatch for ${filename}`);
@@ -109,7 +112,7 @@ async function extractTarGz(buffer, destDir) {
   fs.writeFileSync(tmpFile, buffer);
 
   try {
-    execSync(`tar -xzf "${tmpFile}" -C "${destDir}"`, { stdio: "inherit" });
+    execFileSync("tar", ["-xzf", tmpFile, "-C", destDir], { stdio: "inherit" });
   } finally {
     fs.unlinkSync(tmpFile);
   }
@@ -121,11 +124,22 @@ async function extractZip(buffer, destDir) {
 
   try {
     if (process.platform === "win32") {
-      execSync(`powershell -command "Expand-Archive -Path '${tmpZip}' -DestinationPath '${destDir}' -Force"`, {
-        stdio: "inherit",
-      });
+      execFileSync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          "Expand-Archive",
+          "-LiteralPath",
+          tmpZip,
+          "-DestinationPath",
+          destDir,
+          "-Force",
+        ],
+        { stdio: "inherit" },
+      );
     } else {
-      execSync(`unzip -o "${tmpZip}" -d "${destDir}"`, { stdio: "inherit" });
+      execFileSync("unzip", ["-o", tmpZip, "-d", destDir], { stdio: "inherit" });
     }
   } finally {
     fs.unlinkSync(tmpZip);
@@ -175,5 +189,7 @@ if (require.main === module) {
 
 module.exports = {
   computeSha256,
+  expectedChecksum,
+  getPlatformTarget,
   parseChecksums,
 };

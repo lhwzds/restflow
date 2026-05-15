@@ -1,7 +1,7 @@
 class Restflow < Formula
   desc "AI assistant that can execute workflows"
   homepage "https://github.com/lhwzds/restflow"
-  version "0.1.0"
+  version "0.5.0"
   license "Apache-2.0"
 
   on_macos do
@@ -31,5 +31,6 @@ class Restflow < Formula
 
   test do
     assert_match "restflow #{version}", shell_output("#{bin}/restflow --version")
+    assert_match "restflow #{version}", shell_output("#{bin}/rf --version")
   end
 end

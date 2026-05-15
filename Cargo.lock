@@ -421,26 +421,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "clap_mangen"
-version = "0.2.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e30ffc187e2e3aeafcd1c6e2aa416e29739454c0ccaa419226d5ecd181f2d78"
-dependencies = [
- "clap",
- "roff",
-]
-
-[[package]]
 name = "cli"
 version = "0.5.0"
 dependencies = [
- "agent",
  "anyhow",
  "async-trait",
  "chrono",
  "clap",
  "clap_complete",
- "clap_mangen",
  "colored",
  "comfy-table",
  "daemon",
@@ -448,8 +436,10 @@ dependencies = [
  "flate2",
  "nix",
  "reqwest",
+ "restflow-core",
  "serde",
  "serde_json",
+ "sha2",
  "tar",
  "tempfile",
  "tokio",
@@ -679,6 +669,7 @@ dependencies = [
  "bytes",
  "chrono",
  "dirs",
+ "fs2",
  "http",
  "nix",
  "reqwest",
@@ -930,6 +921,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -2180,6 +2181,7 @@ dependencies = [
  "chrono",
  "dirs",
  "filetime",
+ "fs2",
  "hex",
  "rand 0.10.1",
  "redb",
@@ -2196,6 +2198,7 @@ dependencies = [
  "types",
  "uuid",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2211,12 +2214,6 @@ dependencies = [
  "untrusted",
  "windows-sys 0.52.0",
 ]
-
-[[package]]
-name = "roff"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbf2048e0e979efb2ca7b91c4f1a8d77c91853e9b987c94c555668a8994915ad"
 
 [[package]]
 name = "runner"
@@ -3105,6 +3102,7 @@ dependencies = [
  "crossterm 0.28.1",
  "daemon",
  "ratatui",
+ "restflow-core",
  "serde_json",
  "tokio",
  "types",

@@ -2748,8 +2748,9 @@ mod prompt_files {
     }
 }
 pub mod provider_policy {
+    use crate::SecretStorage;
     use types::provider_meta;
-    use types::{ModelId, Provider};
+    use types::{ModelId, ModelMetadataDTO, Provider};
 
     const DISPLAY_PROVIDER_ORDER: &[Provider] = &[
         Provider::OpenAI,
@@ -2802,6 +2803,82 @@ pub mod provider_policy {
             .unwrap_or(usize::MAX)
     }
 
+    fn is_catalog_model(model: ModelId) -> bool {
+        !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
+    }
+
+    fn is_legacy_openai_model(model: ModelId) -> bool {
+        matches!(
+            model,
+            ModelId::Gpt5
+                | ModelId::Gpt5Mini
+                | ModelId::Gpt5Nano
+                | ModelId::Gpt5Pro
+                | ModelId::Gpt5_1
+                | ModelId::Gpt5_2
+        )
+    }
+
+    pub fn model_display_order(model: ModelId) -> usize {
+        if model == ModelId::Gpt5_5Codex {
+            return 0;
+        }
+        if model == ModelId::Gpt5_5ProCodex {
+            return 1;
+        }
+        if model == ModelId::Gpt5_4Codex {
+            return 2;
+        }
+        if model == ModelId::Gpt5_4MiniCodex {
+            return 3;
+        }
+        if model == ModelId::CodexCli {
+            return 4;
+        }
+        if model == ModelId::Gpt5Codex
+            || model == ModelId::Gpt5_1Codex
+            || model == ModelId::Gpt5_2Codex
+        {
+            return 20;
+        }
+        10
+    }
+
+    pub fn available_providers(secrets: &SecretStorage) -> Vec<Provider> {
+        let mut providers = Vec::new();
+        for provider in Provider::all().iter().copied() {
+            let available = provider == Provider::Codex
+                || provider
+                    .api_key_env_candidates()
+                    .any(|key| secrets.has_available_secret(key).unwrap_or(false));
+            if available {
+                providers.push(provider);
+            }
+        }
+        providers.sort_by_key(|provider| provider_display_order(*provider));
+        providers
+    }
+
+    pub fn available_model_catalog(secrets: &SecretStorage) -> Vec<ModelMetadataDTO> {
+        let providers = available_providers(secrets);
+        let mut models = ModelId::all_with_metadata()
+            .into_iter()
+            .filter(|metadata| is_catalog_model(metadata.model))
+            .filter(|metadata| providers.contains(&metadata.provider))
+            .collect::<Vec<_>>();
+
+        models.sort_by(|left, right| {
+            provider_display_order(left.provider)
+                .cmp(&provider_display_order(right.provider))
+                .then_with(|| {
+                    model_display_order(left.model).cmp(&model_display_order(right.model))
+                })
+                .then_with(|| left.name.cmp(&right.name))
+        });
+
+        models
+    }
+
     pub(crate) fn secret_provider_resolution_order() -> &'static [Provider] {
         SECRET_PROVIDER_RESOLUTION_ORDER
     }
@@ -2820,9 +2897,11 @@ pub mod provider_policy {
     #[cfg(test)]
     mod tests {
         use super::{
-            DISPLAY_PROVIDER_ORDER, provider_default_model, provider_display_order,
-            resolve_model_from_available_secrets, secret_provider_resolution_order,
+            DISPLAY_PROVIDER_ORDER, available_model_catalog, provider_default_model,
+            provider_display_order, resolve_model_from_available_secrets,
+            secret_provider_resolution_order,
         };
+        use redb::Database;
         use types::{ModelId, Provider};
 
         #[test]
@@ -2862,6 +2941,25 @@ pub mod provider_policy {
         fn resolve_model_from_available_secrets_uses_resolution_order() {
             let model = resolve_model_from_available_secrets(|key| key == "MINIMAX_API_KEY");
             assert_eq!(model, Some(ModelId::MiniMaxM27));
+        }
+
+        #[test]
+        fn available_catalog_excludes_unconfigured_cli_providers_but_keeps_codex() {
+            let dir = tempfile::tempdir().unwrap();
+            let db = std::sync::Arc::new(Database::create(dir.path().join("test.db")).unwrap());
+            let secrets = crate::SecretStorage::new_insecure(db).unwrap();
+
+            let models = available_model_catalog(&secrets);
+            assert!(
+                models
+                    .iter()
+                    .any(|metadata| metadata.provider == Provider::Codex)
+            );
+            assert!(
+                !models
+                    .iter()
+                    .any(|metadata| metadata.provider == Provider::ClaudeCode)
+            );
         }
     }
 }
@@ -4472,7 +4570,7 @@ pub mod services {
                     let agent_id = create_default_agent(&adapter);
                     let request = SessionCreateRequest {
                         agent_id: agent_id.clone(),
-                        model: "gpt-4".to_string(),
+                        model: "gpt-5-5".to_string(),
                         name: Some("Test Session".to_string()),
                         skill_id: None,
                         retention: None,
@@ -4482,7 +4580,25 @@ pub mod services {
 
                     let fetched = adapter.get_session(session_id).unwrap();
                     assert_eq!(fetched["name"], "Test Session");
-                    assert_eq!(fetched["model"], "gpt-4");
+                    assert_eq!(fetched["model"], "gpt-5-5");
+                }
+
+                #[test]
+                fn create_session_adapter_preserves_legacy_providerless_api_model() {
+                    let (adapter, _dir) = setup();
+                    let agent_id = create_default_agent(&adapter);
+                    let request = SessionCreateRequest {
+                        agent_id,
+                        model: "gpt-5.5".to_string(),
+                        name: None,
+                        skill_id: None,
+                        retention: None,
+                    };
+
+                    let created = adapter.create_session(request).unwrap();
+
+                    assert_eq!(created["provider"], "openai");
+                    assert_eq!(created["model"], "gpt-5-5");
                 }
 
                 #[test]
@@ -4491,7 +4607,7 @@ pub mod services {
                     let agent_id = create_default_agent(&adapter);
                     let request = SessionCreateRequest {
                         agent_id,
-                        model: "gpt-4".to_string(),
+                        model: "gpt-5-5".to_string(),
                         name: None,
                         skill_id: None,
                         retention: None,
@@ -4510,7 +4626,7 @@ pub mod services {
                     let created = adapter
                         .create_session(SessionCreateRequest {
                             agent_id,
-                            model: "gpt-4".to_string(),
+                            model: "gpt-5-5".to_string(),
                             name: Some("Archive Target".to_string()),
                             skill_id: None,
                             retention: None,
@@ -4567,7 +4683,7 @@ pub mod services {
                     let agent_id = create_default_agent(&adapter);
                     let request = SessionCreateRequest {
                         agent_id: agent_id.clone(),
-                        model: "gpt-4".to_string(),
+                        model: "gpt-5-5".to_string(),
                         name: Some("Meeting Notes".to_string()),
                         skill_id: None,
                         retention: None,
@@ -6099,24 +6215,26 @@ pub mod services {
     }
     pub mod session {
         use crate::AgentStorage;
+        use crate::config::load_cli_config;
+        use crate::provider_policy::{
+            provider_default_model, resolve_model_from_available_secrets,
+        };
         use crate::session_events::{ChatSessionEvent, publish_session_event};
         use crate::session_log::{FileSession, FileSessionStore};
         use crate::storage::Storage;
         use anyhow::{Result, anyhow};
-        use std::collections::HashMap;
-        use std::sync::{Arc, Mutex, Weak};
         use tracing::warn;
         use types::{
             ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, ChatTurn,
             ChatTurnEventKind, ChatTurnStatus, ExecutionContainerKind, ExecutionContainerSummary,
-            MessageExecution, ModelId, RunKind, RunListQuery, RunStatus, RunSummary,
+            MessageExecution, ModelId, ModelRef, Provider, RunKind, RunListQuery, RunStatus,
+            RunSummary,
         };
 
         #[derive(Clone)]
         pub struct SessionService {
             agents: Option<AgentStorage>,
             file_sessions: FileSessionStore,
-            append_locks: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
         }
 
         #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -6129,6 +6247,7 @@ pub mod services {
             pub bytes_freed: u64,
         }
 
+        #[non_exhaustive]
         pub struct PersistInteractiveTurnRequest<'a> {
             pub original_input: &'a str,
             pub persisted_input: &'a str,
@@ -6139,12 +6258,176 @@ pub mod services {
             pub source: &'a str,
         }
 
+        impl<'a> PersistInteractiveTurnRequest<'a> {
+            pub fn new(
+                original_input: &'a str,
+                persisted_input: &'a str,
+                assistant_output: &'a str,
+                execution: MessageExecution,
+                source: &'a str,
+            ) -> Self {
+                Self {
+                    original_input,
+                    persisted_input,
+                    assistant_output,
+                    active_model: None,
+                    final_model: None,
+                    execution,
+                    source,
+                }
+            }
+
+            pub fn with_active_model(mut self, active_model: Option<&'a str>) -> Self {
+                self.active_model = active_model;
+                self
+            }
+
+            pub fn with_final_model(mut self, final_model: Option<ModelId>) -> Self {
+                self.final_model = final_model;
+                self
+            }
+        }
+
+        #[derive(Debug, Clone, Copy)]
+        pub struct RuntimeIdentityGuard<'a> {
+            expected_existing_provider: &'a str,
+            expected_existing_model: &'a str,
+            expected_existing_agent_id: Option<&'a str>,
+        }
+
+        impl<'a> RuntimeIdentityGuard<'a> {
+            pub fn new(
+                expected_existing_provider: &'a str,
+                expected_existing_model: &'a str,
+            ) -> Self {
+                Self {
+                    expected_existing_provider,
+                    expected_existing_model,
+                    expected_existing_agent_id: None,
+                }
+            }
+
+            pub fn with_agent_id_override(mut self, expected_existing_agent_id: &'a str) -> Self {
+                self.expected_existing_agent_id = Some(expected_existing_agent_id);
+                self
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        #[non_exhaustive]
+        pub struct WorkspaceSessionCreateRequest {
+            pub agent_id: String,
+            pub provider: Option<String>,
+            pub model: Option<String>,
+            pub name: Option<String>,
+            pub skill_id: Option<String>,
+            pub retention: Option<String>,
+        }
+
+        impl WorkspaceSessionCreateRequest {
+            pub fn new(agent_id: impl Into<String>) -> Self {
+                Self {
+                    agent_id: agent_id.into(),
+                    provider: None,
+                    model: None,
+                    name: None,
+                    skill_id: None,
+                    retention: None,
+                }
+            }
+
+            pub fn with_provider(mut self, provider: Option<String>) -> Self {
+                self.provider = provider;
+                self
+            }
+
+            pub fn with_model(mut self, model: Option<String>) -> Self {
+                self.model = model;
+                self
+            }
+
+            pub fn with_name(mut self, name: Option<String>) -> Self {
+                self.name = name;
+                self
+            }
+
+            pub fn with_skill_id(mut self, skill_id: Option<String>) -> Self {
+                self.skill_id = skill_id;
+                self
+            }
+
+            pub fn with_retention(mut self, retention: Option<String>) -> Self {
+                self.retention = retention;
+                self
+            }
+        }
+
+        pub fn resolve_workspace_session_model(
+            storage: &Storage,
+            agent_id: &str,
+            provider: Option<&str>,
+            model: Option<&str>,
+        ) -> Result<(Option<String>, String)> {
+            let model_ref =
+                resolve_workspace_session_model_ref(storage, agent_id, provider, model)?;
+            Ok((
+                Some(model_ref.provider.as_canonical_str().to_string()),
+                model_ref.model.as_serialized_str().to_string(),
+            ))
+        }
+
+        fn resolve_workspace_session_model_ref(
+            storage: &Storage,
+            agent_id: &str,
+            provider: Option<&str>,
+            model: Option<&str>,
+        ) -> Result<ModelRef> {
+            match (provider, model) {
+                (Some(provider), Some(model)) => {
+                    let provider = Provider::from_canonical_str(provider)
+                        .ok_or_else(|| anyhow!("Unknown provider: {}", provider.trim()))?;
+                    let model = ModelId::for_provider_and_model(provider, model)
+                        .ok_or_else(|| anyhow!("Unknown model: {}", model.trim()))?;
+                    Ok(ModelRef { provider, model })
+                }
+                (Some(provider), None) => {
+                    let provider = Provider::from_canonical_str(provider)
+                        .ok_or_else(|| anyhow!("Unknown provider: {}", provider.trim()))?;
+                    Ok(ModelRef {
+                        provider,
+                        model: provider_default_model(provider),
+                    })
+                }
+                (None, Some(model)) => ModelRef::from_legacy_providerless_user_input(model)
+                    .map_err(|error| anyhow!(error)),
+                (None, None) => {
+                    if let Some(model_ref) = storage
+                        .agents
+                        .get_agent(agent_id.to_string())?
+                        .and_then(|agent| agent.agent.resolved_model_ref())
+                    {
+                        return Ok(model_ref);
+                    }
+
+                    if let Some(model) = load_cli_config().ok().and_then(|config| config.model) {
+                        return ModelRef::from_legacy_providerless_user_input(&model)
+                            .map_err(|error| anyhow!(error));
+                    }
+
+                    let model = resolve_model_from_available_secrets(|key| {
+                        storage.secrets.has_available_secret(key).unwrap_or(false)
+                    })
+                    .unwrap_or(ModelId::Gpt5_5);
+                    Ok(ModelRef::from_model(model))
+                }
+            }
+        }
+
         impl SessionService {
             pub fn new(file_sessions: FileSessionStore, agents: Option<AgentStorage>) -> Self {
                 Self {
                     agents,
                     file_sessions,
-                    append_locks: Arc::new(Mutex::new(HashMap::new())),
                 }
             }
 
@@ -6171,7 +6454,7 @@ pub mod services {
             ) -> Result<Vec<ChatSession>> {
                 let mut sessions = self
                     .file_sessions
-                    .list()?
+                    .list_uncached()?
                     .into_iter()
                     .map(|session| session.to_chat_session())
                     .filter(|session| {
@@ -6196,9 +6479,9 @@ pub mod services {
                 include_archived: bool,
             ) -> Result<Vec<ChatSessionSummary>> {
                 let mut summaries = if include_archived {
-                    self.file_sessions.list_summaries_all()?
+                    self.file_sessions.list_summaries_all_uncached()?
                 } else {
-                    self.file_sessions.list_summaries()?
+                    self.file_sessions.list_summaries_uncached()?
                 };
                 summaries.retain(|summary| {
                     Self::summary_matches_list_filter(summary, agent_id, skill_id, include_archived)
@@ -6343,6 +6626,78 @@ pub mod services {
                 Ok(session)
             }
 
+            pub fn create_workspace_session_with_provider(
+                &self,
+                agent_id: String,
+                provider: Option<String>,
+                model: String,
+                name: Option<String>,
+                skill_id: Option<String>,
+                retention: Option<String>,
+            ) -> Result<ChatSession> {
+                let requested_model = model.clone();
+                let model_ref = if let Some(provider) = provider {
+                    let provider = Provider::from_canonical_str(&provider)
+                        .ok_or_else(|| anyhow!("Unknown provider: {}", provider.trim()))?;
+                    let model = ModelId::for_provider_and_model(provider, &requested_model)
+                        .ok_or_else(|| anyhow!("Unknown model: {}", requested_model.trim()))?;
+                    ModelRef { provider, model }
+                } else {
+                    ModelRef::from_legacy_providerless_user_input(&requested_model)
+                        .map_err(|error| anyhow!(error))?
+                };
+                self.create_workspace_session_with_model_ref(
+                    agent_id, model_ref, name, skill_id, retention,
+                )
+            }
+
+            pub fn create_workspace_session_from_request(
+                &self,
+                storage: &Storage,
+                request: WorkspaceSessionCreateRequest,
+            ) -> Result<ChatSession> {
+                let model_ref = resolve_workspace_session_model_ref(
+                    storage,
+                    &request.agent_id,
+                    request.provider.as_deref(),
+                    request.model.as_deref(),
+                )?;
+                self.create_workspace_session_with_model_ref(
+                    request.agent_id,
+                    model_ref,
+                    request.name,
+                    request.skill_id,
+                    request.retention,
+                )
+            }
+
+            fn create_workspace_session_with_model_ref(
+                &self,
+                agent_id: String,
+                model_ref: ModelRef,
+                name: Option<String>,
+                skill_id: Option<String>,
+                retention: Option<String>,
+            ) -> Result<ChatSession> {
+                let mut session =
+                    ChatSession::new(agent_id, model_ref.model.as_serialized_str().to_string());
+                session.set_model_identity(model_ref.model);
+                if let Some(name) = name {
+                    session = session.with_name(name);
+                }
+                if let Some(skill_id) = skill_id {
+                    session = session.with_skill(skill_id);
+                }
+                if let Some(retention) = retention {
+                    session = session.with_retention(retention);
+                }
+                self.persist_session_view(&session, "create")?;
+                publish_session_event(ChatSessionEvent::Created {
+                    session_id: session.id.clone(),
+                });
+                Ok(session)
+            }
+
             pub fn append_exchange(
                 &self,
                 session_id: &str,
@@ -6352,22 +6707,12 @@ pub mod services {
                 final_model: Option<ModelId>,
                 source: &str,
             ) -> Result<ChatSession> {
-                let session_lock = {
-                    let mut locks = self.append_locks.lock().expect("session append locks");
-                    if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                        lock
-                    } else {
-                        let lock = Arc::new(Mutex::new(()));
-                        locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                        lock
-                    }
-                };
-
-                let session = {
-                    let _guard = session_lock.lock().expect("session append lock");
-                    let mut session = self
-                        .get_session_view(session_id)?
+                let session = self.file_sessions.with_session_write_lock(session_id, || {
+                    let existing = self
+                        .file_sessions
+                        .get(session_id)?
                         .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
+                    let mut session = existing.to_chat_session();
                     session.add_message(user_message);
                     session.add_message(assistant_message);
 
@@ -6377,14 +6722,11 @@ pub mod services {
                         session.set_model_identity_from_raw(model);
                     }
 
-                    self.persist_session_view(&session, "append_exchange")?;
-                    session
-                };
-
-                self.append_locks
-                    .lock()
-                    .expect("session append locks")
-                    .retain(|_, weak| weak.strong_count() > 0);
+                    let file_session = FileSession::merge_chat_session(Some(&existing), &session);
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok::<_, anyhow::Error>(session)
+                })?;
 
                 publish_session_event(ChatSessionEvent::MessageAdded {
                     session_id: session_id.to_string(),
@@ -6400,31 +6742,18 @@ pub mod services {
                 user_message: ChatMessage,
                 source: &str,
             ) -> Result<ChatSession> {
-                let session_lock = {
-                    let mut locks = self.append_locks.lock().expect("session append locks");
-                    if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                        lock
-                    } else {
-                        let lock = Arc::new(Mutex::new(()));
-                        locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                        lock
-                    }
-                };
-
-                let session = {
-                    let _guard = session_lock.lock().expect("session append lock");
-                    let mut session = self
-                        .get_session_view(session_id)?
+                let session = self.file_sessions.with_session_write_lock(session_id, || {
+                    let existing = self
+                        .file_sessions
+                        .get(session_id)?
                         .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
+                    let mut session = existing.to_chat_session();
                     session.add_message(user_message);
-                    self.persist_session_view(&session, "append_user_message")?;
-                    session
-                };
-
-                self.append_locks
-                    .lock()
-                    .expect("session append locks")
-                    .retain(|_, weak| weak.strong_count() > 0);
+                    let file_session = FileSession::merge_chat_session(Some(&existing), &session);
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok::<_, anyhow::Error>(session)
+                })?;
 
                 publish_session_event(ChatSessionEvent::MessageAdded {
                     session_id: session_id.to_string(),
@@ -6436,7 +6765,7 @@ pub mod services {
 
             pub fn save_existing_session(&self, session: &ChatSession, source: &str) -> Result<()> {
                 let session = session.clone();
-                self.persist_session_view(&session, "save")?;
+                self.persist_existing_session_view(&session, "save")?;
                 publish_session_event(ChatSessionEvent::MessageAdded {
                     session_id: session.id.clone(),
                     source: source.to_string(),
@@ -6444,9 +6773,84 @@ pub mod services {
                 Ok(())
             }
 
+            pub fn save_existing_session_with_agent_id_override(
+                &self,
+                session: &ChatSession,
+                source: &str,
+                expected_existing_agent_id: &str,
+            ) -> Result<()> {
+                let session = session.clone();
+                self.persist_existing_session_view_with_agent_id_override(
+                    &session,
+                    expected_existing_agent_id,
+                )?;
+                publish_session_event(ChatSessionEvent::MessageAdded {
+                    session_id: session.id.clone(),
+                    source: source.to_string(),
+                });
+                Ok(())
+            }
+
+            pub fn save_existing_session_with_runtime_identity(
+                &self,
+                session: &ChatSession,
+                source: &str,
+                guard: RuntimeIdentityGuard<'_>,
+            ) -> Result<()> {
+                self.save_existing_session_with_runtime_identity_returning_session(
+                    session, source, guard,
+                )?;
+                Ok(())
+            }
+
+            pub fn save_existing_session_with_runtime_identity_returning_session(
+                &self,
+                session: &ChatSession,
+                source: &str,
+                guard: RuntimeIdentityGuard<'_>,
+            ) -> Result<ChatSession> {
+                let session = session.clone();
+                let persisted = self.persist_existing_session_view_with_runtime_identity(
+                    &session,
+                    guard.expected_existing_provider,
+                    guard.expected_existing_model,
+                    guard.expected_existing_agent_id,
+                )?;
+                publish_session_event(ChatSessionEvent::MessageAdded {
+                    session_id: session.id.clone(),
+                    source: source.to_string(),
+                });
+                Ok(persisted)
+            }
+
+            pub fn save_existing_session_with_runtime_identity_if_turn_non_terminal_returning_session(
+                &self,
+                session: &ChatSession,
+                turn_id: &str,
+                source: &str,
+                guard: RuntimeIdentityGuard<'_>,
+            ) -> Result<Option<ChatSession>> {
+                let session = session.clone();
+                let persisted = self
+                    .persist_existing_session_view_with_runtime_identity_if_turn_non_terminal(
+                        &session,
+                        turn_id,
+                        guard.expected_existing_provider,
+                        guard.expected_existing_model,
+                        guard.expected_existing_agent_id,
+                    )?;
+                if persisted.is_some() {
+                    publish_session_event(ChatSessionEvent::MessageAdded {
+                        session_id: session.id.clone(),
+                        source: source.to_string(),
+                    });
+                }
+                Ok(persisted)
+            }
+
             pub fn save_session_metadata(&self, session: &ChatSession) -> Result<()> {
                 let session = session.clone();
-                self.persist_session_view(&session, "metadata")?;
+                self.persist_existing_session_view(&session, "metadata")?;
                 publish_session_event(ChatSessionEvent::Updated {
                     session_id: session.id.clone(),
                 });
@@ -6458,39 +6862,66 @@ pub mod services {
                 session_id: &str,
                 updates: ChatSessionUpdate,
             ) -> Result<Option<ChatSession>> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
-                    return Ok(None);
-                };
-                let mut updated = false;
-                let mut name_updated = false;
-
-                if let Some(agent_id) = updates.agent_id {
+                let resolved_agent_id = if let Some(agent_id) = updates.agent_id {
                     let agents = self
                         .agents
                         .as_ref()
                         .ok_or_else(|| anyhow!("Agent storage is unavailable"))?;
-                    session.agent_id = agents.resolve_existing_agent_id(&agent_id)?;
-                    updated = true;
-                }
+                    Some(agents.resolve_existing_agent_id(&agent_id)?)
+                } else {
+                    None
+                };
 
-                if let Some(model) = updates.model {
-                    let normalized = ModelId::normalize_model_id(&model)
-                        .ok_or_else(|| anyhow!("Unknown model: {}", model.trim()))?;
-                    session.set_model_identity_from_raw(&normalized);
-                    updated = true;
-                }
+                let resolved_model = updates
+                    .model
+                    .as_deref()
+                    .map(ModelRef::from_legacy_providerless_user_input)
+                    .transpose()
+                    .map_err(|error| anyhow!(error))?
+                    .map(|model_ref| model_ref.model);
+                let name = updates.name;
 
-                if let Some(name) = updates.name {
-                    session.rename(name);
-                    updated = true;
-                    name_updated = true;
-                }
+                let result = self.file_sessions.with_session_write_lock(session_id, || {
+                    let existing = match self.file_sessions.get(session_id)? {
+                        Some(existing) => existing,
+                        None => return Ok(None),
+                    };
+                    let mut session = existing.to_chat_session();
+                    let mut updated = false;
+                    let mut name_updated = false;
 
-                if updated {
-                    if !name_updated {
-                        session.updated_at = chrono::Utc::now().timestamp_millis();
+                    if let Some(agent_id) = resolved_agent_id {
+                        session.agent_id = agent_id;
+                        updated = true;
                     }
-                    self.persist_session_view(&session, "update")?;
+                    if let Some(model) = resolved_model {
+                        session.set_model_identity(model);
+                        updated = true;
+                    }
+                    if let Some(name) = name {
+                        session.rename(name);
+                        updated = true;
+                        name_updated = true;
+                    }
+
+                    if updated {
+                        if !name_updated {
+                            session.updated_at = chrono::Utc::now().timestamp_millis();
+                        }
+                        let file_session =
+                            FileSession::merge_chat_session(Some(&existing), &session);
+                        self.file_sessions
+                            .write_session_unlocked(&file_session, true)?;
+                        session = file_session.to_chat_session();
+                    }
+
+                    Ok::<_, anyhow::Error>(Some((session, updated)))
+                })?;
+
+                let Some((session, updated)) = result else {
+                    return Ok(None);
+                };
+                if updated {
                     publish_session_event(ChatSessionEvent::Updated {
                         session_id: session.id.clone(),
                     });
@@ -6504,11 +6935,23 @@ pub mod services {
                 session_id: &str,
                 name: String,
             ) -> Result<Option<ChatSession>> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
+                let Some(session) =
+                    self.file_sessions.with_session_write_lock(session_id, || {
+                        let existing = match self.file_sessions.get(session_id)? {
+                            Some(existing) => existing,
+                            None => return Ok(None),
+                        };
+                        let mut session = existing.to_chat_session();
+                        session.rename(name);
+                        let file_session =
+                            FileSession::merge_chat_session(Some(&existing), &session);
+                        self.file_sessions
+                            .write_session_unlocked(&file_session, true)?;
+                        Ok::<_, anyhow::Error>(Some(file_session.to_chat_session()))
+                    })?
+                else {
                     return Ok(None);
                 };
-                session.rename(name);
-                self.persist_session_view(&session, "rename")?;
                 publish_session_event(ChatSessionEvent::Updated {
                     session_id: session.id.clone(),
                 });
@@ -6521,13 +6964,28 @@ pub mod services {
                 provider: String,
                 model: String,
             ) -> Result<Option<ChatSession>> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
+                let provider = Provider::from_canonical_str(&provider)
+                    .ok_or_else(|| anyhow!("Unknown provider: {}", provider.trim()))?;
+                let model = ModelId::for_provider_and_model(provider, &model)
+                    .ok_or_else(|| anyhow!("Unknown model: {}", model.trim()))?;
+                let Some(session) =
+                    self.file_sessions.with_session_write_lock(session_id, || {
+                        let existing = match self.file_sessions.get(session_id)? {
+                            Some(existing) => existing,
+                            None => return Ok(None),
+                        };
+                        let mut session = existing.to_chat_session();
+                        session.set_model_identity(model);
+                        session.updated_at = chrono::Utc::now().timestamp_millis();
+                        let file_session =
+                            FileSession::merge_chat_session(Some(&existing), &session);
+                        self.file_sessions
+                            .write_session_unlocked(&file_session, true)?;
+                        Ok::<_, anyhow::Error>(Some(file_session.to_chat_session()))
+                    })?
+                else {
                     return Ok(None);
                 };
-                session.provider = provider;
-                session.model = model;
-                session.updated_at = chrono::Utc::now().timestamp_millis();
-                self.persist_session_view(&session, "switch_model")?;
                 publish_session_event(ChatSessionEvent::Updated {
                     session_id: session.id.clone(),
                 });
@@ -6535,33 +6993,51 @@ pub mod services {
             }
 
             pub fn archive_session(&self, session_id: &str) -> Result<bool> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
-                    return Ok(false);
-                };
-                if session.is_archived() {
-                    return Ok(false);
+                let archived = self.file_sessions.with_session_write_lock(session_id, || {
+                    let existing = match self.file_sessions.get(session_id)? {
+                        Some(existing) => existing,
+                        None => return Ok(false),
+                    };
+                    let mut session = existing.to_chat_session();
+                    if session.is_archived() {
+                        return Ok(false);
+                    }
+                    session.archive();
+                    let file_session = FileSession::merge_chat_session(Some(&existing), &session);
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok::<_, anyhow::Error>(true)
+                })?;
+                if archived {
+                    publish_session_event(ChatSessionEvent::Updated {
+                        session_id: session_id.to_string(),
+                    });
                 }
-                session.archive();
-                self.persist_session_view(&session, "archive")?;
-                publish_session_event(ChatSessionEvent::Updated {
-                    session_id: session_id.to_string(),
-                });
-                Ok(true)
+                Ok(archived)
             }
 
             pub fn unarchive_session(&self, session_id: &str) -> Result<bool> {
-                let Some(mut session) = self.get_session_view(session_id)? else {
-                    return Ok(false);
-                };
-                if !session.is_archived() {
-                    return Ok(false);
+                let unarchived = self.file_sessions.with_session_write_lock(session_id, || {
+                    let existing = match self.file_sessions.get(session_id)? {
+                        Some(existing) => existing,
+                        None => return Ok(false),
+                    };
+                    let mut session = existing.to_chat_session();
+                    if !session.is_archived() {
+                        return Ok(false);
+                    }
+                    session.unarchive();
+                    let file_session = FileSession::merge_chat_session(Some(&existing), &session);
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok::<_, anyhow::Error>(true)
+                })?;
+                if unarchived {
+                    publish_session_event(ChatSessionEvent::Updated {
+                        session_id: session_id.to_string(),
+                    });
                 }
-                session.unarchive();
-                self.persist_session_view(&session, "unarchive")?;
-                publish_session_event(ChatSessionEvent::Updated {
-                    session_id: session_id.to_string(),
-                });
-                Ok(true)
+                Ok(unarchived)
             }
 
             pub fn delete_session(&self, session_id: &str) -> Result<bool> {
@@ -6649,9 +7125,34 @@ pub mod services {
                 session: &mut ChatSession,
                 request: PersistInteractiveTurnRequest<'_>,
             ) -> Result<()> {
+                let expected_provider = session.provider.clone();
+                let expected_model = session.model.clone();
+                let guard = RuntimeIdentityGuard::new(&expected_provider, &expected_model);
+                self.persist_interactive_turn_with_runtime_identity(session, request, guard)
+            }
+
+            pub fn persist_interactive_turn_with_runtime_identity(
+                &self,
+                session: &mut ChatSession,
+                request: PersistInteractiveTurnRequest<'_>,
+                guard: RuntimeIdentityGuard<'_>,
+            ) -> Result<()> {
+                self.persist_interactive_turn_with_runtime_identity_returning_session(
+                    session, request, guard,
+                )?;
+                Ok(())
+            }
+
+            pub fn persist_interactive_turn_with_runtime_identity_returning_session(
+                &self,
+                session: &mut ChatSession,
+                request: PersistInteractiveTurnRequest<'_>,
+                guard: RuntimeIdentityGuard<'_>,
+            ) -> Result<ChatSession> {
                 if request.assistant_output.trim().is_empty() {
                     anyhow::bail!("assistant_output must not be empty");
                 }
+                crate::session_log::backfill_turn_event_message_ids(session);
                 let _ = replace_latest_user_message_content(
                     session,
                     request.original_input,
@@ -6661,12 +7162,59 @@ pub mod services {
                     ChatMessage::assistant(request.assistant_output)
                         .with_execution(request.execution),
                 );
+                crate::session_log::backfill_turn_event_message_ids(session);
                 if let Some(model) = request.final_model {
                     session.set_model_identity(model);
                 } else if let Some(model) = request.active_model {
                     session.set_model_identity_from_raw(model);
                 }
-                self.save_existing_session(session, request.source)
+                let persisted = self
+                    .save_existing_session_with_runtime_identity_returning_session(
+                        session,
+                        request.source,
+                        guard,
+                    )?;
+                *session = persisted.clone();
+                Ok(persisted)
+            }
+
+            pub fn persist_interactive_turn_with_runtime_identity_if_turn_non_terminal_returning_session(
+                &self,
+                session: &mut ChatSession,
+                turn_id: &str,
+                request: PersistInteractiveTurnRequest<'_>,
+                guard: RuntimeIdentityGuard<'_>,
+            ) -> Result<Option<ChatSession>> {
+                if request.assistant_output.trim().is_empty() {
+                    anyhow::bail!("assistant_output must not be empty");
+                }
+                crate::session_log::backfill_turn_event_message_ids(session);
+                let _ = replace_latest_user_message_content(
+                    session,
+                    request.original_input,
+                    request.persisted_input,
+                );
+                session.add_message(
+                    ChatMessage::assistant(request.assistant_output)
+                        .with_execution(request.execution),
+                );
+                crate::session_log::backfill_turn_event_message_ids(session);
+                if let Some(model) = request.final_model {
+                    session.set_model_identity(model);
+                } else if let Some(model) = request.active_model {
+                    session.set_model_identity_from_raw(model);
+                }
+                let persisted = self
+                    .save_existing_session_with_runtime_identity_if_turn_non_terminal_returning_session(
+                        session,
+                        turn_id,
+                        request.source,
+                        guard,
+                    )?;
+                if let Some(persisted_session) = persisted.as_ref() {
+                    *session = persisted_session.clone();
+                }
+                Ok(persisted)
             }
 
             pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
@@ -6698,11 +7246,255 @@ pub mod services {
                 Ok(())
             }
 
-            fn write_file_session(&self, session: &ChatSession) -> Result<()> {
-                let existing = self.file_sessions.get(&session.id)?;
-                let file_session = FileSession::merge_chat_session(existing.as_ref(), session);
-                self.file_sessions.write_session(&file_session, true)?;
+            fn persist_existing_session_view(
+                &self,
+                session: &ChatSession,
+                operation: &'static str,
+            ) -> Result<()> {
+                if let Err(error) = self.write_existing_file_session(session, operation) {
+                    warn!(
+                        session_id = %session.id,
+                        operation,
+                        error = %error,
+                        "Failed to update existing chat session JSONL"
+                    );
+                    return Err(error);
+                }
                 Ok(())
+            }
+
+            fn persist_existing_session_view_with_agent_id_override(
+                &self,
+                session: &ChatSession,
+                expected_existing_agent_id: &str,
+            ) -> Result<()> {
+                if let Err(error) = self.write_existing_file_session_with_agent_id_override(
+                    session,
+                    expected_existing_agent_id,
+                ) {
+                    warn!(
+                        session_id = %session.id,
+                        operation = "save_agent_id",
+                        error = %error,
+                        "Failed to update existing chat session JSONL"
+                    );
+                    return Err(error);
+                }
+                Ok(())
+            }
+
+            fn persist_existing_session_view_with_runtime_identity(
+                &self,
+                session: &ChatSession,
+                expected_existing_provider: &str,
+                expected_existing_model: &str,
+                expected_existing_agent_id: Option<&str>,
+            ) -> Result<ChatSession> {
+                match self.write_existing_file_session_with_runtime_identity(
+                    session,
+                    expected_existing_provider,
+                    expected_existing_model,
+                    expected_existing_agent_id,
+                ) {
+                    Ok(persisted) => Ok(persisted),
+                    Err(error) => {
+                        warn!(
+                            session_id = %session.id,
+                            operation = "save_runtime_identity",
+                            error = %error,
+                            "Failed to update existing chat session JSONL"
+                        );
+                        Err(error)
+                    }
+                }
+            }
+
+            fn persist_existing_session_view_with_runtime_identity_if_turn_non_terminal(
+                &self,
+                session: &ChatSession,
+                turn_id: &str,
+                expected_existing_provider: &str,
+                expected_existing_model: &str,
+                expected_existing_agent_id: Option<&str>,
+            ) -> Result<Option<ChatSession>> {
+                match self.write_existing_file_session_with_runtime_identity_if_turn_non_terminal(
+                    session,
+                    turn_id,
+                    expected_existing_provider,
+                    expected_existing_model,
+                    expected_existing_agent_id,
+                ) {
+                    Ok(persisted) => Ok(persisted),
+                    Err(error) => {
+                        warn!(
+                            session_id = %session.id,
+                            operation = "save_runtime_identity",
+                            error = %error,
+                            "Failed to update existing chat session JSONL"
+                        );
+                        Err(error)
+                    }
+                }
+            }
+
+            fn write_file_session(&self, session: &ChatSession) -> Result<()> {
+                self.file_sessions.with_session_write_lock(&session.id, || {
+                    let existing = self.file_sessions.get(&session.id)?;
+                    let file_session = FileSession::merge_chat_session(existing.as_ref(), session);
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok(())
+                })
+            }
+
+            fn write_existing_file_session(
+                &self,
+                session: &ChatSession,
+                operation: &'static str,
+            ) -> Result<()> {
+                self.file_sessions.with_session_write_lock(&session.id, || {
+                    let existing = self
+                        .file_sessions
+                        .get(&session.id)?
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(&session.id)))?;
+                    let file_session = match operation {
+                        "save" => FileSession::merge_chat_session_preserving_existing_meta(
+                            Some(&existing),
+                            session,
+                        ),
+                        _ => FileSession::merge_chat_session(Some(&existing), session),
+                    };
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok(())
+                })
+            }
+
+            fn write_existing_file_session_with_agent_id_override(
+                &self,
+                session: &ChatSession,
+                expected_existing_agent_id: &str,
+            ) -> Result<()> {
+                self.file_sessions.with_session_write_lock(&session.id, || {
+                    let existing = self
+                        .file_sessions
+                        .get(&session.id)?
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(&session.id)))?;
+                    let should_override_agent_id =
+                        existing.meta.agent_id.as_deref() == Some(expected_existing_agent_id);
+                    let file_session = if should_override_agent_id {
+                        FileSession::merge_chat_session_preserving_existing_meta_with_agent_id(
+                            Some(&existing),
+                            session,
+                        )
+                    } else {
+                        FileSession::merge_chat_session_preserving_existing_meta(
+                            Some(&existing),
+                            session,
+                        )
+                    };
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok(())
+                })
+            }
+
+            fn write_existing_file_session_with_runtime_identity(
+                &self,
+                session: &ChatSession,
+                expected_existing_provider: &str,
+                expected_existing_model: &str,
+                expected_existing_agent_id: Option<&str>,
+            ) -> Result<ChatSession> {
+                self.file_sessions.with_session_write_lock(&session.id, || {
+                    let existing = self
+                        .file_sessions
+                        .get(&session.id)?
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(&session.id)))?;
+                    let mut file_session = FileSession::merge_chat_session_preserving_existing_meta(
+                        Some(&existing),
+                        session,
+                    );
+
+                    let existing_provider = existing.meta.provider.as_deref().unwrap_or_default();
+                    let existing_model = existing.meta.model.as_deref().unwrap_or_default();
+                    if existing_provider == expected_existing_provider
+                        && existing_model == expected_existing_model
+                    {
+                        file_session.meta.provider =
+                            Some(session.provider.clone()).filter(|value| !value.trim().is_empty());
+                        file_session.meta.model =
+                            Some(session.model.clone()).filter(|value| !value.trim().is_empty());
+                    }
+
+                    if let Some(expected_existing_agent_id) = expected_existing_agent_id
+                        && existing.meta.agent_id.as_deref() == Some(expected_existing_agent_id)
+                    {
+                        file_session.meta.agent_id = Some(session.agent_id.clone());
+                    }
+
+                    if let Some(first) = file_session.events.first_mut() {
+                        *first = file_session.meta.clone().into_event();
+                    }
+
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok(file_session.to_chat_session())
+                })
+            }
+
+            fn write_existing_file_session_with_runtime_identity_if_turn_non_terminal(
+                &self,
+                session: &ChatSession,
+                turn_id: &str,
+                expected_existing_provider: &str,
+                expected_existing_model: &str,
+                expected_existing_agent_id: Option<&str>,
+            ) -> Result<Option<ChatSession>> {
+                self.file_sessions.with_session_write_lock(&session.id, || {
+                    let existing = self
+                        .file_sessions
+                        .get(&session.id)?
+                        .ok_or_else(|| anyhow!(types::session_not_found_message(&session.id)))?;
+                    if existing
+                        .to_chat_session()
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .is_some_and(|turn| turn.status.is_terminal())
+                    {
+                        return Ok(None);
+                    }
+                    let mut file_session = FileSession::merge_chat_session_preserving_existing_meta(
+                        Some(&existing),
+                        session,
+                    );
+
+                    let existing_provider = existing.meta.provider.as_deref().unwrap_or_default();
+                    let existing_model = existing.meta.model.as_deref().unwrap_or_default();
+                    if existing_provider == expected_existing_provider
+                        && existing_model == expected_existing_model
+                    {
+                        file_session.meta.provider =
+                            Some(session.provider.clone()).filter(|value| !value.trim().is_empty());
+                        file_session.meta.model =
+                            Some(session.model.clone()).filter(|value| !value.trim().is_empty());
+                    }
+
+                    if let Some(expected_existing_agent_id) = expected_existing_agent_id
+                        && existing.meta.agent_id.as_deref() == Some(expected_existing_agent_id)
+                    {
+                        file_session.meta.agent_id = Some(session.agent_id.clone());
+                    }
+
+                    if let Some(first) = file_session.events.first_mut() {
+                        *first = file_session.meta.clone().into_event();
+                    }
+
+                    self.file_sessions
+                        .write_session_unlocked(&file_session, true)?;
+                    Ok(Some(file_session.to_chat_session()))
+                })
             }
 
             fn delete_file_session(&self, session_id: &str) -> bool {
@@ -6746,7 +7538,7 @@ pub mod services {
                 container_id: session.id.clone(),
                 root_run_id: Some(turn.id.clone()),
                 title: turn_title(turn).unwrap_or_else(|| session.name.clone()),
-                subtitle: Some(session.model.clone()).filter(|value| !value.is_empty()),
+                subtitle: None,
                 status: turn_status(turn.status),
                 updated_at: turn.updated_at,
                 started_at: Some(turn.started_at),
@@ -6754,9 +7546,9 @@ pub mod services {
                 session_id: Some(session.id.clone()),
                 run_id: Some(turn.id.clone()),
                 parent_run_id: None,
-                agent_id: Some(session.agent_id.clone()),
-                effective_model: Some(session.model.clone()).filter(|value| !value.is_empty()),
-                provider: Some(session.provider.clone()).filter(|value| !value.is_empty()),
+                agent_id: None,
+                effective_model: None,
+                provider: None,
                 event_count: turn.events.len() as u64,
             }
         }
@@ -6814,7 +7606,56 @@ pub mod services {
                 return false;
             };
 
+            let message_id = session.messages[index].id.clone();
+            let message_timestamp = session.messages[index].timestamp;
             session.messages[index].content = updated_content.to_string();
+
+            let mut matched_by_id = false;
+            let mut legacy_candidate: Option<(usize, usize, u64)> = None;
+            for (turn_index, turn) in session.turns.iter().enumerate() {
+                for (event_index, event) in turn.events.iter().enumerate() {
+                    let ChatTurnEventKind::UserMessage { content } = &event.kind else {
+                        continue;
+                    };
+                    if content != original_content {
+                        continue;
+                    }
+                    if event.message_id.as_deref() == Some(message_id.as_str()) {
+                        matched_by_id = true;
+                        continue;
+                    }
+                    if event.message_id.is_none() {
+                        let distance = event.timestamp.abs_diff(message_timestamp);
+                        match legacy_candidate {
+                            Some((_, _, best_distance)) if best_distance <= distance => {}
+                            _ => legacy_candidate = Some((turn_index, event_index, distance)),
+                        }
+                    }
+                }
+            }
+
+            for turn in &mut session.turns {
+                for event in &mut turn.events {
+                    if event.message_id.as_deref() == Some(message_id.as_str())
+                        && let ChatTurnEventKind::UserMessage { content } = &mut event.kind
+                        && content == original_content
+                    {
+                        *content = updated_content.to_string();
+                    }
+                }
+            }
+
+            if !matched_by_id
+                && let Some((turn_index, event_index, _)) = legacy_candidate
+                && let Some(event) = session
+                    .turns
+                    .get_mut(turn_index)
+                    .and_then(|turn| turn.events.get_mut(event_index))
+                && let ChatTurnEventKind::UserMessage { content } = &mut event.kind
+            {
+                *content = updated_content.to_string();
+                event.message_id = Some(message_id);
+            }
             true
         }
 
@@ -6822,6 +7663,7 @@ pub mod services {
         mod tests {
             use super::*;
             use crate::storage::Storage;
+            use std::sync::Arc;
             use tempfile::tempdir;
             use types::MessageExecution;
 
@@ -6908,6 +7750,185 @@ pub mod services {
                 assert_eq!(reloaded.messages.len(), 2);
                 assert_eq!(reloaded.messages[0].content, "hello");
                 assert_eq!(reloaded.messages[1].content, "world");
+            }
+
+            #[test]
+            fn save_existing_session_preserves_concurrent_metadata_changes() {
+                let (storage, service, mut stale_session) = setup();
+                service
+                    .rename_session(&stale_session.id, "Renamed elsewhere".to_string())
+                    .unwrap();
+
+                stale_session.add_message(ChatMessage::user("hello"));
+                service
+                    .save_existing_session(&stale_session, "ipc")
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &stale_session.id);
+                assert_eq!(reloaded.name, "Renamed elsewhere");
+                assert_eq!(reloaded.messages.len(), 1);
+                assert_eq!(reloaded.messages[0].content, "hello");
+            }
+
+            #[test]
+            fn save_existing_session_allows_execution_agent_id_update() {
+                let (storage, service, mut stale_session) = setup();
+                service
+                    .rename_session(&stale_session.id, "Renamed elsewhere".to_string())
+                    .unwrap();
+
+                stale_session.agent_id = "fallback-agent".to_string();
+                stale_session.add_message(ChatMessage::user("hello"));
+                service
+                    .save_existing_session_with_agent_id_override(&stale_session, "ipc", "agent-1")
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &stale_session.id);
+                assert_eq!(reloaded.name, "Renamed elsewhere");
+                assert_eq!(reloaded.agent_id, "fallback-agent");
+                assert_eq!(reloaded.messages.len(), 1);
+            }
+
+            #[test]
+            fn guarded_agent_id_update_preserves_concurrent_agent_change() {
+                let (storage, service, mut stale_session) = setup();
+                let new_agent = storage
+                    .agents
+                    .create_agent(
+                        "Concurrent Agent".to_string(),
+                        types::AgentNode::with_model(ModelId::Gpt5),
+                    )
+                    .unwrap();
+                service
+                    .update_session(
+                        &stale_session.id,
+                        ChatSessionUpdate {
+                            agent_id: Some(new_agent.id.clone()),
+                            model: None,
+                            name: None,
+                        },
+                    )
+                    .unwrap();
+
+                stale_session.agent_id = "fallback-agent".to_string();
+                stale_session.add_message(ChatMessage::user("hello"));
+                service
+                    .save_existing_session_with_agent_id_override(&stale_session, "ipc", "agent-1")
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &stale_session.id);
+                assert_eq!(reloaded.agent_id, new_agent.id);
+                assert_eq!(reloaded.messages.len(), 1);
+            }
+
+            #[test]
+            fn save_existing_session_preserves_concurrent_agent_change() {
+                let (storage, service, mut stale_session) = setup();
+                let new_agent = storage
+                    .agents
+                    .create_agent(
+                        "Concurrent Agent".to_string(),
+                        types::AgentNode::with_model(ModelId::Gpt5),
+                    )
+                    .unwrap();
+                service
+                    .update_session(
+                        &stale_session.id,
+                        ChatSessionUpdate {
+                            agent_id: Some(new_agent.id.clone()),
+                            model: None,
+                            name: None,
+                        },
+                    )
+                    .unwrap();
+
+                stale_session.agent_id = "old-agent".to_string();
+                stale_session.add_message(ChatMessage::user("hello"));
+                service
+                    .save_existing_session(&stale_session, "ipc")
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &stale_session.id);
+                assert_eq!(reloaded.agent_id, new_agent.id);
+                assert_eq!(reloaded.messages.len(), 1);
+            }
+
+            #[test]
+            fn save_existing_session_preserves_concurrent_model_change() {
+                let (storage, service, mut stale_session) = setup();
+                service
+                    .switch_session_model(
+                        &stale_session.id,
+                        "minimax-coding-plan".to_string(),
+                        "minimax-coding-plan-m2-5".to_string(),
+                    )
+                    .unwrap();
+
+                stale_session.set_model_identity(ModelId::Gpt5);
+                stale_session.add_message(ChatMessage::user("hello"));
+                service
+                    .save_existing_session(&stale_session, "ipc")
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &stale_session.id);
+                assert_eq!(reloaded.provider, "minimax-coding-plan");
+                assert_eq!(reloaded.model, "minimax-coding-plan-m2-5");
+                assert_eq!(reloaded.messages.len(), 1);
+            }
+
+            #[test]
+            fn guarded_runtime_identity_preserves_concurrent_model_change() {
+                let (storage, service, mut running_session) = setup();
+                let expected_provider = running_session.provider.clone();
+                let expected_model = running_session.model.clone();
+                running_session.add_message(ChatMessage::user("voice input"));
+                save_session(&storage, &running_session);
+
+                service
+                    .switch_session_model(
+                        &running_session.id,
+                        "minimax-coding-plan".to_string(),
+                        "minimax-coding-plan-m2-5".to_string(),
+                    )
+                    .unwrap();
+
+                service
+                    .persist_interactive_turn_with_runtime_identity(
+                        &mut running_session,
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "assistant output",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("gpt-5"))
+                        .with_final_model(Some(ModelId::Gpt5)),
+                        RuntimeIdentityGuard::new(&expected_provider, &expected_model),
+                    )
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &running_session.id);
+                assert_eq!(reloaded.provider, "minimax-coding-plan");
+                assert_eq!(reloaded.model, "minimax-coding-plan-m2-5");
+                assert_eq!(reloaded.messages.len(), 2);
+            }
+
+            #[test]
+            fn legacy_workspace_session_create_keeps_custom_model_string() {
+                let (_storage, service, _session) = setup();
+
+                let created = service
+                    .create_workspace_session(
+                        "agent-1".to_string(),
+                        "custom-provider/custom-model-v1".to_string(),
+                        Some("Custom".to_string()),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+
+                assert_eq!(created.model, "custom-provider/custom-model-v1");
             }
 
             #[test]
@@ -7082,7 +8103,7 @@ pub mod services {
             }
 
             #[test]
-            fn save_existing_session_mirrors_to_file_session_store() {
+            fn save_existing_session_does_not_create_missing_file_session() {
                 let dir = tempdir().unwrap();
                 let db_path = dir.path().join("session-service.db");
                 let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
@@ -7091,10 +8112,12 @@ pub mod services {
                 let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
                 session.add_message(ChatMessage::user("hello"));
 
-                service.save_existing_session(&session, "test").unwrap();
+                let error = service
+                    .save_existing_session(&session, "test")
+                    .expect_err("save_existing_session should not create missing sessions");
 
-                let loaded = file_store.get(&session.id).unwrap().expect("jsonl session");
-                assert_eq!(loaded.to_chat_session().messages.len(), 1);
+                assert!(error.to_string().contains("Session not found"));
+                assert!(file_store.get(&session.id).unwrap().is_none());
             }
 
             #[test]
@@ -7125,15 +8148,15 @@ pub mod services {
                 service
                     .persist_interactive_turn(
                         &mut session,
-                        PersistInteractiveTurnRequest {
-                            original_input: "voice input",
-                            persisted_input: "voice transcript",
-                            assistant_output: "assistant output",
-                            active_model: Some("gpt-5"),
-                            final_model: Some(ModelId::Gpt5),
-                            execution: MessageExecution::new().complete(20, 1),
-                            source: "ipc",
-                        },
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "assistant output",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("gpt-5"))
+                        .with_final_model(Some(ModelId::Gpt5)),
                     )
                     .unwrap();
 
@@ -7146,6 +8169,133 @@ pub mod services {
             }
 
             #[test]
+            fn persist_interactive_turn_backfills_existing_assistant_event_message_id() {
+                let (storage, service, mut session) = setup();
+                session.add_message(ChatMessage::user("voice input"));
+                session.record_turn_user_message("turn-1", "voice input");
+                session.record_turn_event(
+                    "turn-1",
+                    ChatTurnEventKind::AssistantMessage {
+                        content: "assistant output".to_string(),
+                    },
+                );
+                save_session(&storage, &session);
+
+                service
+                    .persist_interactive_turn(
+                        &mut session,
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "assistant output",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("gpt-5"))
+                        .with_final_model(Some(ModelId::Gpt5)),
+                    )
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &session.id);
+                let assistant_message = reloaded
+                    .messages
+                    .iter()
+                    .find(|message| {
+                        message.role == ChatRole::Assistant && message.content == "assistant output"
+                    })
+                    .expect("assistant message");
+                let assistant_events = reloaded.turns[0]
+                    .events
+                    .iter()
+                    .filter(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::AssistantMessage { content }
+                                if content == "assistant output"
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                assert_eq!(assistant_events.len(), 1);
+                assert_eq!(
+                    assistant_events[0].message_id.as_deref(),
+                    Some(assistant_message.id.as_str())
+                );
+            }
+
+            #[test]
+            fn persist_interactive_turn_rewrites_user_turn_event_with_message() {
+                let (storage, service, mut session) = setup();
+                session.add_message(ChatMessage::user("voice input"));
+                let user_message_id = session.messages[0].id.clone();
+                session.record_turn_user_message("turn-1", "voice input");
+                save_session(&storage, &session);
+
+                service
+                    .persist_interactive_turn(
+                        &mut session,
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "assistant output",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("gpt-5"))
+                        .with_final_model(Some(ModelId::Gpt5)),
+                    )
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &session.id);
+                assert_eq!(reloaded.messages[0].content, "voice transcript");
+                let user_event = &reloaded.turns[0].events[0];
+                assert_eq!(
+                    user_event.message_id.as_deref(),
+                    Some(user_message_id.as_str())
+                );
+                assert!(matches!(
+                    &user_event.kind,
+                    ChatTurnEventKind::UserMessage { content } if content == "voice transcript"
+                ));
+            }
+
+            #[test]
+            fn persist_interactive_turn_rewrites_legacy_user_turn_event_without_message_id() {
+                let (storage, service, mut session) = setup();
+                session.add_message(ChatMessage::user("voice input"));
+                let user_message_id = session.messages[0].id.clone();
+                session.record_turn_user_message("turn-1", "voice input");
+                session.turns[0].events[0].message_id = None;
+                save_session(&storage, &session);
+
+                service
+                    .persist_interactive_turn(
+                        &mut session,
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "assistant output",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("gpt-5"))
+                        .with_final_model(Some(ModelId::Gpt5)),
+                    )
+                    .unwrap();
+
+                let reloaded = load_session(&storage, &session.id);
+                let user_event = &reloaded.turns[0].events[0];
+                assert_eq!(
+                    user_event.message_id.as_deref(),
+                    Some(user_message_id.as_str())
+                );
+                assert!(matches!(
+                    &user_event.kind,
+                    ChatTurnEventKind::UserMessage { content } if content == "voice transcript"
+                ));
+            }
+
+            #[test]
             fn persist_interactive_turn_prefers_provider_aware_final_model() {
                 let (storage, service, mut session) = setup();
                 session.add_message(ChatMessage::user("voice input"));
@@ -7154,15 +8304,15 @@ pub mod services {
                 service
                     .persist_interactive_turn(
                         &mut session,
-                        PersistInteractiveTurnRequest {
-                            original_input: "voice input",
-                            persisted_input: "voice transcript",
-                            assistant_output: "assistant output",
-                            active_model: Some("MiniMax-M2.5"),
-                            final_model: Some(ModelId::MiniMaxM25CodingPlan),
-                            execution: MessageExecution::new().complete(20, 1),
-                            source: "ipc",
-                        },
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "assistant output",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("MiniMax-M2.5"))
+                        .with_final_model(Some(ModelId::MiniMaxM25CodingPlan)),
                     )
                     .unwrap();
 
@@ -7179,15 +8329,15 @@ pub mod services {
                 let error = service
                     .persist_interactive_turn(
                         &mut session,
-                        PersistInteractiveTurnRequest {
-                            original_input: "voice input",
-                            persisted_input: "voice transcript",
-                            assistant_output: "   ",
-                            active_model: Some("gpt-5"),
-                            final_model: Some(ModelId::Gpt5),
-                            execution: MessageExecution::new().complete(20, 1),
-                            source: "ipc",
-                        },
+                        PersistInteractiveTurnRequest::new(
+                            "voice input",
+                            "voice transcript",
+                            "   ",
+                            MessageExecution::new().complete(20, 1),
+                            "ipc",
+                        )
+                        .with_active_model(Some("gpt-5"))
+                        .with_final_model(Some(ModelId::Gpt5)),
                     )
                     .expect_err("empty assistant output should be rejected");
 
@@ -7876,13 +9026,14 @@ pub mod session_log {
 
     use anyhow::{Context, Result, anyhow};
     use chrono::{DateTime, Datelike, TimeZone, Utc};
+    use fs2::FileExt;
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
     use std::collections::{HashMap, HashSet};
     use std::fs::{self, File, OpenOptions};
     use std::io::{BufRead, BufReader, Write};
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Arc, Mutex, OnceLock, Weak};
     use types::{
         ChatMessage, ChatMessageMedia, ChatMessageTranscript, ChatRole, ChatSession,
         ChatSessionMetadata, ChatSessionSummary, ChatTurn, ChatTurnEvent, ChatTurnEventKind,
@@ -7890,6 +9041,8 @@ pub mod session_log {
     };
     use uuid::Uuid;
     use walkdir::WalkDir;
+    #[cfg(windows)]
+    use windows_sys::Win32::Storage::FileSystem::{REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW};
 
     pub const SESSION_SCHEMA_VERSION: u32 = 1;
 
@@ -7934,6 +9087,8 @@ pub mod session_log {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub cost: Option<f64>,
     }
+
+    const MAX_STORED_CHAT_MESSAGES: usize = 200;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     #[serde(tag = "type", rename_all = "snake_case")]
@@ -8011,6 +9166,8 @@ pub mod session_log {
             time: String,
             turn_id: String,
             #[serde(default, skip_serializing_if = "Option::is_none")]
+            message_id: Option<String>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
             status: Option<ChatTurnStatus>,
             #[serde(rename = "event")]
             kind: ChatTurnEventKind,
@@ -8068,6 +9225,8 @@ pub mod session_log {
         TurnEvent {
             time: String,
             turn_id: String,
+            #[serde(rename = "event")]
+            kind: ChatTurnEventKind,
         },
         Compact {
             time: String,
@@ -8215,7 +9374,15 @@ pub mod session_log {
             meta.agent_id = Some(session.agent_id.clone());
             meta.skill_id = session.skill_id.clone();
             meta.retention = session.retention.clone();
-            meta.summary_message_id = session.summary_message_id.clone();
+            let message_ids = session
+                .messages
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<HashSet<_>>();
+            meta.summary_message_id = session
+                .summary_message_id
+                .clone()
+                .filter(|summary_id| message_ids.contains(summary_id.as_str()));
             meta.archived_at = session.archived_at.map(iso_from_millis);
 
             let mut events = vec![meta.clone().into_event()];
@@ -8223,8 +9390,10 @@ pub mod session_log {
                 events.push(message_event_from_chat_message(message));
             }
             for turn in &session.turns {
-                for event in &turn.events {
-                    events.push(turn_event_from_chat_turn_event(turn, event));
+                let last_event_index = turn.events.len().saturating_sub(1);
+                for (index, event) in turn.events.iter().enumerate() {
+                    let status = (index == last_event_index).then_some(turn.status);
+                    events.push(turn_event_from_chat_turn_event(turn, event, status));
                 }
             }
 
@@ -8251,14 +9420,16 @@ pub mod session_log {
                     && let Some(next_event) = next_events.get(id)
                 {
                     if std::mem::discriminant(event) == std::mem::discriminant(next_event) {
-                        merged_events.push(next_event.clone());
+                        merged_events.push(merge_same_id_event(event, next_event));
                     } else {
                         merged_events.push(event.clone());
                     }
                     remaining_event_ids.remove(id);
                     continue;
                 }
-                merged_events.push(event.clone());
+                if should_preserve_unmatched_existing_event(event, session) {
+                    merged_events.push(event.clone());
+                }
             }
 
             for event in next.events.drain(1..) {
@@ -8275,7 +9446,44 @@ pub mod session_log {
             next
         }
 
+        pub fn merge_chat_session_preserving_existing_meta(
+            existing: Option<&FileSession>,
+            session: &ChatSession,
+        ) -> Self {
+            let mut next = Self::merge_chat_session(existing, session);
+            let Some(existing) = existing else {
+                return next;
+            };
+
+            next.meta = merge_content_save_meta(&existing.meta, &next.meta);
+            if let Some(first) = next.events.first_mut() {
+                *first = next.meta.clone().into_event();
+            }
+            next
+        }
+
+        pub fn merge_chat_session_preserving_existing_meta_with_agent_id(
+            existing: Option<&FileSession>,
+            session: &ChatSession,
+        ) -> Self {
+            let mut next = Self::merge_chat_session_preserving_existing_meta(existing, session);
+            if let Some(first) = next.events.first_mut() {
+                next.meta.agent_id = Some(session.agent_id.clone());
+                *first = next.meta.clone().into_event();
+            }
+            next
+        }
+
         pub fn to_chat_session(&self) -> ChatSession {
+            let mut provider = self.meta.provider.clone().unwrap_or_default();
+            let mut model = self.meta.model.clone().unwrap_or_default();
+            if provider.is_empty() {
+                let (resolved_provider, resolved_model) =
+                    ChatSession::resolve_model_identity(&model);
+                provider = resolved_provider;
+                model = resolved_model;
+            }
+
             let mut session = ChatSession {
                 id: self.meta.id.clone(),
                 name: self
@@ -8288,12 +9496,8 @@ pub mod session_log {
                     .agent_id
                     .clone()
                     .unwrap_or_else(|| "default".to_string()),
-                provider: self.meta.provider.clone().unwrap_or_default(),
-                model: self
-                    .meta
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
+                provider,
+                model,
                 messages: Vec::new(),
                 turns: Vec::new(),
                 created_at: parse_time_ms(&self.meta.created_at),
@@ -8386,6 +9590,7 @@ pub mod session_log {
                         id,
                         time,
                         turn_id,
+                        message_id,
                         status,
                         kind,
                     } => {
@@ -8406,20 +9611,17 @@ pub mod session_log {
                             session.turns.len() - 1
                         };
                         let turn = &mut session.turns[index];
-                        turn.events.push(ChatTurnEvent {
-                            id: id.clone(),
-                            timestamp,
-                            kind: kind.clone(),
-                        });
+                        let mut event = ChatTurnEvent::new(kind.clone());
+                        event.id = id.clone();
+                        event.message_id = message_id.clone();
+                        event.timestamp = timestamp;
+                        turn.events.push(event);
                         turn.updated_at = timestamp;
-                        if let Some(status) = status {
+                        if let Some(status) = status
+                            && !turn.status.is_terminal()
+                        {
                             turn.status = *status;
-                            if matches!(
-                                status,
-                                ChatTurnStatus::Completed
-                                    | ChatTurnStatus::Canceled
-                                    | ChatTurnStatus::Failed
-                            ) {
+                            if turn.status.is_terminal() {
                                 turn.completed_at = Some(timestamp);
                             }
                         }
@@ -8459,6 +9661,7 @@ pub mod session_log {
             }
             session.created_at = parse_time_ms(&self.meta.created_at);
             session.updated_at = parse_time_ms(&self.meta.updated_at);
+            backfill_turn_event_message_ids(&mut session);
             session
         }
     }
@@ -8468,33 +9671,112 @@ pub mod session_log {
         root: PathBuf,
     }
 
-    #[derive(Debug, Clone)]
-    struct SessionSummaryCacheEntry {
-        summaries: Vec<ChatSessionSummary>,
-    }
-
-    #[derive(Debug, Clone)]
-    struct SessionPathCacheEntry {
-        paths: Vec<PathBuf>,
-    }
-
-    fn session_summary_cache() -> &'static Mutex<HashMap<PathBuf, SessionSummaryCacheEntry>> {
-        static CACHE: OnceLock<Mutex<HashMap<PathBuf, SessionSummaryCacheEntry>>> = OnceLock::new();
-        CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-    }
-
-    fn session_path_cache() -> &'static Mutex<HashMap<PathBuf, SessionPathCacheEntry>> {
-        static CACHE: OnceLock<Mutex<HashMap<PathBuf, SessionPathCacheEntry>>> = OnceLock::new();
-        CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-    }
-
     fn invalidate_session_caches(root: &Path) {
-        if let Ok(mut cache) = session_summary_cache().lock() {
-            cache.remove(root);
+        let _ = root;
+    }
+
+    type SessionWriteLockKey = (PathBuf, String);
+    type SessionWriteLockMap = HashMap<SessionWriteLockKey, Weak<Mutex<()>>>;
+
+    fn session_lock_file_stem(session_id: &str) -> String {
+        let stem = session_id
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        if stem.is_empty() {
+            "unknown-session".to_string()
+        } else {
+            stem
         }
-        if let Ok(mut cache) = session_path_cache().lock() {
-            cache.remove(root);
+    }
+
+    fn session_file_write_lock(root: &Path, session_id: &str) -> Arc<Mutex<()>> {
+        static LOCKS: OnceLock<Mutex<SessionWriteLockMap>> = OnceLock::new();
+        let key = (root.to_path_buf(), session_id.to_string());
+        let mut locks = LOCKS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .expect("session file write lock registry");
+        if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+            return lock;
         }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(key, Arc::downgrade(&lock));
+        lock
+    }
+
+    fn session_file_write_lock_path(root: &Path, session_id: &str) -> PathBuf {
+        root.join(".locks")
+            .join(format!("{}.lock", session_lock_file_stem(session_id)))
+    }
+
+    #[cfg(not(windows))]
+    fn replace_session_file(tmp_path: &Path, path: &Path, _force: bool) -> Result<()> {
+        fs::rename(tmp_path, path).with_context(|| {
+            format!(
+                "failed to replace session file {} with {}",
+                path.display(),
+                tmp_path.display()
+            )
+        })
+    }
+
+    #[cfg(windows)]
+    fn replace_session_file(tmp_path: &Path, path: &Path, force: bool) -> Result<()> {
+        if force && path.exists() {
+            return replace_session_file_windows(tmp_path, path);
+        }
+        fs::rename(tmp_path, path).with_context(|| {
+            format!(
+                "failed to replace session file {} with {}",
+                path.display(),
+                tmp_path.display()
+            )
+        })
+    }
+
+    #[cfg(windows)]
+    fn replace_session_file_windows(tmp_path: &Path, path: &Path) -> Result<()> {
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr::null;
+
+        let replaced = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let replacement = tmp_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+
+        let ok = unsafe {
+            ReplaceFileW(
+                replaced.as_ptr(),
+                replacement.as_ptr(),
+                null(),
+                REPLACEFILE_IGNORE_MERGE_ERRORS,
+                null(),
+                null(),
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error()).with_context(|| {
+                format!(
+                    "failed to atomically replace session file {} with {}",
+                    path.display(),
+                    tmp_path.display()
+                )
+            });
+        }
+        Ok(())
     }
 
     impl FileSessionStore {
@@ -8504,6 +9786,49 @@ pub mod session_log {
 
         pub fn root(&self) -> &Path {
             &self.root
+        }
+
+        pub(crate) fn with_session_write_lock<T>(
+            &self,
+            session_id: &str,
+            write: impl FnOnce() -> Result<T>,
+        ) -> Result<T> {
+            let lock = session_file_write_lock(&self.root, session_id);
+            let _guard = lock
+                .lock()
+                .map_err(|_| anyhow!("session write lock poisoned"))?;
+            let lock_path = session_file_write_lock_path(&self.root, session_id);
+            if let Some(parent) = lock_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let lock_file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)
+                .with_context(|| {
+                    format!("Failed to open session write lock {}", lock_path.display())
+                })?;
+            lock_file.lock_exclusive().with_context(|| {
+                format!(
+                    "Failed to acquire session write lock {}",
+                    lock_path.display()
+                )
+            })?;
+            let result = write();
+            let unlock_result = lock_file.unlock().with_context(|| {
+                format!(
+                    "Failed to release session write lock {}",
+                    lock_path.display()
+                )
+            });
+            match (result, unlock_result) {
+                (Ok(value), Ok(())) => Ok(value),
+                (Err(error), Ok(())) => Err(error),
+                (Ok(_), Err(error)) => Err(error),
+                (Err(error), Err(unlock_error)) => Err(error.context(unlock_error)),
+            }
         }
 
         pub fn create_empty(&self, agent_id: String, model: String) -> Result<FileSession> {
@@ -8519,6 +9844,16 @@ pub mod session_log {
         }
 
         pub fn write_session(&self, session: &FileSession, force: bool) -> Result<WriteOutcome> {
+            self.with_session_write_lock(&session.meta.id, || {
+                self.write_session_unlocked(session, force)
+            })
+        }
+
+        pub(crate) fn write_session_unlocked(
+            &self,
+            session: &FileSession,
+            force: bool,
+        ) -> Result<WriteOutcome> {
             let path = self.path_for_meta(&session.meta)?;
             if path.exists() && !force {
                 return Ok(WriteOutcome::Skipped { path });
@@ -8526,22 +9861,196 @@ pub mod session_log {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let mut file = File::create(&path)?;
+            let tmp_path = path.with_extension(format!(
+                "jsonl.tmp-{}-{}",
+                std::process::id(),
+                Uuid::new_v4()
+            ));
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp_path)
+                .with_context(|| {
+                    format!(
+                        "failed to create temporary session file {}",
+                        tmp_path.display()
+                    )
+                })?;
             for event in &session.events {
                 write_event_line(&mut file, event)?;
+            }
+            file.sync_all()?;
+            drop(file);
+            replace_session_file(&tmp_path, &path, force)?;
+            if let Some(parent) = path.parent()
+                && let Ok(parent_dir) = File::open(parent)
+            {
+                let _ = parent_dir.sync_all();
             }
             invalidate_session_caches(&self.root);
             Ok(WriteOutcome::Written { path })
         }
 
         pub fn append_event(&self, session_id: &str, event: &SessionLogEvent) -> Result<()> {
-            let path = self
-                .find_session_path(session_id)?
-                .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
-            let mut file = OpenOptions::new().append(true).open(path)?;
-            write_event_line(&mut file, event)?;
-            invalidate_session_caches(&self.root);
-            Ok(())
+            self.with_session_write_lock(session_id, || {
+                let path = self
+                    .find_session_path(session_id)?
+                    .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
+                let mut file = OpenOptions::new()
+                    .append(true)
+                    .open(&path)
+                    .with_context(|| format!("Failed to open session file {}", path.display()))?;
+                write_event_line(&mut file, event)?;
+                file.sync_data()?;
+                invalidate_session_caches(&self.root);
+                Ok(())
+            })
+        }
+
+        pub fn append_turn_event_if_non_terminal(
+            &self,
+            session_id: &str,
+            turn_id: &str,
+            kind: ChatTurnEventKind,
+        ) -> Result<bool> {
+            self.with_session_write_lock(session_id, || {
+                let path = self
+                    .find_session_path(session_id)?
+                    .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
+                let session = read_session_file(&path)?;
+                let status = session
+                    .to_chat_session()
+                    .turns
+                    .iter()
+                    .find(|turn| turn.id == turn_id)
+                    .map(|turn| turn.status)
+                    .unwrap_or(ChatTurnStatus::Running);
+                if status.is_terminal() {
+                    return Ok(false);
+                }
+
+                let event = ChatTurnEvent::new(kind);
+                let mut file = OpenOptions::new()
+                    .append(true)
+                    .open(&path)
+                    .with_context(|| format!("Failed to open session file {}", path.display()))?;
+                write_event_line(
+                    &mut file,
+                    &SessionLogEvent::TurnEvent {
+                        id: event.id,
+                        time: iso_from_millis(event.timestamp),
+                        turn_id: turn_id.to_string(),
+                        message_id: event.message_id,
+                        status: Some(status),
+                        kind: event.kind,
+                    },
+                )?;
+                file.sync_data()?;
+                invalidate_session_caches(&self.root);
+                Ok(true)
+            })
+        }
+
+        pub fn record_turn_user_message_if_non_terminal(
+            &self,
+            session_id: &str,
+            turn_id: &str,
+            content: &str,
+        ) -> Result<bool> {
+            self.append_turn_user_message_if_non_terminal_with_mode(
+                session_id, turn_id, content, false,
+            )
+        }
+
+        pub fn append_turn_user_message_if_non_terminal(
+            &self,
+            session_id: &str,
+            turn_id: &str,
+            content: &str,
+        ) -> Result<bool> {
+            self.append_turn_user_message_if_non_terminal_with_mode(
+                session_id, turn_id, content, true,
+            )
+        }
+
+        fn append_turn_user_message_if_non_terminal_with_mode(
+            &self,
+            session_id: &str,
+            turn_id: &str,
+            content: &str,
+            append_distinct: bool,
+        ) -> Result<bool> {
+            self.with_session_write_lock(session_id, || {
+                let path = self
+                    .find_session_path(session_id)?
+                    .ok_or_else(|| anyhow!(types::session_not_found_message(session_id)))?;
+                let session = read_session_file(&path)?;
+                let chat_session = session.to_chat_session();
+                let turn = chat_session.turns.iter().find(|turn| turn.id == turn_id);
+                let status = turn
+                    .map(|turn| turn.status)
+                    .unwrap_or(ChatTurnStatus::Running);
+                if status.is_terminal() {
+                    return Ok(false);
+                }
+                if !append_distinct
+                    && turn.is_some_and(|turn| {
+                        turn.events.iter().any(|event| {
+                            matches!(
+                                &event.kind,
+                                ChatTurnEventKind::UserMessage { content: existing }
+                                    if existing == content
+                            )
+                        })
+                    })
+                {
+                    return Ok(true);
+                }
+
+                let mut user_message = None;
+                let message_id = if append_distinct {
+                    let message = ChatMessage::user(content);
+                    let message_id = message.id.clone();
+                    user_message = Some(message);
+                    Some(message_id)
+                } else {
+                    chat_session
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|message| {
+                            message.role == ChatRole::User && message.content == content
+                        })
+                        .map(|message| message.id.clone())
+                };
+
+                let mut event = ChatTurnEvent::new(ChatTurnEventKind::UserMessage {
+                    content: content.to_string(),
+                });
+                event.message_id = message_id;
+
+                let mut file = OpenOptions::new()
+                    .append(true)
+                    .open(&path)
+                    .with_context(|| format!("Failed to open session file {}", path.display()))?;
+                if let Some(message) = user_message {
+                    write_event_line(&mut file, &message_event_from_chat_message(&message))?;
+                }
+                write_event_line(
+                    &mut file,
+                    &SessionLogEvent::TurnEvent {
+                        id: event.id,
+                        time: iso_from_millis(event.timestamp),
+                        turn_id: turn_id.to_string(),
+                        message_id: event.message_id,
+                        status: Some(status),
+                        kind: event.kind,
+                    },
+                )?;
+                file.sync_data()?;
+                invalidate_session_caches(&self.root);
+                Ok(true)
+            })
         }
 
         pub fn get(&self, id: &str) -> Result<Option<FileSession>> {
@@ -8569,17 +10078,23 @@ pub mod session_log {
         }
 
         pub fn delete(&self, id: &str) -> Result<bool> {
-            let Some(path) = self.find_session_path(id)? else {
-                return Ok(false);
-            };
-            fs::remove_file(path)?;
-            invalidate_session_caches(&self.root);
-            Ok(true)
+            self.with_session_write_lock(id, || {
+                let Some(path) = self.find_session_path(id)? else {
+                    return Ok(false);
+                };
+                fs::remove_file(path)?;
+                invalidate_session_caches(&self.root);
+                Ok(true)
+            })
         }
 
         pub fn list(&self) -> Result<Vec<FileSession>> {
+            self.list_uncached()
+        }
+
+        pub fn list_uncached(&self) -> Result<Vec<FileSession>> {
             let mut sessions = Vec::new();
-            for path in self.session_paths()? {
+            for path in self.read_session_paths_uncached()? {
                 match read_session_file(&path) {
                     Ok(session) => sessions.push(session),
                     Err(err) => {
@@ -8593,27 +10108,26 @@ pub mod session_log {
         }
 
         pub fn list_summaries(&self) -> Result<Vec<ChatSessionSummary>> {
-            let mut summaries = self.list_summary_cache_entries()?;
+            self.list_summaries_uncached()
+        }
+
+        pub fn list_summaries_uncached(&self) -> Result<Vec<ChatSessionSummary>> {
+            let mut summaries = self.read_summary_entries_uncached()?;
             summaries.retain(|summary| summary.archived_at.is_none());
             Ok(summaries)
         }
 
         pub fn list_summaries_all(&self) -> Result<Vec<ChatSessionSummary>> {
-            self.list_summary_cache_entries()
+            self.list_summaries_all_uncached()
         }
 
-        fn list_summary_cache_entries(&self) -> Result<Vec<ChatSessionSummary>> {
-            let cache_key = self.root.clone();
-            if let Some(entry) = session_summary_cache()
-                .lock()
-                .ok()
-                .and_then(|cache| cache.get(&cache_key).cloned())
-            {
-                return Ok(entry.summaries);
-            }
+        pub fn list_summaries_all_uncached(&self) -> Result<Vec<ChatSessionSummary>> {
+            self.read_summary_entries_uncached()
+        }
 
+        fn read_summary_entries_uncached(&self) -> Result<Vec<ChatSessionSummary>> {
             let mut summaries = Vec::new();
-            for path in self.session_paths()? {
+            for path in self.read_session_paths_uncached()? {
                 match read_session_summary_file(&path) {
                     Ok(summary) => summaries.push(summary),
                     Err(err) => {
@@ -8622,15 +10136,6 @@ pub mod session_log {
                 }
             }
             summaries.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
-
-            if let Ok(mut cache) = session_summary_cache().lock() {
-                cache.insert(
-                    cache_key,
-                    SessionSummaryCacheEntry {
-                        summaries: summaries.clone(),
-                    },
-                );
-            }
             Ok(summaries)
         }
 
@@ -8690,15 +10195,10 @@ pub mod session_log {
         }
 
         fn session_paths(&self) -> Result<Vec<PathBuf>> {
-            let cache_key = self.root.clone();
-            if let Some(entry) = session_path_cache()
-                .lock()
-                .ok()
-                .and_then(|cache| cache.get(&cache_key).cloned())
-            {
-                return Ok(entry.paths);
-            }
+            self.read_session_paths_uncached()
+        }
 
+        fn read_session_paths_uncached(&self) -> Result<Vec<PathBuf>> {
             if !self.root.exists() {
                 return Ok(Vec::new());
             }
@@ -8724,16 +10224,7 @@ pub mod session_log {
                         .then_with(|| left_path.cmp(right_path))
                 },
             );
-            let paths: Vec<PathBuf> = entries.into_iter().map(|(path, _)| path).collect();
-            if let Ok(mut cache) = session_path_cache().lock() {
-                cache.insert(
-                    cache_key,
-                    SessionPathCacheEntry {
-                        paths: paths.clone(),
-                    },
-                );
-            }
-            Ok(paths)
+            Ok(entries.into_iter().map(|(path, _)| path).collect())
         }
     }
 
@@ -8792,14 +10283,19 @@ pub mod session_log {
             }
             if let Some(preview) = summary_event_preview(&event) {
                 message_count = message_count.saturating_add(1);
-                if first_user_message.is_none()
-                    && let SessionLogSummaryEvent::Message {
-                        role: SessionMessageRole::User,
-                        text,
-                        ..
-                    } = &event
-                {
-                    first_user_message = Some(text.clone());
+                if first_user_message.is_none() {
+                    match &event {
+                        SessionLogSummaryEvent::Message {
+                            role: SessionMessageRole::User,
+                            text,
+                            ..
+                        } => first_user_message = Some(text.clone()),
+                        SessionLogSummaryEvent::TurnEvent {
+                            kind: ChatTurnEventKind::UserMessage { content },
+                            ..
+                        } => first_user_message = Some(content.clone()),
+                        _ => {}
+                    }
                 }
                 last_message_preview = Some(preview);
             }
@@ -8831,12 +10327,20 @@ pub mod session_log {
             .as_deref()
             .map(parse_time_ms)
             .unwrap_or_else(|| parse_time_ms(&updated_at));
+        let mut provider = provider.unwrap_or_default();
+        let mut model = model.unwrap_or_default();
+        if provider.is_empty() {
+            let (resolved_provider, resolved_model) = ChatSession::resolve_model_identity(&model);
+            provider = resolved_provider;
+            model = resolved_model;
+        }
+
         Ok(ChatSessionSummary {
             id,
             name,
             agent_id: agent_id.unwrap_or_else(|| "default".to_string()),
-            provider: provider.unwrap_or_default(),
-            model: model.unwrap_or_else(|| "unknown".to_string()),
+            provider,
+            model,
             skill_id,
             message_count,
             updated_at,
@@ -8917,10 +10421,26 @@ pub mod session_log {
                 tool,
                 status.as_deref().unwrap_or("completed")
             )),
+            SessionLogSummaryEvent::TurnEvent { kind, .. } => match kind {
+                ChatTurnEventKind::UserMessage { content }
+                | ChatTurnEventKind::AssistantMessage { content } => {
+                    Some(truncate_summary_preview(content))
+                }
+                ChatTurnEventKind::ToolCall { name, .. } => Some(format!("[tool_call:{name}]")),
+                ChatTurnEventKind::ToolResult {
+                    call_id, success, ..
+                } => {
+                    let status = if *success { "completed" } else { "failed" };
+                    Some(format!("[tool_result:{call_id}:{status}]"))
+                }
+                ChatTurnEventKind::Progress { message } => Some(truncate_summary_preview(message)),
+                ChatTurnEventKind::Error { message } => Some(truncate_summary_preview(message)),
+                ChatTurnEventKind::Canceled => Some("[canceled]".to_string()),
+            },
             SessionLogSummaryEvent::Compact { .. } => Some("[compact]".to_string()),
-            SessionLogSummaryEvent::SessionMeta { .. }
-            | SessionLogSummaryEvent::TurnEvent { .. }
-            | SessionLogSummaryEvent::Usage { .. } => None,
+            SessionLogSummaryEvent::SessionMeta { .. } | SessionLogSummaryEvent::Usage { .. } => {
+                None
+            }
         }
     }
 
@@ -9013,12 +10533,17 @@ pub mod session_log {
         }
     }
 
-    fn turn_event_from_chat_turn_event(turn: &ChatTurn, event: &ChatTurnEvent) -> SessionLogEvent {
+    fn turn_event_from_chat_turn_event(
+        turn: &ChatTurn,
+        event: &ChatTurnEvent,
+        status: Option<ChatTurnStatus>,
+    ) -> SessionLogEvent {
         SessionLogEvent::TurnEvent {
             id: event.id.clone(),
             time: iso_from_millis(event.timestamp),
             turn_id: turn.id.clone(),
-            status: Some(turn.status),
+            message_id: event.message_id.clone(),
+            status,
             kind: event.kind.clone(),
         }
     }
@@ -9041,6 +10566,49 @@ pub mod session_log {
         session.messages.push(message);
     }
 
+    pub(crate) fn backfill_turn_event_message_ids(session: &mut ChatSession) {
+        let messages = session.messages.clone();
+        let mut used_message_ids = session
+            .turns
+            .iter()
+            .flat_map(|turn| turn.events.iter())
+            .filter_map(|event| event.message_id.clone())
+            .collect::<HashSet<_>>();
+        for turn in &mut session.turns {
+            for event in &mut turn.events {
+                if event.message_id.is_some() {
+                    continue;
+                }
+                let Some((role, content)) = turn_event_message_identity(&event.kind) else {
+                    continue;
+                };
+                let Some(message) = messages
+                    .iter()
+                    .filter(|message| {
+                        message.role == role
+                            && message.content == content
+                            && !used_message_ids.contains(&message.id)
+                    })
+                    .min_by_key(|message| message.timestamp.abs_diff(event.timestamp))
+                else {
+                    continue;
+                };
+                event.message_id = Some(message.id.clone());
+                used_message_ids.insert(message.id.clone());
+            }
+        }
+    }
+
+    fn turn_event_message_identity(kind: &ChatTurnEventKind) -> Option<(ChatRole, &str)> {
+        match kind {
+            ChatTurnEventKind::UserMessage { content } => Some((ChatRole::User, content.as_str())),
+            ChatTurnEventKind::AssistantMessage { content } => {
+                Some((ChatRole::Assistant, content.as_str()))
+            }
+            _ => None,
+        }
+    }
+
     fn event_id(event: &SessionLogEvent) -> Option<&str> {
         match event {
             SessionLogEvent::Message { id, .. }
@@ -9050,6 +10618,164 @@ pub mod session_log {
             | SessionLogEvent::TurnEvent { id, .. }
             | SessionLogEvent::Compact { id, .. } => Some(id),
             SessionLogEvent::SessionMeta { .. } | SessionLogEvent::Usage { .. } => None,
+        }
+    }
+
+    fn merge_same_id_event(
+        existing: &SessionLogEvent,
+        incoming: &SessionLogEvent,
+    ) -> SessionLogEvent {
+        if matches!(incoming, SessionLogEvent::TurnEvent { status: None, .. }) {
+            return incoming.clone();
+        }
+
+        let existing_status = event_turn_status(existing);
+        let incoming_status = event_turn_status(incoming);
+        if turn_status_rank(existing_status) > turn_status_rank(incoming_status) {
+            return existing.clone();
+        }
+        if turn_status_rank(incoming_status) > turn_status_rank(existing_status) {
+            return incoming.clone();
+        }
+
+        let existing_time = event_time_ms(existing);
+        let incoming_time = event_time_ms(incoming);
+        if existing_time > incoming_time {
+            existing.clone()
+        } else {
+            incoming.clone()
+        }
+    }
+
+    fn should_preserve_unmatched_existing_event(
+        event: &SessionLogEvent,
+        incoming: &ChatSession,
+    ) -> bool {
+        match event {
+            SessionLogEvent::Message { time, .. } => {
+                should_preserve_by_incoming_message_boundary(time, None, incoming)
+            }
+            SessionLogEvent::TurnEvent {
+                time, message_id, ..
+            } => {
+                should_preserve_by_incoming_message_boundary(time, message_id.as_deref(), incoming)
+            }
+            SessionLogEvent::Reasoning { time, .. }
+            | SessionLogEvent::ToolCall { time, .. }
+            | SessionLogEvent::ToolResult { time, .. }
+            | SessionLogEvent::Compact { time, .. }
+            | SessionLogEvent::Usage { time, .. } => {
+                should_preserve_by_incoming_message_boundary(time, None, incoming)
+            }
+            _ => true,
+        }
+    }
+
+    fn should_preserve_by_incoming_message_boundary(
+        time: &str,
+        message_id: Option<&str>,
+        incoming: &ChatSession,
+    ) -> bool {
+        if incoming.messages.len() < MAX_STORED_CHAT_MESSAGES {
+            return true;
+        }
+        if let Some(message_id) = message_id
+            && incoming
+                .messages
+                .iter()
+                .any(|message| message.id == message_id)
+        {
+            return true;
+        }
+        let oldest_incoming_message = incoming
+            .messages
+            .iter()
+            .map(|message| message.timestamp)
+            .min()
+            .unwrap_or_default();
+        parse_time_ms(time) > oldest_incoming_message
+    }
+
+    fn merge_content_save_meta(existing: &SessionMeta, incoming: &SessionMeta) -> SessionMeta {
+        let mut meta = existing.clone();
+        meta.updated_at = iso_from_millis(
+            parse_time_ms(&existing.updated_at).max(parse_time_ms(&incoming.updated_at)),
+        );
+        if is_default_session_title(meta.title.as_deref())
+            && incoming.title.as_deref() != meta.title.as_deref()
+        {
+            meta.title = incoming.title.clone();
+        }
+        if meta.cwd.is_none() {
+            meta.cwd = incoming.cwd.clone();
+        }
+        if meta
+            .model
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+            && incoming.model.is_some()
+        {
+            meta.model = incoming.model.clone();
+        }
+        if meta
+            .provider
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+            && incoming.provider.is_some()
+        {
+            meta.provider = incoming.provider.clone();
+        }
+        if meta.app_version.is_none() {
+            meta.app_version = incoming.app_version.clone();
+        }
+        if meta.git_branch.is_none() {
+            meta.git_branch = incoming.git_branch.clone();
+        }
+        if meta.agent_id.is_none() {
+            meta.agent_id = incoming.agent_id.clone();
+        }
+        if meta.skill_id.is_none() {
+            meta.skill_id = incoming.skill_id.clone();
+        }
+        if meta.retention.is_none() {
+            meta.retention = incoming.retention.clone();
+        }
+        if incoming.summary_message_id.is_some() {
+            meta.summary_message_id = incoming.summary_message_id.clone();
+        }
+        meta
+    }
+
+    fn is_default_session_title(title: Option<&str>) -> bool {
+        title.is_none_or(|title| title.trim().is_empty() || title == "New Chat")
+    }
+
+    fn event_turn_status(event: &SessionLogEvent) -> Option<ChatTurnStatus> {
+        match event {
+            SessionLogEvent::TurnEvent { status, .. } => *status,
+            _ => None,
+        }
+    }
+
+    fn turn_status_rank(status: Option<ChatTurnStatus>) -> u8 {
+        match status {
+            Some(ChatTurnStatus::Canceled) | Some(ChatTurnStatus::Failed) => 3,
+            Some(ChatTurnStatus::Completed) => 2,
+            Some(ChatTurnStatus::Running) => 1,
+            None => 0,
+        }
+    }
+
+    fn event_time_ms(event: &SessionLogEvent) -> i64 {
+        match event {
+            SessionLogEvent::SessionMeta { updated_at, .. } => parse_time_ms(updated_at),
+            SessionLogEvent::Message { time, .. }
+            | SessionLogEvent::Reasoning { time, .. }
+            | SessionLogEvent::ToolCall { time, .. }
+            | SessionLogEvent::ToolResult { time, .. }
+            | SessionLogEvent::TurnEvent { time, .. }
+            | SessionLogEvent::Compact { time, .. }
+            | SessionLogEvent::Usage { time, .. } => parse_time_ms(time),
         }
     }
 
@@ -9238,6 +10964,44 @@ pub mod session_log {
         }
 
         #[test]
+        fn lightweight_summary_resolves_legacy_providerless_api_model() {
+            let dir = tempdir().unwrap();
+            let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+            let mut meta = SessionMeta::new(
+                "session-legacy-model".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+            );
+            meta.model = Some("gpt-5.5".to_string());
+            meta.provider = None;
+            let session = FileSession::new(meta.clone(), vec![meta.into_event()]);
+            store.write_session(&session, false).unwrap();
+
+            let summaries = store.list_summaries().unwrap();
+
+            assert_eq!(summaries[0].provider, "openai");
+            assert_eq!(summaries[0].model, "gpt-5-5");
+        }
+
+        #[test]
+        fn lightweight_summary_without_model_metadata_keeps_model_empty() {
+            let dir = tempdir().unwrap();
+            let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+            let meta = SessionMeta::new(
+                "session-no-model".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+            );
+            let session = FileSession::new(meta.clone(), vec![meta.into_event()]);
+            store.write_session(&session, false).unwrap();
+
+            let summaries = store.list_summaries().unwrap();
+
+            assert!(summaries[0].provider.is_empty());
+            assert!(summaries[0].model.is_empty());
+        }
+
+        #[test]
         fn cached_file_session_summaries_refresh_after_append() {
             let dir = tempdir().unwrap();
             let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
@@ -9285,6 +11049,59 @@ pub mod session_log {
             let refreshed = store.list_summaries().unwrap();
             assert_eq!(refreshed[0].message_count, 2);
             assert_eq!(refreshed[0].last_message_preview.as_deref(), Some("world"));
+        }
+
+        #[test]
+        fn lightweight_summary_uses_turn_event_previews() {
+            let dir = tempdir().unwrap();
+            let store = FileSessionStore::new(dir.path().join("sessions")).unwrap();
+            let mut meta = SessionMeta::new(
+                "session-turn-summary".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+            );
+            meta.agent_id = Some("agent-1".to_string());
+            let session = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.into_event(),
+                    SessionLogEvent::TurnEvent {
+                        id: "event-1".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Running),
+                        kind: ChatTurnEventKind::UserMessage {
+                            content: "please review".to_string(),
+                        },
+                    },
+                    SessionLogEvent::TurnEvent {
+                        id: "event-2".to_string(),
+                        time: "2026-05-03T00:00:02.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Completed),
+                        kind: ChatTurnEventKind::AssistantMessage {
+                            content: "review complete".to_string(),
+                        },
+                    },
+                ],
+            );
+            store.write_session(&session, false).unwrap();
+
+            let summaries = store.list_summaries().unwrap();
+
+            assert_eq!(summaries.len(), 1);
+            assert_eq!(summaries[0].name, "please review");
+            assert_eq!(summaries[0].message_count, 2);
+            assert_eq!(
+                summaries[0].last_message_preview.as_deref(),
+                Some("review complete")
+            );
+            assert_eq!(
+                summaries[0].updated_at,
+                parse_time_ms("2026-05-03T00:00:02.000Z")
+            );
         }
 
         #[test]
@@ -9372,6 +11189,26 @@ pub mod session_log {
         }
 
         #[test]
+        fn merge_content_save_meta_uses_latest_summary_pointer() {
+            let mut existing = SessionMeta::new(
+                "session-1".to_string(),
+                "old".to_string(),
+                "old".to_string(),
+            );
+            existing.summary_message_id = Some("summary-old".to_string());
+            let mut incoming = SessionMeta::new(
+                "session-1".to_string(),
+                "new".to_string(),
+                "new".to_string(),
+            );
+            incoming.summary_message_id = Some("summary-new".to_string());
+
+            let merged = merge_content_save_meta(&existing, &incoming);
+
+            assert_eq!(merged.summary_message_id.as_deref(), Some("summary-new"));
+        }
+
+        #[test]
         fn turn_events_roundtrip_through_jsonl_session() {
             let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
             session.record_turn_user_message("turn-1", "hello");
@@ -9407,6 +11244,59 @@ pub mod session_log {
                 reloaded.turns[0].events[1].kind,
                 ChatTurnEventKind::ToolCall { .. }
             ));
+        }
+
+        #[test]
+        fn jsonl_load_backfills_legacy_turn_event_message_ids() {
+            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+            session.add_message(ChatMessage::user("hello"));
+            session.record_turn_user_message("turn-1", "hello");
+            session.add_message(ChatMessage::assistant("done"));
+            session.complete_turn_with_assistant_message("turn-1", "done");
+            let user_id = session.messages[0].id.clone();
+            let assistant_id = session.messages[1].id.clone();
+
+            let mut file_session = FileSession::from_chat_session(&session);
+            for event in &mut file_session.events {
+                if let SessionLogEvent::TurnEvent { message_id, .. } = event {
+                    *message_id = None;
+                }
+            }
+
+            let reloaded = file_session.to_chat_session();
+            let events = &reloaded.turns[0].events;
+            assert_eq!(events[0].message_id.as_deref(), Some(user_id.as_str()));
+            assert_eq!(events[1].message_id.as_deref(), Some(assistant_id.as_str()));
+        }
+
+        #[test]
+        fn jsonl_load_resolves_legacy_providerless_api_model() {
+            let mut meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:05:00.000Z".to_string(),
+            );
+            meta.model = Some("gpt-5.5".to_string());
+            meta.provider = None;
+
+            let session = FileSession::new(meta, Vec::new()).to_chat_session();
+
+            assert_eq!(session.provider, "openai");
+            assert_eq!(session.model, "gpt-5-5");
+        }
+
+        #[test]
+        fn jsonl_load_without_model_metadata_keeps_model_empty() {
+            let meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:05:00.000Z".to_string(),
+            );
+
+            let session = FileSession::new(meta, Vec::new()).to_chat_session();
+
+            assert!(session.provider.is_empty());
+            assert!(session.model.is_empty());
         }
 
         #[test]
@@ -9511,6 +11401,320 @@ pub mod session_log {
         }
 
         #[test]
+        fn merge_chat_session_drops_stale_turn_events_beyond_message_cap() {
+            let mut meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:02.000Z".to_string(),
+            );
+            meta.title = Some("Session".to_string());
+            let existing = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::TurnEvent {
+                        id: "old-event".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        turn_id: "old-turn".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Completed),
+                        kind: ChatTurnEventKind::AssistantMessage {
+                            content: "stale".to_string(),
+                        },
+                    },
+                ],
+            );
+            let mut incoming = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+            incoming.id = "session-1".to_string();
+            for index in 0..MAX_STORED_CHAT_MESSAGES {
+                let mut message = ChatMessage::user(format!("msg {index}"));
+                message.timestamp = parse_time_ms("2026-05-03T00:10:00.000Z") + index as i64;
+                incoming.messages.push(message);
+            }
+
+            let merged = FileSession::merge_chat_session(Some(&existing), &incoming);
+
+            assert!(!merged.events.iter().any(|event| {
+                matches!(event, SessionLogEvent::TurnEvent { id, .. } if id == "old-event")
+            }));
+        }
+
+        #[test]
+        fn merge_chat_session_drops_stale_legacy_runtime_events_beyond_message_cap() {
+            let mut meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:02.000Z".to_string(),
+            );
+            meta.title = Some("Session".to_string());
+            let existing = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::Reasoning {
+                        id: "old-reasoning".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        text: "stale reasoning".to_string(),
+                    },
+                    SessionLogEvent::ToolCall {
+                        id: "old-tool-call".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        tool: "bash".to_string(),
+                        input: serde_json::json!({"command": "cat huge.txt"}),
+                        cwd: None,
+                    },
+                    SessionLogEvent::ToolResult {
+                        id: "old-tool-result".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        tool: "bash".to_string(),
+                        output: Some("stale output".to_string()),
+                        status: Some("completed".to_string()),
+                        error: None,
+                        exit_code: Some(0),
+                        duration_ms: Some(1),
+                    },
+                    SessionLogEvent::Compact {
+                        id: "old-compact".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        summary: "stale summary".to_string(),
+                        auto: Some(true),
+                    },
+                ],
+            );
+            let mut incoming = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+            incoming.id = "session-1".to_string();
+            for index in 0..MAX_STORED_CHAT_MESSAGES {
+                let mut message = ChatMessage::user(format!("msg {index}"));
+                message.timestamp = parse_time_ms("2026-05-03T00:10:00.000Z") + index as i64;
+                incoming.messages.push(message);
+            }
+
+            let merged = FileSession::merge_chat_session(Some(&existing), &incoming);
+
+            assert!(!merged.events.iter().any(|event| matches!(
+            event,
+            SessionLogEvent::Reasoning { id, .. }
+                | SessionLogEvent::ToolCall { id, .. }
+                | SessionLogEvent::ToolResult { id, .. }
+                | SessionLogEvent::Compact { id, .. }
+                if id.starts_with("old-")
+            )));
+        }
+
+        #[test]
+        fn merge_chat_session_drops_stale_runtime_events_at_retention_timestamp_boundary() {
+            let mut meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:02.000Z".to_string(),
+            );
+            meta.title = Some("Session".to_string());
+            let existing = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::ToolResult {
+                        id: "stale-tool-result".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        tool: "bash".to_string(),
+                        output: Some("stale output".to_string()),
+                        status: Some("completed".to_string()),
+                        error: None,
+                        exit_code: Some(0),
+                        duration_ms: Some(1),
+                    },
+                ],
+            );
+            let mut incoming = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+            incoming.id = "session-1".to_string();
+            for index in 0..MAX_STORED_CHAT_MESSAGES {
+                let mut message = ChatMessage::user(format!("msg {index}"));
+                message.timestamp = parse_time_ms("2026-05-03T00:00:01.000Z") + index as i64;
+                incoming.messages.push(message);
+            }
+
+            let merged = FileSession::merge_chat_session(Some(&existing), &incoming);
+
+            assert!(!merged.events.iter().any(|event| {
+                matches!(event, SessionLogEvent::ToolResult { id, .. } if id == "stale-tool-result")
+            }));
+        }
+
+        #[test]
+        fn merge_chat_session_does_not_regress_terminal_turn_event_status() {
+            let mut meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:02.000Z".to_string(),
+            );
+            meta.title = Some("Session".to_string());
+            let existing = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::TurnEvent {
+                        id: "event-1".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Completed),
+                        kind: ChatTurnEventKind::AssistantMessage {
+                            content: "done".to_string(),
+                        },
+                    },
+                ],
+            );
+            let incoming = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::TurnEvent {
+                        id: "event-1".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Running),
+                        kind: ChatTurnEventKind::AssistantMessage {
+                            content: "done".to_string(),
+                        },
+                    },
+                ],
+            );
+            let merged =
+                FileSession::merge_chat_session(Some(&existing), &incoming.to_chat_session());
+
+            assert!(matches!(
+                merged.events.get(1),
+                Some(SessionLogEvent::TurnEvent {
+                    status: Some(ChatTurnStatus::Completed),
+                    ..
+                })
+            ));
+        }
+
+        #[test]
+        fn jsonl_replay_does_not_regress_terminal_turn_status() {
+            let meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:03.000Z".to_string(),
+            );
+            let session = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::TurnEvent {
+                        id: "cancel-event".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Canceled),
+                        kind: ChatTurnEventKind::Canceled,
+                    },
+                    SessionLogEvent::TurnEvent {
+                        id: "late-running-event".to_string(),
+                        time: "2026-05-03T00:00:02.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Running),
+                        kind: ChatTurnEventKind::UserMessage {
+                            content: "late steer".to_string(),
+                        },
+                    },
+                ],
+            )
+            .to_chat_session();
+
+            assert_eq!(session.turns[0].status, ChatTurnStatus::Canceled);
+            assert_eq!(session.turns[0].events.len(), 2);
+        }
+
+        #[test]
+        fn full_session_rewrite_writes_turn_status_only_on_latest_event() {
+            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+            let mut user_event = ChatTurnEvent::new(ChatTurnEventKind::UserMessage {
+                content: "hello".to_string(),
+            });
+            user_event.id = "turn-user".to_string();
+            user_event.timestamp = 1_000;
+            let mut assistant_event = ChatTurnEvent::new(ChatTurnEventKind::AssistantMessage {
+                content: "done".to_string(),
+            });
+            assistant_event.id = "turn-assistant".to_string();
+            assistant_event.timestamp = 2_000;
+            session.turns.push(ChatTurn {
+                id: "turn-1".to_string(),
+                status: ChatTurnStatus::Completed,
+                started_at: 1_000,
+                updated_at: 2_000,
+                completed_at: Some(2_000),
+                events: vec![user_event, assistant_event],
+            });
+
+            let file_session = FileSession::from_chat_session(&session);
+            let statuses = file_session
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    SessionLogEvent::TurnEvent { status, .. } => Some(*status),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(statuses, vec![None, Some(ChatTurnStatus::Completed)]);
+            let reloaded = file_session.to_chat_session();
+            assert_eq!(reloaded.turns[0].completed_at, Some(2_000));
+        }
+
+        #[test]
+        fn merge_rewrite_clears_stale_status_from_non_latest_turn_event() {
+            let meta = SessionMeta::new(
+                "session-1".to_string(),
+                "2026-05-03T00:00:00.000Z".to_string(),
+                "2026-05-03T00:00:02.000Z".to_string(),
+            );
+            let existing = FileSession::new(
+                meta.clone(),
+                vec![
+                    meta.clone().into_event(),
+                    SessionLogEvent::TurnEvent {
+                        id: "turn-user".to_string(),
+                        time: "2026-05-03T00:00:01.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Running),
+                        kind: ChatTurnEventKind::UserMessage {
+                            content: "hello".to_string(),
+                        },
+                    },
+                    SessionLogEvent::TurnEvent {
+                        id: "turn-assistant".to_string(),
+                        time: "2026-05-03T00:00:02.000Z".to_string(),
+                        turn_id: "turn-1".to_string(),
+                        message_id: None,
+                        status: Some(ChatTurnStatus::Completed),
+                        kind: ChatTurnEventKind::AssistantMessage {
+                            content: "done".to_string(),
+                        },
+                    },
+                ],
+            );
+            let incoming = existing.to_chat_session();
+
+            let merged = FileSession::merge_chat_session(Some(&existing), &incoming);
+            let statuses = merged
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    SessionLogEvent::TurnEvent { status, .. } => Some(*status),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(statuses, vec![None, Some(ChatTurnStatus::Completed)]);
+        }
+
+        #[test]
         fn message_structured_fields_roundtrip_through_jsonl() {
             let mut execution = MessageExecution::new().complete(1200, 42);
             execution.input_tokens = Some(20);
@@ -9541,116 +11745,6 @@ pub mod session_log {
                 Some(ChatMessageMedia::voice("/tmp/voice.ogg", Some(3)))
             );
             assert_eq!(reloaded_message.transcript.as_ref().unwrap().text, "done");
-        }
-    }
-}
-pub mod steer {
-    use std::collections::HashMap;
-    use tokio::sync::{RwLock, mpsc};
-
-    use types::SteerMessage;
-
-    /// Registry of steer channels for running streams.
-    /// Each running stream registers a sender; external code sends steer messages.
-    pub struct SteerRegistry {
-        channels: RwLock<HashMap<String, mpsc::Sender<SteerMessage>>>,
-    }
-
-    impl SteerRegistry {
-        pub fn new() -> Self {
-            Self {
-                channels: RwLock::new(HashMap::new()),
-            }
-        }
-
-        /// Register a steer channel for a running stream.
-        /// Returns the receiver for the executor to poll.
-        pub async fn register(&self, stream_id: &str) -> mpsc::Receiver<SteerMessage> {
-            let (tx, rx) = mpsc::channel(16);
-            self.channels
-                .write()
-                .await
-                .insert(stream_id.to_string(), tx);
-            rx
-        }
-
-        /// Unregister when stream completes.
-        pub async fn unregister(&self, stream_id: &str) {
-            self.channels.write().await.remove(stream_id);
-        }
-
-        /// Send a steer message to a running stream.
-        /// Returns false if the stream is not running or channel is full.
-        pub async fn steer(&self, stream_id: &str, message: SteerMessage) -> bool {
-            let channels = self.channels.read().await;
-            if let Some(tx) = channels.get(stream_id) {
-                tx.try_send(message).is_ok()
-            } else {
-                false
-            }
-        }
-
-        /// Check if a stream has a steer channel.
-        pub async fn is_steerable(&self, stream_id: &str) -> bool {
-            self.channels.read().await.contains_key(stream_id)
-        }
-    }
-
-    impl Default for SteerRegistry {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use types::SteerSource;
-
-        #[tokio::test]
-        async fn test_steer_registry_register_unregister() {
-            let registry = SteerRegistry::new();
-            let _rx = registry.register("stream-1").await;
-            assert!(registry.is_steerable("stream-1").await);
-
-            registry.unregister("stream-1").await;
-            assert!(!registry.is_steerable("stream-1").await);
-        }
-
-        #[tokio::test]
-        async fn test_steer_message_delivery() {
-            let registry = SteerRegistry::new();
-            let mut rx = registry.register("stream-1").await;
-
-            let msg = SteerMessage::message("check ETH too", SteerSource::User);
-            assert!(registry.steer("stream-1", msg).await);
-
-            let received = rx.recv().await.unwrap();
-            assert_eq!(received.instruction(), "check ETH too");
-        }
-
-        #[tokio::test]
-        async fn test_steer_nonexistent_stream() {
-            let registry = SteerRegistry::new();
-            let msg = SteerMessage::message("test", SteerSource::User);
-            assert!(!registry.steer("no-such-stream", msg).await);
-        }
-
-        #[tokio::test]
-        async fn test_steer_channel_capacity() {
-            // Channel capacity is 16, sending 20 messages should drop overflow
-            let registry = SteerRegistry::new();
-            let _rx = registry.register("stream-1").await; // don't consume
-
-            for i in 0..20 {
-                registry
-                    .steer(
-                        "stream-1",
-                        SteerMessage::message(format!("msg-{i}"), SteerSource::User),
-                    )
-                    .await;
-            }
-            // First 16 should be queued, rest dropped (try_send behavior)
         }
     }
 }
@@ -9821,7 +11915,7 @@ pub mod storage {
             let db_path = PathBuf::from(path);
 
             let config = ConfigStorage;
-            let agents = AgentStorage::new_file_backed()?;
+            let agents = AgentStorage::new_file_backed_path(agent_store_path(path))?;
             let secrets = SecretStorage::with_config_path(db_path.clone(), secret_config)?;
             let file_sessions = FileSessionStore::new(session_store_path(path))?;
 
@@ -9836,6 +11930,10 @@ pub mod storage {
 
     fn session_store_path(db_path: &str) -> PathBuf {
         Path::new(db_path).with_file_name("sessions")
+    }
+
+    fn agent_store_path(db_path: &str) -> PathBuf {
+        Path::new(db_path).with_file_name("agents")
     }
 
     #[cfg(test)]
@@ -9977,7 +12075,6 @@ pub use config::{
 };
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use services::agent_catalog::{AgentStorage, DEFAULT_ASSISTANT_NAME, StoredAgent};
-pub use steer::SteerRegistry;
 
 use anyhow::Context;
 use std::sync::Arc;

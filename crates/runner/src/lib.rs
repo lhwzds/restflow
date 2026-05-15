@@ -538,14 +538,13 @@ mod runtime {
             use restflow_core::storage::Storage;
             use types::skill::SkillProvider;
 
-            use ::tools::impls::RunSkillTool;
+            use ::tools::RunSkillTool;
 
             use types::tool::SecretResolver;
             const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
             const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
-            fn composite_skill_provider(storage: Option<&Storage>) -> Arc<dyn SkillProvider> {
-                let _ = storage;
+            fn skrun_skill_provider() -> Arc<dyn SkillProvider> {
                 Arc::new(SkrunSkillProvider::default())
             }
 
@@ -719,7 +718,7 @@ mod runtime {
                         | "wait_subagents"
                         | "list_subagents" => {}
                         "load_skill" => {
-                            let provider = composite_skill_provider(storage);
+                            let provider = skrun_skill_provider();
                             builder = if let Some(gate) = security_gate.clone() {
                                 builder.with_load_skill_with_security(
                                     provider,
@@ -750,7 +749,7 @@ mod runtime {
                             builder = builder.with_ops(Arc::new(OpsProviderAdapter::new()));
                         }
                         "skill" => {
-                            let provider = composite_skill_provider(storage);
+                            let provider = skrun_skill_provider();
                             builder = if let Some(gate) = security_gate.clone() {
                                 builder.with_skill_tool_with_security(
                                     provider,
@@ -806,7 +805,7 @@ mod runtime {
                             // Registered by callers that provide a ReplySender.
                         }
                         unknown => {
-                            let provider = composite_skill_provider(storage);
+                            let provider = skrun_skill_provider();
                             if provider.get_skill(unknown).is_some() {
                                 debug!(
                                     skill_id = %unknown,
@@ -1331,8 +1330,8 @@ mod runtime {
             AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode,
             SessionTurnRuntimeOptions,
         };
-        use ::agent::StreamDisplayMode;
-        use ::agent::agent::{NullEmitter, StreamEmitter};
+        use crate::{StreamDisplayMode, StreamEmitter};
+        use ::agent::agent::{NullEmitter, StreamEmitter as AgentStreamEmitter};
         use types::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
         use types::{ChatSession, SteerMessage};
 
@@ -1398,6 +1397,15 @@ mod runtime {
                 Self::new(executor)
             }
 
+            pub fn resolve_session_agent_for_execution(
+                &self,
+                session: &mut ChatSession,
+            ) -> Result<()> {
+                self.executor
+                    .resolve_stored_agent_for_session(session)
+                    .map(|_| ())
+            }
+
             pub async fn run_interactive_session_turn(
                 &self,
                 session: &mut ChatSession,
@@ -1428,7 +1436,7 @@ mod runtime {
                 user_input: &str,
                 max_history: usize,
                 input_mode: SessionInputMode,
-                emitter: Option<Box<dyn StreamEmitter>>,
+                emitter: Option<Box<dyn AgentStreamEmitter>>,
                 options: SessionTurnRuntimeOptions,
             ) -> Result<InteractiveExecutionResult> {
                 let execution = self
@@ -1482,7 +1490,7 @@ mod runtime {
                     .resolve_stored_agent_for_session(session)
                     .map_err(InteractiveExecutionError::Execution)?;
 
-                let traced_emitter: Box<dyn StreamEmitter> =
+                let traced_emitter: Box<dyn AgentStreamEmitter> =
                     emitter.unwrap_or_else(|| Box::new(NullEmitter));
                 let started_at = Instant::now();
                 let execution_result = if let Some(timeout_secs) = timeout_secs {
@@ -1535,34 +1543,11 @@ mod runtime {
 
             async fn run_interactive_plan(
                 &self,
-                plan: ExecutionPlan,
+                _plan: ExecutionPlan,
             ) -> std::result::Result<ExecutionOutcome, ToolError> {
-                let session_id = plan.chat_session_id.as_deref().ok_or_else(|| {
-                    ToolError::Tool("Interactive execution requires 'chat_session_id'.".to_string())
-                })?;
-                let mut session = self
-                    .executor
-                    .load_chat_session(session_id)
-                    .map_err(map_anyhow_error)?;
-                let input = require_mode_input(&plan, "input")?;
-                let max_history = parse_optional_metadata::<usize>(&plan, "max_history")?
-                    .unwrap_or(types::DEFAULT_CHAT_MAX_SESSION_HISTORY);
-                let input_mode =
-                    parse_optional_metadata::<SessionInputModeWrapper>(&plan, "input_mode")?
-                        .map(Into::into)
-                        .unwrap_or(SessionInputMode::EphemeralInput);
-
-                self.run_interactive_session_turn(
-                    &mut session,
-                    input,
-                    max_history,
-                    input_mode,
-                    None,
-                    None,
-                )
-                .await
-                .map(|result| result.outcome)
-                .map_err(map_anyhow_error)
+                Err(ToolError::Tool(
+                    "Interactive ExecutionPlan is unsupported; run chat turns through the TUI or daemon session runtime so JSONL persistence stays authoritative.".to_string(),
+                ))
             }
         }
 
@@ -1584,89 +1569,8 @@ mod runtime {
             }
         }
 
-        fn parse_optional_metadata<T: serde::de::DeserializeOwned>(
-            plan: &ExecutionPlan,
-            field: &str,
-        ) -> std::result::Result<Option<T>, ToolError> {
-            let Some(metadata) = plan.metadata.as_ref() else {
-                return Ok(None);
-            };
-            let Some(value) = metadata.get(field) else {
-                return Ok(None);
-            };
-
-            serde_json::from_value(value.clone())
-                .map(Some)
-                .map_err(|error| ToolError::Tool(format!("Invalid '{field}' metadata: {error}")))
-        }
-
-        fn require_mode_input<'a>(
-            plan: &'a ExecutionPlan,
-            field: &'static str,
-        ) -> std::result::Result<&'a str, ToolError> {
-            plan.input
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| {
-                    ToolError::Tool(format!("Execution plan requires non-empty '{field}'."))
-                })
-        }
-
         fn map_anyhow_error(error: anyhow::Error) -> ToolError {
             ToolError::Tool(error.to_string())
-        }
-
-        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        enum SessionInputModeWrapper {
-            PersistedInSession,
-            EphemeralInput,
-        }
-
-        impl From<SessionInputModeWrapper> for SessionInputMode {
-            fn from(value: SessionInputModeWrapper) -> Self {
-                match value {
-                    SessionInputModeWrapper::PersistedInSession => {
-                        SessionInputMode::PersistedInSession
-                    }
-                    SessionInputModeWrapper::EphemeralInput => SessionInputMode::EphemeralInput,
-                }
-            }
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-
-            #[test]
-            fn require_mode_input_rejects_blank_input() {
-                let plan = ExecutionPlan {
-                    input: Some("  ".to_string()),
-                    ..ExecutionPlan::default()
-                };
-                let error = require_mode_input(&plan, "input").expect_err("blank input fails");
-                assert!(error.to_string().contains("non-empty 'input'"));
-            }
-
-            #[test]
-            fn parse_optional_metadata_reads_input_mode() {
-                let plan = ExecutionPlan {
-                    metadata: Some(serde_json::json!({
-                        "input_mode": "persisted_in_session",
-                        "max_history": 12
-                    })),
-                    ..ExecutionPlan::default()
-                };
-
-                let mode = parse_optional_metadata::<SessionInputModeWrapper>(&plan, "input_mode")
-                    .expect("metadata should parse")
-                    .map(SessionInputMode::from);
-                let max_history = parse_optional_metadata::<usize>(&plan, "max_history")
-                    .expect("metadata should parse");
-
-                assert_eq!(mode, Some(SessionInputMode::PersistedInSession));
-                assert_eq!(max_history, Some(12));
-            }
         }
     }
     #[allow(dead_code)]
@@ -1738,7 +1642,8 @@ mod runtime {
             use types::llm::LlmProvider;
             use types::{
                 AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatTurnEventKind,
-                ChatTurnStatus, ModelId, Provider, Skill, SteerMessage,
+                ChatTurnStatus, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, ModelId, ModelRef, Provider,
+                Skill, SteerMessage,
             };
             use types::{ExecutionOutcome, ExecutionPlan, ReplySender};
 
@@ -1817,6 +1722,18 @@ mod runtime {
                             && !message.content.trim().is_empty()
                     })
                     .map(|message| message.content.trim().to_string())
+            }
+
+            fn truncate_for_context_chars(value: &str, max_chars: usize, marker: &str) -> String {
+                if value.chars().count() <= max_chars {
+                    return value.to_string();
+                }
+                let cutoff = value
+                    .char_indices()
+                    .nth(max_chars)
+                    .map(|(index, _)| index)
+                    .unwrap_or(value.len());
+                format!("{}{}", &value[..cutoff], marker)
             }
 
             fn recover_max_iterations_output(result: &AgentResult) -> String {
@@ -2930,13 +2847,25 @@ mod runtime {
 
                         let fallback = self.storage.agents.resolve_default_agent()?;
 
-                        let fallback_model = fallback
-                            .agent
-                            .resolved_model_ref()
-                            .map(|model_ref| model_ref.model.as_serialized_str().to_string())
-                            .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string());
                         session.agent_id = fallback.id.clone();
-                        session.set_model_identity_from_raw(&fallback_model);
+                        if session.model.trim().is_empty() {
+                            session.set_model_identity(
+                                fallback
+                                    .agent
+                                    .resolved_model_ref()
+                                    .map(|model_ref| model_ref.model)
+                                    .unwrap_or(ModelId::Gpt5_5),
+                            );
+                        } else if let Some(model) =
+                            ModelId::from_provider_user_input(&session.provider, &session.model)
+                        {
+                            session.set_model_identity(model);
+                        } else if let Ok(model_ref) =
+                            ModelRef::from_legacy_providerless_user_input(&session.model)
+                        {
+                            session.provider = model_ref.provider.as_canonical_str().to_string();
+                            session.model = model_ref.model.as_serialized_str().to_string();
+                        }
 
                         Ok(fallback)
                     }
@@ -2986,9 +2915,61 @@ mod runtime {
                         system_prompt
                     }
 
-                    fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
+                    pub(super) fn session_messages_for_context(
+                        session: &ChatSession,
+                    ) -> Vec<ChatMessage> {
+                        let summary_message =
+                            session.summary_message_id.as_ref().and_then(|summary_id| {
+                                session
+                                    .messages
+                                    .iter()
+                                    .find(|message| &message.id == summary_id)
+                            });
+
                         if session.turns.iter().any(|turn| !turn.events.is_empty()) {
-                            return Self::completed_turn_messages_for_context(session);
+                            let summary_timestamp =
+                                Self::session_context_boundary_timestamp(session, summary_message);
+                            let mut messages = Vec::new();
+                            if let Some(summary) = summary_message {
+                                messages.push(summary.clone());
+                            }
+                            let turn_messages = Self::completed_turn_messages_for_context_after(
+                                session,
+                                summary_timestamp,
+                            );
+                            let legacy_dedup_messages = Self::turn_messages_for_legacy_dedup_after(
+                                session,
+                                summary_timestamp,
+                            );
+                            let retained_legacy_messages = session
+                                .messages
+                                .iter()
+                                .filter(|message| {
+                                    summary_timestamp
+                                        .is_none_or(|timestamp| message.timestamp > timestamp)
+                                })
+                                .collect::<Vec<_>>();
+                            messages
+                                .extend(retained_legacy_messages.iter().enumerate().filter_map(
+                                |(index, message)| {
+                                    if Self::chat_message_represented_by_turn_messages(
+                                        message,
+                                        &legacy_dedup_messages,
+                                    ) || Self::assistant_message_represented_by_completed_turn(
+                                        message,
+                                        &retained_legacy_messages[..index],
+                                        session,
+                                        summary_timestamp,
+                                    ) {
+                                        None
+                                    } else {
+                                        Some((*message).clone())
+                                    }
+                                },
+                            ));
+                            messages.extend(turn_messages);
+                            messages.sort_by_key(|message| message.timestamp);
+                            return messages;
                         }
 
                         if session.messages.is_empty() {
@@ -2999,18 +2980,73 @@ mod runtime {
                             && let Some(idx) =
                                 session.messages.iter().position(|m| &m.id == summary_id)
                         {
-                            let mut messages = session.messages[idx..].to_vec();
-                            if let Some(summary) = messages.first_mut() {
-                                summary.role = ChatRole::User;
-                            }
-                            return messages;
+                            return session.messages[idx..].to_vec();
                         }
 
                         session.messages.clone()
                     }
 
-                    fn completed_turn_messages_for_context(
+                    pub(super) fn completed_turn_messages_for_context(
                         session: &ChatSession,
+                    ) -> Vec<ChatMessage> {
+                        Self::completed_turn_messages_for_context_after(session, None)
+                    }
+
+                    fn session_context_boundary_timestamp(
+                        session: &ChatSession,
+                        summary_message: Option<&ChatMessage>,
+                    ) -> Option<i64> {
+                        summary_message
+                            .map(|message| message.timestamp)
+                            .or_else(|| {
+                                session.summary_message_id.as_ref()?;
+                                session
+                                    .messages
+                                    .iter()
+                                    .map(|message| message.timestamp)
+                                    .min()
+                                    .map(|timestamp| timestamp.saturating_sub(1))
+                            })
+                    }
+
+                    fn turn_messages_for_legacy_dedup_after(
+                        session: &ChatSession,
+                        min_timestamp: Option<i64>,
+                    ) -> Vec<ChatMessage> {
+                        let mut messages = Vec::new();
+                        for turn in &session.turns {
+                            for event in &turn.events {
+                                if let Some(min_timestamp) = min_timestamp
+                                    && event.timestamp <= min_timestamp
+                                {
+                                    continue;
+                                }
+                                let mut message = match &event.kind {
+                                    ChatTurnEventKind::UserMessage { content }
+                                        if !content.trim().is_empty() =>
+                                    {
+                                        ChatMessage::user(content.clone())
+                                    }
+                                    ChatTurnEventKind::AssistantMessage { content }
+                                        if !content.trim().is_empty() =>
+                                    {
+                                        ChatMessage::assistant(content.clone())
+                                    }
+                                    _ => continue,
+                                };
+                                if let Some(message_id) = event.message_id.clone() {
+                                    message.id = message_id;
+                                }
+                                message.timestamp = event.timestamp;
+                                messages.push(message);
+                            }
+                        }
+                        messages
+                    }
+
+                    fn completed_turn_messages_for_context_after(
+                        session: &ChatSession,
+                        min_timestamp: Option<i64>,
                     ) -> Vec<ChatMessage> {
                         let mut messages = Vec::new();
 
@@ -3018,33 +3054,229 @@ mod runtime {
                             if turn.status != ChatTurnStatus::Completed {
                                 continue;
                             }
+                            if let Some(min_timestamp) = min_timestamp
+                                && turn.updated_at <= min_timestamp
+                            {
+                                continue;
+                            }
 
-                            let mut user_message: Option<String> = None;
-                            let mut assistant_message: Option<String> = None;
+                            let mut turn_messages: Vec<ChatMessage> = Vec::new();
+                            let mut assistant_segments: Vec<(String, bool, Option<String>, i64)> =
+                                Vec::new();
+                            let mut has_user_message = false;
+                            let mut has_assistant_message = false;
+
+                            let flush_assistant_segments = |turn_messages: &mut Vec<
+                                ChatMessage,
+                            >,
+                                                            assistant_segments: &mut Vec<(
+                                String,
+                                bool,
+                                Option<String>,
+                                i64,
+                            )>| {
+                                let assistant_timestamp =
+                                    assistant_segments.iter().map(|(_, _, _, time)| *time).max();
+                                let assistant_message = Self::assistant_segments_for_context(
+                                    assistant_segments
+                                        .iter()
+                                        .map(|(content, has_message_id, _, _)| {
+                                            (content.clone(), *has_message_id)
+                                        })
+                                        .collect(),
+                                );
+                                assistant_segments.clear();
+                                if assistant_message.trim().is_empty() {
+                                    return false;
+                                }
+                                let mut message = ChatMessage::assistant(assistant_message);
+                                if let Some(timestamp) = assistant_timestamp {
+                                    message.timestamp = timestamp;
+                                }
+                                turn_messages.push(message);
+                                true
+                            };
+
                             for event in &turn.events {
                                 match &event.kind {
                                     ChatTurnEventKind::UserMessage { content }
-                                        if user_message.is_none() && !content.trim().is_empty() =>
+                                        if !content.trim().is_empty() =>
                                     {
-                                        user_message = Some(content.clone());
+                                        has_assistant_message |= flush_assistant_segments(
+                                            &mut turn_messages,
+                                            &mut assistant_segments,
+                                        );
+                                        let mut message = ChatMessage::user(content.clone());
+                                        if let Some(message_id) = event.message_id.clone() {
+                                            message.id = message_id;
+                                        }
+                                        message.timestamp = event.timestamp;
+                                        turn_messages.push(message);
+                                        has_user_message = true;
+                                    }
+                                    ChatTurnEventKind::ToolCall {
+                                        call_id,
+                                        name,
+                                        arguments,
+                                    } => {
+                                        has_assistant_message |= flush_assistant_segments(
+                                            &mut turn_messages,
+                                            &mut assistant_segments,
+                                        );
+                                        let mut message = ChatMessage::system(format!(
+                                            "[tool_call:{name}:{call_id}] {arguments}"
+                                        ));
+                                        message.timestamp = event.timestamp;
+                                        turn_messages.push(message);
+                                    }
+                                    ChatTurnEventKind::ToolResult {
+                                        call_id,
+                                        success,
+                                        result,
+                                    } => {
+                                        has_assistant_message |= flush_assistant_segments(
+                                            &mut turn_messages,
+                                            &mut assistant_segments,
+                                        );
+                                        let status = if *success { "completed" } else { "failed" };
+                                        let result = Self::truncate_tool_result_for_context(result);
+                                        let mut message = ChatMessage::system(format!(
+                                            "[tool_result:{call_id}:{status}]\n{result}"
+                                        ));
+                                        message.timestamp = event.timestamp;
+                                        turn_messages.push(message);
                                     }
                                     ChatTurnEventKind::AssistantMessage { content }
                                         if !content.trim().is_empty() =>
                                     {
-                                        assistant_message = Some(content.clone());
+                                        assistant_segments.push((
+                                            content.clone(),
+                                            event.message_id.is_some(),
+                                            event.message_id.clone(),
+                                            event.timestamp,
+                                        ));
                                     }
-                                    _ => {}
+                                    _ => {
+                                        has_assistant_message |= flush_assistant_segments(
+                                            &mut turn_messages,
+                                            &mut assistant_segments,
+                                        );
+                                    }
                                 }
                             }
+                            has_assistant_message |= flush_assistant_segments(
+                                &mut turn_messages,
+                                &mut assistant_segments,
+                            );
 
-                            if let (Some(user), Some(assistant)) = (user_message, assistant_message)
-                            {
-                                messages.push(ChatMessage::user(user));
-                                messages.push(ChatMessage::assistant(assistant));
+                            if has_user_message && has_assistant_message {
+                                messages.extend(turn_messages);
                             }
                         }
 
                         messages
+                    }
+
+                    fn chat_message_represented_by_turn_messages(
+                        legacy: &ChatMessage,
+                        turn_messages: &[ChatMessage],
+                    ) -> bool {
+                        if turn_messages.iter().any(|turn_message| {
+                            legacy.id == turn_message.id
+                                || (legacy.role == turn_message.role
+                                    && legacy.content == turn_message.content
+                                    && legacy.timestamp == turn_message.timestamp)
+                        }) {
+                            return true;
+                        }
+                        if legacy.role != ChatRole::Assistant {
+                            return false;
+                        }
+                        false
+                    }
+
+                    fn assistant_message_represented_by_completed_turn(
+                        legacy: &ChatMessage,
+                        previous_legacy_messages: &[&ChatMessage],
+                        session: &ChatSession,
+                        min_timestamp: Option<i64>,
+                    ) -> bool {
+                        if legacy.role != ChatRole::Assistant {
+                            return false;
+                        }
+                        let Some(previous_user) = previous_legacy_messages
+                            .iter()
+                            .rev()
+                            .find(|message| message.role == ChatRole::User)
+                            .copied()
+                        else {
+                            return false;
+                        };
+
+                        session.turns.iter().any(|turn| {
+                            if turn.status != ChatTurnStatus::Completed {
+                                return false;
+                            }
+                            if let Some(min_timestamp) = min_timestamp
+                                && turn.updated_at <= min_timestamp
+                            {
+                                return false;
+                            }
+                            let Some(represented_user_index) =
+                                turn.events.iter().position(|event| {
+                                    let ChatTurnEventKind::UserMessage { content } = &event.kind
+                                    else {
+                                        return false;
+                                    };
+                                    event.message_id.as_deref() == Some(previous_user.id.as_str())
+                                        || (event.message_id.is_none()
+                                            && content == &previous_user.content
+                                            && event.timestamp == previous_user.timestamp)
+                                })
+                            else {
+                                return false;
+                            };
+
+                            let assistant_parts = turn
+                                .events
+                                .iter()
+                                .skip(represented_user_index + 1)
+                                .take_while(|event| {
+                                    !matches!(event.kind, ChatTurnEventKind::UserMessage { .. })
+                                })
+                                .filter_map(|event| match (&event.kind, &event.message_id) {
+                                    (ChatTurnEventKind::AssistantMessage { content }, None) => {
+                                        Some(content.as_str())
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>();
+                            !assistant_parts.is_empty()
+                                && assistant_parts.concat() == legacy.content
+                        })
+                    }
+
+                    fn truncate_tool_result_for_context(result: &str) -> String {
+                        truncate_for_context_chars(
+                            result,
+                            DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
+                            "\n[tool result truncated for context replay]",
+                        )
+                    }
+
+                    fn assistant_segments_for_context(segments: Vec<(String, bool)>) -> String {
+                        if segments.iter().any(|(_, has_message_id)| *has_message_id) {
+                            segments
+                                .into_iter()
+                                .map(|(content, _)| content)
+                                .collect::<Vec<_>>()
+                                .join("\n\n")
+                        } else {
+                            segments
+                                .into_iter()
+                                .map(|(content, _)| content)
+                                .collect::<String>()
+                        }
                     }
 
                     fn session_history_messages(
@@ -3061,6 +3293,15 @@ mod runtime {
                         // separately for persisted-input flows.
                         if input_mode == SessionInputMode::PersistedInSession
                             && matches!(messages.last().map(|m| &m.role), Some(ChatRole::User))
+                            && session
+                                .messages
+                                .iter()
+                                .rev()
+                                .find(|message| message.role == ChatRole::User)
+                                .zip(messages.last())
+                                .is_some_and(|(latest_user, last)| {
+                                    latest_user.id == last.id || latest_user.content == last.content
+                                })
                         {
                             messages.pop();
                         }
@@ -3350,12 +3591,7 @@ mod runtime {
                         let agent_node = stored_agent.agent.clone();
                         // Prefer the session's model (user override) over the agent's default
                         let primary_model = if !session.model.is_empty() {
-                            match ModelId::from_api_name(&session.model)
-                                .or_else(|| ModelId::from_canonical_id(&session.model))
-                            {
-                                Some(model) => model,
-                                None => self.resolve_primary_model(&agent_node).await?,
-                            }
+                            Self::session_model_override(session)?
                         } else {
                             self.resolve_primary_model(&agent_node).await?
                         };
@@ -3407,11 +3643,7 @@ mod runtime {
                             .await;
 
                             match result {
-                                Ok((mut exec_result, final_model)) => {
-                                    exec_result.final_model = final_model;
-                                    exec_result.metrics.final_model = Some(final_model);
-                                    return Ok(exec_result);
-                                }
+                                Ok((exec_result, _attempt_model)) => return Ok(exec_result),
                                 Err(err) => {
                                     let error_msg = err.to_string();
                                     if retry_state.should_retry(&retry_config, &error_msg) {
@@ -3424,6 +3656,24 @@ mod runtime {
                                 }
                             }
                         }
+                    }
+
+                    pub(crate) fn session_model_override(session: &ChatSession) -> Result<ModelId> {
+                        let provider = session.provider.trim();
+                        if provider.is_empty() {
+                            return ModelRef::from_legacy_providerless_user_input(&session.model)
+                                .map(|model_ref| model_ref.model)
+                                .map_err(anyhow::Error::msg);
+                        }
+                        ModelId::from_provider_user_input(provider, &session.model).ok_or_else(
+                            || {
+                                anyhow!(
+                                    "Unknown model '{}' for provider '{}'",
+                                    session.model,
+                                    provider
+                                )
+                            },
+                        )
                     }
                 }
 
@@ -3605,6 +3855,299 @@ mod runtime {
                         assert_eq!(history[0].content, "old request");
                         assert_eq!(history[1].role, Role::Assistant);
                         assert_eq!(history[1].content, "old answer");
+                    }
+
+                    #[test]
+                    fn session_history_messages_keep_legacy_prefix_with_turn_events() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.add_message(ChatMessage::user("legacy request"));
+                        session.add_message(ChatMessage::assistant("legacy answer"));
+                        session.record_turn_user_message("turn-1", "turn request");
+                        session.complete_turn_with_assistant_message("turn-1", "turn answer");
+                        session.add_message(ChatMessage::user("latest request"));
+                        session.record_turn_user_message("turn-2", "latest request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+                        let contents = history
+                            .iter()
+                            .map(|message| message.content.as_str())
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            contents,
+                            vec![
+                                "legacy request",
+                                "legacy answer",
+                                "turn request",
+                                "turn answer"
+                            ]
+                        );
+                    }
+
+                    #[test]
+                    fn session_history_messages_concatenate_streamed_assistant_chunks() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.add_message(ChatMessage::user("old request"));
+                        session.add_message(ChatMessage::assistant("hello"));
+                        session.record_turn_user_message("turn-1", "old request");
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::AssistantMessage {
+                                content: "he".to_string(),
+                            },
+                        );
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::AssistantMessage {
+                                content: "llo".to_string(),
+                            },
+                        );
+                        session.complete_turn("turn-1");
+                        session.add_message(ChatMessage::user("latest request"));
+                        session.record_turn_user_message("turn-2", "latest request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+
+                        assert_eq!(history.len(), 2);
+                        assert_eq!(history[0].role, Role::User);
+                        assert_eq!(history[0].content, "old request");
+                        assert_eq!(history[1].role, Role::Assistant);
+                        assert_eq!(history[1].content, "hello");
+                    }
+
+                    #[test]
+                    fn session_history_messages_preserve_completed_turn_event_order() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.record_turn_user_message("turn-1", "old request");
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::AssistantMessage {
+                                content: "preamble".to_string(),
+                            },
+                        );
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::ToolCall {
+                                call_id: "call-1".to_string(),
+                                name: "bash".to_string(),
+                                arguments: "pwd".to_string(),
+                            },
+                        );
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::ToolResult {
+                                call_id: "call-1".to_string(),
+                                success: true,
+                                result: "/tmp".to_string(),
+                            },
+                        );
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::AssistantMessage {
+                                content: "final".to_string(),
+                            },
+                        );
+                        session.complete_turn("turn-1");
+                        session.add_message(ChatMessage::user("latest request"));
+                        session.record_turn_user_message("turn-2", "latest request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+                        let roles_and_content = history
+                            .iter()
+                            .map(|message| (message.role.clone(), message.content.as_str()))
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            roles_and_content,
+                            vec![
+                                (Role::User, "old request"),
+                                (Role::Assistant, "preamble"),
+                                (Role::System, "[tool_call:bash:call-1] pwd"),
+                                (Role::System, "[tool_result:call-1:completed]\n/tmp"),
+                                (Role::Assistant, "final"),
+                            ]
+                        );
+                    }
+
+                    #[test]
+                    fn session_history_messages_separate_reply_ack_from_final_answer() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.add_message(ChatMessage::user("old request"));
+                        let final_answer = ChatMessage::assistant("Final answer.");
+                        let final_id = final_answer.id.clone();
+                        session.add_message(final_answer);
+                        session.record_turn_user_message("turn-1", "old request");
+                        session.record_turn_event(
+                            "turn-1",
+                            ChatTurnEventKind::Progress {
+                                message: "Working on it.".to_string(),
+                            },
+                        );
+                        session.complete_turn_with_assistant_message("turn-1", "Final answer.");
+                        let turn = session
+                            .turns
+                            .iter_mut()
+                            .find(|turn| turn.id == "turn-1")
+                            .expect("turn");
+                        if let Some(event) = turn.events.iter_mut().find(|event| {
+                            matches!(
+                                event.kind,
+                                ChatTurnEventKind::AssistantMessage { ref content }
+                                    if content == "Final answer."
+                            )
+                        }) {
+                            event.message_id = Some(final_id);
+                        }
+                        session.add_message(ChatMessage::user("latest request"));
+                        session.record_turn_user_message("turn-2", "latest request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+
+                        assert_eq!(history.len(), 2);
+                        assert_eq!(history[0].content, "old request");
+                        assert_eq!(history[1].role, Role::Assistant);
+                        assert_eq!(history[1].content, "Final answer.");
+                    }
+
+                    #[test]
+                    fn session_history_messages_apply_summary_boundary_to_turn_events() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.record_turn_user_message("turn-1", "old request");
+                        session.complete_turn_with_assistant_message("turn-1", "old answer");
+                        for event in &mut session.turns[0].events {
+                            event.timestamp = 1;
+                        }
+                        session.turns[0].updated_at = 1;
+                        session.turns[0].completed_at = Some(1);
+
+                        let mut summary = ChatMessage::assistant("summary of old turns");
+                        summary.timestamp = 2;
+                        let summary_id = summary.id.clone();
+                        session.add_message(summary);
+                        session.summary_message_id = Some(summary_id);
+
+                        session.record_turn_user_message("turn-2", "new request");
+                        session.complete_turn_with_assistant_message("turn-2", "new answer");
+                        for event in &mut session.turns[1].events {
+                            event.timestamp = 3;
+                        }
+                        session.turns[1].updated_at = 3;
+                        session.turns[1].completed_at = Some(3);
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+
+                        assert_eq!(history.len(), 3);
+                        assert_eq!(history[0].role, Role::Assistant);
+                        assert_eq!(history[0].content, "summary of old turns");
+                        assert_eq!(history[1].content, "new request");
+                        assert_eq!(history[2].content, "new answer");
+                        assert!(
+                            history
+                                .iter()
+                                .all(|message| !message.content.contains("old request"))
+                        );
+                    }
+
+                    #[test]
+                    fn session_history_messages_missing_summary_pointer_bounds_turn_replay() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.summary_message_id = Some("missing-summary".to_string());
+                        session.record_turn_user_message("turn-1", "old request");
+                        session.complete_turn_with_assistant_message("turn-1", "old answer");
+                        for event in &mut session.turns[0].events {
+                            event.timestamp = 1;
+                        }
+                        session.turns[0].updated_at = 1;
+                        session.turns[0].completed_at = Some(1);
+
+                        let mut latest = ChatMessage::user("latest request");
+                        latest.timestamp = 10;
+                        session.add_message(latest);
+                        session.record_turn_user_message("turn-2", "latest request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+
+                        assert!(history.is_empty());
+                    }
+
+                    #[test]
+                    fn session_history_messages_keep_summary_when_no_new_completed_turn_exists() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        let mut summary = ChatMessage::assistant("summary of old turns");
+                        summary.timestamp = 2;
+                        let summary_id = summary.id.clone();
+                        session.add_message(summary);
+                        session.summary_message_id = Some(summary_id);
+                        session.record_turn_user_message("turn-2", "new request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+
+                        assert_eq!(history.len(), 1);
+                        assert_eq!(history[0].role, Role::Assistant);
+                        assert_eq!(history[0].content, "summary of old turns");
+                    }
+
+                    #[test]
+                    fn session_history_messages_keep_completed_turn_steering_updates() {
+                        let mut session =
+                            ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                        session.add_message(ChatMessage::user("old request"));
+                        session.add_message(ChatMessage::user("steer update"));
+                        session.add_message(ChatMessage::assistant("old answer"));
+                        session.record_turn_user_message("turn-1", "old request");
+                        session.append_turn_user_message("turn-1", "steer update");
+                        session.complete_turn_with_assistant_message("turn-1", "old answer");
+                        session.add_message(ChatMessage::user("latest request"));
+                        session.record_turn_user_message("turn-2", "latest request");
+
+                        let history = AgentRuntimeExecutor::session_history_messages(
+                            &session,
+                            20,
+                            SessionInputMode::PersistedInSession,
+                        );
+
+                        assert_eq!(history.len(), 3);
+                        assert_eq!(history[0].role, Role::User);
+                        assert_eq!(history[0].content, "old request");
+                        assert_eq!(history[1].role, Role::User);
+                        assert_eq!(history[1].content, "steer update");
+                        assert_eq!(history[2].role, Role::Assistant);
+                        assert_eq!(history[2].content, "old answer");
                     }
 
                     #[test]
@@ -4079,6 +4622,97 @@ mod runtime {
                     assert_eq!(value, 644);
                 }
 
+                #[test]
+                fn session_context_dedupes_streamed_assistant_aggregates_per_turn() {
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.add_message(ChatMessage::user("first"));
+                    session.add_message(ChatMessage::assistant("same"));
+                    session.add_message(ChatMessage::user("second"));
+                    session.add_message(ChatMessage::assistant("same"));
+                    session.record_turn_user_message("turn-1", "first");
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::AssistantMessage {
+                            content: "sa".to_string(),
+                        },
+                    );
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::AssistantMessage {
+                            content: "me".to_string(),
+                        },
+                    );
+                    session.complete_turn("turn-1");
+                    session.record_turn_user_message("turn-2", "second");
+                    session.record_turn_event(
+                        "turn-2",
+                        ChatTurnEventKind::AssistantMessage {
+                            content: "sa".to_string(),
+                        },
+                    );
+                    session.record_turn_event(
+                        "turn-2",
+                        ChatTurnEventKind::AssistantMessage {
+                            content: "me".to_string(),
+                        },
+                    );
+                    session.complete_turn("turn-2");
+
+                    let messages = AgentRuntimeExecutor::session_messages_for_context(&session);
+
+                    assert_eq!(messages.len(), 4);
+                    assert_eq!(
+                        messages
+                            .iter()
+                            .filter(|message| message.role == ChatRole::Assistant
+                                && message.content == "same")
+                            .count(),
+                        2
+                    );
+                }
+
+                #[test]
+                fn session_context_truncates_replayed_tool_results() {
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.record_turn_user_message("turn-1", "read a huge file");
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::ToolCall {
+                            call_id: "call-1".to_string(),
+                            name: "bash".to_string(),
+                            arguments: "cat huge.txt".to_string(),
+                        },
+                    );
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::ToolResult {
+                            call_id: "call-1".to_string(),
+                            success: true,
+                            result: "x".repeat(DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH + 100),
+                        },
+                    );
+                    session.complete_turn_with_assistant_message("turn-1", "done");
+
+                    let messages =
+                        AgentRuntimeExecutor::completed_turn_messages_for_context(&session);
+                    let replayed_tool = messages
+                        .iter()
+                        .find(|message| {
+                            message.role == ChatRole::System
+                                && message.content.contains("[tool_result:call-1:completed]")
+                        })
+                        .expect("tool result should be replayed");
+
+                    assert!(
+                        replayed_tool
+                            .content
+                            .contains("truncated for context replay")
+                    );
+                    assert!(
+                        replayed_tool.content.len() < DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH + 200
+                    );
+                }
+
                 struct NoopReplySender;
 
                 impl ReplySender for NoopReplySender {
@@ -4272,7 +4906,7 @@ mod runtime {
                     let node = AgentNode::new();
 
                     let resolved = executor.resolve_primary_model(&node).await.unwrap();
-                    assert_eq!(resolved, ModelId::Gpt5_4);
+                    assert_eq!(resolved, ModelId::Gpt5_5);
                 }
 
                 #[tokio::test]
@@ -4302,6 +4936,85 @@ mod runtime {
                     assert_eq!(
                         provider_default_model(Provider::MiniMax),
                         ModelId::MiniMaxM27
+                    );
+                }
+
+                #[test]
+                fn session_model_override_uses_provider_for_colliding_model_names() {
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "gpt-5.5".to_string());
+                    session.provider = "openai".to_string();
+                    session.model = "gpt-5.5".to_string();
+
+                    assert_eq!(
+                        AgentRuntimeExecutor::session_model_override(&session).unwrap(),
+                        ModelId::Gpt5_5
+                    );
+                }
+
+                #[test]
+                fn session_model_override_preserves_legacy_providerless_api_model_names() {
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "gpt-5.5".to_string());
+                    session.provider.clear();
+                    session.model = "gpt-5.5".to_string();
+
+                    assert_eq!(
+                        AgentRuntimeExecutor::session_model_override(&session).unwrap(),
+                        ModelId::Gpt5_5
+                    );
+                }
+
+                #[test]
+                fn missing_session_agent_fallback_preserves_model_provider() {
+                    let (storage, _temp_dir) = create_test_storage();
+                    let stored_agent = storage
+                        .agents
+                        .create_agent(
+                            restflow_core::DEFAULT_ASSISTANT_NAME.to_string(),
+                            AgentNode::with_model(ModelId::Gpt5_5Codex),
+                        )
+                        .unwrap();
+                    let executor = create_test_executor(storage);
+                    let mut session =
+                        ChatSession::new("missing-agent".to_string(), "MiniMax-M2.5".to_string());
+                    session.provider = "minimax".to_string();
+
+                    let resolved = executor
+                        .resolve_stored_agent_for_session(&mut session)
+                        .unwrap();
+
+                    assert_eq!(resolved.id, stored_agent.id);
+                    assert_eq!(session.agent_id, stored_agent.id);
+                    assert_eq!(session.provider, "minimax");
+                    assert_eq!(session.model, "minimax-m2-5");
+                }
+
+                #[test]
+                fn missing_session_agent_fallback_keeps_legacy_providerless_model() {
+                    let (storage, _temp_dir) = create_test_storage();
+                    let stored_agent = storage
+                        .agents
+                        .create_agent(
+                            restflow_core::DEFAULT_ASSISTANT_NAME.to_string(),
+                            AgentNode::with_model(ModelId::Gpt5_5Codex),
+                        )
+                        .unwrap();
+                    let executor = create_test_executor(storage);
+                    let mut session =
+                        ChatSession::new("missing-agent".to_string(), "gpt-5.5".to_string());
+                    session.provider.clear();
+                    session.model = "gpt-5.5".to_string();
+
+                    let resolved = executor
+                        .resolve_stored_agent_for_session(&mut session)
+                        .unwrap();
+
+                    assert_eq!(resolved.id, stored_agent.id);
+                    assert_eq!(session.agent_id, stored_agent.id);
+                    assert_eq!(
+                        AgentRuntimeExecutor::session_model_override(&session).unwrap(),
+                        ModelId::Gpt5_5
                     );
                 }
 
@@ -5005,9 +5718,57 @@ mod runtime {
     }
 }
 
+pub use ::agent::StreamDisplayMode;
+pub use ::agent::agent::StreamEmitter;
+
 pub use runtime::agent::build_agent_system_prompt;
 pub use runtime::executor::SessionExecutionResult;
 pub use runtime::executor::turn::{AgentRuntimeExecutor, SessionInputMode};
 pub use runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 pub use runtime::session_turn::build_turn_persistence_payload;
 pub use runtime::subagent::definition::StorageBackedSubagentLookup;
+
+pub fn chat_runtime_executor(
+    storage: std::sync::Arc<restflow_core::storage::Storage>,
+    agent_defaults: restflow_core::AgentDefaults,
+) -> AgentRuntimeExecutor {
+    let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(128);
+    let subagent_tracker = std::sync::Arc::new(::agent::agent::SubagentTracker::new(
+        completion_tx,
+        completion_rx,
+    ));
+    let subagent_definitions =
+        std::sync::Arc::new(StorageBackedSubagentLookup::new(storage.agents.clone()));
+    let subagent_config = ::agent::agent::SubagentConfig {
+        max_parallel_agents: agent_defaults.max_parallel_subagents,
+        subagent_timeout_secs: agent_defaults.subagent_timeout_secs,
+        max_iterations: agent_defaults.max_iterations,
+        max_depth: agent_defaults.max_depth,
+    };
+
+    AgentRuntimeExecutor::new(
+        storage,
+        subagent_tracker,
+        subagent_definitions,
+        subagent_config,
+    )
+}
+
+pub fn default_runtime_tool_registry(
+    storage: &restflow_core::storage::Storage,
+    bash_timeout_secs: u64,
+) -> anyhow::Result<types::toolset::ToolRegistry> {
+    let tool_names = runtime::agent::tools::main_agent_default_tool_names();
+    runtime::agent::tools::registry_from_allowlist(
+        Some(&tool_names),
+        None,
+        None,
+        Some(storage),
+        None,
+        Some(::tools::BashConfig {
+            timeout_secs: bash_timeout_secs,
+            ..Default::default()
+        }),
+        None,
+    )
+}

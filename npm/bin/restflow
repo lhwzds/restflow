@@ -1,15 +1,44 @@
 #!/usr/bin/env node
 
 const { spawn } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 
-const binaryName = process.platform === "win32" ? "restflow.exe" : "restflow";
+const platform = process.env.RESTFLOW_NPM_TEST_PLATFORM || process.platform;
+const binaryName = platform === "win32" ? "restflow.exe" : "restflow";
 const binaryPath = path.join(__dirname, binaryName);
+
+function failMissingNativeBinary() {
+  console.error(
+    "Native RestFlow binary is not installed. Reinstall restflow-cli without --ignore-scripts.",
+  );
+  process.exit(1);
+}
+
+if (!fs.existsSync(binaryPath)) {
+  failMissingNativeBinary();
+}
+
+if (platform !== "win32") {
+  const wrapperPath = fs.realpathSync(__filename);
+  if (fs.realpathSync(binaryPath) === wrapperPath) {
+    failMissingNativeBinary();
+  }
+}
 
 const child = spawn(binaryPath, process.argv.slice(2), {
   stdio: "inherit",
 });
 
-child.on("exit", (code) => {
-  process.exit(code || 0);
+child.on("error", (error) => {
+  console.error(`Failed to start native RestFlow binary: ${error.message}`);
+  process.exit(1);
+});
+
+child.on("exit", (code, signal) => {
+  if (signal) {
+    console.error(`Native RestFlow binary terminated by signal ${signal}`);
+    process.exit(1);
+  }
+  process.exit(code ?? 1);
 });

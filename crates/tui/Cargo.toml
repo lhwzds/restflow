@@ -3,12 +3,14 @@ name = "tui"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+publish = false
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
 daemon = { workspace = true }
+restflow-core = { workspace = true }
 types = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }

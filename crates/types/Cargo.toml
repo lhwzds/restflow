@@ -4,6 +4,7 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 description = "Shared trait definitions and core abstractions for RestFlow"
+publish = false
 
 [dependencies]
 # Workspace dependencies

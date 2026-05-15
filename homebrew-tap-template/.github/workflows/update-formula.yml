@@ -12,8 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Get version
         id: version
@@ -21,24 +19,52 @@ jobs:
 
       - name: Download checksums
         run: |
-          curl -sL "https://github.com/lhwzds/restflow/releases/download/cli-v${{ steps.version.outputs.VERSION }}/checksums.txt" -o checksums.txt
+          set -euo pipefail
+          curl -fsSL "https://github.com/lhwzds/restflow/releases/download/cli-v${{ steps.version.outputs.VERSION }}/checksums.txt" -o checksums.txt
           cat checksums.txt
 
       - name: Extract SHA256 hashes
         id: sha
         run: |
-          echo "ARM_MAC=$(grep aarch64-apple-darwin checksums.txt | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "X86_MAC=$(grep x86_64-apple-darwin checksums.txt | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "ARM_LINUX=$(grep aarch64-unknown-linux-gnu checksums.txt | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "X86_LINUX=$(grep x86_64-unknown-linux-gnu checksums.txt | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          extract_sha() {
+            local filename="$1"
+            local matches count sha
+            matches="$(awk -v file="$filename" '$2 == file { print $1 }' checksums.txt)"
+            count="$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+            if [ "$count" -ne 1 ]; then
+              echo "Expected exactly one checksum for $filename, found $count" >&2
+              exit 1
+            fi
+            sha="$(printf '%s\n' "$matches" | sed '/^$/d')"
+            if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Invalid sha256 for $filename: $sha" >&2
+              exit 1
+            fi
+            printf '%s' "$sha"
+          }
+
+          ARM_MAC="$(extract_sha 'restflow-aarch64-apple-darwin.tar.gz')"
+          X86_MAC="$(extract_sha 'restflow-x86_64-apple-darwin.tar.gz')"
+          ARM_LINUX="$(extract_sha 'restflow-aarch64-unknown-linux-gnu.tar.gz')"
+          X86_LINUX="$(extract_sha 'restflow-x86_64-unknown-linux-gnu.tar.gz')"
+          echo "ARM_MAC=$ARM_MAC" >> $GITHUB_OUTPUT
+          echo "X86_MAC=$X86_MAC" >> $GITHUB_OUTPUT
+          echo "ARM_LINUX=$ARM_LINUX" >> $GITHUB_OUTPUT
+          echo "X86_LINUX=$X86_LINUX" >> $GITHUB_OUTPUT
 
       - name: Update formula
         run: |
+          set -euo pipefail
           VERSION="${{ steps.version.outputs.VERSION }}"
           ARM_MAC="${{ steps.sha.outputs.ARM_MAC }}"
           X86_MAC="${{ steps.sha.outputs.X86_MAC }}"
           ARM_LINUX="${{ steps.sha.outputs.ARM_LINUX }}"
           X86_LINUX="${{ steps.sha.outputs.X86_LINUX }}"
+          for value in "$VERSION" "$ARM_MAC" "$X86_MAC" "$ARM_LINUX" "$X86_LINUX"; do
+            test -n "$value"
+          done
 
           cat > Formula/restflow.rb << EOF
           class Restflow < Formula
@@ -69,13 +95,25 @@ jobs:
 
             def install
               bin.install "restflow"
+              bin.install_symlink "restflow" => "rf"
             end
 
             test do
               assert_match "restflow #{version}", shell_output("#{bin}/restflow --version")
+              assert_match "restflow #{version}", shell_output("#{bin}/rf --version")
             end
           end
           EOF
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Validate formula
+        run: |
+          set -euo pipefail
+          brew audit --strict --online Formula/restflow.rb
+          brew install --build-from-source Formula/restflow.rb
+          brew test restflow
 
       - name: Commit and push
         run: |

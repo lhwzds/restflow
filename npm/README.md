@@ -16,14 +16,14 @@ After installation, both `restflow` and `rf` commands will be available:
 restflow --help
 rf --help
 restflow daemon start
-restflow claude -p "Hello, world!"
+restflow
 ```
 
 ## Supported Platforms
 
 - macOS (Intel & Apple Silicon)
 - Linux (x64 & ARM64)
-- Windows (x64)
+- Windows (x64; ARM64 installs use the x64 binary)
 
 ## Links
 

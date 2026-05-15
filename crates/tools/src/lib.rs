@@ -7474,6 +7474,8 @@ pub mod impls {
             },
             Create {
                 agent_id: String,
+                #[serde(default)]
+                provider: Option<String>,
                 model: String,
                 #[serde(default)]
                 name: Option<String>,
@@ -7603,12 +7605,23 @@ pub mod impls {
                         }
                         SessionAction::Create {
                             agent_id,
+                            provider,
                             model,
                             name,
                             skill_id,
                             retention,
                         } => {
                             self.write_guard()?;
+                            let model = provider
+                                .filter(|provider| !provider.trim().is_empty())
+                                .map(|provider| {
+                                    if model.contains(':') || model.contains('/') {
+                                        model.clone()
+                                    } else {
+                                        format!("{}:{}", provider.trim(), model)
+                                    }
+                                })
+                                .unwrap_or(model);
                             let request = SessionCreateRequest {
                                 agent_id,
                                 model,
@@ -14278,7 +14291,7 @@ use types::tool::{SecurityGate, ToolAction};
 // Consumers should import them directly from types.
 
 // Re-export core tool implementations.
-pub use impls::{BashTool, FileTool};
+pub use impls::{BashInput, BashOutput, BashTool, FileAction, FileTool};
 
 // Re-export edit tools
 pub use impls::{EditTool, MultiEditTool};

@@ -1,5 +1,5 @@
 mod cli {
-    use clap::{Args, Parser, Subcommand, ValueEnum};
+    use clap::{Args, Command, CommandFactory, Parser, Subcommand, ValueEnum};
     use clap_complete::Shell;
 
     /// Output format for CLI commands
@@ -49,18 +49,25 @@ mod cli {
         Completions {
             #[arg(value_enum)]
             shell: Shell,
+            /// Command name to embed in generated completions
+            #[arg(long, default_value = "restflow")]
+            command_name: String,
         },
 
         /// Start RestFlow daemon
+        #[command(hide = true)]
         Start(StartArgs),
 
         /// Stop RestFlow daemon
+        #[command(hide = true)]
         Stop,
 
         /// Show RestFlow status
+        #[command(hide = true)]
         Status,
 
         /// Restart RestFlow daemon
+        #[command(hide = true)]
         Restart(RestartArgs),
 
         /// Upgrade RestFlow CLI to the latest release
@@ -118,6 +125,90 @@ mod cli {
     #[derive(Args, Default, Clone, Copy)]
     pub struct RestartArgs {}
 
+    #[derive(Parser)]
+    #[command(name = "restflow")]
+    #[command(version, about = "RestFlow - AI Agent Workflow Automation")]
+    struct CompletionCli {
+        #[command(subcommand)]
+        command: Option<CompletionCommands>,
+
+        /// Database path for daemon lifecycle commands
+        #[arg(long, global = true, env = "RESTFLOW_DB_PATH")]
+        db_path: Option<String>,
+
+        /// Enable verbose logging
+        #[arg(short, long, global = true)]
+        verbose: bool,
+
+        /// Output format
+        #[arg(long, global = true, default_value = "text")]
+        format: OutputFormat,
+    }
+
+    #[derive(Subcommand)]
+    enum CompletionCommands {
+        /// Generate shell completions
+        Completions {
+            #[arg(value_enum)]
+            shell: Shell,
+            /// Command name to embed in generated completions
+            #[arg(long, default_value = "restflow")]
+            command_name: String,
+        },
+
+        /// Upgrade RestFlow CLI to the latest release
+        Upgrade(UpgradeArgs),
+
+        /// Agent management
+        Agent {
+            #[command(subcommand)]
+            command: AgentCommands,
+        },
+
+        /// Daemon management
+        Daemon {
+            #[command(subcommand)]
+            command: DaemonCommands,
+        },
+
+        /// Skill management
+        Skill {
+            #[command(subcommand)]
+            command: SkillCommands,
+        },
+
+        /// Secret management
+        Secret {
+            #[command(subcommand)]
+            command: SecretCommands,
+        },
+
+        /// Configuration
+        Config {
+            #[command(subcommand)]
+            command: ConfigCommands,
+        },
+
+        /// Maintenance operations
+        Maintenance {
+            #[command(subcommand)]
+            command: MaintenanceCommands,
+        },
+
+        /// Show system information
+        Info,
+
+        /// Manage chat sessions
+        Session {
+            #[command(subcommand)]
+            command: SessionCommands,
+        },
+    }
+
+    pub fn completion_command() -> Command {
+        CompletionCli::command()
+    }
+
     #[derive(Args, Clone, Copy, Default)]
     pub struct UpgradeArgs {
         /// Reinstall even if the current version is already the latest
@@ -166,13 +257,29 @@ mod cli {
 
         #[test]
         fn bash_completions_start_with_restflow_function() {
-            let mut command = Cli::command();
+            let mut command = super::completion_command();
             let mut output = Vec::new();
 
             generate(Shell::Bash, &mut command, "restflow", &mut output);
 
             let text = String::from_utf8(output).expect("completion should be utf8");
             assert!(text.starts_with("_restflow"));
+        }
+
+        #[test]
+        fn bash_completions_hide_deprecated_root_lifecycle_aliases() {
+            let mut command = super::completion_command();
+            let mut output = Vec::new();
+
+            generate(Shell::Bash, &mut command, "restflow", &mut output);
+
+            let text = String::from_utf8(output).expect("completion should be utf8");
+            for alias in ["start", "stop", "status", "restart"] {
+                assert!(
+                    !text.contains(&format!("restflow,{alias}")),
+                    "deprecated root alias leaked into completion: {alias}"
+                );
+            }
         }
 
         #[test]
@@ -196,6 +303,39 @@ mod cli {
                 Some(super::Commands::Session {
                     command: super::SessionCommands::List
                 })
+            ));
+        }
+
+        #[test]
+        fn parses_session_create_without_pinning_model() {
+            let cli = Cli::try_parse_from(["restflow", "session", "create"])
+                .expect("parse session create");
+            assert!(matches!(
+                cli.command,
+                Some(super::Commands::Session {
+                    command: super::SessionCommands::Create { model: None, .. }
+                })
+            ));
+        }
+
+        #[test]
+        fn parses_session_create_with_explicit_model() {
+            let cli = Cli::try_parse_from([
+                "restflow",
+                "session",
+                "create",
+                "--model",
+                "anthropic:claude-opus-4-6",
+            ])
+            .expect("parse session create model");
+            assert!(matches!(
+                cli.command,
+                Some(super::Commands::Session {
+                    command: super::SessionCommands::Create {
+                        model: Some(model),
+                        ..
+                    }
+                }) if model == "anthropic:claude-opus-4-6"
             ));
         }
 
@@ -450,8 +590,8 @@ mod cli {
             agent: Option<String>,
 
             /// Model name
-            #[arg(long, default_value = "gpt-5.4")]
-            model: String,
+            #[arg(long)]
+            model: Option<String>,
         },
 
         /// Delete a session
@@ -580,8 +720,9 @@ mod setup {
     //!
     //! Handles initialization of the RestFlow core for CLI usage.
 
-    use ::daemon::{AppCore, paths};
     use anyhow::Result;
+    use restflow_core::AppCore;
+    use restflow_core::paths;
     use std::sync::Arc;
 
     /// Resolve the database path for CLI usage.
@@ -604,7 +745,7 @@ mod setup {
 
 mod config {
     pub mod settings {
-        pub use ::daemon::storage::CliConfig;
+        pub use restflow_core::storage::CliConfig;
     }
 
     pub use settings::CliConfig;
@@ -644,10 +785,13 @@ mod executor {
 
         use crate::executor::CommandExecutor;
         use crate::setup;
-        use ::daemon::StoredAgent;
-        use ::daemon::services::{session::SessionService, skills as skills_service};
-        use ::daemon::storage::SystemConfig;
-        use ::daemon::{AppCore, Secret};
+        use restflow_core::StoredAgent;
+        use restflow_core::services::{
+            session::{SessionService, WorkspaceSessionCreateRequest},
+            skills as skills_service,
+        };
+        use restflow_core::storage::SystemConfig;
+        use restflow_core::{AppCore, Secret};
         use types::{AgentNode, ChatSession, ChatSessionSummary};
         use types::{CleanupReportResponse, Skill};
         /// Test-only executor used by command unit tests.
@@ -734,7 +878,7 @@ mod executor {
             }
 
             async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
-                let report = ::daemon::services::cleanup::run_cleanup(&self.core).await?;
+                let report = restflow_core::services::cleanup::run_cleanup(&self.core).await?;
                 Ok(CleanupReportResponse {
                     chat_sessions: report.chat_sessions,
                     daemon_log_files: report.daemon_log_files,
@@ -776,9 +920,14 @@ mod executor {
                 skill_id: Option<String>,
             ) -> Result<ChatSession> {
                 let agent_id = resolve_agent_id(&self.core, agent_id).await?;
-                let model = model.unwrap_or_else(|| "gpt-5.4".to_string());
                 SessionService::from_storage(&self.core.storage)
-                    .create_workspace_session(agent_id, model, name, skill_id, None)
+                    .create_workspace_session_from_request(
+                        &self.core.storage,
+                        WorkspaceSessionCreateRequest::new(agent_id)
+                            .with_model(model)
+                            .with_name(name)
+                            .with_skill_id(skill_id),
+                    )
             }
 
             async fn delete_session(&self, id: &str) -> Result<bool> {
@@ -803,16 +952,15 @@ mod executor {
     pub mod ipc {
         use anyhow::Result;
         use async_trait::async_trait;
-        use std::path::Path;
         use tokio::sync::Mutex;
         use types::{CleanupReportResponse, OkResponse};
 
         use crate::executor::CommandExecutor;
-        use ::daemon::Secret;
-        use ::daemon::StoredAgent;
         use ::daemon::daemon::request_mapper::to_contract;
         use ::daemon::daemon::{IpcClient, IpcRequest};
-        use ::daemon::storage::SystemConfig;
+        use restflow_core::Secret;
+        use restflow_core::StoredAgent;
+        use restflow_core::storage::SystemConfig;
         use types::{AgentNode, ChatSession, ChatSessionSummary, Skill};
 
         pub struct IpcExecutor {
@@ -820,11 +968,10 @@ mod executor {
         }
 
         impl IpcExecutor {
-            pub async fn connect(socket_path: &Path) -> Result<Self> {
-                let client = IpcClient::connect(socket_path).await?;
-                Ok(Self {
+            pub fn from_client(client: IpcClient) -> Self {
+                Self {
                     client: Mutex::new(client),
-                })
+                }
             }
 
             async fn request_typed<T: serde::de::DeserializeOwned>(
@@ -992,13 +1139,13 @@ mod executor {
         }
     }
 
-    use ::daemon::Secret;
-    use ::daemon::StoredAgent;
-    use ::daemon::daemon::is_daemon_available;
-    use ::daemon::paths;
-    use ::daemon::storage::SystemConfig;
-    use anyhow::Result;
+    use ::daemon::daemon::{IPC_PROTOCOL_VERSION, IpcClient};
+    use anyhow::{Context, Result};
     use async_trait::async_trait;
+    use restflow_core::Secret;
+    use restflow_core::StoredAgent;
+    use restflow_core::paths;
+    use restflow_core::storage::SystemConfig;
     use std::sync::Arc;
     use types::CleanupReportResponse;
     use types::{AgentNode, ChatSession, ChatSessionSummary, Skill};
@@ -1064,12 +1211,29 @@ mod executor {
 
         // This is the only production executor entrypoint for daemon-routed commands.
         let socket_path = paths::socket_path()?;
-        if is_daemon_available(&socket_path).await {
-            let executor = ipc::IpcExecutor::connect(&socket_path).await?;
-            return Ok(Arc::new(executor));
+        if !socket_path.exists() {
+            anyhow::bail!("RestFlow daemon is not running. Start it with 'restflow daemon start'.")
         }
-
-        anyhow::bail!("RestFlow daemon is not running. Start it with 'restflow daemon start'.")
+        match IpcClient::connect(&socket_path).await {
+            Ok(mut client) => {
+                let status = client.get_status().await.with_context(|| {
+                    "RestFlow daemon is running but did not return status. Restart it with 'restflow daemon restart'."
+                })?;
+                if status.protocol_version != IPC_PROTOCOL_VERSION {
+                    anyhow::bail!(
+                        "RestFlow daemon protocol is incompatible (daemon {}, CLI {}). Restart it with 'restflow daemon restart'.",
+                        status.protocol_version,
+                        IPC_PROTOCOL_VERSION
+                    );
+                }
+                return Ok(Arc::new(ipc::IpcExecutor::from_client(client)));
+            }
+            Err(error) => {
+                anyhow::bail!(
+                    "RestFlow daemon socket exists but cannot be reached: {error}. Restart it with 'restflow daemon restart'."
+                );
+            }
+        }
     }
 
     #[cfg(test)]
@@ -1370,7 +1534,7 @@ mod commands {
         use crate::cli::ConfigCommands;
         use crate::executor::CommandExecutor;
         use crate::output::{OutputFormat, json::print_json};
-        use ::daemon::storage::{
+        use restflow_core::storage::{
             CliConfig, ConfigDocument, ConfigSourcePathInfo, SystemConfig,
             effective_config_sources, load_cli_config, load_global_cli_config, write_cli_config,
         };
@@ -1853,7 +2017,7 @@ mod commands {
         mod tests {
             use super::*;
             use crate::executor::{CommandExecutor, direct::DirectExecutor};
-            use ::daemon::storage::{load_cli_config, load_global_cli_config};
+            use restflow_core::storage::{load_cli_config, load_global_cli_config};
             use std::env;
             use std::path::Path;
             use tempfile::tempdir;
@@ -2117,10 +2281,10 @@ mod commands {
     pub mod daemon {
         use crate::cli::DaemonCommands;
         use crate::commands::daemon_state::{self, EffectiveDaemonStatus, RunningSource};
-        use ::daemon::AppCore;
         use ::daemon::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
-        use ::daemon::paths;
         use anyhow::{Context, Result};
+        use restflow_core::AppCore;
+        use restflow_core::paths;
         use std::path::PathBuf;
         #[cfg(not(unix))]
         use std::process::Command;
@@ -2212,9 +2376,17 @@ mod commands {
             let config = DaemonConfig;
 
             let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
-            if let EffectiveDaemonStatus::Running { pid, .. } = snapshot.daemon_status {
-                print_already_running(pid);
-                return Ok(());
+            match snapshot.daemon_status {
+                EffectiveDaemonStatus::Running { pid, .. } => {
+                    print_already_running(pid);
+                    return Ok(());
+                }
+                EffectiveDaemonStatus::ProtocolIncompatible { .. } => {
+                    println!("Daemon protocol is incompatible; restarting");
+                    restart_background().await?;
+                    return Ok(());
+                }
+                EffectiveDaemonStatus::NotRunning | EffectiveDaemonStatus::Stale { .. } => {}
             }
 
             let report = ::daemon::daemon::recovery::recover().await?;
@@ -2238,21 +2410,8 @@ mod commands {
                 }
                 run_daemon(core, config).await
             } else {
-                let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
-                if let EffectiveDaemonStatus::Running { pid, .. } = snapshot.daemon_status {
-                    print_already_running(pid);
-                    Ok(())
-                } else {
-                    // Clean stale artifacts (e.g. leftover socket) before spawning.
-                    let report = ::daemon::daemon::recovery::recover().await?;
-                    if !report.is_clean() {
-                        println!("{}", report);
-                    }
-                    let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config))
-                        .await??;
-                    println!("Daemon started (PID: {})", pid);
-                    Ok(())
-                }
+                let _ = config;
+                start_background().await
             }
         }
 
@@ -2390,7 +2549,7 @@ mod commands {
         }
 
         async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
-            let report = ::daemon::services::cleanup::run_cleanup(&core).await?;
+            let report = restflow_core::services::cleanup::run_cleanup(&core).await?;
             info!(
                 chat_sessions = report.chat_sessions,
                 daemon_logs = report.daemon_log_files,
@@ -2453,7 +2612,7 @@ mod commands {
             }
         }
 
-        async fn stop() -> Result<()> {
+        pub(super) async fn stop() -> Result<()> {
             if stop_daemon_effective().await? {
                 println!("Sent stop signal to daemon");
                 wait_for_daemon_exit_or_kill().await?;
@@ -2470,9 +2629,16 @@ mod commands {
             }
 
             let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
-            if let EffectiveDaemonStatus::Running { pid: Some(pid), .. } = snapshot.daemon_status {
-                send_terminate_signal(pid)?;
-                return Ok(true);
+            match snapshot.daemon_status {
+                EffectiveDaemonStatus::Running { pid: Some(pid), .. }
+                | EffectiveDaemonStatus::ProtocolIncompatible { pid: Some(pid), .. } => {
+                    send_terminate_signal(pid)?;
+                    return Ok(true);
+                }
+                EffectiveDaemonStatus::Running { pid: None, .. }
+                | EffectiveDaemonStatus::ProtocolIncompatible { pid: None, .. }
+                | EffectiveDaemonStatus::NotRunning
+                | EffectiveDaemonStatus::Stale { .. } => {}
             }
 
             Ok(false)
@@ -2485,7 +2651,8 @@ mod commands {
 
         fn daemon_snapshot_pid(snapshot: &daemon_state::DaemonStatusSnapshot) -> Option<u32> {
             match snapshot.daemon_status {
-                EffectiveDaemonStatus::Running { pid, .. } => pid,
+                EffectiveDaemonStatus::Running { pid, .. }
+                | EffectiveDaemonStatus::ProtocolIncompatible { pid, .. } => pid,
                 EffectiveDaemonStatus::Stale { pid } => Some(pid),
                 EffectiveDaemonStatus::NotRunning => None,
             }
@@ -2557,6 +2724,20 @@ mod commands {
                     }
                     println!("  Hint: run `daemon start` or `daemon restart` to auto-clean");
                 }
+                EffectiveDaemonStatus::ProtocolIncompatible { pid, source } => {
+                    match pid {
+                        Some(pid) => println!(
+                            "Daemon running with incompatible protocol (PID: {}, detected via {})",
+                            pid,
+                            source.as_str()
+                        ),
+                        None => println!(
+                            "Daemon running with incompatible protocol (PID: unknown, detected via {})",
+                            source.as_str()
+                        ),
+                    }
+                    println!("  Hint: run `daemon start` or `daemon restart` to replace it");
+                }
             }
             Ok(())
         }
@@ -2599,6 +2780,21 @@ mod commands {
                 } => format!("still running (pid={pid}, source={})", source.as_str()),
                 EffectiveDaemonStatus::Running { pid: None, source } => {
                     format!("still running (pid=unknown, source={})", source.as_str())
+                }
+                EffectiveDaemonStatus::ProtocolIncompatible {
+                    pid: Some(pid),
+                    source,
+                } => {
+                    format!(
+                        "still running with incompatible protocol (pid={pid}, source={})",
+                        source.as_str()
+                    )
+                }
+                EffectiveDaemonStatus::ProtocolIncompatible { pid: None, source } => {
+                    format!(
+                        "still running with incompatible protocol (pid=unknown, source={})",
+                        source.as_str()
+                    )
                 }
                 EffectiveDaemonStatus::NotRunning => "status switched to not_running".to_string(),
                 EffectiveDaemonStatus::Stale { pid } => format!("stale pid={pid}"),
@@ -2644,7 +2840,8 @@ mod commands {
                 if tokio::time::Instant::now() >= deadline {
                     // Extract PID for SIGKILL
                     let pid = match snapshot.daemon_status {
-                        EffectiveDaemonStatus::Running { pid: Some(pid), .. } => pid,
+                        EffectiveDaemonStatus::Running { pid: Some(pid), .. }
+                        | EffectiveDaemonStatus::ProtocolIncompatible { pid: Some(pid), .. } => pid,
                         _ => {
                             anyhow::bail!(
                                 "Daemon did not stop within {}s and PID is unknown; cannot force-kill",
@@ -2867,8 +3064,8 @@ mod commands {
 
     pub mod daemon_state {
         use ::daemon::daemon::{self, DaemonStatus};
-        use ::daemon::paths;
         use anyhow::Result;
+        use restflow_core::paths;
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum RunningSource {
@@ -2893,6 +3090,10 @@ mod commands {
                 pid: Option<u32>,
                 source: RunningSource,
             },
+            ProtocolIncompatible {
+                pid: Option<u32>,
+                source: RunningSource,
+            },
             NotRunning,
             Stale {
                 pid: u32,
@@ -2911,7 +3112,11 @@ mod commands {
 
         impl DaemonStatusSnapshot {
             pub fn is_running(&self) -> bool {
-                matches!(self.daemon_status, EffectiveDaemonStatus::Running { .. })
+                matches!(
+                    self.daemon_status,
+                    EffectiveDaemonStatus::Running { .. }
+                        | EffectiveDaemonStatus::ProtocolIncompatible { .. }
+                )
             }
         }
 
@@ -2964,16 +3169,32 @@ mod commands {
             lock_alive_pid: Option<u32>,
         ) -> EffectiveDaemonStatus {
             match raw_status {
-                DaemonStatus::Running { pid } => EffectiveDaemonStatus::Running {
-                    pid: Some(pid),
-                    source: RunningSource::PidFile,
-                },
+                DaemonStatus::Running { pid } => {
+                    if socket_alive {
+                        EffectiveDaemonStatus::Running {
+                            pid: Some(pid),
+                            source: RunningSource::PidFile,
+                        }
+                    } else {
+                        EffectiveDaemonStatus::ProtocolIncompatible {
+                            pid: Some(pid),
+                            source: RunningSource::PidFile,
+                        }
+                    }
+                }
                 DaemonStatus::Stale { pid } => EffectiveDaemonStatus::Stale { pid },
                 DaemonStatus::NotRunning => {
                     if let Some(pid) = lock_alive_pid {
-                        EffectiveDaemonStatus::Running {
-                            pid: Some(pid),
-                            source: RunningSource::LockFile,
+                        if socket_alive {
+                            EffectiveDaemonStatus::Running {
+                                pid: Some(pid),
+                                source: RunningSource::LockFile,
+                            }
+                        } else {
+                            EffectiveDaemonStatus::ProtocolIncompatible {
+                                pid: Some(pid),
+                                source: RunningSource::LockFile,
+                            }
                         }
                     } else if socket_alive {
                         EffectiveDaemonStatus::Running {
@@ -3015,9 +3236,9 @@ mod commands {
             use super::*;
 
             #[test]
-            fn resolve_running_prefers_pid_file() {
+            fn resolve_running_prefers_pid_file_when_protocol_is_compatible() {
                 let status =
-                    resolve_effective_status(DaemonStatus::Running { pid: 42 }, false, None);
+                    resolve_effective_status(DaemonStatus::Running { pid: 42 }, true, None);
                 assert_eq!(
                     status,
                     EffectiveDaemonStatus::Running {
@@ -3028,11 +3249,36 @@ mod commands {
             }
 
             #[test]
-            fn resolve_running_from_lock_file_when_pid_missing() {
-                let status = resolve_effective_status(DaemonStatus::NotRunning, false, Some(1234));
+            fn resolve_incompatible_when_pid_file_process_is_not_protocol_compatible() {
+                let status =
+                    resolve_effective_status(DaemonStatus::Running { pid: 42 }, false, None);
+                assert_eq!(
+                    status,
+                    EffectiveDaemonStatus::ProtocolIncompatible {
+                        pid: Some(42),
+                        source: RunningSource::PidFile
+                    }
+                );
+            }
+
+            #[test]
+            fn resolve_running_from_lock_file_when_protocol_is_compatible() {
+                let status = resolve_effective_status(DaemonStatus::NotRunning, true, Some(1234));
                 assert_eq!(
                     status,
                     EffectiveDaemonStatus::Running {
+                        pid: Some(1234),
+                        source: RunningSource::LockFile
+                    }
+                );
+            }
+
+            #[test]
+            fn resolve_incompatible_from_lock_file_when_socket_is_not_compatible() {
+                let status = resolve_effective_status(DaemonStatus::NotRunning, false, Some(1234));
+                assert_eq!(
+                    status,
+                    EffectiveDaemonStatus::ProtocolIncompatible {
                         pid: Some(1234),
                         source: RunningSource::LockFile
                     }
@@ -3186,7 +3432,7 @@ mod commands {
                 SessionCommands::List => list_sessions(executor, format).await,
                 SessionCommands::Show { id } => show_session(executor, &id, format).await,
                 SessionCommands::Create { agent, model } => {
-                    create_session(executor, agent.as_deref(), &model, format).await
+                    create_session(executor, agent.as_deref(), model.as_deref(), format).await
                 }
                 SessionCommands::Delete { id } => delete_session(executor, &id, format).await,
                 SessionCommands::Search {
@@ -3261,13 +3507,13 @@ mod commands {
         async fn create_session(
             executor: Arc<dyn CommandExecutor>,
             agent: Option<&str>,
-            model: &str,
+            model: Option<&str>,
             format: OutputFormat,
         ) -> Result<()> {
             let session = executor
                 .create_session(
                     agent.map(ToOwned::to_owned),
-                    Some(model.to_string()),
+                    model.map(ToOwned::to_owned),
                     Some("New Chat".to_string()),
                     None,
                 )
@@ -3394,7 +3640,7 @@ mod commands {
         use crate::commands::utils::format_timestamp;
         use crate::executor::CommandExecutor;
         use crate::output::{OutputFormat, json::print_json};
-        use ::daemon::services::skills as skill_service;
+        use restflow_core::services::skills as skill_service;
         use serde_json::json;
 
         pub async fn run(
@@ -3501,6 +3747,7 @@ mod commands {
         use reqwest::{Client, RequestBuilder, header};
         use serde::Deserialize;
         use serde_json::json;
+        use sha2::{Digest, Sha256};
         use std::fs;
         use std::io::{Cursor, Read};
         use std::path::{Path, PathBuf};
@@ -3513,6 +3760,7 @@ mod commands {
 
         const DEFAULT_REPO: &str = "lhwzds/restflow";
         const GITHUB_API_ACCEPT: &str = "application/vnd.github+json";
+        const CHECKSUMS_ASSET_NAME: &str = "checksums.txt";
 
         #[derive(Debug, Deserialize)]
         struct GitHubRelease {
@@ -3536,6 +3784,7 @@ mod commands {
         struct PlatformSpec {
             asset_name: &'static str,
             binary_name: &'static str,
+            alias_name: Option<&'static str>,
             archive_kind: ArchiveKind,
         }
 
@@ -3548,6 +3797,9 @@ mod commands {
         }
 
         pub async fn run(args: UpgradeArgs, format: OutputFormat) -> Result<()> {
+            if let Some(hint) = package_manager_upgrade_hint()? {
+                bail!("{hint}");
+            }
             let repo =
                 std::env::var("RESTFLOW_UPGRADE_REPO").unwrap_or_else(|_| DEFAULT_REPO.to_string());
             let current_version = env!("CARGO_PKG_VERSION");
@@ -3609,6 +3861,9 @@ mod commands {
             let archive_bytes = download_asset(&client, &asset.browser_download_url)
                 .await
                 .with_context(|| format!("Failed to download {}", asset.name))?;
+            verify_release_checksum(&client, &release.assets, &asset.name, &archive_bytes)
+                .await
+                .with_context(|| format!("Failed to verify checksum for {}", asset.name))?;
 
             if !format.is_json() {
                 println!("Extracting binary...");
@@ -3618,8 +3873,15 @@ mod commands {
                 extract_binary(&archive_bytes, platform.archive_kind, platform.binary_name)?;
 
             let install_path = install_path()?;
+            let packaged_alias_updated =
+                install_packaged_alias(&archive_bytes, platform, &install_path)?;
             install_binary(&binary_bytes, &install_path)?;
-            let alias_updated = ensure_rf_alias(&install_path)?;
+            let alias_updated = packaged_alias_updated
+                || if platform.alias_name.is_none() {
+                    ensure_rf_alias(&install_path)?
+                } else {
+                    false
+                };
             let codesigned = try_codesign(&install_path);
 
             if format.is_json() {
@@ -3638,7 +3900,11 @@ mod commands {
             println!("Version: {current_version} -> {latest_version}");
             println!("Installed: {}", install_path.display());
             if alias_updated {
-                println!("Alias: rf -> restflow");
+                if let Some(alias_name) = platform.alias_name {
+                    println!("Alias: {alias_name} -> {}", platform.binary_name);
+                } else {
+                    println!("Alias: rf -> restflow");
+                }
             }
             if cfg!(target_os = "macos") && !codesigned {
                 println!(
@@ -3707,6 +3973,46 @@ mod commands {
             assets.iter().find(|asset| asset.name == asset_name)
         }
 
+        async fn verify_release_checksum(
+            client: &Client,
+            assets: &[GitHubAsset],
+            asset_name: &str,
+            archive_bytes: &[u8],
+        ) -> Result<()> {
+            let checksums = select_asset(assets, CHECKSUMS_ASSET_NAME)
+                .context("Release does not contain checksums.txt")?;
+            let checksum_bytes = download_asset(client, &checksums.browser_download_url)
+                .await
+                .context("Failed to download checksums.txt")?;
+            let checksum_text =
+                std::str::from_utf8(&checksum_bytes).context("checksums.txt is not UTF-8")?;
+            let expected = checksum_for_asset(checksum_text, asset_name)
+                .with_context(|| format!("checksums.txt does not contain {asset_name}"))?;
+            let actual = sha256_hex(archive_bytes);
+            if actual != expected {
+                bail!("Checksum mismatch for {asset_name}: expected {expected}, got {actual}");
+            }
+            Ok(())
+        }
+
+        fn checksum_for_asset(checksums: &str, asset_name: &str) -> Option<String> {
+            checksums.lines().find_map(|line| {
+                let mut parts = line.split_whitespace();
+                let hash = parts.next()?.trim();
+                let name = parts.next()?.trim_start_matches('*');
+                if name == asset_name {
+                    Some(hash.to_ascii_lowercase())
+                } else {
+                    None
+                }
+            })
+        }
+
+        fn sha256_hex(bytes: &[u8]) -> String {
+            let digest = Sha256::digest(bytes);
+            format!("{digest:x}")
+        }
+
         fn extract_binary(
             archive_bytes: &[u8],
             archive_kind: ArchiveKind,
@@ -3773,30 +4079,58 @@ mod commands {
                 ("macos", "aarch64") => Some(PlatformSpec {
                     asset_name: "restflow-aarch64-apple-darwin.tar.gz",
                     binary_name: "restflow",
+                    alias_name: None,
                     archive_kind: ArchiveKind::TarGz,
                 }),
                 ("macos", "x86_64") => Some(PlatformSpec {
                     asset_name: "restflow-x86_64-apple-darwin.tar.gz",
                     binary_name: "restflow",
+                    alias_name: None,
                     archive_kind: ArchiveKind::TarGz,
                 }),
                 ("linux", "aarch64") => Some(PlatformSpec {
                     asset_name: "restflow-aarch64-unknown-linux-gnu.tar.gz",
                     binary_name: "restflow",
+                    alias_name: None,
                     archive_kind: ArchiveKind::TarGz,
                 }),
                 ("linux", "x86_64") => Some(PlatformSpec {
                     asset_name: "restflow-x86_64-unknown-linux-gnu.tar.gz",
                     binary_name: "restflow",
+                    alias_name: None,
                     archive_kind: ArchiveKind::TarGz,
                 }),
-                ("windows", "x86_64") => Some(PlatformSpec {
+                ("windows", "x86_64") | ("windows", "aarch64") => Some(PlatformSpec {
                     asset_name: "restflow-x86_64-pc-windows-msvc.zip",
                     binary_name: "restflow.exe",
+                    alias_name: Some("rf.cmd"),
                     archive_kind: ArchiveKind::Zip,
                 }),
                 _ => None,
             }
+        }
+
+        fn package_manager_upgrade_hint() -> Result<Option<String>> {
+            let current_exe = std::env::current_exe()
+                .context("Failed to resolve current executable path for upgrade safety check")?;
+            Ok(package_manager_upgrade_hint_for_path(&current_exe))
+        }
+
+        fn package_manager_upgrade_hint_for_path(path: &Path) -> Option<String> {
+            let path = path.to_string_lossy().replace('\\', "/");
+            if path.contains("node_modules/restflow-cli/") || path.contains(".pnpm/restflow-cli@") {
+                return Some(
+                    "This RestFlow binary is managed by npm. Upgrade it with 'npm install -g restflow-cli@latest' instead of 'restflow upgrade'."
+                        .to_string(),
+                );
+            }
+            if path.contains("/Cellar/restflow/") {
+                return Some(
+                    "This RestFlow binary is managed by Homebrew. Upgrade it with 'brew upgrade restflow' instead of 'restflow upgrade'."
+                        .to_string(),
+                );
+            }
+            None
         }
 
         fn normalize_release_version(tag: &str) -> &str {
@@ -3967,6 +4301,23 @@ mod commands {
             Ok(())
         }
 
+        fn install_packaged_alias(
+            archive_bytes: &[u8],
+            platform: PlatformSpec,
+            install_path: &Path,
+        ) -> Result<bool> {
+            let Some(alias_name) = platform.alias_name else {
+                return Ok(false);
+            };
+            let alias_bytes = extract_binary(archive_bytes, platform.archive_kind, alias_name)?;
+            let alias_path = install_path
+                .parent()
+                .context("Install path must have a parent directory")?
+                .join(alias_name);
+            install_binary(&alias_bytes, &alias_path)?;
+            Ok(true)
+        }
+
         #[cfg(unix)]
         fn ensure_rf_alias(install_path: &Path) -> Result<bool> {
             use std::os::unix::fs::symlink;
@@ -4046,9 +4397,11 @@ mod commands {
         #[cfg(test)]
         mod tests {
             use super::{
-                ArchiveKind, VersionRelation, compare_versions, normalize_release_version,
-                parse_semver_triplet, platform_spec_for,
+                ArchiveKind, VersionRelation, checksum_for_asset, compare_versions,
+                normalize_release_version, package_manager_upgrade_hint_for_path,
+                parse_semver_triplet, platform_spec_for, sha256_hex,
             };
+            use std::path::Path;
 
             #[test]
             fn normalizes_release_tags() {
@@ -4108,14 +4461,88 @@ mod commands {
                 let mac = platform_spec_for("macos", "aarch64").expect("macOS aarch64 spec");
                 assert_eq!(mac.asset_name, "restflow-aarch64-apple-darwin.tar.gz");
                 assert_eq!(mac.binary_name, "restflow");
+                assert_eq!(mac.alias_name, None);
                 assert!(matches!(mac.archive_kind, ArchiveKind::TarGz));
 
                 let windows = platform_spec_for("windows", "x86_64").expect("windows spec");
                 assert_eq!(windows.asset_name, "restflow-x86_64-pc-windows-msvc.zip");
                 assert_eq!(windows.binary_name, "restflow.exe");
+                assert_eq!(windows.alias_name, Some("rf.cmd"));
                 assert!(matches!(windows.archive_kind, ArchiveKind::Zip));
 
+                let windows_arm =
+                    platform_spec_for("windows", "aarch64").expect("windows arm64 spec");
+                assert_eq!(
+                    windows_arm.asset_name,
+                    "restflow-x86_64-pc-windows-msvc.zip"
+                );
+
                 assert!(platform_spec_for("linux", "armv7").is_none());
+            }
+
+            #[test]
+            fn package_manager_installs_use_package_manager_upgrade() {
+                let npm = Path::new("/usr/local/lib/node_modules/restflow-cli/bin/restflow");
+                let npm_windows = Path::new(
+                    "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\restflow-cli\\bin\\restflow.exe",
+                );
+                let pnpm_windows = Path::new(
+                    "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\.pnpm\\restflow-cli@0.5.0\\node_modules\\restflow-cli\\bin\\restflow.exe",
+                );
+                let brew = Path::new("/opt/homebrew/Cellar/restflow/0.5.0/bin/restflow");
+
+                assert!(
+                    package_manager_upgrade_hint_for_path(npm)
+                        .expect("npm hint")
+                        .contains("npm install -g restflow-cli@latest")
+                );
+                assert!(
+                    package_manager_upgrade_hint_for_path(npm_windows)
+                        .expect("windows npm hint")
+                        .contains("npm install -g restflow-cli@latest")
+                );
+                assert!(
+                    package_manager_upgrade_hint_for_path(pnpm_windows)
+                        .expect("windows pnpm hint")
+                        .contains("npm install -g restflow-cli@latest")
+                );
+                assert!(
+                    package_manager_upgrade_hint_for_path(brew)
+                        .expect("homebrew hint")
+                        .contains("brew upgrade restflow")
+                );
+                assert!(
+                    package_manager_upgrade_hint_for_path(Path::new(
+                        "/Users/me/.local/bin/restflow"
+                    ))
+                    .is_none()
+                );
+            }
+
+            #[test]
+            fn parses_checksums_for_exact_asset_name() {
+                let checksums = "\
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  restflow-x86_64-apple-darwin.tar.gz\n\
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  *restflow-aarch64-apple-darwin.tar.gz\n";
+
+                assert_eq!(
+                    checksum_for_asset(checksums, "restflow-x86_64-apple-darwin.tar.gz").as_deref(),
+                    Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                );
+                assert_eq!(
+                    checksum_for_asset(checksums, "restflow-aarch64-apple-darwin.tar.gz")
+                        .as_deref(),
+                    Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                );
+                assert!(checksum_for_asset(checksums, "restflow").is_none());
+            }
+
+            #[test]
+            fn computes_sha256_hex() {
+                assert_eq!(
+                    sha256_hex(b"abc"),
+                    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+                );
             }
         }
     }
@@ -4226,6 +4653,9 @@ mod commands {
                 EffectiveDaemonStatus::Running { pid, source } => {
                     ("running", pid, None, Some(source.as_str()))
                 }
+                EffectiveDaemonStatus::ProtocolIncompatible { pid, source } => {
+                    ("protocol_incompatible", pid, None, Some(source.as_str()))
+                }
                 EffectiveDaemonStatus::NotRunning => ("not_running", None, None, None),
                 EffectiveDaemonStatus::Stale { pid } => ("stale", None, Some(pid), None),
             };
@@ -4261,6 +4691,21 @@ mod commands {
                         source.as_str()
                     );
                 }
+                EffectiveDaemonStatus::ProtocolIncompatible {
+                    pid: Some(pid),
+                    source,
+                } => {
+                    println!(
+                        "Daemon: incompatible protocol (PID: {pid}, source: {})",
+                        source.as_str()
+                    );
+                }
+                EffectiveDaemonStatus::ProtocolIncompatible { pid: None, source } => {
+                    println!(
+                        "Daemon: incompatible protocol (PID: unknown, source: {})",
+                        source.as_str()
+                    );
+                }
                 EffectiveDaemonStatus::NotRunning => println!("Daemon: not running"),
                 EffectiveDaemonStatus::Stale { pid } => {
                     println!("Daemon: stale pid file (PID: {pid})")
@@ -4278,16 +4723,10 @@ mod commands {
     }
 
     pub mod stop {
-        use ::daemon::daemon::stop_daemon;
         use anyhow::Result;
 
         pub async fn run() -> Result<()> {
-            if stop_daemon()? {
-                println!("RestFlow daemon stopped");
-            } else {
-                println!("RestFlow daemon not running");
-            }
-            Ok(())
+            super::daemon::stop().await
         }
     }
 }
@@ -4304,11 +4743,11 @@ mod test_support {
     }
 }
 
-use ::daemon::paths;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands};
+use restflow_core::paths;
 use std::io;
 use std::io::IsTerminal;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -4398,9 +4837,13 @@ async fn run() -> Result<()> {
         return run_tui(TuiLaunchOptions::default()).await;
     }
 
-    if let Some(Commands::Completions { shell }) = cli.command {
-        let mut cmd = Cli::command();
-        generate(shell, &mut cmd, "restflow", &mut io::stdout());
+    if let Some(Commands::Completions {
+        shell,
+        command_name,
+    }) = cli.command
+    {
+        let mut cmd = cli::completion_command();
+        generate(shell, &mut cmd, command_name, &mut io::stdout());
         return Ok(());
     }
 

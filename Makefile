@@ -1,4 +1,4 @@
-.PHONY: help run install cli release release-check fmt test lint audit toolchain
+.PHONY: help run install cli release release-check fmt test rust-test tui-unit-test lint audit toolchain tui-pty-smoke
 
 RUST_TOOLCHAIN ?= stable
 CARGO_TARGET_DIR ?= $(HOME)/.cargo-targets/restflow
@@ -7,7 +7,7 @@ RESTFLOW_RELEASE_BIN := $(CARGO_TARGET_DIR)/release/restflow
 
 # Run daemon locally
 run:
-	cargo run --bin restflow -- daemon start --foreground
+	cargo run --package cli --bin restflow -- daemon start --foreground
 
 help:
 	@echo "Usage:"
@@ -18,6 +18,7 @@ help:
 	@echo "    make fmt     - Format Rust code"
 	@echo "    make test    - Run Rust tests"
 	@echo "    make lint    - Run Rust fmt and clippy checks"
+	@echo "    make tui-pty-smoke - Run a real PTY smoke for the TUI"
 	@echo "    make audit   - Run cargo security audit"
 	@echo "    make cli     - Build CLI in release mode"
 	@echo "    make release - Run make lint, make audit, make test, and make cli"
@@ -32,16 +33,31 @@ fmt:
 	cargo fmt --all
 
 # Run Rust tests
-test:
+rust-test:
 	@set -e; \
 	TYPEGEN_DIR="$$(mktemp -d)"; \
 	trap 'rm -rf "$$TYPEGEN_DIR"' EXIT; \
-	TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test
+		TS_RS_EXPORT_DIR="$$TYPEGEN_DIR" cargo test --workspace
+
+tui-unit-test:
+	cargo test --package tui --lib
+
+test:
+	$(MAKE) rust-test
+	$(MAKE) tui-pty-smoke
+	$(MAKE) tui-unit-test
 
 # Run Rust lint checks
 lint: toolchain
 	cargo +$(RUST_TOOLCHAIN) fmt --all --check
-	cargo +$(RUST_TOOLCHAIN) clippy --all-targets -- -D warnings
+	cargo +$(RUST_TOOLCHAIN) clippy --workspace --all-targets -- -D warnings
+
+tui-pty-smoke:
+	@if [ "$$(uname -s 2>/dev/null || echo Windows)" = "Windows" ]; then \
+		echo "Skipping TUI PTY smoke on Windows: pseudo-terminal APIs are Unix-only."; \
+	else \
+		python3 scripts/tui_pty_smoke.py; \
+	fi
 
 # Run Rust security audit
 audit: toolchain

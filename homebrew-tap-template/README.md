@@ -12,7 +12,7 @@ brew install restflow
 ```bash
 restflow --help
 restflow daemon start
-restflow claude -p "Hello, world!"
+restflow
 ```
 
 ## Links

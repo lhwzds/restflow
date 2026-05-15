@@ -304,6 +304,8 @@ mod app {
     use crate::daemon_client::TuiDaemonClient;
     use crate::event_loop::run_event_loop;
     use crate::state::AppState;
+    #[cfg(debug_assertions)]
+    use types::StreamFrame;
 
     use super::TuiLaunchOptions;
 
@@ -336,6 +338,57 @@ mod app {
             DisableBracketedPaste,
             Show
         );
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn apply_pty_smoke_fixture(state: &mut AppState) -> Option<bool> {
+        let fixture = std::env::var("RESTFLOW_TUI_PTY_FIXTURE").ok();
+        let fixture = fixture.as_deref()?;
+        if fixture != "long-active-turn"
+            && fixture != "completed-turn"
+            && fixture != "long-active-single-line"
+        {
+            return None;
+        }
+        state.push_local_user_message("pty smoke long active turn".to_string());
+        state.apply_stream_frame(StreamFrame::Start {
+            stream_id: "pty-smoke-stream".to_string(),
+        });
+        if fixture == "long-active-single-line" {
+            state.apply_stream_frame(StreamFrame::Data {
+                content: format!(
+                    "assistant-single-line-prefix-{}assistant-tail-final",
+                    "x".repeat(420)
+                ),
+            });
+            return Some(false);
+        }
+        let long_output = (0..24)
+            .map(|index| format!("assistant-line-{index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        state.apply_stream_frame(StreamFrame::Data {
+            content: long_output,
+        });
+        state.apply_stream_frame(StreamFrame::ToolCall {
+            id: "pty-smoke-tool".to_string(),
+            name: "bash".to_string(),
+            arguments: serde_json::json!({"command": "printf smoke"}),
+        });
+        state.apply_stream_frame(StreamFrame::ToolResult {
+            id: "pty-smoke-tool".to_string(),
+            result: "tool-smoke-output".to_string(),
+            success: true,
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "\nassistant-tail-final".to_string(),
+        });
+        Some(fixture == "completed-turn")
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn complete_pty_smoke_fixture(state: &mut AppState) {
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
     }
 
     fn install_terminal_panic_hook() {
@@ -382,7 +435,6 @@ mod app {
             "No default agent configured. Create one from the standard CLI before using the TUI.",
         );
         }
-
         let _terminal = TerminalGuard::new()?;
         run_event_loop(controller, state).await
     }
@@ -791,7 +843,7 @@ mod controller {
     use std::collections::{HashMap, HashSet};
     use tokio::sync::mpsc;
 
-    use ::daemon::StoredAgent;
+    use restflow_core::StoredAgent;
     use types::{
         ChatSession, ChatSessionSummary, ModelId, ModelMetadataDTO, RunSummary, SkillSource,
     };
@@ -849,7 +901,7 @@ mod controller {
                 .configured_default_model()
                 .and_then(|model| resolve_model_picker_item(&available, &model))
             {
-                pending.update_model(item.provider, item.model, item.name);
+                pending.update_display_model(item.provider, item.model, item.name);
                 return pending;
             }
             let sessions = self.client.list_sessions().await.unwrap_or_default();
@@ -858,7 +910,7 @@ mod controller {
                 &available,
                 Some((&pending.provider, &pending.model)),
             ) {
-                pending.update_model(item.provider, item.model, item.name);
+                pending.update_display_model(item.provider, item.model, item.name);
             }
             pending
         }
@@ -896,9 +948,10 @@ mod controller {
                     session_id,
                     instruction,
                 } => self.steer_message_actions(session_id, instruction).await,
-                ShellEffect::CancelStream { stream_id } => {
-                    self.cancel_stream_actions(stream_id).await
-                }
+                ShellEffect::CancelStream {
+                    stream_id,
+                    session_id,
+                } => self.cancel_stream_actions(stream_id, session_id).await,
                 ShellEffect::ExecuteSlashCommand(command) => {
                     self.slash_command_actions(state, command).await
                 }
@@ -908,7 +961,7 @@ mod controller {
                 ShellEffect::ListSkillsForMention => self.skill_mention_picker_actions().await,
                 ShellEffect::ListSessionsInline => self.session_picker_actions().await,
                 ShellEffect::ListRunsInline => self.list_runs_inline_actions(state).await,
-                ShellEffect::ClearScreen | ShellEffect::PurgeScreen => Ok(Vec::new()),
+                ShellEffect::PurgeScreen => Ok(Vec::new()),
             }
         }
 
@@ -1184,8 +1237,16 @@ mod controller {
             }
         }
 
-        async fn cancel_stream_actions(&self, stream_id: String) -> Result<Vec<ShellAction>> {
-            match self.client.cancel_chat_stream(&stream_id).await {
+        async fn cancel_stream_actions(
+            &self,
+            stream_id: String,
+            session_id: Option<String>,
+        ) -> Result<Vec<ShellAction>> {
+            match self
+                .client
+                .cancel_chat_stream(session_id.as_deref(), &stream_id)
+                .await
+            {
                 Ok(true) => Ok(vec![ShellAction::StatusUpdated(
                     "Canceled current response.".to_string(),
                 )]),
@@ -1215,10 +1276,16 @@ mod controller {
                 .client
                 .create_session_for_agent(
                     agent_id,
-                    state
-                        .pending_session
-                        .as_ref()
-                        .map(|session| session.model.as_str()),
+                    state.pending_session.as_ref().and_then(|session| {
+                        if session.explicit_model && !session.provider.trim().is_empty() {
+                            Some(session.provider.as_str())
+                        } else {
+                            None
+                        }
+                    }),
+                    state.pending_session.as_ref().and_then(|session| {
+                        session.explicit_model.then_some(session.model.as_str())
+                    }),
                 )
                 .await?;
             Ok(vec![ShellAction::SessionCreatedForSubmit {
@@ -1479,7 +1546,8 @@ mod controller {
                     "Unknown or unavailable model: {model}"
                 ))]);
             };
-            self.client.set_default_model(&item.model).await?;
+            let default_model = model_key(&item.provider, &item.model);
+            self.client.set_default_model(&default_model).await?;
             let status = format!("Default model set to {}", item.model);
             if state.current_session_id().is_none() && state.pending_session.is_some() {
                 return Ok(vec![ShellAction::PendingSessionModelSelected {
@@ -1862,24 +1930,13 @@ mod controller {
     }
 
     fn model_picker_sort_rank(model: &str) -> usize {
-        let gpt_5_4_codex = ModelId::Gpt5_4Codex.as_serialized_str();
-        let gpt_5_4_mini_codex = ModelId::Gpt5_4MiniCodex.as_serialized_str();
-        let codex_cli = ModelId::CodexCli.as_serialized_str();
-        let gpt_5_codex = ModelId::Gpt5Codex.as_serialized_str();
-        let gpt_5_1_codex = ModelId::Gpt5_1Codex.as_serialized_str();
-        let gpt_5_2_codex = ModelId::Gpt5_2Codex.as_serialized_str();
-
-        match ModelId::normalize_model_id(model) {
-            Some(model) if model == gpt_5_4_codex => 0,
-            Some(model) if model == gpt_5_4_mini_codex => 1,
-            Some(model) if model == codex_cli => 2,
-            Some(model)
-                if model == gpt_5_codex || model == gpt_5_1_codex || model == gpt_5_2_codex =>
-            {
-                20
-            }
-            _ => 10,
-        }
+        ModelId::from_serialized_str(model)
+            .or_else(|| {
+                ModelId::normalize_model_id(model)
+                    .and_then(|model| ModelId::from_serialized_str(&model))
+            })
+            .map(restflow_core::provider_policy::model_display_order)
+            .unwrap_or(10)
     }
 
     fn select_default_model_item(
@@ -1906,11 +1963,15 @@ mod controller {
         requested: &str,
     ) -> Option<ModelPickerItem> {
         let requested = requested.trim();
+        let resolved = resolve_requested_model_id(requested);
         available.iter().find_map(|metadata| {
             let provider = metadata.provider.as_canonical_str().to_string();
             let model = metadata.model.as_serialized_str().to_string();
             let qualified = model_key(&provider, &model);
-            if requested == model || requested == qualified {
+            let matches_requested = requested == model
+                || requested == qualified
+                || resolved.is_some_and(|model_id| model_id == metadata.model);
+            if matches_requested {
                 Some(ModelPickerItem {
                     provider,
                     model,
@@ -1925,6 +1986,10 @@ mod controller {
                 None
             }
         })
+    }
+
+    fn resolve_requested_model_id(requested: &str) -> Option<ModelId> {
+        ModelId::from_unambiguous_user_input(requested).ok()
     }
 
     fn model_category_order(category: ModelPickerCategory) -> u8 {
@@ -1964,7 +2029,8 @@ mod controller {
         use super::{
             build_model_picker_items_for_provider, build_provider_picker_items,
             filter_resume_sessions, preferred_reload_session_id, refreshed_state_is_unchanged,
-            select_default_model_item, should_refresh_session_list, start_daemon_error_actions,
+            resolve_model_picker_item, select_default_model_item, should_refresh_session_list,
+            start_daemon_error_actions,
         };
         use crate::reducer::ShellAction;
         use crate::state::{AppState, ModelPickerCategory, OverlayState};
@@ -2235,6 +2301,17 @@ mod controller {
         }
 
         #[test]
+        fn model_picker_resolves_provider_qualified_api_name() {
+            let available = vec![model_metadata(ModelId::Gpt5_5, "GPT-5.5")];
+
+            let item = resolve_model_picker_item(&available, "openai:gpt-5.5")
+                .expect("provider-qualified api name should resolve");
+
+            assert_eq!(item.provider, "openai");
+            assert_eq!(item.model, ModelId::Gpt5_5.as_serialized_str());
+        }
+
+        #[test]
         fn default_model_selection_skips_unavailable_current_model() {
             let sessions = vec![session_summary_with_model(
                 "session-1",
@@ -2258,6 +2335,8 @@ mod controller {
             let available = vec![
                 model_metadata(ModelId::Gpt5Codex, "GPT-5 Codex"),
                 model_metadata(ModelId::Gpt5_1Codex, "GPT-5.1 Codex"),
+                model_metadata(ModelId::Gpt5_5Codex, "GPT-5.5"),
+                model_metadata(ModelId::Gpt5_5ProCodex, "GPT-5.5 Pro"),
                 model_metadata(ModelId::Gpt5_4MiniCodex, "GPT-5.4 Mini"),
                 model_metadata(ModelId::Gpt5_4Codex, "GPT-5.4"),
                 model_metadata(ModelId::CodexCli, "GPT-5.3 Codex"),
@@ -2267,7 +2346,7 @@ mod controller {
                 .expect("codex default model");
 
             assert_eq!(item.provider, "codex");
-            assert_eq!(item.model, "gpt-5.4");
+            assert_eq!(item.model, "gpt-5.5");
         }
 
         fn session_summary_with_messages(
@@ -2322,23 +2401,27 @@ mod controller {
 }
 
 mod daemon_client {
-    use ::daemon::AppCore;
     use ::daemon::daemon::{
         DaemonConfig, IpcClient, is_daemon_available, start_daemon_with_config, stop_daemon,
     };
-    use ::daemon::paths;
-    use ::daemon::services::{session::SessionService, skills as skills_service};
-    use ::daemon::storage::{load_cli_config, load_global_cli_config, write_cli_config};
-    use ::daemon::{DEFAULT_ASSISTANT_NAME, StoredAgent};
     use anyhow::{Result, bail};
+    use restflow_core::AppCore;
+    use restflow_core::paths;
+    use restflow_core::services::{
+        session::{SessionService, WorkspaceSessionCreateRequest},
+        skills as skills_service,
+    };
+    use restflow_core::storage::{load_cli_config, load_global_cli_config, write_cli_config};
+    use restflow_core::{DEFAULT_ASSISTANT_NAME, StoredAgent};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::mpsc;
     use tokio::time::{Duration, sleep};
-    use types::request::WireModelRef;
+    #[cfg(test)]
+    use types::ModelId;
     use types::{
-        ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef, ModelId,
-        ModelMetadataDTO, Provider, RunListQuery, RunSummary, Skill,
+        ChatSession, ChatSessionSummary, ExecutionContainerKind, ExecutionContainerRef,
+        ExecutionScope, ModelMetadataDTO, RunListQuery, RunSummary, Skill,
     };
     use types::{ChatSessionEvent, StreamFrame};
 
@@ -2348,6 +2431,7 @@ mod daemon_client {
     pub struct TuiDaemonClient {
         socket_path: PathBuf,
         core: Arc<AppCore>,
+        scope: ExecutionScope,
     }
 
     impl TuiDaemonClient {
@@ -2357,6 +2441,10 @@ mod daemon_client {
             Ok(Self {
                 socket_path: paths::socket_path()?,
                 core,
+                scope: ExecutionScope::foreground(
+                    format!("tui-{}", uuid::Uuid::new_v4()),
+                    terminal_scope_id(),
+                ),
             })
         }
 
@@ -2450,6 +2538,7 @@ mod daemon_client {
         pub async fn create_session_for_agent(
             &self,
             agent_id: &str,
+            provider: Option<&str>,
             model: Option<&str>,
         ) -> Result<ChatSession> {
             let agent_id = self
@@ -2457,22 +2546,12 @@ mod daemon_client {
                 .storage
                 .agents
                 .resolve_existing_agent_id(agent_id)?;
-            let model = match model {
-                Some(model) => normalize_model_input(model)?,
-                None if let Some(model) = self.configured_default_model() => {
-                    normalize_model_input(&model)?
-                }
-                None => self
-                    .core
-                    .storage
-                    .agents
-                    .get_agent(agent_id.clone())?
-                    .and_then(|agent| agent.agent.resolved_model_ref())
-                    .map(|model_ref| model_ref.model.as_serialized_str().to_string())
-                    .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()),
-            };
-            SessionService::from_storage(&self.core.storage)
-                .create_workspace_session(agent_id, model, None, None, None)
+            SessionService::from_storage(&self.core.storage).create_workspace_session_from_request(
+                &self.core.storage,
+                WorkspaceSessionCreateRequest::new(agent_id)
+                    .with_provider(provider.map(ToOwned::to_owned))
+                    .with_model(model.map(ToOwned::to_owned)),
+            )
         }
 
         pub fn configured_default_model(&self) -> Option<String> {
@@ -2491,7 +2570,9 @@ mod daemon_client {
         }
 
         pub async fn list_available_models(&self) -> Result<Vec<ModelMetadataDTO>> {
-            Ok(available_model_catalog(&self.core))
+            Ok(restflow_core::provider_policy::available_model_catalog(
+                &self.core.storage.secrets,
+            ))
         }
 
         pub async fn list_skills(&self) -> Result<Vec<Skill>> {
@@ -2514,26 +2595,35 @@ mod daemon_client {
             provider: &str,
             model: &str,
         ) -> Result<ChatSession> {
-            let _model_ref = WireModelRef {
-                provider: provider.to_string(),
-                model: model.to_string(),
-            };
-            let model = normalize_model_input(model)?;
             let session_service = SessionService::from_storage(&self.core.storage);
-            let mut session = session_service
-                .get_session_view(session_id)?
-                .ok_or_else(|| anyhow::anyhow!(types::session_not_found_message(session_id)))?;
-            session.set_model_identity_from_raw(&model);
-            session_service.save_session_metadata(&session)?;
-            Ok(session)
+            session_service
+                .switch_session_model(session_id, provider.to_string(), model.to_string())?
+                .ok_or_else(|| anyhow::anyhow!(types::session_not_found_message(session_id)))
         }
 
         pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
             SessionService::from_storage(&self.core.storage).delete_session(session_id)
         }
 
-        pub async fn cancel_chat_stream(&self, stream_id: &str) -> Result<bool> {
-            Ok(::daemon::daemon::cancel_foreground_chat_stream(&self.core, stream_id).await)
+        pub async fn cancel_chat_stream(
+            &self,
+            session_id: Option<&str>,
+            stream_id: &str,
+        ) -> Result<bool> {
+            Ok(match session_id {
+                Some(session_id) => {
+                    ::daemon::daemon::cancel_foreground_chat_stream_for_scope(
+                        &self.core,
+                        session_id,
+                        stream_id,
+                        self.scope.clone(),
+                    )
+                    .await
+                }
+                None => {
+                    ::daemon::daemon::cancel_foreground_chat_stream(&self.core, stream_id).await
+                }
+            })
         }
 
         pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {
@@ -2592,12 +2682,13 @@ mod daemon_client {
                 .ok()
                 .map(|path| path.to_string_lossy().into_owned());
             tokio::spawn(async move {
-                let stream = ::daemon::daemon::open_foreground_chat_session_stream(
+                let stream = ::daemon::daemon::open_foreground_chat_session_stream_for_scope(
                     client.core.clone(),
                     session_id.clone(),
                     Some(input),
                     stream_id,
                     workspace_root,
+                    client.scope.clone(),
                 )
                 .await;
                 let mut rx = match stream {
@@ -2612,7 +2703,13 @@ mod daemon_client {
                     let terminal =
                         matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
                     saw_terminal_frame |= terminal;
-                    if tx.send(AppEvent::StreamFrame(frame)).is_err() {
+                    if tx
+                        .send(AppEvent::StreamFrame {
+                            stream_id: stream_id_for_end.clone(),
+                            frame,
+                        })
+                        .is_err()
+                    {
                         break;
                     }
                     if terminal {
@@ -2633,87 +2730,38 @@ mod daemon_client {
             session_id: String,
             instruction: String,
         ) -> Result<bool> {
-            Ok(::daemon::daemon::steer_foreground_chat_stream(
+            Ok(::daemon::daemon::steer_foreground_chat_stream_for_scope(
                 &self.core,
                 &session_id,
                 &instruction,
+                self.scope.clone(),
             )
             .await)
         }
     }
 
+    fn terminal_scope_id() -> String {
+        std::env::var("TERM_SESSION_ID")
+            .or_else(|_| std::env::var("WT_SESSION"))
+            .or_else(|_| std::env::var("TERM"))
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("terminal-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[cfg(test)]
     fn normalize_model_input(model: &str) -> Result<String> {
-        ModelId::normalize_model_id(model)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
+        ModelId::normalize_unambiguous_model_id(model).map_err(anyhow::Error::msg)
     }
 
-    fn is_catalog_model(model: ModelId) -> bool {
-        !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
-    }
-
-    fn is_legacy_openai_model(model: ModelId) -> bool {
-        matches!(
-            model,
-            ModelId::Gpt5
-                | ModelId::Gpt5Mini
-                | ModelId::Gpt5Nano
-                | ModelId::Gpt5Pro
-                | ModelId::Gpt5_1
-                | ModelId::Gpt5_2
-        )
-    }
-
-    fn provider_has_secret(core: &AppCore, provider: Provider) -> bool {
-        provider.api_key_env_candidates().any(|key| {
-            core.storage
-                .secrets
-                .get_non_empty(key)
-                .ok()
-                .flatten()
-                .is_some()
-        })
-    }
-
-    fn available_model_catalog(core: &AppCore) -> Vec<ModelMetadataDTO> {
-        let mut providers = Vec::new();
-        for provider in Provider::all().iter().copied() {
-            if provider == Provider::Codex || provider_has_secret(core, provider) {
-                providers.push(provider);
-            }
-        }
-        providers.sort_by_key(|provider| format!("{provider:?}"));
-
-        let mut models = ModelId::all_with_metadata()
-            .into_iter()
-            .filter(|metadata| is_catalog_model(metadata.model))
-            .filter(|metadata| providers.contains(&metadata.provider))
-            .collect::<Vec<_>>();
-        models.sort_by(|left, right| {
-            format!("{:?}", left.provider)
-                .cmp(&format!("{:?}", right.provider))
-                .then_with(|| model_sort_rank(left.model).cmp(&model_sort_rank(right.model)))
-                .then_with(|| left.name.cmp(&right.name))
-        });
-        models
-    }
-
-    fn model_sort_rank(model: ModelId) -> usize {
-        if model == ModelId::Gpt5_4Codex {
-            return 0;
-        }
-        if model == ModelId::Gpt5_4MiniCodex {
-            return 1;
-        }
-        if model == ModelId::CodexCli {
-            return 2;
-        }
-        if model == ModelId::Gpt5Codex
-            || model == ModelId::Gpt5_1Codex
-            || model == ModelId::Gpt5_2Codex
-        {
-            return 20;
-        }
-        10
+    #[cfg(test)]
+    fn normalize_provider_model_input(provider: &str, model: &str) -> Result<String> {
+        let provider = types::Provider::from_canonical_str(provider)
+            .ok_or_else(|| anyhow::anyhow!("Unknown provider: {}", provider.trim()))?;
+        Ok(ModelId::for_provider_and_model(provider, model)
+            .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", model.trim()))?
+            .as_serialized_str()
+            .to_string())
     }
 
     #[cfg(test)]
@@ -2721,20 +2769,22 @@ mod daemon_client {
         use super::*;
 
         #[test]
-        fn codex_catalog_sort_prefers_supported_default() {
-            let mut models = [
-                ModelId::Gpt5Codex,
-                ModelId::Gpt5_1Codex,
-                ModelId::Gpt5_4MiniCodex,
-                ModelId::Gpt5_4Codex,
-                ModelId::CodexCli,
-            ];
+        fn provider_model_normalization_keeps_codex_model_family() {
+            let normalized = normalize_provider_model_input("codex", "gpt-5.5").unwrap();
+            assert_eq!(normalized, ModelId::Gpt5_5Codex.as_serialized_str());
+        }
 
-            models.sort_by_key(|model| model_sort_rank(*model));
+        #[test]
+        fn provider_model_normalization_rejects_cross_provider_model() {
+            let error = normalize_provider_model_input("codex", "gpt-5-5")
+                .expect_err("openai serialized model should not resolve for codex");
+            assert!(error.to_string().contains("Unknown model"));
+        }
 
-            assert_eq!(models[0], ModelId::Gpt5_4Codex);
-            assert_eq!(models[1], ModelId::Gpt5_4MiniCodex);
-            assert_eq!(models[2], ModelId::CodexCli);
+        #[test]
+        fn model_only_normalization_rejects_cross_provider_collision() {
+            let error = normalize_model_input("gpt-5.5").expect_err("ambiguous model");
+            assert!(error.to_string().contains("Ambiguous model identifier"));
         }
     }
 }
@@ -2762,9 +2812,14 @@ mod event_loop {
 
     #[derive(Debug)]
     pub enum AppEvent {
-        StreamFrame(StreamFrame),
+        StreamFrame {
+            stream_id: String,
+            frame: StreamFrame,
+        },
         SessionEvent(ChatSessionEvent),
-        ChatStreamEndedWithoutTerminal { stream_id: String },
+        ChatStreamEndedWithoutTerminal {
+            stream_id: String,
+        },
         Error(String),
     }
 
@@ -2853,6 +2908,23 @@ mod event_loop {
             if result.immediate_render {
                 renderer.sync(&mut state)?;
                 render_request = RenderRequest::default();
+            }
+        }
+
+        #[cfg(debug_assertions)]
+        if std::env::var_os("RESTFLOW_TUI_PTY_FIXTURE").is_some() {
+            renderer.sync(&mut state)?;
+            render_request = RenderRequest::default();
+            if let Some(complete_after_live_render) =
+                crate::app::apply_pty_smoke_fixture(&mut state)
+            {
+                renderer.sync(&mut state)?;
+                render_request = RenderRequest::default();
+                if complete_after_live_render {
+                    crate::app::complete_pty_smoke_fixture(&mut state);
+                    renderer.sync(&mut state)?;
+                    render_request = RenderRequest::default();
+                }
             }
         }
 
@@ -3054,7 +3126,9 @@ mod event_loop {
 
     fn app_event_to_action(event: AppEvent) -> ShellAction {
         match event {
-            AppEvent::StreamFrame(frame) => ShellAction::StreamFrame(frame),
+            AppEvent::StreamFrame { stream_id, frame } => {
+                ShellAction::StreamFrameForStream { stream_id, frame }
+            }
             AppEvent::SessionEvent(event) => ShellAction::SessionEvent(event),
             AppEvent::ChatStreamEndedWithoutTerminal { stream_id } => {
                 ShellAction::ChatStreamEndedWithoutTerminal { stream_id }
@@ -3105,10 +3179,6 @@ mod event_loop {
                 if effect_requires_pre_render(&effect) {
                     output.render_request.merge(RenderRequest::full());
                     output.immediate_render = true;
-                }
-                if matches!(effect, ShellEffect::ClearScreen) {
-                    renderer.clear_screen()?;
-                    continue;
                 }
                 if matches!(effect, ShellEffect::PurgeScreen) {
                     renderer.purge_screen()?;
@@ -3606,14 +3676,19 @@ mod reducer {
         AppState, ModelPickerItem, PendingSessionState, ProviderPickerItem, SkillManagerSelection,
         SkillPickerItem,
     };
-    use ::daemon::StoredAgent;
+    use restflow_core::StoredAgent;
     use types::{ChatSession, ChatSessionSummary, ModelMetadataDTO, RunSummary};
     use types::{ChatSessionEvent, StreamFrame};
 
     #[derive(Debug)]
     pub enum ShellAction {
         Ui(Action),
+        #[cfg(test)]
         StreamFrame(StreamFrame),
+        StreamFrameForStream {
+            stream_id: String,
+            frame: StreamFrame,
+        },
         SessionEvent(ChatSessionEvent),
         ChatStreamEndedWithoutTerminal {
             stream_id: String,
@@ -3711,7 +3786,6 @@ mod reducer {
 
     #[derive(Debug, Clone)]
     pub enum ShellEffect {
-        ClearScreen,
         PurgeScreen,
         RefreshState,
         ReloadCurrentSession,
@@ -3729,6 +3803,7 @@ mod reducer {
         },
         CancelStream {
             stream_id: String,
+            session_id: Option<String>,
         },
         ExecuteSlashCommand(SlashCommand),
         DeleteSession {
@@ -3750,21 +3825,15 @@ mod reducer {
         let mut output = ReducerOutput::default();
         match action {
             ShellAction::Ui(action) => reduce_ui(state, action, &mut output),
+            #[cfg(test)]
             ShellAction::StreamFrame(frame) => {
-                let should_reload_session = matches!(
-                    frame,
-                    StreamFrame::ToolResult { .. }
-                        | StreamFrame::Done { .. }
-                        | StreamFrame::Error(_)
-                );
-                let could_reload_session = should_reload_active_session(state);
-                let applied = state.apply_stream_frame(frame);
-                if applied
-                    && should_reload_session
-                    && (could_reload_session || should_reload_active_session(state))
-                {
-                    output.effects.push(ShellEffect::ReloadCurrentSession);
+                reduce_stream_frame(state, frame, &mut output);
+            }
+            ShellAction::StreamFrameForStream { stream_id, frame } => {
+                if state.reject_unowned_stream_frame(&stream_id) {
+                    return output;
                 }
+                reduce_stream_frame(state, frame, &mut output);
             }
             ShellAction::SessionEvent(event) => {
                 let refresh_current = state.active_refresh_session_id()
@@ -4006,6 +4075,21 @@ mod reducer {
         output
     }
 
+    fn reduce_stream_frame(state: &mut AppState, frame: StreamFrame, output: &mut ReducerOutput) {
+        let should_reload_session = matches!(
+            frame,
+            StreamFrame::ToolResult { .. } | StreamFrame::Done { .. } | StreamFrame::Error(_)
+        );
+        let could_reload_session = should_reload_active_session(state);
+        let applied = state.apply_stream_frame(frame);
+        if applied
+            && should_reload_session
+            && (could_reload_session || should_reload_active_session(state))
+        {
+            output.effects.push(ShellEffect::ReloadCurrentSession);
+        }
+    }
+
     fn session_id_of(event: &ChatSessionEvent) -> &str {
         match event {
             ChatSessionEvent::Created { session_id }
@@ -4058,7 +4142,7 @@ mod reducer {
                     state.cycle_input_mode();
                 }
             }
-            Action::Resize => output.effects.push(ShellEffect::ClearScreen),
+            Action::Resize => {}
             Action::Redraw => {
                 state.status = "Screen redrawn".to_string();
                 output.effects.push(ShellEffect::PurgeScreen);
@@ -4293,11 +4377,15 @@ mod reducer {
 
     fn cancel_active_response(state: &mut AppState, output: &mut ReducerOutput) {
         let stream_id = state.current_stream_id.clone();
+        let session_id = state.active_refresh_session_id().map(ToOwned::to_owned);
         state.cancel_active_response();
         state.push_info("Canceled current response.");
         if let Some(stream_id) = stream_id {
             state.status = "Canceling response...".to_string();
-            output.effects.push(ShellEffect::CancelStream { stream_id });
+            output.effects.push(ShellEffect::CancelStream {
+                stream_id,
+                session_id,
+            });
         } else {
             state.status = "Canceled current response.".to_string();
         }
@@ -5040,7 +5128,7 @@ mod reducer {
             assert_eq!(state.status, "Canceling response...");
             assert!(matches!(
                 output.effects.as_slice(),
-                [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+                [ShellEffect::CancelStream { stream_id, .. }] if stream_id == "stream-1"
             ));
         }
 
@@ -5136,7 +5224,7 @@ mod reducer {
             assert!(state.current_stream_id.is_none());
             assert!(matches!(
                 output.effects.as_slice(),
-                [ShellEffect::CancelStream { stream_id: canceled }] if canceled == &stream_id
+                [ShellEffect::CancelStream { stream_id: canceled, .. }] if canceled == &stream_id
             ));
         }
 
@@ -5217,6 +5305,7 @@ mod reducer {
             assert_eq!(pending.provider, "codex");
             assert_eq!(pending.model, "gpt-5.4");
             assert_eq!(pending.model_name, "GPT-5.4");
+            assert!(pending.explicit_model);
             assert!(state.overlay.is_none());
             assert_eq!(state.status, "Model selected for new chat.");
         }
@@ -5297,7 +5386,7 @@ mod reducer {
         fn new_chat_started_clears_view_and_sets_pending_session() {
             let mut state = AppState::empty();
             state.set_default_agent(Some("agent-1".to_string()), Some("Agent".to_string()));
-            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5.4".to_string());
+            let mut session = ChatSession::new("agent-1".to_string(), "codex:gpt-5.5".to_string());
             session.add_message(types::ChatMessage::user("old"));
             state.set_current_session(session);
             state.push_local_user_message("pending".to_string());
@@ -5320,7 +5409,8 @@ mod reducer {
             assert!(state.composer.draft().is_empty());
             let pending = state.pending_session.as_ref().expect("pending session");
             assert_eq!(pending.agent_id, "agent-1");
-            assert_eq!(pending.model, "gpt-5.4");
+            assert_eq!(pending.provider, "codex");
+            assert_eq!(pending.model, "gpt-5.5");
             assert_eq!(state.status, "Started new chat");
         }
 
@@ -5389,7 +5479,7 @@ mod reducer {
             assert_eq!(state.status, "Canceling response...");
             assert!(matches!(
                 output.effects.as_slice(),
-                [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+                [ShellEffect::CancelStream { stream_id, .. }] if stream_id == "stream-1"
             ));
         }
 
@@ -5405,7 +5495,7 @@ mod reducer {
             let cancel_output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
             assert!(matches!(
                 cancel_output.effects.as_slice(),
-                [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+                [ShellEffect::CancelStream { stream_id, .. }] if stream_id == "stream-1"
             ));
 
             let output = reduce(
@@ -5523,7 +5613,7 @@ mod reducer {
             assert_eq!(state.status, "Canceling response...");
             assert!(matches!(
                 output.effects.as_slice(),
-                [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+                [ShellEffect::CancelStream { stream_id, .. }] if stream_id == "stream-1"
             ));
         }
 
@@ -5543,7 +5633,7 @@ mod reducer {
             assert_eq!(state.status, "Canceling response...");
             assert!(matches!(
                 output.effects.as_slice(),
-                [ShellEffect::CancelStream { stream_id }] if stream_id == "stream-1"
+                [ShellEffect::CancelStream { stream_id, .. }] if stream_id == "stream-1"
             ));
         }
 
@@ -5656,6 +5746,75 @@ mod reducer {
                 output.effects.as_slice(),
                 [ShellEffect::ReloadCurrentSession]
             ));
+        }
+
+        #[test]
+        fn stale_canceled_stream_start_does_not_poison_new_stream() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("old".to_string());
+            state.begin_stream("old-stream".to_string());
+            state.apply_stream_frame(StreamFrame::Ack {
+                content: "old partial".to_string(),
+            });
+            state.cancel_active_response();
+
+            state.push_local_user_message("new".to_string());
+            state.begin_stream("new-stream".to_string());
+
+            let stale_output = reduce(
+                &mut state,
+                ShellAction::StreamFrameForStream {
+                    stream_id: "old-stream".to_string(),
+                    frame: StreamFrame::Start {
+                        stream_id: "old-stream".to_string(),
+                    },
+                },
+            );
+            assert!(stale_output.effects.is_empty());
+            assert_eq!(state.current_stream_id.as_deref(), Some("new-stream"));
+
+            let fresh_output = reduce(
+                &mut state,
+                ShellAction::StreamFrameForStream {
+                    stream_id: "new-stream".to_string(),
+                    frame: StreamFrame::Data {
+                        content: "fresh answer".to_string(),
+                    },
+                },
+            );
+
+            assert!(fresh_output.effects.is_empty());
+            assert_eq!(state.current_stream_id.as_deref(), Some("new-stream"));
+            assert!(
+                state
+                    .transcript_cells_for_render()
+                    .iter()
+                    .any(|cell| cell.body.contains("fresh answer"))
+            );
+        }
+
+        #[test]
+        fn direct_stale_stream_start_does_not_toggle_ignore_for_current_stream() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("old".to_string());
+            state.begin_stream("old-stream".to_string());
+            state.cancel_active_response();
+            state.push_local_user_message("new".to_string());
+            state.begin_stream("new-stream".to_string());
+
+            assert!(!state.apply_stream_frame(StreamFrame::Start {
+                stream_id: "old-stream".to_string(),
+            }));
+            assert_eq!(state.current_stream_id.as_deref(), Some("new-stream"));
+            assert!(state.apply_stream_frame(StreamFrame::Data {
+                content: "fresh answer".to_string(),
+            }));
+            assert!(
+                state
+                    .transcript_cells_for_render()
+                    .iter()
+                    .any(|cell| cell.body.contains("fresh answer"))
+            );
         }
 
         #[test]
@@ -5807,17 +5966,14 @@ mod reducer {
         }
 
         #[test]
-        fn resize_clears_screen_without_changing_status() {
+        fn resize_preserves_scrollback_without_changing_status() {
             let mut state = AppState::empty();
             state.status = "Connected to daemon".to_string();
 
             let output = reduce(&mut state, ShellAction::Ui(Action::Resize));
 
             assert_eq!(state.status, "Connected to daemon");
-            assert!(matches!(
-                output.effects.as_slice(),
-                [ShellEffect::ClearScreen]
-            ));
+            assert!(output.effects.is_empty());
         }
 
         #[test]
@@ -6161,6 +6317,8 @@ mod scrollback {
         // Cells rendered to pending_lines but not yet inserted.
         pending_cells: Vec<TranscriptCell>,
         pending_lines: Vec<Line<'static>>,
+        // Projection rewrite to adopt only after current pending lines are durably inserted.
+        pending_adopt_cells: Option<Vec<TranscriptCell>>,
     }
 
     impl ScrollbackWriter {
@@ -6168,28 +6326,52 @@ mod scrollback {
             self.committed_cells.clear();
             self.pending_cells.clear();
             self.pending_lines.clear();
+            self.pending_adopt_cells = None;
         }
 
         pub fn is_prefix_of(&self, cells: &[TranscriptCell]) -> bool {
             is_cell_prefix(&self.committed_cells, cells)
         }
 
-        pub fn sync_history<F>(&mut self, cells: &[TranscriptCell], width: u16, mut render_lines: F)
+        pub fn sync_history<F>(
+            &mut self,
+            cells: &[TranscriptCell],
+            width: u16,
+            mut render_lines: F,
+        ) -> bool
         where
             F: FnMut(&[TranscriptCell], u16) -> Vec<Line<'static>>,
         {
             if !self.is_prefix_of(cells) {
+                if !self.pending_lines.is_empty() {
+                    let rewritten_lines = render_lines(cells, width);
+                    if lines_text_equal(&self.pending_lines, &rewritten_lines) {
+                        self.pending_adopt_cells = Some(cells.to_vec());
+                    } else {
+                        self.pending_cells.clear();
+                        self.pending_lines.clear();
+                        self.pending_adopt_cells = None;
+                    }
+                    if self.is_prefix_of(cells) {
+                        return false;
+                    }
+                }
                 self.reset();
+                self.pending_cells = cells.to_vec();
+                self.pending_lines = render_lines(cells, width);
+                return true;
             } else {
                 // Clear stale pending lines when content changed but prefix still matches.
                 // This prevents ghost lines accumulating when runtime_cells are updated
                 // (e.g. tool results replaced, model switched) between sync cycles.
                 self.pending_lines.clear();
+                self.pending_adopt_cells = None;
             }
 
             let pending_start = self.committed_cells.len().min(cells.len());
             self.pending_cells = cells[pending_start..].to_vec();
             self.pending_lines = render_lines(&self.pending_cells, width);
+            false
         }
 
         pub fn has_pending(&self) -> bool {
@@ -6215,6 +6397,9 @@ mod scrollback {
                 Ok(()) => {
                     self.pending_lines.clear();
                     self.committed_cells.append(&mut self.pending_cells);
+                    if let Some(adopt_cells) = self.pending_adopt_cells.take() {
+                        self.committed_cells = adopt_cells;
+                    }
                     Ok(true)
                 }
                 Err(error) if error.kind() == ErrorKind::Unsupported => {
@@ -6224,6 +6409,21 @@ mod scrollback {
                 Err(error) => Err(error),
             }
         }
+    }
+
+    fn lines_text_equal(left: &[Line<'static>], right: &[Line<'static>]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| line_text(left) == line_text(right))
+    }
+
+    fn line_text(line: &Line<'static>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
     }
 
     pub fn insert_history_lines(
@@ -6264,6 +6464,7 @@ mod scrollback {
         let reset_result = queue!(writer, ResetScrollRegion);
         if let Some(err) = error {
             let _ = reset_result;
+            let _ = writer.flush();
             return Err(err);
         }
         reset_result?;
@@ -6497,6 +6698,107 @@ mod scrollback {
                 .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
                 .collect::<String>();
             assert!(rendered.contains("other"));
+        }
+
+        #[test]
+        fn pending_history_survives_projection_rewrite_until_inserted() {
+            let mut scrollback = ScrollbackWriter::default();
+            let spilled = vec![user_cell("assistant spill"), user_cell("tool output")];
+            scrollback.sync_history(&spilled, 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(cell.body.clone()))
+                    .collect()
+            });
+
+            let mut output = Vec::new();
+            assert!(
+                !scrollback
+                    .insert_pending(&mut output, 5, 80, 1)
+                    .expect("small protected region should defer insert")
+            );
+            assert!(scrollback.has_pending());
+
+            let rewritten_projection = vec![user_cell("assistant spill\ntool output")];
+            scrollback.sync_history(&rewritten_projection, 80, |cells, _| {
+                cells
+                    .iter()
+                    .flat_map(|cell| {
+                        cell.body
+                            .lines()
+                            .map(|line| Line::from(line.to_string()))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect()
+            });
+            assert!(scrollback.has_pending());
+
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 5, 80, 5)
+                    .expect("deferred history should insert once region is valid")
+            );
+            let inserted = String::from_utf8(output).expect("ansi output should be utf8");
+            assert!(inserted.contains("assistant spill"));
+            assert!(inserted.contains("tool output"));
+            assert_eq!(scrollback.committed_cells, rewritten_projection);
+            assert!(!scrollback.has_pending());
+        }
+
+        #[test]
+        fn non_equivalent_projection_rewrite_requests_rebuild() {
+            let mut scrollback = ScrollbackWriter::default();
+            let first_projection = vec![user_cell("already committed"), user_cell("stale pending")];
+            scrollback.sync_history(&first_projection, 80, |new_cells, _| {
+                new_cells
+                    .iter()
+                    .map(|cell| Line::from(cell.body.clone()))
+                    .collect()
+            });
+
+            let mut output = Vec::new();
+            assert!(
+                !scrollback
+                    .insert_pending(&mut output, 5, 80, 1)
+                    .expect("small protected region should defer insert")
+            );
+            assert!(scrollback.has_pending());
+
+            scrollback.committed_cells = vec![user_cell("already committed")];
+            let rewritten_projection = vec![user_cell("rewritten session projection")];
+            let rebuild_required =
+                scrollback.sync_history(&rewritten_projection, 80, |new_cells, _| {
+                    new_cells
+                        .iter()
+                        .map(|cell| Line::from(cell.body.clone()))
+                        .collect()
+                });
+
+            assert!(
+                rebuild_required,
+                "non-equivalent rewrites must rebuild native scrollback instead of adopting uninserted cells"
+            );
+            assert!(
+                scrollback.has_pending(),
+                "current projection should remain pending for insertion after rebuild"
+            );
+            assert!(scrollback.committed_cells.is_empty());
+            let pending = scrollback
+                .pending_lines
+                .iter()
+                .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+                .collect::<String>();
+            assert!(pending.contains("rewritten session projection"));
+            assert!(!pending.contains("stale pending"));
+
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 5, 80, 5)
+                    .expect("rebuilt pending history should insert")
+            );
+            let inserted = String::from_utf8(output).expect("ansi output should be utf8");
+            assert!(inserted.contains("rewritten session projection"));
+            assert!(!inserted.contains("stale pending"));
         }
 
         #[test]
@@ -6761,8 +7063,7 @@ mod timeline {
             let committed_cells = build_committed_cells(state);
             let active_cells = build_active_cells(state);
             debug_assert!(
-                state.active_turn.is_some()
-                    || !has_cross_band_duplicate(&committed_cells, &active_cells),
+                !has_cross_band_duplicate(&committed_cells, &active_cells),
                 "completed visual cells cannot be owned by both committed and active bands"
             );
 
@@ -6794,7 +7095,7 @@ mod timeline {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    enum VisualKey {
+    pub(crate) enum VisualKey {
         ToolCall(String),
         SubagentCall(String),
     }
@@ -6880,6 +7181,11 @@ mod timeline {
         let mut cells = Vec::new();
         if let Some(active_turn) = active_turn {
             for active_cell in &active_turn.cells {
+                if active_cell.kind == TranscriptCellKind::Subagent
+                    && !subagent_activity_cells.is_empty()
+                {
+                    continue;
+                }
                 if is_live_active_cell(active_cell) {
                     cells.push(active_cell.clone());
                 }
@@ -6901,9 +7207,10 @@ mod timeline {
         cells: &mut Vec<TranscriptCell>,
         cell: &TranscriptCell,
     ) {
-        if !should_hide_runtime_cell(state, cell) {
-            cells.push(cell.clone());
+        if should_hide_runtime_cell(state, cell) {
+            return;
         }
+        push_visual_cell_or_replace_running(cells, cell);
     }
 
     fn push_completed_cell_if_missing(
@@ -6914,14 +7221,9 @@ mod timeline {
         if should_hide_runtime_cell(state, cell) {
             return;
         }
-        if let Some(key) = visual_key(cell) {
-            if cells
-                .iter()
-                .filter_map(visual_key)
-                .any(|existing| existing == key)
-            {
-                return;
-            }
+        if visual_key(cell).is_some() {
+            push_visual_cell_or_replace_running(cells, cell);
+            return;
         } else {
             if !matches!(cell.kind, TranscriptCellKind::Assistant) {
                 return;
@@ -6932,6 +7234,26 @@ mod timeline {
             {
                 return;
             }
+        }
+        cells.push(cell.clone());
+    }
+
+    fn push_visual_cell_or_replace_running(cells: &mut Vec<TranscriptCell>, cell: &TranscriptCell) {
+        let Some(key) = visual_key(cell) else {
+            cells.push(cell.clone());
+            return;
+        };
+        if cells.iter().any(|existing| existing == cell) {
+            return;
+        }
+        if let Some(position) = cells
+            .iter()
+            .position(|existing| visual_key(existing).as_ref() == Some(&key))
+            && tool_cell_has_result(cell)
+            && !tool_cell_has_result(&cells[position])
+        {
+            cells[position] = cell.clone();
+            return;
         }
         cells.push(cell.clone());
     }
@@ -6951,6 +7273,9 @@ mod timeline {
     }
 
     fn should_hide_runtime_cell(state: &AppState, cell: &TranscriptCell) -> bool {
+        if state.current_session_active_turn_has_duplicate_cell(cell) {
+            return true;
+        }
         if !state.is_streaming || cell.kind != TranscriptCellKind::Subagent {
             return false;
         }
@@ -6958,7 +7283,7 @@ mod timeline {
             .is_some_and(|call_id| state.activity.has_subagent_activity_for(call_id))
     }
 
-    fn visual_key(cell: &TranscriptCell) -> Option<VisualKey> {
+    pub(crate) fn visual_key(cell: &TranscriptCell) -> Option<VisualKey> {
         match cell.kind {
             TranscriptCellKind::Tool => cell
                 .tool_call_id()
@@ -6968,6 +7293,16 @@ mod timeline {
                 .map(|call_id| VisualKey::SubagentCall(call_id.to_string())),
             _ => None,
         }
+    }
+
+    pub(crate) fn tool_cell_has_result(cell: &TranscriptCell) -> bool {
+        matches!(
+            cell.kind,
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+        ) && (cell.body.starts_with("Output:")
+            || cell.body.starts_with("Error:")
+            || cell.body.contains("\nOutput:")
+            || cell.body.contains("\nError:"))
     }
 
     fn has_cross_band_duplicate(
@@ -6988,6 +7323,11 @@ mod timeline {
         if !state.is_streaming && state.active_turn.is_none() {
             return None;
         }
+        if !state.current_turn_has_response_content()
+            && !state.current_turn_has_live_response_cell()
+        {
+            return None;
+        }
         let current_user = state
             .active_turn_runtime_cells()?
             .iter()
@@ -6995,16 +7335,18 @@ mod timeline {
             .find(|entry| entry.cell.kind == TranscriptCellKind::User)
             .map(|entry| entry.cell.body.trim_end())?;
         let session = state.thread.session.as_ref()?;
-        let has_running_projection = session.turns.last().is_some_and(|turn| {
+        let projected_running_turn = session.turns.last().filter(|turn| {
             turn.status == ChatTurnStatus::Running && turn.events.iter().any(|event| {
                 matches!(
                     &event.kind,
                     ChatTurnEventKind::UserMessage { content } if content.trim_end() == current_user
                 )
             })
-        }) || session.messages.last().is_some_and(|message| {
-            message.role == types::ChatRole::User && message.content.trim_end() == current_user
         });
+        let has_running_projection = projected_running_turn.is_some()
+            || session.messages.last().is_some_and(|message| {
+                message.role == types::ChatRole::User && message.content.trim_end() == current_user
+            });
         if !has_running_projection {
             return None;
         }
@@ -7191,6 +7533,7 @@ mod shell {
     const PROMPT_MIN_VISIBLE_ROWS: u16 = 1;
     const PROMPT_MAX_VISIBLE_ROWS: u16 = 6;
     const OVERLAY_MAX_ROWS: u16 = 10;
+    const MIN_ROWS_FOR_NATIVE_SCROLLBACK_RESERVE: u16 = 5;
 
     fn overlay_capacity_for_state(state: &AppState, available_above_prompt: u16) -> u16 {
         if matches!(
@@ -7216,6 +7559,12 @@ mod shell {
         scrollback: ScrollbackWriter,
         last_viewport: Option<ViewportSnapshot>,
         last_terminal_size: Option<(u16, u16)>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum SyncMode {
+        Full,
+        ViewportOnly,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7251,14 +7600,6 @@ mod shell {
             }
         }
 
-        pub fn clear_screen(&mut self) -> IoResult<()> {
-            queue_clear_visible(&mut self.stdout)?;
-            self.scrollback.reset();
-            self.last_viewport = None;
-            self.last_terminal_size = None;
-            self.stdout.flush()
-        }
-
         pub fn purge_screen(&mut self) -> IoResult<()> {
             queue_purge_visible_and_scrollback(&mut self.stdout)?;
             self.scrollback.reset();
@@ -7268,75 +7609,42 @@ mod shell {
         }
 
         pub fn sync(&mut self, state: &mut AppState) -> IoResult<()> {
+            self.sync_with_mode(state, SyncMode::Full)
+        }
+
+        pub fn sync_viewport_only(&mut self, state: &mut AppState) -> IoResult<()> {
+            self.sync_with_mode(state, SyncMode::ViewportOnly)
+        }
+
+        fn sync_with_mode(&mut self, state: &mut AppState, mode: SyncMode) -> IoResult<()> {
             let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
+            state.spill_active_assistant_overflow_to_runtime_for_width(size.0);
             let timeline = Timeline::from_state(state);
             let terminal_viewport = TerminalViewport::build(state, &timeline, size);
             let viewport = terminal_viewport.snapshot;
             let stable_cells = timeline.committed_cells();
-            self.reconcile_scrollback_prefix(stable_cells)?;
+            let mut viewport_only = mode == SyncMode::ViewportOnly
+                && self.can_update_viewport_only(size, &viewport, stable_cells);
 
-            self.scrollback
-                .sync_history(stable_cells, size.0, render_history_append_lines);
+            let rebuild_required =
+                self.scrollback
+                    .sync_history(stable_cells, size.0, render_history_append_lines);
+            if rebuild_required {
+                queue_purge_visible_and_scrollback(&mut self.stdout)?;
+                self.last_viewport = None;
+                self.last_terminal_size = None;
+                viewport_only = false;
+            }
 
-            let needs_full_redraw = self.needs_full_redraw(size, &viewport);
-            if needs_full_redraw {
-                let clear_from = self
-                    .last_viewport
-                    .as_ref()
-                    .map(|previous| previous.top.min(viewport.top))
-                    .unwrap_or(viewport.top);
-                self.clear_rows_from(clear_from, size.1, size.0)?;
-                let mut inserted_history = false;
-                if self.scrollback.has_pending() {
-                    inserted_history = self.insert_pending_history(&viewport, size)?;
-                    if inserted_history {
-                        let protected_top = self.protected_scrollback_top(&viewport);
-                        self.clear_rows_from(protected_top, size.1, size.0)?;
-                    }
-                }
-                if !inserted_history {
-                    self.redraw_history_tail(history_redraw_top(&viewport), size.0, stable_cells)?;
-                }
-                self.redraw_viewport_full(&viewport, size.0)?;
+            if !viewport_only && self.needs_full_redraw(size, &viewport) {
+                self.redraw_full_frame(&viewport, stable_cells, size)?;
             } else {
-                let protected_top = self.protected_scrollback_top(&viewport);
-                let inserted_history = self.insert_pending_history(&viewport, size)?;
-                if inserted_history {
-                    self.clear_rows_from(protected_top, size.1, size.0)?;
-                    self.redraw_viewport_full(&viewport, size.0)?;
-                } else {
-                    self.redraw_history_tail(protected_top, size.0, stable_cells)?;
-                    if should_force_live_viewport_redraw(state) {
-                        self.redraw_viewport_full(&viewport, size.0)?;
-                    } else {
-                        match self.last_viewport.clone() {
-                            Some(previous) if previous == viewport => {
-                                self.restore_cursor(&viewport)?;
-                            }
-                            Some(previous) => {
-                                self.redraw_viewport_diff(&previous, &viewport, size.0)?;
-                            }
-                            None => {
-                                self.redraw_viewport_full(&viewport, size.0)?;
-                            }
-                        }
-                    }
-                }
+                self.redraw_incremental_frame(state, &viewport, stable_cells, size)?;
             }
 
             self.last_viewport = Some(viewport);
             self.last_terminal_size = Some(terminal_viewport.size);
             self.stdout.flush()
-        }
-
-        fn reconcile_scrollback_prefix(&mut self, stable_cells: &[TranscriptCell]) -> IoResult<()> {
-            if self.scrollback.is_prefix_of(stable_cells) {
-                return Ok(());
-            }
-            self.scrollback.reset();
-            self.last_viewport = None;
-            queue_purge_visible_and_scrollback(&mut self.stdout)?;
-            Ok(())
         }
 
         fn insert_pending_history(
@@ -7349,57 +7657,80 @@ mod shell {
                 .insert_pending(&mut self.stdout, size.1, size.0, protected_top)
         }
 
-        pub fn sync_viewport_only(&mut self, state: &mut AppState) -> IoResult<()> {
-            let size = normalize_terminal_size(terminal::size().unwrap_or((80, 24)));
-            let timeline = Timeline::from_state(state);
-            let terminal_viewport = TerminalViewport::build(state, &timeline, size);
-            let viewport = terminal_viewport.snapshot;
-            let stable_cells = timeline.committed_cells();
-
-            if !self.scrollback.is_prefix_of(stable_cells) {
-                return self.sync(state);
-            }
-
-            let can_update_viewport_only = self.last_terminal_size == Some(size)
+        fn can_update_viewport_only(
+            &self,
+            size: (u16, u16),
+            viewport: &ViewportSnapshot,
+            stable_cells: &[TranscriptCell],
+        ) -> bool {
+            self.scrollback.is_prefix_of(stable_cells)
+                && self.last_terminal_size == Some(size)
                 && self.last_viewport.as_ref().is_some_and(|previous| {
                     previous.top == viewport.top
                         && previous.prompt_top == viewport.prompt_top
                         && previous.lines.len() == viewport.lines.len()
-                });
-            if !can_update_viewport_only {
-                return self.sync(state);
-            }
+                })
+        }
 
-            self.scrollback
-                .sync_history(stable_cells, size.0, render_history_append_lines);
-            let protected_top = self.protected_scrollback_top(&viewport);
-            let inserted_history = self.insert_pending_history(&viewport, size)?;
-            if inserted_history {
-                self.clear_rows_from(protected_top, size.1, size.0)?;
-                self.redraw_viewport_full(&viewport, size.0)?;
-            } else {
-                self.redraw_history_tail(protected_top, size.0, stable_cells)?;
-
-                if should_force_live_viewport_redraw(state) {
-                    self.redraw_viewport_full(&viewport, size.0)?;
-                } else {
-                    match self.last_viewport.clone() {
-                        Some(previous) if previous == viewport => {
-                            self.restore_cursor(&viewport)?;
-                        }
-                        Some(previous) => {
-                            self.redraw_viewport_diff(&previous, &viewport, size.0)?;
-                        }
-                        None => {
-                            self.redraw_viewport_full(&viewport, size.0)?;
-                        }
-                    }
+        fn redraw_full_frame(
+            &mut self,
+            viewport: &ViewportSnapshot,
+            stable_cells: &[TranscriptCell],
+            size: (u16, u16),
+        ) -> IoResult<()> {
+            let clear_from = self
+                .last_viewport
+                .as_ref()
+                .map(|previous| previous.top.min(viewport.top))
+                .unwrap_or(viewport.top);
+            self.clear_rows_from(clear_from, size.1, size.0)?;
+            let mut inserted_history = false;
+            if self.scrollback.has_pending() {
+                inserted_history = self.insert_pending_history(viewport, size)?;
+                if inserted_history {
+                    let protected_top = self.protected_scrollback_top(viewport);
+                    self.clear_rows_from(protected_top, size.1, size.0)?;
                 }
             }
+            if !inserted_history {
+                self.redraw_history_tail(history_redraw_top(viewport), size.0, stable_cells)?;
+            }
+            self.redraw_viewport_full(viewport, size.0)
+        }
 
-            self.last_viewport = Some(viewport);
-            self.last_terminal_size = Some(terminal_viewport.size);
-            self.stdout.flush()
+        fn redraw_incremental_frame(
+            &mut self,
+            state: &AppState,
+            viewport: &ViewportSnapshot,
+            stable_cells: &[TranscriptCell],
+            size: (u16, u16),
+        ) -> IoResult<()> {
+            let protected_top = self.protected_scrollback_top(viewport);
+            let inserted_history = self.insert_pending_history(viewport, size)?;
+            if inserted_history {
+                self.clear_rows_from(protected_top, size.1, size.0)?;
+                self.redraw_viewport_full(viewport, size.0)?;
+            } else {
+                self.redraw_history_tail(protected_top, size.0, stable_cells)?;
+                self.redraw_live_viewport(state, viewport, size.0)?;
+            }
+            Ok(())
+        }
+
+        fn redraw_live_viewport(
+            &mut self,
+            state: &AppState,
+            viewport: &ViewportSnapshot,
+            width: u16,
+        ) -> IoResult<()> {
+            if should_force_live_viewport_redraw(state) {
+                return self.redraw_viewport_full(viewport, width);
+            }
+            match self.last_viewport.clone() {
+                Some(previous) if previous == *viewport => self.restore_cursor(viewport),
+                Some(previous) => self.redraw_viewport_diff(&previous, viewport, width),
+                None => self.redraw_viewport_full(viewport, width),
+            }
         }
 
         fn needs_full_redraw(&self, size: (u16, u16), viewport: &ViewportSnapshot) -> bool {
@@ -7412,16 +7743,7 @@ mod shell {
         }
 
         fn protected_scrollback_top(&self, viewport: &ViewportSnapshot) -> u16 {
-            self.last_viewport
-                .as_ref()
-                .map(|previous| {
-                    viewport
-                        .top
-                        .min(previous.top)
-                        .min(previous.prompt_top)
-                        .min(viewport.prompt_top)
-                })
-                .unwrap_or(viewport.top.min(viewport.prompt_top))
+            protected_append_top(self.last_viewport.as_ref(), viewport)
         }
 
         fn clear_rows_from(&mut self, start_row: u16, height: u16, width: u16) -> IoResult<()> {
@@ -7500,10 +7822,29 @@ mod shell {
                 build_overlay_lines(state, width, overlay_capacity).unwrap_or_default();
             let overlay_height = overlay_lines.len() as u16;
             let available_above_prompt = available_above_prompt.saturating_sub(overlay_height);
-            let spacer_height = u16::from(available_above_prompt > 0);
+            let native_scrollback_reserve =
+                if should_reserve_native_scrollback_region(state, timeline, available_above_prompt)
+                {
+                    2.min(available_above_prompt.saturating_sub(1))
+                } else {
+                    0
+                };
+            let available_above_prompt =
+                available_above_prompt.saturating_sub(native_scrollback_reserve);
+            let short_committed_summary =
+                should_show_short_committed_summary(timeline, native_scrollback_reserve);
+            let spacer_height = u16::from(available_above_prompt > 0 && !short_committed_summary);
             let message_height = available_above_prompt.saturating_sub(spacer_height);
-            let mut visible_message_lines =
-                build_turn_viewport_lines(timeline, width, message_height, 0);
+            let mut visible_message_lines = if short_committed_summary && message_height > 1 {
+                let active_height = message_height.saturating_sub(1);
+                let mut lines = compact_committed_summary_line(timeline.committed_cells(), width)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                lines.extend(build_turn_viewport_lines(timeline, width, active_height, 0));
+                lines
+            } else {
+                build_turn_viewport_lines(timeline, width, message_height, 0)
+            };
             if spacer_height > 0 && !visible_message_lines.is_empty() {
                 visible_message_lines.push(Line::from(""));
             }
@@ -7529,6 +7870,25 @@ mod shell {
                 },
             }
         }
+    }
+
+    fn should_reserve_native_scrollback_region(
+        state: &AppState,
+        timeline: &Timeline,
+        available_above_prompt: u16,
+    ) -> bool {
+        available_above_prompt >= MIN_ROWS_FOR_NATIVE_SCROLLBACK_RESERVE
+            && !timeline.committed_cells().is_empty()
+            && (state.active_turn.is_some() || state.active_turn_runtime_start.is_some())
+    }
+
+    fn should_show_short_committed_summary(
+        timeline: &Timeline,
+        native_scrollback_reserve: u16,
+    ) -> bool {
+        native_scrollback_reserve == 0
+            && !timeline.committed_cells().is_empty()
+            && !timeline.active_cells().is_empty()
     }
 
     #[cfg(test)]
@@ -7637,12 +7997,201 @@ mod shell {
             return Vec::new();
         }
 
-        let lines = build_scrollable_message_lines(timeline.active_cells(), width);
+        let lines = build_active_cell_priority_lines(timeline.active_cells(), width, max_rows);
         if scroll_from_bottom == 0 {
             preserve_first_line_tail(lines, max_rows as usize)
         } else {
             tail_lines(lines, max_rows as usize, scroll_from_bottom)
         }
+    }
+
+    fn compact_committed_summary_line(
+        committed_cells: &[TranscriptCell],
+        width: u16,
+    ) -> Option<Line<'static>> {
+        let first_assistant = committed_cells
+            .iter()
+            .find(|cell| cell.kind == TranscriptCellKind::Assistant)
+            .and_then(committed_cell_preview);
+        let latest_tool = committed_cells
+            .iter()
+            .rev()
+            .find(|cell| {
+                matches!(
+                    cell.kind,
+                    TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+                )
+            })
+            .and_then(committed_cell_preview);
+        let latest_any = committed_cells
+            .iter()
+            .rev()
+            .find_map(committed_cell_preview);
+
+        let mut snippets = Vec::new();
+        for snippet in [first_assistant, latest_tool, latest_any]
+            .into_iter()
+            .flatten()
+        {
+            if !snippets.iter().any(|existing| existing == &snippet) {
+                snippets.push(snippet);
+            }
+            if snippets.len() >= 2 {
+                break;
+            }
+        }
+        if snippets.is_empty() {
+            return None;
+        }
+
+        Some(styled_line(
+            truncate_to_width(
+                &format!("History · {}", snippets.join(" · ")),
+                width.saturating_sub(1),
+            ),
+            muted_style(),
+        ))
+    }
+
+    fn committed_cell_preview(cell: &TranscriptCell) -> Option<String> {
+        let preview = match cell.kind {
+            TranscriptCellKind::Tool | TranscriptCellKind::Subagent => {
+                let summary = summarize_tool_body(&cell.body);
+                if summary.trim().is_empty() {
+                    cell.title.clone()
+                } else {
+                    summary
+                }
+            }
+            _ => cell
+                .body
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .map(|line| line.trim().to_string())?,
+        };
+        let preview = preview.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!preview.is_empty()).then_some(preview)
+    }
+
+    fn build_active_cell_priority_lines(
+        active_cells: &[TranscriptCell],
+        width: u16,
+        max_rows: u16,
+    ) -> Vec<Line<'static>> {
+        let max_rows = max_rows as usize;
+        if active_cells.is_empty() || max_rows == 0 {
+            return Vec::new();
+        }
+        let all_lines = build_scrollable_message_lines(active_cells, width);
+        if all_lines.len() <= max_rows {
+            return all_lines;
+        }
+
+        let running_tool_titles = running_tool_title_lines(active_cells, width);
+        if !running_tool_titles.is_empty() {
+            if running_tool_titles.len() >= max_rows {
+                return compact_running_tool_lines(running_tool_titles, max_rows);
+            }
+            let tail_capacity = max_rows.saturating_sub(running_tool_titles.len());
+            let non_tool_lines = active_cells
+                .iter()
+                .filter(|cell| !is_running_tool_cell(cell))
+                .flat_map(|cell| build_active_message_lines(std::slice::from_ref(cell), width))
+                .collect::<Vec<_>>();
+            let mut visible = running_tool_titles;
+            visible.extend(preserve_first_line_tail(non_tool_lines, tail_capacity));
+            return visible;
+        }
+
+        let mut visible = Vec::new();
+        let mut remaining = max_rows;
+        for cell in active_cells.iter().rev() {
+            if remaining == 0 {
+                break;
+            }
+            let mut lines = build_active_message_lines(std::slice::from_ref(cell), width);
+            if lines.is_empty() {
+                continue;
+            }
+            if lines.len() > remaining {
+                if visible.is_empty() {
+                    lines = preserve_active_cell_visible_tail(cell, lines, remaining);
+                } else {
+                    lines.truncate(1);
+                }
+            }
+            if lines.len() > remaining {
+                continue;
+            }
+            remaining -= lines.len();
+            let mut next = lines;
+            next.extend(visible);
+            visible = next;
+        }
+        if visible.is_empty() {
+            preserve_first_line_tail(all_lines, max_rows)
+        } else {
+            visible
+        }
+    }
+
+    fn preserve_active_cell_visible_tail(
+        cell: &TranscriptCell,
+        lines: Vec<Line<'static>>,
+        max_rows: usize,
+    ) -> Vec<Line<'static>> {
+        if cell.kind == TranscriptCellKind::Assistant
+            && cell.is_active
+            && max_rows <= 2
+            && lines.len() > max_rows
+            && lines.len() > 1
+        {
+            let start = if max_rows == 1 {
+                lines.len().saturating_sub(1)
+            } else {
+                lines.len().saturating_sub(max_rows).max(1)
+            };
+            return lines[start..].to_vec();
+        }
+        preserve_first_line_tail(lines, max_rows)
+    }
+
+    fn running_tool_title_lines(active_cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> {
+        active_cells
+            .iter()
+            .filter(|cell| is_running_tool_cell(cell))
+            .filter_map(|cell| {
+                build_active_message_lines(std::slice::from_ref(cell), width)
+                    .into_iter()
+                    .next()
+            })
+            .collect()
+    }
+
+    fn is_running_tool_cell(cell: &TranscriptCell) -> bool {
+        cell.is_active
+            && matches!(
+                cell.kind,
+                TranscriptCellKind::Tool | TranscriptCellKind::Subagent
+            )
+    }
+
+    fn compact_running_tool_lines(
+        running_tool_titles: Vec<Line<'static>>,
+        max_rows: usize,
+    ) -> Vec<Line<'static>> {
+        if running_tool_titles.len() <= max_rows {
+            return running_tool_titles;
+        }
+        let mut visible = vec![Line::from(format!(
+            "Tool activity · running · {} tools",
+            running_tool_titles.len()
+        ))];
+        let tail_capacity = max_rows.saturating_sub(visible.len());
+        let start = running_tool_titles.len().saturating_sub(tail_capacity);
+        visible.extend(running_tool_titles.into_iter().skip(start));
+        visible.truncate(max_rows);
+        visible
     }
 
     #[cfg(test)]
@@ -7718,14 +8267,7 @@ mod shell {
         }
         let pending_lines = Vec::new();
         let timeline = Timeline::from_state(state);
-        let active_cells = timeline.active_cells();
-        let mut active_lines = build_cell_lines(active_cells, width);
-        if active_cells.len() > 1 && active_lines.len() >= max_rows as usize {
-            active_lines = active_cells
-                .last()
-                .map(|cell| build_cell_lines(std::slice::from_ref(cell), width))
-                .unwrap_or_default();
-        }
+        let active_lines = build_turn_viewport_lines(&timeline, width, max_rows, 0);
         preserve_live_turn_lines(
             pending_lines,
             active_lines,
@@ -8386,7 +8928,7 @@ mod shell {
         match source {
             SkillSource::System => "System skills",
             SkillSource::User => "User skills",
-            SkillSource::External => "External skills",
+            SkillSource::External => "Installed skills",
         }
     }
 
@@ -8618,20 +9160,11 @@ mod shell {
     }
 
     fn activity_body_preview_source_lines(cell: &TranscriptCell) -> Vec<String> {
-        let lines = cell_body_lines(cell);
-        if lines.len() <= TOOL_ACTIVITY_BODY_PREVIEW_LINES {
-            return lines;
-        }
-        let content_lines = lines
-            .iter()
+        let lines = cell_body_lines(cell)
+            .into_iter()
             .filter(|line| !is_tool_activity_display_metadata_line(line))
-            .cloned()
             .collect::<Vec<_>>();
-        if content_lines.is_empty() {
-            lines
-        } else {
-            content_lines
-        }
+        filter_captured_tui_chrome_lines(lines)
     }
 
     fn is_tool_activity_display_metadata_line(line: &str) -> bool {
@@ -8641,6 +9174,76 @@ mod shell {
             || trimmed == "output:"
             || trimmed.starts_with("exit ")
             || trimmed.starts_with("Error: exit ")
+    }
+
+    fn is_captured_tui_chrome_line(line: &str) -> bool {
+        let trimmed = line.trim();
+        is_composer_top_border_line(trimmed)
+            || is_composer_placeholder_row(trimmed)
+            || is_composer_footer_line(trimmed)
+    }
+
+    fn filter_captured_tui_chrome_lines(lines: Vec<String>) -> Vec<String> {
+        let mut filtered = Vec::new();
+        let mut index = 0;
+        while index < lines.len() {
+            let trimmed = lines[index].trim();
+            if is_composer_top_border_line(trimmed) {
+                let mut end = index + 1;
+                while end < lines.len() && !is_composer_footer_line(lines[end].trim()) {
+                    end += 1;
+                }
+                if end < lines.len()
+                    && lines[index + 1..end]
+                        .iter()
+                        .any(|line| is_composer_body_row(line.trim()))
+                {
+                    index = end + 1;
+                    continue;
+                }
+            }
+
+            if !is_captured_tui_chrome_line(&lines[index]) {
+                filtered.push(lines[index].clone());
+            }
+            index += 1;
+        }
+        filtered
+    }
+
+    fn is_composer_top_border_line(trimmed: &str) -> bool {
+        if !(trimmed.starts_with('┌') && trimmed.ends_with('┐')) {
+            return false;
+        }
+        trimmed
+            .chars()
+            .all(|ch| matches!(ch, '┌' | '┐' | '─' | ' '))
+    }
+
+    fn is_composer_body_row(trimmed: &str) -> bool {
+        trimmed.starts_with('│') && trimmed.ends_with('│')
+    }
+
+    fn is_composer_placeholder_row(trimmed: &str) -> bool {
+        trimmed.starts_with('│')
+            && trimmed.ends_with('│')
+            && (composer_placeholder_prefix_matches(trimmed, "Type your message or use /help")
+                || composer_placeholder_prefix_matches(trimmed, "Plan mode: describe the plan"))
+    }
+
+    fn is_composer_footer_line(trimmed: &str) -> bool {
+        trimmed.starts_with('└')
+            && trimmed.ends_with('┘')
+            && trimmed.chars().filter(|ch| *ch == '─').count() >= 8
+    }
+
+    fn composer_placeholder_prefix_matches(trimmed: &str, placeholder: &str) -> bool {
+        let inner = trimmed
+            .strip_prefix('│')
+            .and_then(|value| value.strip_suffix('│'))
+            .unwrap_or(trimmed)
+            .trim();
+        inner.len() >= 6 && (placeholder.starts_with(inner) || inner.starts_with(placeholder))
     }
 
     fn append_hidden_rendered_line_count(
@@ -8741,6 +9344,7 @@ mod shell {
             .any(should_render_cell)
     }
 
+    #[cfg(test)]
     fn queue_clear_visible(writer: &mut impl Write) -> IoResult<()> {
         queue!(writer, Clear(ClearType::All), MoveTo(0, 0))
     }
@@ -8958,13 +9562,17 @@ mod shell {
     }
 
     fn append_tool_output_preview_lines(lines: &mut Vec<String>, output: &str, label: &str) {
-        let output_lines = normalize_body_lines(output);
+        let output_lines = filtered_tool_output_lines(output);
         let hidden = output_lines.len().saturating_sub(TOOL_OUTPUT_PREVIEW_LINES);
         lines.extend(output_lines.into_iter().take(TOOL_OUTPUT_PREVIEW_LINES));
         if hidden > 0 {
             let suffix = if hidden == 1 { "line" } else { "lines" };
             lines.push(format!("... {hidden} more {label} {suffix} hidden"));
         }
+    }
+
+    fn filtered_tool_output_lines(output: &str) -> Vec<String> {
+        filter_captured_tui_chrome_lines(normalize_body_lines(output))
     }
 
     fn compact_json(value: &Value) -> String {
@@ -9551,20 +10159,19 @@ mod shell {
         rows
     }
 
-    #[cfg(test)]
     fn protected_append_top(
         previous: Option<&ViewportSnapshot>,
         current: &ViewportSnapshot,
     ) -> u16 {
+        let current_top = current.top.min(current.prompt_top);
+        if current_top < 2 {
+            return current_top;
+        }
         previous
-            .map(|previous| {
-                current
-                    .top
-                    .min(previous.top)
-                    .min(previous.prompt_top)
-                    .min(current.prompt_top)
-            })
-            .unwrap_or(current.top.min(current.prompt_top))
+            .map(|previous| previous.top.min(previous.prompt_top))
+            .filter(|top| *top >= 2)
+            .map(|previous_top| previous_top.min(current_top))
+            .unwrap_or(current_top)
     }
 
     #[cfg(test)]
@@ -10007,9 +10614,10 @@ mod shell {
         #[test]
         fn footer_uses_pending_session_model_when_no_persisted_session() {
             let mut state = AppState::empty();
-            state.set_pending_session(Some(PendingSessionState::new(
+            state.set_pending_session(Some(PendingSessionState::new_with_provider(
                 "agent-1".to_string(),
                 "Agent".to_string(),
+                "codex".to_string(),
                 "gpt-5.4".to_string(),
             )));
 
@@ -10394,6 +11002,111 @@ mod shell {
         }
 
         #[test]
+        fn active_overflow_history_reserves_native_scrollback_region() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("long answer".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: format!(
+                    "assistant-single-line-prefix-{}assistant-tail-final",
+                    "x".repeat(420)
+                ),
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(40);
+
+            let snapshot = build_viewport_snapshot(&state, (40, 12));
+            let rendered = line_texts(&snapshot.lines);
+            let history_lines =
+                render_history_append_lines(Timeline::from_state(&state).committed_cells(), 40);
+
+            assert!(snapshot.top >= 2);
+            assert!(
+                history_lines
+                    .iter()
+                    .any(|line| line_text(line).contains("assistant-single-line-prefix"))
+            );
+            assert!(
+                rendered
+                    .join("\n")
+                    .chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>()
+                    .contains("assistant-tail-final"),
+                "{rendered:?}"
+            );
+        }
+
+        #[test]
+        fn short_active_overflow_prefers_tail_over_scrollback_reserve() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("long answer".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: format!(
+                    "assistant-single-line-prefix-{}assistant-tail-final",
+                    "x".repeat(420)
+                ),
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(40);
+
+            let snapshot = build_viewport_snapshot(&state, (40, 6));
+            let rendered = line_texts(&snapshot.lines);
+
+            assert_eq!(snapshot.top, 0);
+            assert!(
+                rendered
+                    .join("\n")
+                    .chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>()
+                    .contains("assistant-tail-final"),
+                "{rendered:?}"
+            );
+        }
+
+        #[test]
+        fn short_active_overflow_keeps_compact_committed_context_visible() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("run long active command".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: (0..24)
+                    .map(|index| format!("assistant-line-{index:02}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "printf smoke"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                result: "tool-smoke-output".to_string(),
+                success: true,
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "\nassistant-tail-final".to_string(),
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(100);
+
+            let snapshot = build_viewport_snapshot(&state, (100, 6));
+            let rendered = line_texts(&snapshot.lines);
+            let compact = rendered
+                .join("\n")
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect::<String>();
+
+            assert_eq!(snapshot.top, 0);
+            assert!(compact.contains("assistant-line-00"), "{rendered:?}");
+            assert!(compact.contains("tool-smoke-output"), "{rendered:?}");
+            assert!(compact.contains("assistant-tail-final"), "{rendered:?}");
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("Type your message"))
+            );
+        }
+
+        #[test]
         fn overlay_renders_between_message_and_composer() {
             let mut state = AppState::empty();
             state.apply_stream_frame(StreamFrame::Ack {
@@ -10565,6 +11278,46 @@ mod shell {
             };
 
             assert_eq!(protected_append_top(Some(&previous), &current), 20);
+        }
+
+        #[test]
+        fn protected_append_top_ignores_previous_full_screen_viewport() {
+            let previous = ViewportSnapshot {
+                top: 0,
+                prompt_top: 0,
+                lines: vec![Line::from(""); 24],
+                cursor_x: 0,
+                cursor_y: 23,
+            };
+            let current = ViewportSnapshot {
+                top: 12,
+                prompt_top: 12,
+                lines: vec![Line::from(""); 3],
+                cursor_x: 0,
+                cursor_y: 13,
+            };
+
+            assert_eq!(protected_append_top(Some(&previous), &current), 12);
+        }
+
+        #[test]
+        fn protected_append_top_keeps_current_full_screen_viewport_unprotected() {
+            let previous = ViewportSnapshot {
+                top: 12,
+                prompt_top: 12,
+                lines: vec![Line::from(""); 3],
+                cursor_x: 0,
+                cursor_y: 13,
+            };
+            let current = ViewportSnapshot {
+                top: 0,
+                prompt_top: 0,
+                lines: vec![Line::from(""); 24],
+                cursor_x: 0,
+                cursor_y: 23,
+            };
+
+            assert_eq!(protected_append_top(Some(&previous), &current), 0);
         }
 
         #[test]
@@ -10901,7 +11654,7 @@ mod shell {
                     .iter()
                     .map(|cell| cell.body.as_str())
                     .collect::<Vec<_>>(),
-                vec!["repeat", "done"]
+                vec!["repeat", "done", "repeat"]
             );
         }
 
@@ -11119,7 +11872,7 @@ mod shell {
 
             assert!(text.contains("Skill Manager"));
             assert!(text.contains("System skills"));
-            assert!(text.contains("External skills"));
+            assert!(text.contains("Installed skills"));
             assert!(text.contains("Team · team · read-only"));
             assert!(text.contains("Regex Finder"));
         }
@@ -11514,8 +12267,7 @@ mod shell {
             let rendered = line_texts(&lines);
 
             assert_eq!(lines.len(), 1);
-            assert!(rendered[0].contains("Agent"));
-            assert!(rendered[0].contains("typing"));
+            assert!(rendered[0].contains("streaming"));
         }
 
         #[test]
@@ -11528,11 +12280,70 @@ mod shell {
             let lines = build_transient_lines(&state, 80, 3);
             let rendered = line_texts(&lines);
 
-            assert_eq!(lines.len(), 3);
+            assert!(lines.len() <= 3);
             assert!(rendered[0].contains("Agent"));
             assert!(rendered[0].contains("typing"));
             assert!(!rendered.iter().any(|line| line.contains("line one")));
             assert!(rendered.iter().any(|line| line.contains("line four")));
+        }
+
+        #[test]
+        fn transient_view_preserves_latest_active_cell_title_when_clipped() {
+            let mut state = AppState::empty();
+            state.apply_stream_frame(StreamFrame::Ack {
+                content: "assistant one\nassistant two\nassistant three".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "cargo test"}),
+            });
+
+            let lines = build_transient_lines(&state, 80, 3);
+            let rendered = line_texts(&lines);
+
+            assert!(lines.len() <= 3);
+            assert!(
+                rendered.iter().any(|line| line.contains("Tool · bash")),
+                "latest active tool title must survive viewport clipping"
+            );
+        }
+
+        #[test]
+        fn transient_view_preserves_running_tool_titles_under_height_pressure() {
+            let mut state = AppState::empty();
+            state.begin_stream("turn-running-tools".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command": "cargo test"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-2".to_string(),
+                name: "grep".to_string(),
+                arguments: serde_json::json!({"pattern": "TODO"}),
+            });
+            state.apply_stream_frame(StreamFrame::Ack {
+                content: "assistant one\nassistant two\nassistant three\nassistant four"
+                    .to_string(),
+            });
+
+            let lines = super::build_message_lines(&state, 80, 4);
+            let rendered = line_texts(&lines);
+
+            assert!(lines.len() <= 4);
+            assert!(
+                rendered.iter().any(|line| line.contains("Tool · bash")),
+                "first running tool title must survive viewport clipping: {rendered:?}"
+            );
+            assert!(
+                rendered.iter().any(|line| line.contains("Tool · grep")),
+                "second running tool title must survive viewport clipping: {rendered:?}"
+            );
+            assert!(
+                rendered.iter().any(|line| line.contains("assistant four")),
+                "latest assistant tail should still be visible after reserved tool rows: {rendered:?}"
+            );
         }
 
         #[test]
@@ -11909,16 +12720,176 @@ mod shell {
             let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
             assert!(rendered.len() <= 4);
             assert!(
-                rendered
+                !rendered
                     .iter()
                     .any(|line| line.contains("Type your message or use /help"))
             );
+            assert!(rendered.iter().any(|line| line.contains("REAL_OUTPUT_1")));
+            assert!(rendered.iter().any(|line| line.contains("REAL_OUTPUT_2")));
             assert!(!rendered.iter().any(|line| line.contains("REAL_OUTPUT_3")));
             assert!(
                 rendered
                     .iter()
-                    .any(|line| line.contains("4 more lines hidden"))
+                    .any(|line| line.contains("1 more line hidden"))
             );
+        }
+
+        #[test]
+        fn tool_activity_renderer_filters_short_captured_composer_text() {
+            let output = [
+                "│Type your message or use /help                                  │",
+                "REAL_OUTPUT_1",
+            ]
+            .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-short-chrome".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Type your message or use /help"))
+            );
+            assert!(rendered.iter().any(|line| line.contains("REAL_OUTPUT_1")));
+        }
+
+        #[test]
+        fn tool_activity_renderer_filters_truncated_composer_placeholder() {
+            let output = ["│Type your message│", "REAL_OUTPUT_1"].join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-truncated-chrome".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Type your message"))
+            );
+            assert!(rendered.iter().any(|line| line.contains("REAL_OUTPUT_1")));
+        }
+
+        #[test]
+        fn tool_activity_renderer_filters_chrome_before_output_preview_limit() {
+            let mut lines = (1..=25)
+                .map(|_| "│Type your message or use /help                                  │")
+                .collect::<Vec<_>>();
+            lines.push("REAL_OUTPUT_AFTER_CHROME");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-late-real-output".to_string()),
+                body: format!("Output: {}", lines.join("\n")),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Type your message or use /help"))
+            );
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("REAL_OUTPUT_AFTER_CHROME"))
+            );
+        }
+
+        #[test]
+        fn tool_activity_renderer_drops_all_captured_composer_text() {
+            let output = [
+                "┌────────────────────────────────────────────────────────────────┐",
+                "│Type your message or use /help                                  │",
+                "└ zai-coding-plan · zai-coding-plan-glm-5-1 ─────────────────────┘",
+            ]
+            .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-only-chrome".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Type your message or use /help"))
+            );
+            assert!(!rendered.iter().any(|line| line.contains("zai-coding-plan")));
+        }
+
+        #[test]
+        fn tool_activity_renderer_filters_composer_shape_not_plain_text() {
+            let output = [
+                "println!(\"Type your message or use /help\")",
+                "┌────────────────────────────────────────────────────────────────┐",
+                "│Plan mode: describe the plan                                    │",
+                "└ local-model ───────────────────────────────────────────────────┘",
+            ]
+            .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · grep".to_string(),
+                subtitle: Some("#call-chrome-shape".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(
+                rendered
+                    .iter()
+                    .any(|line| line.contains("println!(\"Type your message or use /help\")"))
+            );
+            assert!(
+                !rendered
+                    .iter()
+                    .any(|line| line.contains("Plan mode: describe the plan"))
+            );
+            assert!(!rendered.iter().any(|line| line.contains("local-model")));
+        }
+
+        #[test]
+        fn tool_activity_renderer_drops_captured_draft_composer_block() {
+            let output = [
+                "before",
+                "┌────────────────────────────────────────────────────────────────┐",
+                "│/model minimax                                                  │",
+                "└ zai-coding-plan ───────────────────────────────────────────────┘",
+                "after",
+            ]
+            .join("\n");
+            let cell = TranscriptCell {
+                kind: TranscriptCellKind::Tool,
+                title: "Tool · bash".to_string(),
+                subtitle: Some("#call-draft-chrome".to_string()),
+                body: format!("Output: {output}"),
+                group: MessageGroup::ToolActivity,
+                is_active: false,
+            };
+
+            let rendered = line_texts(&super::build_cell_lines(&[cell], 100));
+            assert!(rendered.iter().any(|line| line.contains("before")));
+            assert!(rendered.iter().any(|line| line.contains("after")));
+            assert!(!rendered.iter().any(|line| line.contains("/model minimax")));
+            assert!(!rendered.iter().any(|line| line.contains("zai-coding-plan")));
         }
 
         #[test]
@@ -12081,10 +13052,17 @@ mod shell {
             let viewport = build_viewport_snapshot(&state, (80, 24));
             let rendered = line_texts(&viewport.lines);
 
-            assert_eq!(viewport.top, 0);
-            assert_eq!(viewport.lines.len(), 24);
             assert!(rendered.iter().any(|line| line.contains("line 30")));
             assert!(rendered.iter().any(|line| line.starts_with('┌')));
+            assert!(
+                !rendered.iter().any(|line| line.contains("line 1")),
+                "overflowing active prefixes should leave the live viewport"
+            );
+            let stable = line_texts(&super::render_history_append_lines(
+                &super::build_stable_history_cells(&state),
+                80,
+            ));
+            assert!(stable.iter().any(|line| line.contains("line 1")));
         }
 
         #[test]
@@ -12628,21 +13606,27 @@ Slash commands:\n\
 mod state {
     use std::collections::{HashMap, HashSet};
 
-    use ::daemon::StoredAgent;
     use chrono::Utc;
+    use restflow_core::StoredAgent;
     use types::{
-        ChatRole, ChatSession, ChatSessionSummary, ChatTurnEventKind, ChatTurnStatus, ModelId,
-        ModelMetadataDTO, Provider, RunKind, RunSummary, Skill, SkillSource,
+        ChatRole, ChatSession, ChatSessionSummary, ChatTurn, ChatTurnEventKind, ChatTurnStatus,
+        ModelId, ModelMetadataDTO, Provider, RunKind, RunSummary, Skill, SkillSource,
     };
     use types::{ChatSessionEvent, StreamFrame};
+    use unicode_width::UnicodeWidthChar;
 
     use super::activity::ActivityState;
     use super::composer::ComposerState;
+    use super::timeline::{tool_cell_has_result, visual_key};
     use super::transcript::{
         ShellMessage, TranscriptCell, TranscriptCellKind, cell_from_message,
         message_from_session_event, message_from_stream_frame, messages_from_session,
         transcript_cells,
     };
+
+    const LIVE_ASSISTANT_TAIL_LINES: usize = 8;
+    const DEFAULT_ASSISTANT_SPILL_WIDTH: u16 = 80;
+    const ASSISTANT_BODY_PREFIX_WIDTH: usize = 2;
 
     #[derive(Debug, Clone)]
     pub enum WorkPickerItem {
@@ -12715,16 +13699,28 @@ mod state {
         pub provider: String,
         pub model: String,
         pub model_name: String,
+        pub explicit_model: bool,
     }
 
     impl PendingSessionState {
         pub fn from_agent(agent: &StoredAgent) -> Self {
-            let model = agent
-                .agent
-                .resolved_model_ref()
-                .map(|model_ref| model_ref.model.as_serialized_str().to_string())
-                .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string());
-            Self::new(agent.id.clone(), agent.name.clone(), model)
+            let mut pending = if let Some(model_ref) = agent.agent.resolved_model_ref() {
+                Self::new_with_provider(
+                    agent.id.clone(),
+                    agent.name.clone(),
+                    model_ref.provider.as_canonical_str().to_string(),
+                    model_ref.model.as_serialized_str().to_string(),
+                )
+            } else {
+                Self::new_with_provider(
+                    agent.id.clone(),
+                    agent.name.clone(),
+                    ModelId::Gpt5_5.provider().as_canonical_str().to_string(),
+                    ModelId::Gpt5_5.as_serialized_str().to_string(),
+                )
+            };
+            pending.explicit_model = false;
+            pending
         }
 
         pub fn new(agent_id: String, agent_name: String, model: String) -> Self {
@@ -12736,13 +13732,51 @@ mod state {
                 provider,
                 model,
                 model_name,
+                explicit_model: true,
+            }
+        }
+
+        pub fn new_with_provider(
+            agent_id: String,
+            agent_name: String,
+            provider: String,
+            model: String,
+        ) -> Self {
+            let model_name = model_display_name(&model);
+            Self {
+                agent_id,
+                agent_name,
+                provider,
+                model,
+                model_name,
+                explicit_model: true,
             }
         }
 
         pub fn update_model(&mut self, provider: String, model: String, model_name: String) {
+            self.update_model_with_explicit(provider, model, model_name, true);
+        }
+
+        pub fn update_display_model(
+            &mut self,
+            provider: String,
+            model: String,
+            model_name: String,
+        ) {
+            self.update_model_with_explicit(provider, model, model_name, false);
+        }
+
+        fn update_model_with_explicit(
+            &mut self,
+            provider: String,
+            model: String,
+            model_name: String,
+            explicit_model: bool,
+        ) {
             self.provider = provider;
             self.model = model;
             self.model_name = model_name;
+            self.explicit_model = explicit_model;
         }
 
         pub fn model_label(&self) -> String {
@@ -13084,10 +14118,11 @@ mod state {
                 self.flush_active_turn_to_runtime();
             }
             let old_cells = std::mem::take(&mut self.conversation_cells);
+            let old_cell_count = old_cells.len();
             self.thread.session = Some(session.clone());
             self.replace_session_projection(messages_from_session(&session));
+            self.reconcile_runtime_conversation_cells(old_cell_count);
             self.reanchor_runtime_cells(&old_cells);
-            self.reconcile_runtime_conversation_cells();
             if self.pending_runtime_refresh_session_id.as_deref() == Some(session.id.as_str()) {
                 self.pending_runtime_refresh_session_id = None;
             }
@@ -13110,32 +14145,45 @@ mod state {
 
         fn active_turn_finished_in_session(&self, session: &ChatSession) -> bool {
             let active_tool_call_ids = self.current_turn_tool_call_ids();
+            if self.current_stream_id.is_some() && active_tool_call_ids.is_empty() {
+                return false;
+            }
             let Some(active_user) = self.current_turn_user_content() else {
                 return false;
             };
+            let current_stream_id = self.current_stream_id.as_deref();
             session.turns.iter().rev().any(|turn| {
-            if !matches!(
-                turn.status,
-                ChatTurnStatus::Completed | ChatTurnStatus::Canceled | ChatTurnStatus::Failed
-            ) {
-                return false;
-            }
-            if active_tool_call_ids.is_empty() {
-                return turn.events.iter().any(|event| {
+                if !matches!(
+                    turn.status,
+                    ChatTurnStatus::Completed | ChatTurnStatus::Canceled | ChatTurnStatus::Failed
+                ) {
+                    return false;
+                }
+                if let Some(stream_id) = current_stream_id
+                    && turn.id != stream_id
+                {
+                    return false;
+                }
+                let user_matches_turn = turn.events.iter().any(|event| {
                     matches!(
                         &event.kind,
                         ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
                     )
                 });
-            }
-            turn.events.iter().any(|event| {
-                matches!(
-                    &event.kind,
-                    ChatTurnEventKind::ToolCall { call_id, .. }
-                        if active_tool_call_ids.contains(&call_id.as_str())
-                )
+                if active_tool_call_ids.is_empty() {
+                    return user_matches_turn;
+                }
+                if current_stream_id.is_none() && !user_matches_turn {
+                    return false;
+                }
+                turn.events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        ChatTurnEventKind::ToolCall { call_id, .. }
+                            if active_tool_call_ids.contains(&call_id.as_str())
+                    )
+                })
             })
-        })
         }
 
         fn active_turn_projected_in_session(&self, session: &ChatSession) -> bool {
@@ -13160,6 +14208,17 @@ mod state {
         }
 
         fn active_turn_answered_in_session_messages(&self, session: &ChatSession) -> bool {
+            if self.current_stream_id.is_some() {
+                let previous_message_count = self
+                    .thread
+                    .session
+                    .as_ref()
+                    .map(|session| session.messages.len())
+                    .unwrap_or_default();
+                if session.messages.len() <= previous_message_count {
+                    return false;
+                }
+            }
             if !self.current_turn_tool_call_ids().is_empty() {
                 return false;
             }
@@ -13186,11 +14245,15 @@ mod state {
             let Some(active_user) = self.current_turn_user_content() else {
                 return false;
             };
-            messages_from_session(session).iter().any(|message| {
-                matches!(
-                    message,
-                    ShellMessage::UserMessage { content } if content.trim_end() == active_user
-                )
+            session.turns.last().is_some_and(|turn| {
+                turn.events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
+                    )
+                })
+            }) || session.messages.last().is_some_and(|message| {
+                message.role == ChatRole::User && message.content.trim_end() == active_user
             })
         }
 
@@ -13233,12 +14296,95 @@ mod state {
             ids
         }
 
+        fn current_session_active_turn_cells(&self) -> Vec<TranscriptCell> {
+            let Some(session) = self.current_session() else {
+                return Vec::new();
+            };
+            let Some(turn) = self.current_session_active_turn(session) else {
+                return Vec::new();
+            };
+            let messages = turn
+                .events
+                .iter()
+                .map(|event| match &event.kind {
+                    ChatTurnEventKind::UserMessage { content } => ShellMessage::UserMessage {
+                        content: content.clone(),
+                    },
+                    ChatTurnEventKind::AssistantMessage { content } => {
+                        ShellMessage::AssistantMessage {
+                            content: content.clone(),
+                        }
+                    }
+                    ChatTurnEventKind::ToolCall {
+                        call_id,
+                        name,
+                        arguments,
+                    } => ShellMessage::ToolCall {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: arguments.clone(),
+                    },
+                    ChatTurnEventKind::ToolResult {
+                        call_id,
+                        success,
+                        result,
+                    } => ShellMessage::ToolResult {
+                        call_id: call_id.clone(),
+                        success: *success,
+                        result: result.clone(),
+                    },
+                    ChatTurnEventKind::Progress { message } => ShellMessage::InfoNotice {
+                        content: message.clone(),
+                    },
+                    ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
+                        content: message.clone(),
+                    },
+                    ChatTurnEventKind::Canceled => ShellMessage::InfoNotice {
+                        content: "Canceled current response.".to_string(),
+                    },
+                })
+                .collect::<Vec<_>>();
+            transcript_cells(&messages, self.assistant_name())
+        }
+
+        fn current_session_active_turn<'a>(
+            &self,
+            session: &'a ChatSession,
+        ) -> Option<&'a ChatTurn> {
+            if let Some(stream_id) = self.current_stream_id.as_deref() {
+                return session.turns.iter().find(|turn| turn.id == stream_id);
+            }
+
+            let active_user = self.current_turn_user_content()?;
+            session.turns.iter().rev().find(|turn| {
+                if turn.status != ChatTurnStatus::Running {
+                    return false;
+                }
+                turn.events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        ChatTurnEventKind::UserMessage { content } if content.trim_end() == active_user
+                    )
+                })
+            })
+        }
+
+        pub(crate) fn current_session_active_turn_has_duplicate_cell(
+            &self,
+            cell: &TranscriptCell,
+        ) -> bool {
+            self.current_session_active_turn_cells()
+                .iter()
+                .any(|persisted| is_persisted_duplicate_cell(cell, persisted))
+        }
+
         fn push_active_turn_completed_cell(&mut self, cell: TranscriptCell) {
             let active_turn = self.ensure_active_turn();
-            if active_turn
-                .completed_cells
-                .iter()
-                .any(|existing| is_persisted_duplicate_cell(existing, &cell))
+            if !matches!(cell.kind, TranscriptCellKind::Assistant)
+                && active_turn
+                    .completed_cells
+                    .iter()
+                    .any(|existing| is_persisted_duplicate_cell(existing, &cell))
             {
                 return;
             }
@@ -13280,23 +14426,35 @@ mod state {
                 .clone()
                 .or_else(|| {
                     self.thread.session.as_ref().map(|session| {
-                        PendingSessionState::new(
-                            session.agent_id.clone(),
-                            self.default_agent_name
-                                .clone()
-                                .unwrap_or_else(|| "Agent".to_string()),
-                            session.model.clone(),
-                        )
+                        let agent_name = self
+                            .default_agent_name
+                            .clone()
+                            .unwrap_or_else(|| "Agent".to_string());
+                        if session.provider.trim().is_empty() {
+                            PendingSessionState::new(
+                                session.agent_id.clone(),
+                                agent_name,
+                                session.model.clone(),
+                            )
+                        } else {
+                            PendingSessionState::new_with_provider(
+                                session.agent_id.clone(),
+                                agent_name,
+                                session.provider.clone(),
+                                session.model.clone(),
+                            )
+                        }
                     })
                 })
                 .or_else(|| {
                     self.default_agent_id.clone().map(|agent_id| {
-                        PendingSessionState::new(
+                        PendingSessionState::new_with_provider(
                             agent_id,
                             self.default_agent_name
                                 .clone()
                                 .unwrap_or_else(|| "Agent".to_string()),
-                            ModelId::Gpt5_4.as_serialized_str().to_string(),
+                            ModelId::Gpt5_5.provider().as_canonical_str().to_string(),
+                            ModelId::Gpt5_5.as_serialized_str().to_string(),
                         )
                     })
                 });
@@ -13656,7 +14814,7 @@ mod state {
             } else {
                 let _ = cell.finalize();
                 self.push_active_turn_completed_cell(cell.clone());
-                self.push_current_turn_runtime_cell(cell);
+                self.push_current_turn_runtime_cell_allow_duplicate(cell);
             }
             self.active_progress_started_at_ms = None;
             self.active_assistant_stream_body.clear();
@@ -13686,6 +14844,10 @@ mod state {
             self.ignore_stream_frames = true;
         }
 
+        pub fn reject_unowned_stream_frame(&self, stream_id: &str) -> bool {
+            self.current_stream_id.as_deref() != Some(stream_id)
+        }
+
         pub fn suppress_missing_terminal_frame_for_stream(&mut self, stream_id: &str) -> bool {
             if self.canceled_stream_ids.remove(stream_id) {
                 return true;
@@ -13707,13 +14869,18 @@ mod state {
             true
         }
 
-        fn current_turn_has_response_content(&self) -> bool {
+        pub(crate) fn current_turn_has_response_content(&self) -> bool {
             self.active_turn_all_cells().any(|cell| {
                 !matches!(cell.kind, TranscriptCellKind::User)
                     && (!cell.body.trim().is_empty() || cell.tool_call_id().is_some())
             }) || self
                 .active_turn_runtime_cells()
                 .is_some_and(runtime_response_after_last_user)
+        }
+
+        pub(crate) fn current_turn_has_live_response_cell(&self) -> bool {
+            self.active_turn_all_cells()
+                .any(|cell| cell.is_active && !matches!(cell.kind, TranscriptCellKind::User))
         }
 
         pub fn update_active_typing_indicator(&mut self) -> bool {
@@ -13858,7 +15025,19 @@ mod state {
             }
         }
 
-        fn push_current_turn_runtime_cell(&mut self, mut cell: TranscriptCell) -> bool {
+        fn push_current_turn_runtime_cell(&mut self, cell: TranscriptCell) -> bool {
+            self.push_current_turn_runtime_cell_with_policy(cell, false)
+        }
+
+        fn push_current_turn_runtime_cell_allow_duplicate(&mut self, cell: TranscriptCell) -> bool {
+            self.push_current_turn_runtime_cell_with_policy(cell, true)
+        }
+
+        fn push_current_turn_runtime_cell_with_policy(
+            &mut self,
+            mut cell: TranscriptCell,
+            allow_duplicate: bool,
+        ) -> bool {
             if self.active_turn_runtime_start.is_none() {
                 self.active_turn_runtime_start = Some(self.runtime_cells.len());
             }
@@ -13872,15 +15051,24 @@ mod state {
             {
                 return false;
             }
-            if self
-                .conversation_cells
-                .iter()
-                .any(|persisted| is_persisted_duplicate_cell(&cell, persisted))
-                || self
-                    .runtime_cells
-                    .iter()
-                    .any(|entry| is_persisted_duplicate_cell(&cell, &entry.cell))
+            if !allow_duplicate && self.replace_active_runtime_cell_if_superseded(&cell) {
+                let refresh_session_id = self
+                    .active_turn_session_id
+                    .clone()
+                    .or_else(|| self.current_session_id().map(ToOwned::to_owned));
+                self.pending_runtime_refresh_session_id = refresh_session_id;
+                return true;
+            }
+            if !allow_duplicate
+                && self
+                    .active_turn_runtime_cells()
+                    .into_iter()
+                    .flat_map(|runtime_cells| runtime_cells.iter())
+                    .any(|entry| entry.cell == cell)
             {
+                return false;
+            }
+            if !allow_duplicate && self.current_session_active_turn_has_duplicate_cell(&cell) {
                 return false;
             }
             let refresh_session_id = self
@@ -13892,6 +15080,26 @@ mod state {
                 cell,
             });
             self.pending_runtime_refresh_session_id = refresh_session_id;
+            true
+        }
+
+        fn replace_active_runtime_cell_if_superseded(&mut self, cell: &TranscriptCell) -> bool {
+            if !tool_cell_has_result(cell) {
+                return false;
+            }
+            let Some(key) = visual_key(cell) else {
+                return false;
+            };
+            let start = self
+                .active_turn_runtime_start
+                .unwrap_or(0)
+                .min(self.runtime_cells.len());
+            let Some(entry) = self.runtime_cells[start..].iter_mut().find(|entry| {
+                visual_key(&entry.cell).as_ref() == Some(&key) && !tool_cell_has_result(&entry.cell)
+            }) else {
+                return false;
+            };
+            entry.cell = cell.clone();
             true
         }
 
@@ -14020,8 +15228,28 @@ mod state {
             );
             self.active_turn_session_id = self.current_session_id().map(ToOwned::to_owned);
             self.active_turn_runtime_start = Some(self.runtime_cells.len());
-            self.push_current_turn_runtime_cell(cell);
+            if self.current_session_has_running_user_turn(&cell.body) {
+                self.push_current_turn_runtime_cell(cell);
+            } else {
+                self.push_current_turn_runtime_cell_allow_duplicate(cell);
+            }
             self.active_turn = Some(ActiveTurn::default());
+        }
+
+        fn current_session_has_running_user_turn(&self, content: &str) -> bool {
+            let content = content.trim_end();
+            self.current_session().is_some_and(|session| {
+                session.turns.iter().rev().any(|turn| {
+                    turn.status == ChatTurnStatus::Running
+                        && turn.events.iter().any(|event| {
+                            matches!(
+                                &event.kind,
+                                ChatTurnEventKind::UserMessage { content: existing }
+                                    if existing.trim_end() == content
+                            )
+                        })
+                })
+            })
         }
 
         pub fn queue_active_turn_update(&mut self, instruction: String) {
@@ -14052,7 +15280,22 @@ mod state {
             self.push_message(ShellMessage::ErrorNotice { content });
         }
 
-        fn append_assistant_stream_chunk(&mut self, chunk: &str) {
+        fn append_progress_notice_to_active(&mut self, content: &str) {
+            let content = content.trim();
+            if content.is_empty() {
+                return;
+            }
+            let cell = cell_from_message(
+                &ShellMessage::InfoNotice {
+                    content: content.to_string(),
+                },
+                self.assistant_name(),
+            );
+            self.push_active_turn_completed_cell(cell.clone());
+            self.push_current_turn_runtime_cell_allow_duplicate(cell);
+        }
+
+        fn append_assistant_stream_delta(&mut self, chunk: &str) {
             if chunk.is_empty() {
                 return;
             }
@@ -14061,10 +15304,7 @@ mod state {
                 self.active_progress_started_at_ms = Some(Utc::now().timestamp_millis());
             }
 
-            let Some(delta) = assistant_stream_delta(&mut self.active_assistant_stream_body, chunk)
-            else {
-                return;
-            };
+            let delta = assistant_stream_delta(&mut self.active_assistant_stream_body, chunk);
 
             if delta.trim().is_empty() {
                 return;
@@ -14074,12 +15314,71 @@ mod state {
             if let Some(active_cell) = self.active_assistant_cell_mut() {
                 append_active_text(&mut active_cell.body, &delta);
             }
+            self.spill_active_assistant_overflow_to_runtime();
             let _ = self.update_active_progress_indicator();
+        }
+
+        fn spill_active_assistant_overflow_to_runtime(&mut self) {
+            self.spill_active_assistant_overflow_to_runtime_for_width(
+                DEFAULT_ASSISTANT_SPILL_WIDTH,
+            );
+        }
+
+        pub(crate) fn spill_active_assistant_overflow_to_runtime_for_width(&mut self, width: u16) {
+            self.spill_active_assistant_overflow_to_runtime_for_viewport(
+                width,
+                LIVE_ASSISTANT_TAIL_LINES,
+            );
+        }
+
+        pub(crate) fn spill_active_assistant_overflow_to_runtime_for_viewport(
+            &mut self,
+            width: u16,
+            tail_lines: usize,
+        ) {
+            let completed = {
+                let Some(active_turn) = self.active_turn.as_mut() else {
+                    return;
+                };
+                let Some(index) = active_turn.active_assistant_index else {
+                    return;
+                };
+                let Some(active_cell) = active_turn.cells.get_mut(index) else {
+                    return;
+                };
+                if active_cell.kind != TranscriptCellKind::Assistant || !active_cell.is_active {
+                    return;
+                }
+
+                let Some((prefix_body, suffix_body)) =
+                    split_body_for_visual_tail(&active_cell.body, width, tail_lines.max(1))
+                else {
+                    return;
+                };
+                if prefix_body.trim().is_empty() {
+                    return;
+                }
+                active_cell.body = suffix_body;
+
+                let mut completed = active_cell.clone();
+                completed.body = prefix_body;
+                let _ = completed.finalize();
+                completed
+            };
+
+            self.push_active_turn_completed_cell(completed.clone());
+            self.push_current_turn_runtime_cell_allow_duplicate(completed);
         }
 
         pub fn apply_stream_frame(&mut self, frame: StreamFrame) -> bool {
             match frame {
                 StreamFrame::Start { stream_id } => {
+                    if let Some(current_stream_id) = self.current_stream_id.as_deref()
+                        && current_stream_id != stream_id
+                    {
+                        self.canceled_stream_ids.remove(&stream_id);
+                        return false;
+                    }
                     if self.canceled_stream_ids.remove(&stream_id) {
                         self.ignore_stream_frames = true;
                         return false;
@@ -14094,14 +15393,21 @@ mod state {
                         return false;
                     }
                     self.is_streaming = true;
-                    self.append_assistant_stream_chunk(&content);
+                    self.append_assistant_stream_delta(&content);
+                }
+                StreamFrame::Progress { content } => {
+                    if self.ignore_stream_frames {
+                        return false;
+                    }
+                    self.is_streaming = true;
+                    self.append_progress_notice_to_active(&content);
                 }
                 StreamFrame::Data { content } => {
                     if self.ignore_stream_frames {
                         return false;
                     }
                     self.is_streaming = true;
-                    self.append_assistant_stream_chunk(&content);
+                    self.append_assistant_stream_delta(&content);
                 }
                 StreamFrame::Done { total_tokens } => {
                     if self.ignore_stream_frames {
@@ -14155,11 +15461,8 @@ mod state {
                 .or_else(|| self.current_session_id().map(ToOwned::to_owned));
             let base_cell_index = self.conversation_cells.len();
             let mut pushed_any = false;
-            for mut cell in active_turn
-                .completed_cells
-                .drain(..)
-                .chain(active_turn.cells.drain(..))
-            {
+            active_turn.completed_cells.clear();
+            for mut cell in active_turn.cells.drain(..) {
                 if cell.is_active {
                     let _ = cell.finalize();
                 }
@@ -14170,14 +15473,17 @@ mod state {
                 {
                     continue;
                 }
-                if self
-                    .conversation_cells
-                    .iter()
-                    .any(|persisted| is_persisted_duplicate_cell(&cell, persisted))
-                    || self
-                        .runtime_cells
-                        .iter()
-                        .any(|entry| is_persisted_duplicate_cell(&cell, &entry.cell))
+                if !matches!(cell.kind, TranscriptCellKind::Assistant)
+                    && self
+                        .active_turn_runtime_cells()
+                        .into_iter()
+                        .flat_map(|runtime_cells| runtime_cells.iter())
+                        .any(|entry| entry.cell == cell)
+                {
+                    continue;
+                }
+                if !matches!(cell.kind, TranscriptCellKind::Assistant)
+                    && self.current_session_active_turn_has_duplicate_cell(&cell)
                 {
                     continue;
                 }
@@ -14193,27 +15499,42 @@ mod state {
             }
         }
 
-        fn reconcile_runtime_conversation_cells(&mut self) {
+        fn reconcile_runtime_conversation_cells(&mut self, old_cell_count: usize) {
             let active_start = self.active_turn_runtime_start;
             let mut runtime_index = 0usize;
+            let mut removed_before_active_start = 0usize;
             self.runtime_cells.retain(|entry| {
                 let current_index = runtime_index;
                 runtime_index += 1;
                 if active_start.is_some_and(|start| current_index >= start) {
                     return true;
                 }
-                let persisted_duplicate = self
-                    .conversation_cells
+                let persisted_cells = if entry.base_cell_index >= old_cell_count {
+                    self.conversation_cells
+                        .get(old_cell_count..)
+                        .unwrap_or_default()
+                } else {
+                    self.conversation_cells.as_slice()
+                };
+                let persisted_duplicate = persisted_cells
                     .iter()
-                    .any(|cell| active_cell_projected_by(&entry.cell, cell));
+                    .any(|cell| runtime_cell_projected_by(&entry.cell, cell));
                 let equivalent_error = entry.cell.title == "Error"
-                    && self.conversation_cells.iter().any(|cell| {
+                    && persisted_cells.iter().any(|cell| {
                         cell.title == "Error"
                             && normalized_error_notice(&cell.body)
                                 == normalized_error_notice(&entry.cell.body)
                     });
-                !persisted_duplicate && !equivalent_error
+                let keep = !persisted_duplicate && !equivalent_error;
+                if !keep && active_start.is_some_and(|start| current_index < start) {
+                    removed_before_active_start += 1;
+                }
+                keep
             });
+            if let Some(start) = active_start {
+                self.active_turn_runtime_start =
+                    Some(start.saturating_sub(removed_before_active_start));
+            }
         }
 
         fn reanchor_runtime_cells(&mut self, old_cells: &[TranscriptCell]) {
@@ -14255,20 +15576,26 @@ mod state {
         if runtime.kind != persisted.kind {
             return false;
         }
-        if runtime.body == persisted.body {
-            return true;
-        }
         if matches!(
             runtime.kind,
             TranscriptCellKind::Tool | TranscriptCellKind::Subagent
-        ) && let Some(runtime_call_id) = runtime.tool_call_id()
-        {
-            return persisted.tool_call_id() == Some(runtime_call_id);
+        ) {
+            return match (runtime.tool_call_id(), persisted.tool_call_id()) {
+                (Some(runtime_call_id), Some(persisted_call_id)) => {
+                    runtime_call_id == persisted_call_id
+                        && (!tool_cell_has_result(runtime) || tool_cell_has_result(persisted))
+                }
+                (Some(_), None) | (None, Some(_)) => false,
+                (None, None) => runtime.body == persisted.body,
+            };
+        }
+        if runtime.body == persisted.body {
+            return true;
         }
         matches!(
             runtime.kind,
             TranscriptCellKind::User | TranscriptCellKind::Assistant
-        ) && compact_duplicate_text(&runtime.body) == compact_duplicate_text(&persisted.body)
+        ) && comparable_duplicate_text(&runtime.body) == comparable_duplicate_text(&persisted.body)
     }
 
     fn runtime_response_after_last_user(runtime_cells: &[AnchoredRuntimeCell]) -> bool {
@@ -14285,6 +15612,124 @@ mod state {
         false
     }
 
+    fn split_body_for_visual_tail(
+        body: &str,
+        width: u16,
+        tail_lines: usize,
+    ) -> Option<(String, String)> {
+        let content_width = usize::from(width)
+            .saturating_sub(ASSISTANT_BODY_PREFIX_WIDTH)
+            .max(1);
+        let split_at = raw_visual_tail_split_byte(body, content_width, tail_lines)?;
+        let prefix = body[..split_at].to_string();
+        let suffix = body[split_at..].to_string();
+        if prefix.trim().is_empty() || suffix.is_empty() {
+            return None;
+        }
+
+        Some((prefix, suffix))
+    }
+
+    fn raw_visual_tail_split_byte(
+        body: &str,
+        content_width: usize,
+        tail_lines: usize,
+    ) -> Option<usize> {
+        let starts = visual_line_start_offsets(body, content_width);
+        if starts.len() <= tail_lines {
+            return None;
+        }
+        let split_index = starts.len().saturating_sub(tail_lines);
+        let split_at = starts[split_index];
+        if split_at == 0 || split_at >= body.len() {
+            return None;
+        }
+        Some(split_at)
+    }
+
+    fn visual_line_start_offsets(body: &str, content_width: usize) -> Vec<usize> {
+        if body.is_empty() {
+            return vec![0];
+        }
+
+        let mut starts = Vec::new();
+        let mut logical_start = 0usize;
+        while logical_start < body.len() {
+            starts.push(logical_start);
+            let logical_end = body[logical_start..]
+                .find('\n')
+                .map(|offset| logical_start + offset)
+                .unwrap_or(body.len());
+
+            let mut current_width = 0usize;
+            for (relative_index, ch) in body[logical_start..logical_end].char_indices() {
+                let byte_index = logical_start + relative_index;
+                let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+                if current_width > 0 && current_width + ch_width > content_width {
+                    starts.push(byte_index);
+                    current_width = 0;
+                }
+
+                current_width += ch_width;
+
+                if current_width >= content_width && ch_width > 0 {
+                    let next_index = byte_index + ch.len_utf8();
+                    if next_index < logical_end {
+                        starts.push(next_index);
+                        current_width = 0;
+                    }
+                }
+            }
+
+            if logical_end == body.len() {
+                break;
+            }
+            logical_start = logical_end + 1;
+        }
+
+        starts.dedup();
+        starts
+    }
+
+    #[cfg(test)]
+    fn wrap_body_visual_lines(body: &str, content_width: usize) -> Vec<String> {
+        if body.is_empty() {
+            return vec![String::new()];
+        }
+
+        let mut wrapped = Vec::new();
+        for logical_line in body.split('\n') {
+            if logical_line.is_empty() {
+                wrapped.push(String::new());
+                continue;
+            }
+
+            let mut current = String::new();
+            let mut current_width = 0usize;
+            for ch in logical_line.chars() {
+                let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+                if current_width > 0 && current_width + ch_width > content_width {
+                    wrapped.push(std::mem::take(&mut current));
+                    current_width = 0;
+                }
+
+                current.push(ch);
+                current_width += ch_width;
+
+                if current_width >= content_width && ch_width > 0 {
+                    wrapped.push(std::mem::take(&mut current));
+                    current_width = 0;
+                }
+            }
+
+            if !current.is_empty() {
+                wrapped.push(current);
+            }
+        }
+
+        wrapped
+    }
+
     fn active_cell_projected_by(active: &TranscriptCell, persisted: &TranscriptCell) -> bool {
         if is_persisted_duplicate_cell(active, persisted) {
             return true;
@@ -14294,43 +15739,45 @@ mod state {
         {
             return false;
         }
-        let active_text = compact_duplicate_text(&active.body);
+        let active_text = comparable_duplicate_text(&active.body);
         if active_text.is_empty() {
             return false;
         }
-        compact_duplicate_text(&persisted.body).starts_with(&active_text)
+        comparable_duplicate_text(&persisted.body).starts_with(&active_text)
     }
 
-    fn compact_duplicate_text(content: &str) -> String {
-        content.chars().filter(|ch| !ch.is_whitespace()).collect()
-    }
-
-    fn assistant_stream_delta(current: &mut String, chunk: &str) -> Option<String> {
-        let normalized = chunk.trim_start_matches(['\r', '\n']);
-        if chunk == current
-            || normalized == current
-            || (!normalized.trim().is_empty() && normalized.trim() == current.trim())
+    fn runtime_cell_projected_by(runtime: &TranscriptCell, persisted: &TranscriptCell) -> bool {
+        if is_persisted_duplicate_cell(runtime, persisted) {
+            return true;
+        }
+        if runtime.kind != TranscriptCellKind::Assistant
+            || persisted.kind != TranscriptCellKind::Assistant
         {
-            return None;
+            return false;
         }
-
-        if let Some(delta) = chunk.strip_prefix(current.as_str()) {
-            *current = chunk.to_string();
-            return Some(delta.to_string());
+        let runtime_text = comparable_duplicate_text(&runtime.body);
+        if runtime_text.is_empty() {
+            return false;
         }
+        comparable_duplicate_text(&persisted.body).contains(&runtime_text)
+    }
 
-        if let Some(delta) = normalized.strip_prefix(current.as_str()) {
-            *current = normalized.to_string();
-            return Some(delta.to_string());
-        }
+    fn comparable_duplicate_text(content: &str) -> String {
+        content
+            .replace("\r\n", "\n")
+            .trim_start_matches(['\r', '\n'])
+            .trim_end_matches(['\r', '\n'])
+            .to_string()
+    }
 
+    fn assistant_stream_delta(current: &mut String, chunk: &str) -> String {
         let delta = if current.is_empty() {
-            normalized
+            chunk.trim_start_matches(['\r', '\n'])
         } else {
             chunk
         };
         current.push_str(delta);
-        Some(delta.to_string())
+        delta.to_string()
     }
 
     fn normalized_error_notice(content: &str) -> &str {
@@ -14355,9 +15802,12 @@ mod state {
 
     #[cfg(test)]
     mod tests {
-        use super::{AppState, OverlayState};
-        use crate::transcript::TranscriptCellKind;
-        use types::{ChatSessionEvent, StreamFrame};
+        use super::{
+            ASSISTANT_BODY_PREFIX_WIDTH, AppState, LIVE_ASSISTANT_TAIL_LINES, OverlayState,
+            wrap_body_visual_lines,
+        };
+        use crate::transcript::{ShellMessage, TranscriptCellKind, cell_from_message};
+        use types::{ChatSession, ChatSessionEvent, ChatTurnEventKind, StreamFrame};
 
         #[test]
         fn app_state_session_picker_uses_overlay() {
@@ -14430,6 +15880,51 @@ mod state {
             assert_eq!(
                 cells[1].body,
                 "EXACT_CANCEL_LINE_001\nEXACT_CANCEL_LINE_002"
+            );
+        }
+
+        #[test]
+        fn stream_frames_preserve_repeated_delta_chunks() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("hello".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "ha".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "ha".to_string(),
+            });
+
+            let cells = state.transcript_cells_for_render();
+            assert_eq!(cells[1].kind, TranscriptCellKind::Assistant);
+            assert_eq!(cells[1].body, "haha");
+        }
+
+        #[test]
+        fn repeated_user_message_keeps_new_active_turn_boundary() {
+            let mut state = AppState::empty();
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(types::ChatMessage::user("repeat"));
+            session.add_message(types::ChatMessage::assistant("first"));
+            state.set_current_session(session);
+
+            state.push_local_user_message("repeat".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-repeat".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command":"pwd"}),
+            });
+
+            let cells = state.transcript_cells_for_render();
+            let repeat_users = cells
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::User && cell.body == "repeat")
+                .count();
+            assert_eq!(repeat_users, 2);
+            assert!(state.current_turn_user_content().is_some());
+            assert!(
+                cells
+                    .iter()
+                    .any(|cell| cell.tool_call_id() == Some("call-repeat"))
             );
         }
 
@@ -14737,6 +16232,202 @@ mod state {
                     .count(),
                 1
             );
+        }
+
+        #[test]
+        fn identical_assistant_segments_before_tools_are_kept() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("repeat status".to_string());
+            for call_id in ["call-1", "call-2"] {
+                state.apply_stream_frame(StreamFrame::Data {
+                    content: "Done.".to_string(),
+                });
+                state.apply_stream_frame(StreamFrame::ToolCall {
+                    id: call_id.to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command": "true"}),
+                });
+                state.apply_stream_frame(StreamFrame::ToolResult {
+                    id: call_id.to_string(),
+                    result: "ok".to_string(),
+                    success: true,
+                });
+            }
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "Done.".to_string(),
+            });
+
+            let rendered = state.transcript_cells_for_render();
+            let assistant_segments = rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Assistant && cell.body == "Done.")
+                .count();
+            assert_eq!(assistant_segments, 3);
+            assert_eq!(
+                rendered.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
+        }
+
+        #[test]
+        fn long_active_assistant_spills_prefix_to_runtime_scrollback() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("long answer".to_string());
+            let long_output = (0..20)
+                .map(|index| format!("assistant-line-{index:02}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            state.apply_stream_frame(StreamFrame::Data {
+                content: long_output,
+            });
+
+            assert!(state.runtime_cells.iter().any(|entry| {
+                entry.cell.kind == TranscriptCellKind::Assistant
+                    && entry.cell.body.contains("assistant-line-00")
+            }));
+            let active_tail = state
+                .active_turn
+                .as_ref()
+                .and_then(|turn| {
+                    turn.cells
+                        .iter()
+                        .find(|cell| cell.kind == TranscriptCellKind::Assistant && cell.is_active)
+                })
+                .expect("active assistant tail");
+            assert!(!active_tail.body.contains("assistant-line-00"));
+            assert!(active_tail.body.contains("assistant-line-19"));
+
+            let timeline = crate::timeline::Timeline::from_state(&state);
+            assert!(timeline.committed_cells().iter().any(|cell| {
+                cell.kind == TranscriptCellKind::Assistant
+                    && cell.body.contains("assistant-line-00")
+            }));
+            assert!(timeline.active_cells().iter().any(|cell| {
+                cell.kind == TranscriptCellKind::Assistant
+                    && cell.body.contains("assistant-line-19")
+            }));
+        }
+
+        #[test]
+        fn long_single_line_active_assistant_spills_by_visual_width() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("long answer".to_string());
+            let long_output = format!("{}assistant-tail-final", "x".repeat(240));
+
+            state.apply_stream_frame(StreamFrame::Data {
+                content: long_output,
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(24);
+
+            assert!(state.runtime_cells.iter().any(|entry| {
+                entry.cell.kind == TranscriptCellKind::Assistant
+                    && !entry.cell.body.contains("assistant-tail-final")
+            }));
+            let spilled = state
+                .runtime_cells
+                .iter()
+                .find(|entry| {
+                    entry.cell.kind == TranscriptCellKind::Assistant
+                        && !entry.cell.body.contains("assistant-tail-final")
+                })
+                .expect("spilled assistant prefix");
+            assert!(
+                !spilled.cell.body.contains('\n'),
+                "visual spill must preserve raw single-line text for persistence reconciliation"
+            );
+            let active_tail = state
+                .active_turn
+                .as_ref()
+                .and_then(|turn| {
+                    turn.cells
+                        .iter()
+                        .find(|cell| cell.kind == TranscriptCellKind::Assistant && cell.is_active)
+                })
+                .expect("active assistant tail");
+            assert!(
+                active_tail
+                    .body
+                    .replace('\n', "")
+                    .contains("assistant-tail-final")
+            );
+            assert!(
+                wrap_body_visual_lines(
+                    &active_tail.body,
+                    24usize.saturating_sub(ASSISTANT_BODY_PREFIX_WIDTH),
+                )
+                .len()
+                    <= LIVE_ASSISTANT_TAIL_LINES
+            );
+            let persisted = cell_from_message(
+                &ShellMessage::AssistantMessage {
+                    content: format!("{}{}", spilled.cell.body, active_tail.body),
+                },
+                "Default Assistant",
+            );
+            assert!(super::runtime_cell_projected_by(&spilled.cell, &persisted));
+        }
+
+        #[test]
+        fn identical_tool_bodies_with_distinct_call_ids_are_kept() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("repeat command".to_string());
+            for call_id in ["call-1", "call-2"] {
+                state.apply_stream_frame(StreamFrame::ToolCall {
+                    id: call_id.to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command": "pwd"}),
+                });
+                state.apply_stream_frame(StreamFrame::ToolResult {
+                    id: call_id.to_string(),
+                    result: "/tmp/restflow".to_string(),
+                    success: true,
+                });
+            }
+
+            let rendered = state.transcript_cells_for_render();
+            let tool_ids = rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+                .filter_map(|cell| cell.tool_call_id())
+                .collect::<Vec<_>>();
+            assert_eq!(tool_ids, vec!["call-1", "call-2"]);
+
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            let persisted_tool_ids = state
+                .runtime_cells
+                .iter()
+                .map(|entry| &entry.cell)
+                .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+                .filter_map(|cell| cell.tool_call_id())
+                .collect::<Vec<_>>();
+            assert_eq!(persisted_tool_ids, vec!["call-1", "call-2"]);
+        }
+
+        #[test]
+        fn assistant_duplicate_detection_preserves_whitespace_sensitive_text() {
+            let runtime = cell_from_message(
+                &ShellMessage::AssistantMessage {
+                    content: "let value = 1;".to_string(),
+                },
+                "Assistant",
+            );
+            let persisted = cell_from_message(
+                &ShellMessage::AssistantMessage {
+                    content: "letvalue=1;".to_string(),
+                },
+                "Assistant",
+            );
+
+            assert!(!super::is_persisted_duplicate_cell(&runtime, &persisted));
         }
 
         #[test]
@@ -15207,9 +16898,9 @@ mod state {
             });
             assert!(state.active_turn.is_some());
 
-            session.record_turn_user_message("persisted-turn-id", "create two tasks\n");
+            session.record_turn_user_message("local-stream-id", "create two tasks\n");
             session.record_turn_event(
-                "persisted-turn-id",
+                "local-stream-id",
                 types::ChatTurnEventKind::ToolCall {
                     call_id: "call-1".to_string(),
                     name: "bash".to_string(),
@@ -15217,14 +16908,14 @@ mod state {
                 },
             );
             session.record_turn_event(
-                "persisted-turn-id",
+                "local-stream-id",
                 types::ChatTurnEventKind::ToolResult {
                     call_id: "call-1".to_string(),
                     success: true,
                     result: "ok".to_string(),
                 },
             );
-            session.complete_turn_with_assistant_message("persisted-turn-id", "done");
+            session.complete_turn_with_assistant_message("local-stream-id", "done");
 
             state.refresh_current_session(session);
 
@@ -15259,9 +16950,9 @@ mod state {
                 arguments: serde_json::json!({}),
             });
 
-            session.record_turn_user_message("persisted-turn-id", "coordinate team\n");
+            session.record_turn_user_message("local-stream-id", "coordinate team\n");
             session.record_turn_event(
-                "persisted-turn-id",
+                "local-stream-id",
                 types::ChatTurnEventKind::ToolCall {
                     call_id: "call-1".to_string(),
                     name: "spawn_subagent_batch".to_string(),
@@ -15269,14 +16960,14 @@ mod state {
                 },
             );
             session.record_turn_event(
-                "persisted-turn-id",
+                "local-stream-id",
                 types::ChatTurnEventKind::ToolResult {
                     call_id: "call-1".to_string(),
                     success: true,
                     result: "child ok".to_string(),
                 },
             );
-            session.complete_turn_with_assistant_message("persisted-turn-id", "parent ok");
+            session.complete_turn_with_assistant_message("local-stream-id", "parent ok");
             session.record_turn_user_message("later-running-turn-id", "later message");
 
             state.refresh_current_session(session);
@@ -15300,7 +16991,7 @@ mod state {
         }
 
         #[test]
-        fn refresh_current_session_clears_active_turn_when_persisted_tool_call_matches() {
+        fn refresh_current_session_keeps_active_turn_when_only_tool_call_id_matches() {
             let mut state = AppState::empty();
             let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
             state.set_current_session(session.clone());
@@ -15334,9 +17025,43 @@ mod state {
 
             state.refresh_current_session(session);
 
-            assert!(!state.is_streaming);
-            assert!(state.current_stream_id.is_none());
-            assert!(state.active_turn.is_none());
+            assert!(state.is_streaming);
+            assert_eq!(state.current_stream_id.as_deref(), Some("local-stream-id"));
+            assert!(state.active_turn.is_some());
+        }
+
+        #[test]
+        fn completed_tool_result_replaces_projected_running_tool_call() {
+            let mut state = AppState::empty();
+            let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.record_turn_user_message("turn-1", "run tool");
+            session.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: "{\"command\":\"pwd\"}".to_string(),
+                },
+            );
+            state.set_current_session(session);
+            state.push_local_user_message("run tool".to_string());
+
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                success: true,
+                result: "/tmp/restflow".to_string(),
+            });
+
+            let rendered = state.transcript_cells_for_render();
+            let matching_tools = rendered
+                .iter()
+                .filter(|cell| cell.tool_call_id() == Some("call-1"))
+                .collect::<Vec<_>>();
+            assert_eq!(matching_tools.len(), 1);
+            assert!(matching_tools[0].body.contains("Output:"));
+            assert!(state.runtime_cells.iter().any(|entry| {
+                entry.cell.tool_call_id() == Some("call-1") && entry.cell.body.contains("Output:")
+            }));
         }
 
         #[test]
@@ -15354,6 +17079,91 @@ mod state {
                 name: "spawn_subagent_batch".to_string(),
                 arguments: serde_json::json!({"specs":[{"task":"reply"}]}),
             });
+
+            state.refresh_current_session(session);
+
+            assert!(state.is_streaming);
+            assert_eq!(state.current_stream_id.as_deref(), Some("current-turn"));
+            assert!(state.active_turn.is_some());
+        }
+
+        #[test]
+        fn refresh_current_session_keeps_active_tool_turn_for_reused_call_id_in_old_turn() {
+            let mut state = AppState::empty();
+            let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.record_turn_user_message("old-turn", "repeat");
+            session.record_turn_event(
+                "old-turn",
+                ChatTurnEventKind::ToolCall {
+                    call_id: "call-reused".to_string(),
+                    name: "bash".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "old-turn",
+                ChatTurnEventKind::ToolResult {
+                    call_id: "call-reused".to_string(),
+                    success: true,
+                    result: "old result".to_string(),
+                },
+            );
+            session.complete_turn_with_assistant_message("old-turn", "old answer");
+            state.set_current_session(session.clone());
+
+            state.begin_stream("current-turn".to_string());
+            state.push_local_user_message("repeat".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-reused".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-reused".to_string(),
+                result: "new result".to_string(),
+                success: true,
+            });
+
+            state.refresh_current_session(session);
+
+            assert!(state.is_streaming);
+            assert_eq!(state.current_stream_id.as_deref(), Some("current-turn"));
+            assert!(state.active_turn.is_some());
+            let rendered_tools = state
+                .transcript_cells_for_render()
+                .into_iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+                .map(|cell| cell.body)
+                .collect::<Vec<_>>();
+            assert_eq!(rendered_tools.len(), 2);
+            assert!(
+                rendered_tools
+                    .iter()
+                    .any(|body| body.contains("old result"))
+            );
+            assert!(
+                rendered_tools
+                    .iter()
+                    .any(|body| body.contains("new result"))
+            );
+            assert!(
+                state
+                    .runtime_cells
+                    .iter()
+                    .any(|entry| entry.cell.body.contains("new result"))
+            );
+        }
+
+        #[test]
+        fn refresh_current_session_keeps_repeated_text_stream_until_matching_turn_finishes() {
+            let mut state = AppState::empty();
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.record_turn_user_message("old-turn", "repeat");
+            session.complete_turn_with_assistant_message("old-turn", "old answer");
+            state.set_current_session(session.clone());
+
+            state.begin_stream("current-turn".to_string());
+            state.push_local_user_message("repeat".to_string());
 
             state.refresh_current_session(session);
 
@@ -15668,7 +17478,7 @@ mod state {
                 result: "{\"status\":\"completed\"}".to_string(),
             });
             state.apply_stream_frame(StreamFrame::Data {
-                content: "- **耗时**:1326ms".to_string(),
+                content: "- **耗时**: 1326ms".to_string(),
             });
             state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
@@ -15711,6 +17521,91 @@ mod state {
             );
             assert!(state.runtime_cells.is_empty());
             assert!(state.active_turn.is_none());
+        }
+
+        #[test]
+        fn refresh_removes_all_spilled_assistant_chunks_when_full_answer_persists() {
+            let mut state = AppState::empty();
+            let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.messages.push(types::ChatMessage::user("previous"));
+            session
+                .messages
+                .push(types::ChatMessage::assistant("Done."));
+            state.set_current_session(session.clone());
+
+            state.begin_stream("turn-1".to_string());
+            state.push_local_user_message("write long answer".to_string());
+            let full_answer = (0..18)
+                .map(|index| format!("line-{index:02}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state.apply_stream_frame(StreamFrame::Data {
+                content: full_answer.clone(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "\nDone.".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            assert!(
+                state
+                    .runtime_cells
+                    .iter()
+                    .filter(|entry| entry.cell.kind == TranscriptCellKind::Assistant)
+                    .count()
+                    > 1
+            );
+
+            session
+                .messages
+                .push(types::ChatMessage::user("write long answer"));
+            session.messages.push(types::ChatMessage::assistant(format!(
+                "{full_answer}\nDone."
+            )));
+            state.refresh_current_session(session);
+
+            assert!(state.runtime_cells.is_empty());
+            let rendered = state.transcript_cells_for_render();
+            let assistant_bodies = rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Assistant)
+                .map(|cell| cell.body.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(assistant_bodies.len(), 2);
+            assert_eq!(assistant_bodies[0], "Done.");
+            assert_eq!(
+                assistant_bodies[1],
+                format!("{full_answer}\nDone.").as_str()
+            );
+        }
+
+        #[test]
+        fn refresh_does_not_remove_new_repeated_assistant_text_from_older_turn() {
+            let mut state = AppState::empty();
+            let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.messages.push(types::ChatMessage::user("previous"));
+            session
+                .messages
+                .push(types::ChatMessage::assistant("Done."));
+            state.set_current_session(session.clone());
+
+            state.push_local_user_message("again".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "Done.".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+            state.refresh_current_session(session);
+
+            let rendered = state.transcript_cells_for_render();
+            assert_eq!(
+                rendered
+                    .iter()
+                    .filter(|cell| {
+                        cell.kind == TranscriptCellKind::Assistant && cell.body == "Done."
+                    })
+                    .count(),
+                2
+            );
         }
 
         #[test]
@@ -15879,6 +17774,30 @@ mod state {
         }
 
         #[test]
+        fn refresh_reanchors_active_runtime_start_after_removed_runtime_prefix() {
+            let mut state = AppState::empty();
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            state.set_current_session(session.clone());
+            state.push_info("persisted notice");
+            state.push_local_user_message("active user".to_string());
+            assert_eq!(state.active_turn_runtime_start, Some(1));
+
+            session.record_turn_event(
+                "notice-turn",
+                ChatTurnEventKind::Progress {
+                    message: "persisted notice".to_string(),
+                },
+            );
+            state.refresh_current_session(session);
+
+            assert_eq!(state.active_turn_runtime_start, Some(0));
+            let active_cells = state.active_turn_runtime_cells().unwrap();
+            assert!(active_cells.iter().any(|entry| {
+                entry.cell.kind == TranscriptCellKind::User && entry.cell.body == "active user"
+            }));
+        }
+
+        #[test]
         fn refresh_current_session_preserves_runtime_cells_and_streaming_active_turn() {
             let mut state = AppState::empty();
             let mut session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
@@ -15931,7 +17850,7 @@ mod state {
 
 mod transcript {
     use serde_json::Value;
-    use types::{ChatRole, ChatSession, ChatTurnEventKind};
+    use types::{ChatMessage, ChatRole, ChatSession, ChatTurnEventKind};
     use types::{ChatSessionEvent, StreamFrame};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16097,6 +18016,16 @@ mod transcript {
         }
     }
 
+    #[derive(Clone)]
+    struct ProjectedShellMessage {
+        turn_id: Option<String>,
+        id: Option<String>,
+        message: ShellMessage,
+        timestamp: i64,
+        source_order: u8,
+        sequence: usize,
+    }
+
     impl ShellMessage {
         pub fn group(&self) -> MessageGroup {
             match self {
@@ -16111,67 +18040,186 @@ mod transcript {
     }
 
     pub fn messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
-        if session.turns.iter().any(|turn| !turn.events.is_empty()) {
-            return session
-                .turns
+        let turn_messages = projected_turn_messages_from_session(session);
+        if !turn_messages.is_empty() {
+            let legacy_messages = projected_legacy_messages_from_session(session);
+            let kept_legacy_messages = legacy_messages
                 .iter()
-                .flat_map(|turn| {
-                    turn.events.iter().map(|event| match &event.kind {
-                        ChatTurnEventKind::UserMessage { content } => ShellMessage::UserMessage {
-                            content: content.clone(),
-                        },
-                        ChatTurnEventKind::AssistantMessage { content } => {
-                            ShellMessage::AssistantMessage {
-                                content: content.clone(),
-                            }
-                        }
-                        ChatTurnEventKind::ToolCall {
-                            call_id,
-                            name,
-                            arguments,
-                        } => ShellMessage::ToolCall {
-                            call_id: call_id.clone(),
-                            name: name.clone(),
-                            arguments: arguments.clone(),
-                        },
-                        ChatTurnEventKind::ToolResult {
-                            call_id,
-                            success,
-                            result,
-                        } => ShellMessage::ToolResult {
-                            call_id: call_id.clone(),
-                            success: *success,
-                            result: result.clone(),
-                        },
-                        ChatTurnEventKind::Progress { message } => ShellMessage::InfoNotice {
-                            content: message.clone(),
-                        },
-                        ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
-                            content: message.clone(),
-                        },
-                        ChatTurnEventKind::Canceled => ShellMessage::InfoNotice {
-                            content: "Canceled current response.".to_string(),
-                        },
-                    })
+                .filter(|legacy| {
+                    !legacy_represented_by_turn_messages(legacy, &legacy_messages, &turn_messages)
                 })
-                .collect();
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut merged = kept_legacy_messages
+                .into_iter()
+                .chain(turn_messages)
+                .collect::<Vec<_>>();
+            merged
+                .sort_by_key(|message| (message.timestamp, message.source_order, message.sequence));
+            return merged.into_iter().map(|message| message.message).collect();
         }
 
+        legacy_messages_from_session(session)
+    }
+
+    fn projected_turn_messages_from_session(session: &ChatSession) -> Vec<ProjectedShellMessage> {
+        let mut sequence = 0;
+        let mut projected_messages = Vec::new();
+        for turn in &session.turns {
+            for event in &turn.events {
+                let message = match &event.kind {
+                    ChatTurnEventKind::UserMessage { content } => ShellMessage::UserMessage {
+                        content: content.clone(),
+                    },
+                    ChatTurnEventKind::AssistantMessage { content } => {
+                        ShellMessage::AssistantMessage {
+                            content: content.clone(),
+                        }
+                    }
+                    ChatTurnEventKind::ToolCall {
+                        call_id,
+                        name,
+                        arguments,
+                    } => ShellMessage::ToolCall {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: arguments.clone(),
+                    },
+                    ChatTurnEventKind::ToolResult {
+                        call_id,
+                        success,
+                        result,
+                    } => ShellMessage::ToolResult {
+                        call_id: call_id.clone(),
+                        success: *success,
+                        result: result.clone(),
+                    },
+                    ChatTurnEventKind::Progress { message } => ShellMessage::InfoNotice {
+                        content: message.clone(),
+                    },
+                    ChatTurnEventKind::Error { message } => ShellMessage::ErrorNotice {
+                        content: message.clone(),
+                    },
+                    ChatTurnEventKind::Canceled => ShellMessage::InfoNotice {
+                        content: "Canceled current response.".to_string(),
+                    },
+                };
+                projected_messages.push(ProjectedShellMessage {
+                    turn_id: Some(turn.id.clone()),
+                    id: event.message_id.clone(),
+                    message,
+                    timestamp: event.timestamp,
+                    source_order: 1,
+                    sequence,
+                });
+                sequence += 1;
+            }
+        }
+        projected_messages
+    }
+
+    fn projected_legacy_messages_from_session(session: &ChatSession) -> Vec<ProjectedShellMessage> {
         session
             .messages
             .iter()
-            .map(|message| match message.role {
-                ChatRole::User => ShellMessage::UserMessage {
-                    content: message.content.clone(),
-                },
-                ChatRole::Assistant => ShellMessage::AssistantMessage {
-                    content: message.content.clone(),
-                },
-                ChatRole::System => ShellMessage::SystemMessage {
-                    content: message.content.clone(),
-                },
+            .enumerate()
+            .map(|(sequence, message)| ProjectedShellMessage {
+                turn_id: None,
+                id: Some(message.id.clone()),
+                message: shell_message_from_chat_message(message),
+                timestamp: message.timestamp,
+                source_order: 0,
+                sequence,
             })
             .collect()
+    }
+
+    fn legacy_messages_from_session(session: &ChatSession) -> Vec<ShellMessage> {
+        session
+            .messages
+            .iter()
+            .map(shell_message_from_chat_message)
+            .collect()
+    }
+
+    fn shell_message_from_chat_message(message: &ChatMessage) -> ShellMessage {
+        match message.role {
+            ChatRole::User => ShellMessage::UserMessage {
+                content: message.content.clone(),
+            },
+            ChatRole::Assistant => ShellMessage::AssistantMessage {
+                content: message.content.clone(),
+            },
+            ChatRole::System => ShellMessage::SystemMessage {
+                content: message.content.clone(),
+            },
+        }
+    }
+
+    fn is_conversation_message(message: &ShellMessage) -> bool {
+        matches!(
+            message,
+            ShellMessage::UserMessage { .. }
+                | ShellMessage::AssistantMessage { .. }
+                | ShellMessage::SystemMessage { .. }
+        )
+    }
+
+    fn legacy_represented_by_turn_messages(
+        legacy: &ProjectedShellMessage,
+        legacy_messages: &[ProjectedShellMessage],
+        turn_messages: &[ProjectedShellMessage],
+    ) -> bool {
+        if turn_messages
+            .iter()
+            .filter(|message| is_conversation_message(&message.message))
+            .any(|turn| legacy.id.is_some() && legacy.id == turn.id)
+        {
+            return true;
+        }
+
+        let ShellMessage::AssistantMessage {
+            content: legacy_content,
+        } = &legacy.message
+        else {
+            return false;
+        };
+        let Some(previous_legacy) =
+            legacy_represented_user_predecessor(legacy, legacy_messages, turn_messages)
+        else {
+            return false;
+        };
+        let Some(turn_id) = previous_legacy.turn_id.as_deref() else {
+            return false;
+        };
+        let assistant_chunks = turn_messages
+            .iter()
+            .filter(|message| message.turn_id.as_deref() == Some(turn_id))
+            .filter(|message| message.sequence > previous_legacy.sequence)
+            .take_while(|message| !matches!(message.message, ShellMessage::UserMessage { .. }))
+            .filter_map(|message| match (&message.message, &message.id) {
+                (ShellMessage::AssistantMessage { content }, None) => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        !assistant_chunks.is_empty() && assistant_chunks.concat() == *legacy_content
+    }
+
+    fn legacy_represented_user_predecessor<'a>(
+        legacy: &'a ProjectedShellMessage,
+        legacy_messages: &[ProjectedShellMessage],
+        turn_messages: &'a [ProjectedShellMessage],
+    ) -> Option<&'a ProjectedShellMessage> {
+        let Some(previous_legacy) = legacy_messages.iter().rev().find(|candidate| {
+            candidate.sequence < legacy.sequence
+                && matches!(candidate.message, ShellMessage::UserMessage { .. })
+        }) else {
+            return None;
+        };
+        turn_messages
+            .iter()
+            .filter(|message| matches!(message.message, ShellMessage::UserMessage { .. }))
+            .find(|turn| previous_legacy.id.is_some() && previous_legacy.id == turn.id)
     }
 
     pub fn transcript_cells(
@@ -16180,6 +18228,14 @@ mod transcript {
     ) -> Vec<TranscriptCell> {
         let mut cells: Vec<TranscriptCell> = Vec::new();
         for message in messages {
+            if let ShellMessage::AssistantMessage { content } = message
+                && let Some(last) = cells.last_mut()
+                && last.kind == TranscriptCellKind::Assistant
+                && last.group == MessageGroup::Conversation
+            {
+                last.body.push_str(content);
+                continue;
+            }
             if let ShellMessage::ToolResult {
                 call_id,
                 success,
@@ -16464,7 +18520,9 @@ mod transcript {
 
     pub fn message_from_stream_frame(frame: &StreamFrame) -> Option<ShellMessage> {
         match frame {
-            StreamFrame::Ack { .. } | StreamFrame::Data { .. } => None,
+            StreamFrame::Ack { .. } | StreamFrame::Progress { .. } | StreamFrame::Data { .. } => {
+                None
+            }
             StreamFrame::ToolCall {
                 id,
                 name,
@@ -16589,10 +18647,149 @@ mod transcript {
         }
 
         #[test]
-        fn maps_session_turn_events_before_legacy_messages() {
+        fn maps_session_keeps_legacy_messages_before_turn_events() {
             let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
             session.add_message(ChatMessage::user("legacy user"));
             session.add_message(ChatMessage::assistant("legacy assistant"));
+            session.record_turn_user_message("turn-1", "hello");
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: "pwd".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::ToolResult {
+                    call_id: "call-1".to_string(),
+                    success: true,
+                    result: "/tmp".to_string(),
+                },
+            );
+            session.complete_turn_with_assistant_message("turn-1", "done");
+
+            let transcript = messages_from_session(&session);
+            assert_eq!(transcript.len(), 6);
+            assert!(matches!(transcript[0], ShellMessage::UserMessage { .. }));
+            assert!(matches!(
+                transcript[1],
+                ShellMessage::AssistantMessage { .. }
+            ));
+            assert!(matches!(transcript[2], ShellMessage::UserMessage { .. }));
+            assert!(matches!(transcript[3], ShellMessage::ToolCall { .. }));
+            assert!(matches!(transcript[4], ShellMessage::ToolResult { .. }));
+            assert!(matches!(
+                transcript[5],
+                ShellMessage::AssistantMessage { .. }
+            ));
+        }
+
+        #[test]
+        fn messages_from_session_removes_legacy_suffix_already_represented_by_turns() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(ChatMessage::user("hello"));
+            session.add_message(ChatMessage::assistant("done"));
+            session.record_turn_user_message("turn-1", "hello");
+            session.complete_turn_with_assistant_message("turn-1", "done");
+
+            let transcript = messages_from_session(&session);
+            assert_eq!(transcript.len(), 2);
+            assert!(matches!(transcript[0], ShellMessage::UserMessage { .. }));
+            assert!(matches!(
+                transcript[1],
+                ShellMessage::AssistantMessage { .. }
+            ));
+        }
+
+        #[test]
+        fn messages_from_session_removes_legacy_aggregate_for_streamed_chunks() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(ChatMessage::user("hello"));
+            session.add_message(ChatMessage::assistant("hello"));
+            session.record_turn_user_message("turn-1", "hello");
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "he".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "llo".to_string(),
+                },
+            );
+            session.complete_turn("turn-1");
+
+            let transcript = messages_from_session(&session);
+            let assistant_messages = transcript
+                .iter()
+                .filter(|message| matches!(message, ShellMessage::AssistantMessage { .. }))
+                .count();
+
+            assert_eq!(assistant_messages, 2);
+            assert!(transcript.iter().any(|message| {
+                matches!(message, ShellMessage::AssistantMessage { content } if content == "he")
+            }));
+            assert!(transcript.iter().any(|message| {
+                matches!(message, ShellMessage::AssistantMessage { content } if content == "llo")
+            }));
+        }
+
+        #[test]
+        fn messages_from_session_dedupes_streamed_aggregates_per_turn() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(ChatMessage::user("first"));
+            session.add_message(ChatMessage::assistant("hello"));
+            session.add_message(ChatMessage::user("second"));
+            session.add_message(ChatMessage::assistant("world"));
+            session.record_turn_user_message("turn-1", "first");
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "he".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "llo".to_string(),
+                },
+            );
+            session.complete_turn("turn-1");
+            session.record_turn_user_message("turn-2", "second");
+            session.record_turn_event(
+                "turn-2",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "wo".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-2",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "rld".to_string(),
+                },
+            );
+            session.complete_turn("turn-2");
+
+            let assistant_contents = messages_from_session(&session)
+                .into_iter()
+                .filter_map(|message| match message {
+                    ShellMessage::AssistantMessage { content } => Some(content),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(assistant_contents, vec!["he", "llo", "wo", "rld"]);
+        }
+
+        #[test]
+        fn messages_from_session_removes_legacy_conversation_pair_represented_by_tool_turn() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(ChatMessage::user("hello"));
+            session.add_message(ChatMessage::assistant("done"));
             session.record_turn_user_message("turn-1", "hello");
             session.record_turn_event(
                 "turn-1",
@@ -16621,6 +18818,112 @@ mod transcript {
                 transcript[3],
                 ShellMessage::AssistantMessage { .. }
             ));
+        }
+
+        #[test]
+        fn messages_from_session_removes_legacy_suffix_when_turn_history_has_older_prefix() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(ChatMessage::user("middle"));
+            session.add_message(ChatMessage::assistant("middle done"));
+            session.add_message(ChatMessage::user("latest"));
+            session.add_message(ChatMessage::assistant("latest done"));
+            session.record_turn_user_message("turn-1", "oldest");
+            session.complete_turn_with_assistant_message("turn-1", "oldest done");
+            session.record_turn_user_message("turn-2", "middle");
+            session.complete_turn_with_assistant_message("turn-2", "middle done");
+            session.record_turn_user_message("turn-3", "latest");
+            session.complete_turn_with_assistant_message("turn-3", "latest done");
+
+            let transcript = messages_from_session(&session);
+            assert_eq!(transcript.len(), 6);
+            assert!(matches!(
+                &transcript[0],
+                ShellMessage::UserMessage { content } if content == "oldest"
+            ));
+            assert!(matches!(
+                &transcript[5],
+                ShellMessage::AssistantMessage { content } if content == "latest done"
+            ));
+        }
+
+        #[test]
+        fn messages_from_session_keeps_later_legacy_suffix_with_repeated_text() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.record_turn_user_message("turn-1", "repeat");
+            session.complete_turn_with_assistant_message("turn-1", "done");
+            let turn_timestamp = session
+                .turns
+                .iter()
+                .flat_map(|turn| turn.events.iter().map(|event| event.timestamp))
+                .max()
+                .unwrap();
+            let mut later_user = ChatMessage::user("repeat");
+            later_user.timestamp = turn_timestamp;
+            let mut later_assistant = ChatMessage::assistant("done");
+            later_assistant.timestamp = turn_timestamp;
+            session.add_message(later_user);
+            session.add_message(later_assistant);
+
+            let transcript = messages_from_session(&session);
+            assert_eq!(transcript.len(), 4);
+            assert_eq!(
+                transcript
+                    .iter()
+                    .filter(|message| {
+                        matches!(message, ShellMessage::UserMessage { content } if content == "repeat")
+                    })
+                    .count(),
+                2
+            );
+            assert_eq!(
+                transcript
+                    .iter()
+                    .filter(|message| {
+                        matches!(message, ShellMessage::AssistantMessage { content } if content == "done")
+                    })
+                    .count(),
+                2
+            );
+        }
+
+        #[test]
+        fn messages_from_session_keeps_older_legacy_messages_with_repeated_text() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            let mut older_user = ChatMessage::user("repeat");
+            older_user.timestamp = 1;
+            let mut older_assistant = ChatMessage::assistant("done");
+            older_assistant.timestamp = 2;
+            session.add_message(older_user);
+            session.add_message(older_assistant);
+            session.record_turn_user_message("turn-1", "repeat");
+            session.complete_turn_with_assistant_message("turn-1", "done");
+            for turn in &mut session.turns {
+                for event in &mut turn.events {
+                    event.message_id = None;
+                    event.timestamp = 10;
+                }
+            }
+
+            let transcript = messages_from_session(&session);
+            assert_eq!(transcript.len(), 4);
+            assert_eq!(
+                transcript
+                    .iter()
+                    .filter(|message| {
+                        matches!(message, ShellMessage::UserMessage { content } if content == "repeat")
+                    })
+                    .count(),
+                2
+            );
+            assert_eq!(
+                transcript
+                    .iter()
+                    .filter(|message| {
+                        matches!(message, ShellMessage::AssistantMessage { content } if content == "done")
+                    })
+                    .count(),
+                2
+            );
         }
 
         #[test]
@@ -16919,6 +19222,12 @@ mod transcript {
         fn suppresses_ack_and_data_in_message_projection() {
             assert!(
                 message_from_stream_frame(&StreamFrame::Ack {
+                    content: "working".to_string(),
+                })
+                .is_none()
+            );
+            assert!(
+                message_from_stream_frame(&StreamFrame::Progress {
                     content: "working".to_string(),
                 })
                 .is_none()

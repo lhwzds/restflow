@@ -811,7 +811,7 @@ pub mod catalog {
             })
     }
 
-    fn descriptor_matches_lookup_key(descriptor: &ModelDescriptor, key: &str) -> bool {
+    pub(crate) fn descriptor_matches_lookup_key(descriptor: &ModelDescriptor, key: &str) -> bool {
         descriptor.id.as_serialized_str().eq_ignore_ascii_case(key)
             || descriptor.api_name.eq_ignore_ascii_case(key)
             || descriptor
@@ -834,7 +834,7 @@ pub mod catalog {
         }
     }
 
-    fn normalize_lookup_key(value: &str) -> Option<String> {
+    pub(crate) fn normalize_lookup_key(value: &str) -> Option<String> {
         let normalized = value.trim();
         if normalized.is_empty() {
             None
@@ -2554,6 +2554,34 @@ pub mod model {
                 self.model.as_serialized_str()
             )
         }
+
+        /// Resolve user input into a provider/model pair without silently
+        /// choosing one provider for colliding unqualified names.
+        pub fn from_unambiguous_user_input(input: &str) -> Result<Self, String> {
+            let model = ModelId::from_unambiguous_user_input(input)?;
+            Ok(Self::from_model(model))
+        }
+
+        /// Resolve legacy provider-less config/session input.
+        ///
+        /// Older RestFlow config and JSONL session metadata stored only an API
+        /// model string. If that string now collides with a CLI provider model
+        /// ID, keep the old API-model behavior by preferring OpenAI rather than
+        /// silently falling back to an agent default.
+        pub fn from_legacy_providerless_user_input(input: &str) -> Result<Self, String> {
+            match Self::from_unambiguous_user_input(input) {
+                Ok(model_ref) => Ok(model_ref),
+                Err(error) => {
+                    if let Some(model) = ModelId::from_provider_user_input(
+                        Provider::OpenAI.as_canonical_str(),
+                        input,
+                    ) {
+                        return Ok(Self::from_model(model));
+                    }
+                    Err(error)
+                }
+            }
+        }
     }
 
     impl TryFrom<WireModelRef> for ModelRef {
@@ -2974,6 +3002,21 @@ mod model_id {
         /// - "gpt-5.1" -> "gpt-5-1"
         /// - "openai:gpt-5" -> "gpt-5"
         pub fn normalize_model_id(input: &str) -> Option<String> {
+            Self::from_user_input(input).map(|model| model.as_serialized_str().to_string())
+        }
+
+        /// Normalize model-only user input without silently selecting one provider
+        /// when multiple providers expose the same public model identifier.
+        pub fn normalize_unambiguous_model_id(input: &str) -> Result<String, String> {
+            Self::from_unambiguous_user_input(input)
+                .map(|model| model.as_serialized_str().to_string())
+        }
+
+        /// Resolve a user- or wire-facing model string into a concrete catalog model.
+        ///
+        /// Accepts provider-qualified identifiers (`openai:gpt-5.5`), API names,
+        /// canonical IDs, aliases, and serialized enum names.
+        pub fn from_user_input(input: &str) -> Option<Self> {
             let normalized = input.trim();
             if normalized.is_empty() {
                 return None;
@@ -2981,7 +3024,57 @@ mod model_id {
 
             Self::from_api_name(normalized)
                 .or_else(|| Self::from_canonical_id(normalized))
-                .map(|model| model.as_serialized_str().to_string())
+                .or_else(|| {
+                    Self::from_serialized_str(
+                        &normalized.replace([' ', '.', '/'], "-").replace('_', "-"),
+                    )
+                })
+        }
+
+        /// Resolve model input, rejecting unqualified names that match multiple
+        /// providers. Provider-qualified values such as `codex:gpt-5.5` remain
+        /// accepted.
+        pub fn from_unambiguous_user_input(input: &str) -> Result<Self, String> {
+            let normalized = input.trim();
+            if normalized.is_empty() {
+                return Err("Unsupported model identifier: empty".to_string());
+            }
+            if normalized.contains(':') {
+                return Self::from_user_input(normalized)
+                    .ok_or_else(|| format!("Unsupported model identifier: {normalized}"));
+            }
+
+            let mut providers = Vec::new();
+            let Some(key) = catalog::normalize_lookup_key(normalized) else {
+                return Err(format!("Unsupported model identifier: {normalized}"));
+            };
+            for descriptor in catalog::all_descriptors() {
+                if catalog::descriptor_matches_lookup_key(descriptor, &key)
+                    && !providers.contains(&descriptor.provider)
+                {
+                    providers.push(descriptor.provider);
+                }
+            }
+            if providers.len() > 1 {
+                providers.sort_by_key(|provider| provider.as_canonical_str());
+                let matches = providers
+                    .iter()
+                    .map(|provider| provider.as_canonical_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(format!(
+                    "Ambiguous model identifier '{normalized}' matches multiple providers ({matches}); specify provider"
+                ));
+            }
+
+            Self::from_user_input(normalized)
+                .ok_or_else(|| format!("Unsupported model identifier: {normalized}"))
+        }
+
+        /// Resolve a model string for a specific provider.
+        pub fn from_provider_user_input(provider: &str, model: &str) -> Option<Self> {
+            let provider = Provider::from_canonical_str(provider.trim())?;
+            Self::for_provider_and_model(provider, model.trim())
         }
 
         /// Get the string representation used for API calls
@@ -3058,6 +3151,33 @@ mod model_id {
             catalog::all_descriptors()
                 .map(catalog::ModelDescriptor::metadata_dto)
                 .collect()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::ModelId;
+
+        #[test]
+        fn unambiguous_model_input_rejects_cross_provider_collision() {
+            let error = ModelId::normalize_unambiguous_model_id("gpt-5.5")
+                .expect_err("openai/codex collision should require provider");
+
+            assert!(error.contains("Ambiguous model identifier"));
+            assert!(error.contains("codex"));
+            assert!(error.contains("openai"));
+        }
+
+        #[test]
+        fn unambiguous_model_input_accepts_provider_qualified_collision() {
+            assert_eq!(
+                ModelId::normalize_unambiguous_model_id("codex:gpt-5.5").unwrap(),
+                "gpt-5.5"
+            );
+            assert_eq!(
+                ModelId::normalize_unambiguous_model_id("openai:gpt-5.5").unwrap(),
+                "gpt-5-5"
+            );
         }
     }
 }
@@ -3379,7 +3499,7 @@ mod provider {
             provider: ModelProvider::OpenAI,
             runtime_provider: LlmProvider::OpenAI,
             api_key_env: Some("OPENAI_API_KEY"),
-            default_model_id: ModelId::Gpt5_4,
+            default_model_id: ModelId::Gpt5_5,
             models_dev_provider_ids: &["openai"],
         },
         ProviderMeta {
@@ -3400,7 +3520,7 @@ mod provider {
             provider: ModelProvider::Codex,
             runtime_provider: LlmProvider::OpenAI,
             api_key_env: None,
-            default_model_id: ModelId::Gpt5_4Codex,
+            default_model_id: ModelId::Gpt5_5Codex,
             models_dev_provider_ids: &["codex", "openai-codex", "openai"],
         },
         ProviderMeta {
@@ -3759,13 +3879,10 @@ mod provider {
             .iter()
             .filter(|candidate| normalize_identifier(candidate).starts_with(&normalized))
             .collect::<Vec<_>>();
-        if prefix_matches.is_empty() {
-            return None;
+        if prefix_matches.len() == 1 {
+            return Some(prefix_matches[0].clone());
         }
-
-        let mut sorted_matches = prefix_matches.into_iter().cloned().collect::<Vec<_>>();
-        sorted_matches.sort();
-        sorted_matches.into_iter().next()
+        None
     }
 
     fn parse_plain_model_reference(value: &str) -> Option<ModelId> {
@@ -3809,6 +3926,26 @@ mod provider {
         }
 
         normalized.trim_matches('-').to_string()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::resolve_available_model_name;
+
+        #[test]
+        fn available_model_prefix_resolution_requires_unique_match() {
+            let available = vec!["gpt-5.5".to_string(), "gpt-5.5-pro".to_string()];
+
+            assert_eq!(
+                resolve_available_model_name("gpt-5.5", &available).as_deref(),
+                Some("gpt-5.5")
+            );
+            assert_eq!(
+                resolve_available_model_name("gpt-5.5-p", &available).as_deref(),
+                Some("gpt-5.5-pro")
+            );
+            assert_eq!(resolve_available_model_name("gpt", &available), None);
+        }
     }
 }
 
@@ -3982,9 +4119,11 @@ pub mod session {
     //! └──────────────────────────────────────────────────────────────┘
     //! ```
 
+    use crate::model::ModelRef;
     use crate::model_id::ModelId;
     use serde::{Deserialize, Serialize};
     use specta::Type;
+    use std::collections::HashSet;
 
     /// Role of a message sender in a chat session.
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq, Default)]
@@ -4215,6 +4354,12 @@ pub mod session {
         Failed,
     }
 
+    impl ChatTurnStatus {
+        pub fn is_terminal(self) -> bool {
+            matches!(self, Self::Completed | Self::Canceled | Self::Failed)
+        }
+    }
+
     /// User-visible event inside a chat turn.
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
     #[serde(tag = "type", rename_all = "snake_case")]
@@ -4245,10 +4390,14 @@ pub mod session {
 
     /// A single user-visible event in a chat turn.
     #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct ChatTurnEvent {
         /// Unique event identifier.
         #[serde(default = "new_message_id")]
         pub id: String,
+        /// Optional chat message ID represented by this turn event.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub message_id: Option<String>,
         /// Unix timestamp in milliseconds when the event was recorded.
         pub timestamp: i64,
         /// Event payload.
@@ -4260,6 +4409,7 @@ pub mod session {
         pub fn new(kind: ChatTurnEventKind) -> Self {
             Self {
                 id: new_message_id(),
+                message_id: None,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 kind,
             }
@@ -4451,22 +4601,13 @@ pub mod session {
 
     impl ChatSession {
         pub fn resolve_model_identity(model: &str) -> (String, String) {
-            if let Some(model_id) = ModelId::from_api_name(model)
-                .or_else(|| ModelId::from_canonical_id(model))
-                .or_else(|| ModelId::from_serialized_str(model))
-            {
+            if let Ok(model_ref) = ModelRef::from_legacy_providerless_user_input(model) {
                 return (
-                    model_id.provider().as_canonical_str().to_string(),
-                    model_id.as_serialized_str().to_string(),
+                    model_ref.provider.as_canonical_str().to_string(),
+                    model_ref.model.as_serialized_str().to_string(),
                 );
             }
-
-            let normalized =
-                ModelId::normalize_model_id(model).unwrap_or_else(|| model.trim().to_string());
-            let provider = ModelId::from_serialized_str(&normalized)
-                .map(|model_id| model_id.provider().as_canonical_str().to_string())
-                .unwrap_or_default();
-            (provider, normalized)
+            (String::new(), model.trim().to_string())
         }
 
         /// Create a new chat session with the given agent and model.
@@ -4544,9 +4685,41 @@ pub mod session {
                 let excess = self.messages.len() - Self::MAX_STORED_MESSAGES;
                 self.messages.drain(..excess);
                 self.metadata.message_count = self.messages.len() as u32;
+                self.prune_turn_history_to_retained_messages();
             }
 
             self.updated_at = chrono::Utc::now().timestamp_millis();
+        }
+
+        fn prune_turn_history_to_retained_messages(&mut self) {
+            let retained_message_ids = self
+                .messages
+                .iter()
+                .map(|message| message.id.clone())
+                .collect::<HashSet<_>>();
+            if self
+                .summary_message_id
+                .as_ref()
+                .is_some_and(|summary_id| !retained_message_ids.contains(summary_id))
+            {
+                self.summary_message_id = None;
+            }
+            let oldest_retained_timestamp = self
+                .messages
+                .iter()
+                .map(|message| message.timestamp)
+                .min()
+                .unwrap_or_default();
+            for turn in &mut self.turns {
+                turn.events.retain(|event| {
+                    event
+                        .message_id
+                        .as_ref()
+                        .is_some_and(|message_id| retained_message_ids.contains(message_id))
+                        || event.timestamp > oldest_retained_timestamp
+                });
+            }
+            self.turns.retain(|turn| !turn.events.is_empty());
         }
 
         fn ensure_turn_index(&mut self, turn_id: &str) -> usize {
@@ -4570,21 +4743,60 @@ pub mod session {
         pub fn record_turn_user_message(&mut self, turn_id: &str, content: impl Into<String>) {
             let content = content.into();
             let index = self.ensure_turn_index(turn_id);
+            let message_id = self
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role == ChatRole::User && message.content == content)
+                .map(|message| message.id.clone());
             let turn = &mut self.turns[index];
+            if turn.status.is_terminal() {
+                return;
+            }
             turn.status = ChatTurnStatus::Running;
             turn.completed_at = None;
-            let already_recorded = turn.events.iter().any(|event| {
+            if let Some(event) = turn.events.iter_mut().find(|event| {
                 matches!(
                     &event.kind,
                     ChatTurnEventKind::UserMessage { content: existing } if existing == &content
                 )
-            });
-            if !already_recorded {
-                turn.events
-                    .push(ChatTurnEvent::new(ChatTurnEventKind::UserMessage {
-                        content,
-                    }));
+            }) {
+                if event.message_id.is_none() {
+                    event.message_id = message_id;
+                }
+            } else {
+                let mut event = ChatTurnEvent::new(ChatTurnEventKind::UserMessage { content });
+                event.message_id = message_id;
+                turn.events.push(event);
             }
+            let now = chrono::Utc::now().timestamp_millis();
+            turn.updated_at = now;
+            self.updated_at = now;
+        }
+
+        /// Append a distinct user update event to a turn.
+        ///
+        /// Unlike `record_turn_user_message`, this never deduplicates by content.
+        /// Use it for steering updates where repeated text is still a distinct
+        /// user action that must be visible in the session log.
+        pub fn append_turn_user_message(&mut self, turn_id: &str, content: impl Into<String>) {
+            let content = content.into();
+            let index = self.ensure_turn_index(turn_id);
+            let message_id = self
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role == ChatRole::User && message.content == content)
+                .map(|message| message.id.clone());
+            let turn = &mut self.turns[index];
+            if turn.status.is_terminal() {
+                return;
+            }
+            turn.status = ChatTurnStatus::Running;
+            turn.completed_at = None;
+            let mut event = ChatTurnEvent::new(ChatTurnEventKind::UserMessage { content });
+            event.message_id = message_id;
+            turn.events.push(event);
             let now = chrono::Utc::now().timestamp_millis();
             turn.updated_at = now;
             self.updated_at = now;
@@ -4594,6 +4806,9 @@ pub mod session {
         pub fn record_turn_event(&mut self, turn_id: &str, kind: ChatTurnEventKind) {
             let index = self.ensure_turn_index(turn_id);
             let turn = &mut self.turns[index];
+            if turn.status.is_terminal() {
+                return;
+            }
             turn.events.push(ChatTurnEvent::new(kind));
             let now = chrono::Utc::now().timestamp_millis();
             turn.updated_at = now;
@@ -4608,18 +4823,48 @@ pub mod session {
         ) {
             let content = content.into();
             let index = self.ensure_turn_index(turn_id);
+            let message_id = self
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role == ChatRole::Assistant && message.content == content)
+                .map(|message| message.id.clone());
             let turn = &mut self.turns[index];
-            let already_recorded = turn.events.iter().any(|event| {
-            matches!(
-                &event.kind,
-                ChatTurnEventKind::AssistantMessage { content: existing } if existing == &content
-            )
-        });
-            if !content.trim().is_empty() && !already_recorded {
-                turn.events
-                    .push(ChatTurnEvent::new(ChatTurnEventKind::AssistantMessage {
-                        content,
-                    }));
+            if turn.status.is_terminal() {
+                return;
+            }
+            if !content.trim().is_empty()
+                && let Some(event) = turn.events.iter_mut().find(|event| {
+                    matches!(
+                        &event.kind,
+                        ChatTurnEventKind::AssistantMessage { content: existing } if existing == &content
+                    )
+                })
+            {
+                if event.message_id.is_none() {
+                    event.message_id = message_id;
+                }
+            } else if !content.trim().is_empty() {
+                let mut event = ChatTurnEvent::new(ChatTurnEventKind::AssistantMessage { content });
+                event.message_id = message_id;
+                turn.events.push(event);
+            }
+            let now = chrono::Utc::now().timestamp_millis();
+            turn.status = ChatTurnStatus::Completed;
+            turn.updated_at = now;
+            turn.completed_at = Some(now);
+            self.updated_at = now;
+        }
+
+        /// Mark a turn as completed without appending another assistant event.
+        ///
+        /// Use this when assistant deltas were already persisted as ordered
+        /// turn events during streaming.
+        pub fn complete_turn(&mut self, turn_id: &str) {
+            let index = self.ensure_turn_index(turn_id);
+            let turn = &mut self.turns[index];
+            if turn.status.is_terminal() {
+                return;
             }
             let now = chrono::Utc::now().timestamp_millis();
             turn.status = ChatTurnStatus::Completed;
@@ -4633,6 +4878,9 @@ pub mod session {
             let message = message.into();
             let index = self.ensure_turn_index(turn_id);
             let turn = &mut self.turns[index];
+            if turn.status.is_terminal() {
+                return;
+            }
             if !message.trim().is_empty() {
                 turn.events
                     .push(ChatTurnEvent::new(ChatTurnEventKind::Error { message }));
@@ -4648,6 +4896,9 @@ pub mod session {
         pub fn cancel_turn(&mut self, turn_id: &str) {
             let index = self.ensure_turn_index(turn_id);
             let turn = &mut self.turns[index];
+            if turn.status.is_terminal() {
+                return;
+            }
             let already_recorded = turn
                 .events
                 .iter()
@@ -4805,6 +5056,118 @@ pub mod session {
             assert_eq!(session.turns[0].status, ChatTurnStatus::Completed);
             assert_eq!(session.turns[0].events.len(), 4);
             assert!(session.turns[0].completed_at.is_some());
+        }
+
+        #[test]
+        fn canceled_turn_status_is_not_overwritten_by_late_completion() {
+            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+            session.record_turn_user_message("turn-1", "hello");
+            session.cancel_turn("turn-1");
+            session.complete_turn_with_assistant_message("turn-1", "late answer");
+
+            assert_eq!(session.turns[0].status, ChatTurnStatus::Canceled);
+            assert!(
+                session.turns[0]
+                    .events
+                    .iter()
+                    .any(|event| matches!(event.kind, ChatTurnEventKind::Canceled))
+            );
+            assert!(!session.turns[0].events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ChatTurnEventKind::AssistantMessage { content }
+                        if content == "late answer"
+                )
+            }));
+        }
+
+        #[test]
+        fn completed_turn_status_is_not_mutated_by_late_completion() {
+            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+            session.record_turn_user_message("turn-1", "hello");
+            session.complete_turn_with_assistant_message("turn-1", "done");
+            let completed_at = session.turns[0].completed_at;
+            session.complete_turn_with_assistant_message("turn-1", "late answer");
+
+            assert_eq!(session.turns[0].status, ChatTurnStatus::Completed);
+            assert_eq!(session.turns[0].completed_at, completed_at);
+            assert!(!session.turns[0].events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ChatTurnEventKind::AssistantMessage { content }
+                        if content == "late answer"
+                )
+            }));
+        }
+
+        #[test]
+        fn complete_turn_marks_status_without_adding_assistant_event() {
+            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+            session.record_turn_user_message("turn-1", "hello");
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "streamed".to_string(),
+                },
+            );
+            session.complete_turn("turn-1");
+
+            assert_eq!(session.turns[0].status, ChatTurnStatus::Completed);
+            assert_eq!(session.turns[0].events.len(), 2);
+            assert!(matches!(
+                &session.turns[0].events[1].kind,
+                ChatTurnEventKind::AssistantMessage { content } if content == "streamed"
+            ));
+        }
+
+        #[test]
+        fn turn_events_backfill_message_ids_when_legacy_messages_arrive_later() {
+            let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+
+            session.record_turn_user_message("turn-1", "hello");
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "done".to_string(),
+                },
+            );
+            assert!(
+                session.turns[0]
+                    .events
+                    .iter()
+                    .all(|event| event.message_id.is_none())
+            );
+
+            let user = ChatMessage::user("hello");
+            let user_id = user.id.clone();
+            let assistant = ChatMessage::assistant("done");
+            let assistant_id = assistant.id.clone();
+            session.add_message(user);
+            session.add_message(assistant);
+
+            session.record_turn_user_message("turn-1", "hello");
+            session.complete_turn_with_assistant_message("turn-1", "done");
+
+            let user_event = session.turns[0]
+                .events
+                .iter()
+                .find(|event| matches!(event.kind, ChatTurnEventKind::UserMessage { .. }))
+                .expect("user event");
+            let assistant_event = session.turns[0]
+                .events
+                .iter()
+                .find(|event| matches!(event.kind, ChatTurnEventKind::AssistantMessage { .. }))
+                .expect("assistant event");
+
+            assert_eq!(user_event.message_id.as_deref(), Some(user_id.as_str()));
+            assert_eq!(
+                assistant_event.message_id.as_deref(),
+                Some(assistant_id.as_str())
+            );
+            assert_eq!(session.turns[0].events.len(), 2);
         }
 
         #[test]
@@ -5045,15 +5408,23 @@ pub mod session {
 
         #[test]
         fn test_chat_session_resolves_provider_from_raw_model() {
-            let (provider, model) = ChatSession::resolve_model_identity("MiniMax-M2.5");
+            let (provider, model) = ChatSession::resolve_model_identity("minimax:MiniMax-M2.5");
 
             assert_eq!(provider, "minimax");
             assert_eq!(model, "minimax-m2-5");
         }
 
         #[test]
+        fn test_chat_session_preserves_legacy_providerless_api_model() {
+            let (provider, model) = ChatSession::resolve_model_identity("gpt-5.5");
+
+            assert_eq!(provider, "openai");
+            assert_eq!(model, "gpt-5-5");
+        }
+
+        #[test]
         fn test_chat_session_new_sets_model_identity() {
-            let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+            let session = ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
 
             assert_eq!(session.provider, "openai");
             assert_eq!(session.model, "gpt-5");
@@ -5102,6 +5473,71 @@ pub mod session {
                 session.metadata.message_count,
                 session.messages.len() as u32
             );
+        }
+
+        #[test]
+        fn message_cap_prunes_stale_turn_events_and_summary_pointer() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.record_turn_user_message("old-turn", "old");
+            session.complete_turn_with_assistant_message("old-turn", "old done");
+            for event in &mut session.turns[0].events {
+                event.timestamp = 1;
+            }
+
+            let summary = ChatMessage::assistant("summary");
+            let summary_id = summary.id.clone();
+            session.add_message(summary);
+            session.summary_message_id = Some(summary_id);
+
+            for i in 0..ChatSession::MAX_STORED_MESSAGES {
+                let mut message = ChatMessage::user(format!("msg {i}"));
+                message.timestamp = 10 + i as i64;
+                session.add_message(message);
+            }
+
+            assert_eq!(session.messages.len(), ChatSession::MAX_STORED_MESSAGES);
+            assert!(session.summary_message_id.is_none());
+            assert!(session.turns.iter().all(|turn| turn.id != "old-turn"));
+        }
+
+        #[test]
+        fn message_cap_prunes_unmatched_turn_events_at_retention_timestamp_boundary() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            let mut retained_message_id = String::new();
+            for i in 0..ChatSession::MAX_STORED_MESSAGES {
+                let mut message = ChatMessage::user(format!("msg {i}"));
+                message.timestamp = 10 + i as i64;
+                if i == 1 {
+                    retained_message_id = message.id.clone();
+                }
+                session.add_message(message);
+            }
+
+            session.record_turn_event(
+                "stale-turn",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "stale".to_string(),
+                },
+            );
+            session.turns[0].events[0].timestamp = 11;
+            session.record_turn_event(
+                "retained-turn",
+                ChatTurnEventKind::UserMessage {
+                    content: "msg 1".to_string(),
+                },
+            );
+            let retained_turn = session
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == "retained-turn")
+                .expect("retained turn");
+            retained_turn.events[0].timestamp = 11;
+            retained_turn.events[0].message_id = Some(retained_message_id);
+            session.add_message(ChatMessage::assistant("push over cap"));
+
+            assert_eq!(session.messages.len(), ChatSession::MAX_STORED_MESSAGES);
+            assert!(session.turns.iter().all(|turn| turn.id != "stale-turn"));
+            assert!(session.turns.iter().any(|turn| turn.id == "retained-turn"));
         }
     }
 }
@@ -7390,7 +7826,6 @@ pub mod toolset {
 pub mod contracts {
     pub mod request {
         use serde::{Deserialize, Serialize};
-        use serde_json::Value;
         use std::collections::HashMap;
 
         use super::ExecutionScope;
@@ -7398,6 +7833,7 @@ pub mod contracts {
 
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
         #[serde(tag = "type", content = "data")]
+        #[non_exhaustive]
         pub enum IpcRequest {
             Ping,
             GetStatus,
@@ -7471,6 +7907,13 @@ pub mod contracts {
                 name: Option<String>,
                 skill_id: Option<String>,
             },
+            CreateSessionWithProvider {
+                agent_id: Option<String>,
+                provider: Option<String>,
+                model: Option<String>,
+                name: Option<String>,
+                skill_id: Option<String>,
+            },
             UpdateSession {
                 id: String,
                 updates: ChatSessionUpdate,
@@ -7499,19 +7942,6 @@ pub mod contracts {
                 session_id: String,
                 message: ChatMessage,
             },
-            ExecuteChatSession {
-                session_id: String,
-                user_input: Option<String>,
-                workspace_root: Option<String>,
-            },
-            ExecuteChatSessionStream {
-                session_id: String,
-                user_input: Option<String>,
-                stream_id: String,
-                workspace_root: Option<String>,
-                #[serde(default, skip_serializing_if = "Option::is_none")]
-                scope: Option<ExecutionScope>,
-            },
             SteerChatSessionStream {
                 session_id: String,
                 instruction: String,
@@ -7520,6 +7950,13 @@ pub mod contracts {
             },
             CancelChatSessionStream {
                 stream_id: String,
+            },
+            CancelChatSessionStreamScoped {
+                stream_id: String,
+                #[serde(default, skip_serializing_if = "Option::is_none")]
+                session_id: Option<String>,
+                #[serde(default, skip_serializing_if = "Option::is_none")]
+                scope: Option<ExecutionScope>,
             },
             GetSessionMessages {
                 session_id: String,
@@ -7541,10 +7978,6 @@ pub mod contracts {
             GetAvailableModels,
             GetAvailableTools,
             GetAvailableToolDefinitions,
-            ExecuteTool {
-                name: String,
-                input: Value,
-            },
             ListMcpServers,
 
             BuildAgentSystemPrompt {
@@ -7795,6 +8228,10 @@ pub mod contracts {
             pub name: String,
             pub description: Option<String>,
             pub tags: Option<Vec<String>>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub kind: Option<String>,
+            #[serde(default)]
+            pub executable: bool,
             pub content: String,
             #[serde(skip_serializing_if = "Option::is_none")]
             pub folder_path: Option<String>,
@@ -8185,6 +8622,9 @@ pub mod contracts {
         Ack {
             content: String,
         },
+        Progress {
+            content: String,
+        },
         Data {
             content: String,
         },
@@ -8387,19 +8827,6 @@ pub mod contracts {
         pub parameters: Value,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    pub struct ToolExecutionResult {
-        pub success: bool,
-        pub result: Value,
-        pub error: Option<String>,
-        #[serde(default)]
-        pub error_category: Option<ToolErrorCategory>,
-        #[serde(default)]
-        pub retryable: Option<bool>,
-        #[serde(default)]
-        pub retry_after_ms: Option<u64>,
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -8516,6 +8943,9 @@ pub mod contracts {
                 StreamEnvelope::<TestEvent>::Ack {
                     content: "ack".to_string(),
                 },
+                StreamEnvelope::<TestEvent>::Progress {
+                    content: "progress".to_string(),
+                },
                 StreamEnvelope::<TestEvent>::Data {
                     content: "data".to_string(),
                 },
@@ -8588,7 +9018,7 @@ pub mod contracts {
         }
 
         #[test]
-        fn tool_contracts_round_trip() {
+        fn tool_definition_contract_round_trips() {
             assert_roundtrip(&ToolDefinition {
                 name: "search".to_string(),
                 description: "Search documents".to_string(),
@@ -8598,15 +9028,6 @@ pub mod contracts {
                         "query": { "type": "string" }
                     }
                 }),
-            });
-
-            assert_roundtrip(&ToolExecutionResult {
-                success: false,
-                result: serde_json::json!({ "partial": "output" }),
-                error: Some("Timed out".to_string()),
-                error_category: Some(ToolErrorCategory::RateLimit),
-                retryable: Some(true),
-                retry_after_ms: Some(1_000),
             });
         }
     }
@@ -8774,13 +9195,16 @@ impl ModelSpec {
 pub use steer::{SteerCommand, SteerMessage, SteerSource};
 
 // Shared transport and IPC contracts
+// These are workspace-internal daemon contracts. The crates that expose them
+// are `publish = false`; the installed public surface remains the `restflow`
+// CLI, not these Rust transport types.
 pub use contracts::request;
 pub use contracts::{
     ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse, ChatSessionEvent,
     CleanupReportResponse, ClearResponse, DaemonRuntimeStatus, DeleteResponse,
     DeleteWithIdResponse, ErrorKind, ErrorPayload, ExecutionScope, IdResponse, IpcDaemonStatus,
     IpcRequest, IpcStreamEvent, OkResponse, PromptResponse, ResponseEnvelope, SecretResponse,
-    SteerResponse, StreamEnvelope, StreamFrame, ToolDefinition, ToolExecutionResult,
+    SteerResponse, StreamEnvelope, StreamFrame, ToolDefinition,
 };
 
 // Shared default constants

@@ -1,6 +1,6 @@
 {
   "name": "restflow-cli",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "RestFlow CLI - AI assistant that can execute workflows",
   "keywords": [
     "ai",
@@ -14,7 +14,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lhwzds/restflow.git"
+    "url": "git+https://github.com/lhwzds/restflow.git"
   },
   "homepage": "https://github.com/lhwzds/restflow",
   "bugs": {
@@ -26,6 +26,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/install.js",
+    "prepublishOnly": "node scripts/verify-checksums.js",
     "test": "node scripts/install.test.js"
   },
   "engines": {
@@ -42,6 +43,7 @@
   ],
   "files": [
     "bin",
+    "checksums.json",
     "scripts"
   ]
 }

@@ -4,6 +4,7 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 description = "Rust-powered AI Agent framework with ReAct loop"
+publish = false
 
 [dependencies]
 async-trait.workspace = true

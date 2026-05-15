@@ -2,6 +2,7 @@
 name = "restflow-core"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [lib]
 name = "restflow_core"
@@ -21,6 +22,7 @@ anyhow = "1.0.101"
 base64 = "0.22"
 chrono = "0.4.44"
 dirs = "6.0.0"
+fs2 = { workspace = true }
 hex = "0.4.3"
 rand = "0.10"
 redb = "3.1.0"
@@ -39,3 +41,6 @@ walkdir = "2"
 
 [dev-dependencies]
 filetime = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

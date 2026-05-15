@@ -1,26 +1,27 @@
 //! RestFlow daemon, IPC, launcher, and foreground stream services.
 
-pub use restflow_core::{
-    AppCore, DEFAULT_ASSISTANT_NAME, Secret, StoredAgent, paths, services, storage,
-};
+use restflow_core::{AppCore, Secret, StoredAgent};
+#[doc(hidden)]
 pub mod runtime {
     pub use runner::{
         AgentOrchestratorImpl, AgentRuntimeExecutor, InteractiveSessionRequest, SessionInputMode,
-        StorageBackedSubagentLookup, build_agent_system_prompt, build_turn_persistence_payload,
+        StorageBackedSubagentLookup, StreamDisplayMode, StreamEmitter, build_agent_system_prompt,
+        build_turn_persistence_payload,
     };
 }
 
+#[doc(hidden)]
 pub mod daemon {
     mod core_access {
         use super::ipc_client::IpcClient;
         use super::ipc_protocol::IpcRequest;
         use super::launcher::ensure_daemon_running;
         use super::request_mapper::to_contract;
-        use crate::paths;
-        use crate::services::skills as skills_service;
-        use crate::storage::SystemConfig;
         use crate::{AppCore, Secret};
         use anyhow::Result;
+        use restflow_core::paths;
+        use restflow_core::services::skills as skills_service;
+        use restflow_core::storage::SystemConfig;
         use std::sync::Arc;
         use types::OkResponse;
         use types::{AgentNode, Skill};
@@ -285,8 +286,8 @@ pub mod daemon {
     }
     mod ipc_client {
         use super::ipc_protocol::{
-            IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent, MAX_MESSAGE_SIZE,
-            StreamFrame, ToolDefinition, ToolExecutionResult,
+            IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
+            MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
         };
         use crate::StoredAgent;
         use crate::daemon::request_mapper::to_contract;
@@ -369,6 +370,12 @@ pub mod daemon {
 
             pub async fn ping(&mut self) -> bool {
                 matches!(self.request(IpcRequest::Ping).await, Ok(IpcResponse::Pong))
+            }
+
+            pub async fn protocol_compatible(&mut self) -> bool {
+                self.get_status()
+                    .await
+                    .is_ok_and(|status| status.protocol_version == IPC_PROTOCOL_VERSION)
             }
 
             pub async fn get_status(&mut self) -> Result<IpcDaemonStatus> {
@@ -494,6 +501,27 @@ pub mod daemon {
                 .await
             }
 
+            pub async fn create_session_with_provider(
+                &mut self,
+                agent_id: Option<String>,
+                provider: Option<String>,
+                model: Option<String>,
+                name: Option<String>,
+                skill_id: Option<String>,
+            ) -> Result<ChatSession> {
+                let Some(provider) = provider else {
+                    return self.create_session(agent_id, model, name, skill_id).await;
+                };
+                self.request_typed(IpcRequest::CreateSessionWithProvider {
+                    agent_id,
+                    provider: Some(provider),
+                    model,
+                    name,
+                    skill_id,
+                })
+                .await
+            }
+
             pub async fn update_session(
                 &mut self,
                 id: String,
@@ -567,63 +595,28 @@ pub mod daemon {
                 .await
             }
 
-            pub async fn execute_chat_session(
-                &mut self,
-                session_id: String,
-                user_input: Option<String>,
-                workspace_root: Option<String>,
-            ) -> Result<ChatSession> {
-                self.request_typed(IpcRequest::ExecuteChatSession {
-                    session_id,
-                    user_input,
-                    workspace_root,
-                })
-                .await
-            }
-
-            pub async fn execute_chat_session_stream<F>(
-                &mut self,
-                session_id: String,
-                user_input: Option<String>,
-                stream_id: String,
-                workspace_root: Option<String>,
-                scope: Option<ExecutionScope>,
-                mut on_frame: F,
-            ) -> Result<()>
-            where
-                F: FnMut(StreamFrame) -> Result<()>,
-            {
-                self.send_request_frame(&IpcRequest::ExecuteChatSessionStream {
-                    session_id,
-                    user_input,
-                    stream_id,
-                    workspace_root,
-                    scope,
-                })
-                .await?;
-
-                loop {
-                    let buf = self.read_raw_frame().await?;
-                    let frame = read_stream_frame_or_ipc_error(
-                        &buf,
-                        "Failed to deserialize streaming IPC frame",
-                        "Unexpected success response while reading stream",
-                        "Unexpected Pong response while reading stream",
-                    )?;
-                    let terminal =
-                        matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
-                    on_frame(frame)?;
-                    if terminal {
-                        break;
-                    }
-                }
-
-                Ok(())
-            }
-
             pub async fn cancel_chat_session_stream(&mut self, stream_id: String) -> Result<bool> {
                 let resp: CancelResponse = self
                     .request_typed(IpcRequest::CancelChatSessionStream { stream_id })
+                    .await?;
+                Ok(resp.canceled)
+            }
+
+            pub async fn cancel_chat_session_stream_scoped(
+                &mut self,
+                stream_id: String,
+                session_id: Option<String>,
+                scope: Option<ExecutionScope>,
+            ) -> Result<bool> {
+                if session_id.is_none() && scope.is_none() {
+                    return self.cancel_chat_session_stream(stream_id).await;
+                }
+                let resp: CancelResponse = self
+                    .request_typed(IpcRequest::CancelChatSessionStreamScoped {
+                        stream_id,
+                        session_id,
+                        scope,
+                    })
                     .await?;
                 Ok(resp.canceled)
             }
@@ -706,15 +699,6 @@ pub mod daemon {
                 self.request_typed(IpcRequest::GetAvailableToolDefinitions)
                     .await
             }
-
-            pub async fn execute_tool(
-                &mut self,
-                name: String,
-                input: serde_json::Value,
-            ) -> Result<ToolExecutionResult> {
-                self.request_typed(IpcRequest::ExecuteTool { name, input })
-                    .await
-            }
         }
 
         #[cfg(unix)]
@@ -723,7 +707,7 @@ pub mod daemon {
                 return false;
             }
             match IpcClient::connect(socket_path).await {
-                Ok(mut client) => client.ping().await,
+                Ok(mut client) => client.protocol_compatible().await,
                 Err(_) => false,
             }
         }
@@ -793,6 +777,7 @@ pub mod daemon {
                 fn delete_sessions_older_than(&mut self, _older_than_ms: i64) -> usize;
                 fn get_session(&mut self, _id: String) -> ChatSession;
                 fn create_session(&mut self, _agent_id: Option<String>, _model: Option<String>, _name: Option<String>, _skill_id: Option<String>) -> ChatSession;
+                fn create_session_with_provider(&mut self, _agent_id: Option<String>, _provider: Option<String>, _model: Option<String>, _name: Option<String>, _skill_id: Option<String>) -> ChatSession;
                 fn update_session(&mut self, _id: String, _updates: ChatSessionUpdate) -> ChatSession;
                 fn rename_session(&mut self, _id: String, _name: String) -> ChatSession;
                 fn archive_session(&mut self, _id: String) -> bool;
@@ -800,35 +785,14 @@ pub mod daemon {
                 fn search_sessions(&mut self, _query: String, _agent_id: Option<String>, _limit: Option<usize>) -> Vec<ChatSessionSummary>;
                 fn add_message(&mut self, _session_id: String, _role: ChatRole, _content: String) -> ChatSession;
                 fn append_message(&mut self, _session_id: String, _message: ChatMessage) -> ChatSession;
-                fn execute_chat_session(
-                    &mut self,
-                    _session_id: String,
-                    _user_input: Option<String>,
-                    _workspace_root: Option<String>,
-                ) -> ChatSession;
                 fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
+                fn cancel_chat_session_stream_scoped(&mut self, _stream_id: String, _session_id: Option<String>, _scope: Option<types::ExecutionScope>) -> bool;
                 fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String, _scope: Option<types::ExecutionScope>) -> bool;
                 fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
                 fn list_runs(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
                 fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> String;
                 fn init_python(&mut self) -> bool;
                 fn get_available_tool_definitions(&mut self) -> Vec<ToolDefinition>;
-                fn execute_tool(&mut self, _name: String, _input: serde_json::Value) -> ToolExecutionResult;
-            }
-
-            pub async fn execute_chat_session_stream<F>(
-                &mut self,
-                _session_id: String,
-                _user_input: Option<String>,
-                _stream_id: String,
-                _workspace_root: Option<String>,
-                _scope: Option<types::ExecutionScope>,
-                _on_frame: F,
-            ) -> Result<()>
-            where
-                F: FnMut(StreamFrame) -> Result<()>,
-            {
-                Self::unsupported()
             }
 
             pub async fn subscribe_session_events<F>(&mut self, _on_event: F) -> Result<()>
@@ -959,14 +923,11 @@ pub mod daemon {
     mod ipc_protocol {
         use serde_json::Value;
         use types::ResponseEnvelope;
-        pub use types::{
-            IpcDaemonStatus, IpcRequest, IpcStreamEvent, StreamFrame, ToolDefinition,
-            ToolExecutionResult,
-        };
+        pub use types::{IpcDaemonStatus, IpcRequest, IpcStreamEvent, StreamFrame, ToolDefinition};
 
         /// Message frame: [4 bytes length LE][JSON payload]
         pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
-        pub const IPC_PROTOCOL_VERSION: &str = "2";
+        pub const IPC_PROTOCOL_VERSION: &str = "4";
 
         pub type IpcResponse = ResponseEnvelope<Value>;
 
@@ -1014,8 +975,8 @@ pub mod daemon {
             }
 
             #[test]
-            fn test_protocol_version_is_v2() {
-                assert_eq!(IPC_PROTOCOL_VERSION, "2");
+            fn test_protocol_version_is_v3() {
+                assert_eq!(IPC_PROTOCOL_VERSION, "4");
             }
 
             #[test]
@@ -1059,21 +1020,27 @@ pub mod daemon {
         use crate::AppCore;
         use crate::runtime::{
             AgentOrchestratorImpl, AgentRuntimeExecutor, InteractiveSessionRequest,
-            SessionInputMode, StorageBackedSubagentLookup, build_turn_persistence_payload,
+            SessionInputMode, StreamDisplayMode, StreamEmitter, build_turn_persistence_payload,
         };
-        use crate::services::{
-            session::{PersistInteractiveTurnRequest, SessionService},
-            skills as skills_service,
-        };
-        use ::agent::agent::StreamEmitter;
-        use ::agent::agent::{SubagentConfig, SubagentTracker};
         use anyhow::Result;
         use async_trait::async_trait;
         use chrono::Utc;
+        use fs2::FileExt;
         use restflow_core::AgentDefaults;
+        use restflow_core::services::{
+            session::{
+                PersistInteractiveTurnRequest, RuntimeIdentityGuard, SessionService,
+                WorkspaceSessionCreateRequest,
+            },
+            skills as skills_service,
+        };
         use restflow_core::session_events::subscribe_session_events;
-        use std::collections::{HashMap, VecDeque};
+        use std::collections::hash_map::DefaultHasher;
+        use std::collections::{HashMap, HashSet, VecDeque};
+        use std::fs::{File, OpenOptions};
         use std::future::Future;
+        use std::hash::{Hash, Hasher};
+        use std::io::{ErrorKind, Write};
         use std::path::PathBuf;
         use std::pin::Pin;
         use std::sync::Arc;
@@ -1081,15 +1048,22 @@ pub mod daemon {
         use std::sync::atomic::{AtomicBool, Ordering};
         use tokio::sync::{Mutex, broadcast, mpsc};
         use tokio::task::JoinHandle;
+        use tokio::time::{Duration, Instant, interval};
         use tracing::{debug, error, info, warn};
-        use types::DEFAULT_CHAT_MAX_SESSION_HISTORY;
         use types::ExecutionScope;
         use types::store::ReplySender;
         use types::{
             AgentNode, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-            ChatTurnEventKind, MessageExecution, ModelId, SteerMessage, SteerSource,
+            ChatTurnEventKind, MessageExecution, SteerMessage, SteerSource,
         };
+        use types::{ChatSessionEvent, DEFAULT_CHAT_MAX_SESSION_HISTORY};
         use uuid::Uuid;
+
+        #[derive(Debug, Clone)]
+        struct SessionAgentIdRepair {
+            expected_existing_agent_id: String,
+            repaired_agent_id: String,
+        }
 
         #[path = "ipc_server/dispatch.rs"]
         mod dispatch {
@@ -1101,67 +1075,12 @@ pub mod daemon {
             use crate::daemon::request_mapper::{
                 from_contract, invalid_request_response, invalid_validation_response,
             };
-            use crate::daemon::tool_result_mapper::to_tool_execution_result;
-            use restflow_core::provider_policy::provider_display_order;
+            use restflow_core::provider_policy::available_model_catalog;
             use types::request::WireModelRef;
             use types::{
-                ArchiveResponse, CancelResponse, CleanupReportResponse, DeleteResponse,
-                ModelMetadataDTO, OkResponse, PromptResponse, Provider, SecretResponse,
-                SteerResponse,
+                ArchiveResponse, CancelResponse, CleanupReportResponse, DeleteResponse, OkResponse,
+                PromptResponse, SecretResponse, SteerResponse,
             };
-
-            fn is_catalog_model(model: ModelId) -> bool {
-                !model.is_opencode_cli() && !model.is_gemini_cli() && !is_legacy_openai_model(model)
-            }
-
-            fn is_legacy_openai_model(model: ModelId) -> bool {
-                matches!(
-                    model,
-                    ModelId::Gpt5
-                        | ModelId::Gpt5Mini
-                        | ModelId::Gpt5Nano
-                        | ModelId::Gpt5Pro
-                        | ModelId::Gpt5_1
-                        | ModelId::Gpt5_2
-                )
-            }
-
-            fn available_providers(core: &Arc<AppCore>) -> Vec<Provider> {
-                let mut providers = Vec::new();
-                for provider in Provider::all().iter().copied() {
-                    let available = provider.api_key_env().is_none()
-                        || provider.api_key_env_candidates().any(|key| {
-                            core.storage
-                                .secrets
-                                .has_available_secret(key)
-                                .unwrap_or(false)
-                        });
-
-                    if available {
-                        providers.push(provider);
-                    }
-                }
-
-                providers.sort_by_key(|provider| provider_display_order(*provider));
-                providers
-            }
-
-            fn available_model_catalog(core: &Arc<AppCore>) -> Vec<ModelMetadataDTO> {
-                let providers = available_providers(core);
-                let mut models = ModelId::all_with_metadata()
-                    .into_iter()
-                    .filter(|metadata| is_catalog_model(metadata.model))
-                    .filter(|metadata| providers.contains(&metadata.provider))
-                    .collect::<Vec<_>>();
-
-                models.sort_by(|left, right| {
-                    provider_display_order(left.provider)
-                        .cmp(&provider_display_order(right.provider))
-                        .then_with(|| left.name.cmp(&right.name))
-                });
-
-                models
-            }
 
             fn message_for_role(role: ChatRole, content: String) -> ChatMessage {
                 let mut message = match role {
@@ -1185,17 +1104,20 @@ pub mod daemon {
 
             fn validate_and_update_config(
                 core: &Arc<AppCore>,
-                config: crate::storage::SystemConfig,
+                config: restflow_core::storage::SystemConfig,
             ) -> anyhow::Result<()> {
                 config.validate()?;
                 core.storage.config.update_config(config)
             }
 
             fn append_message_to_session(
-                storage: &crate::storage::Storage,
+                storage: &restflow_core::storage::Storage,
                 session: &mut ChatSession,
                 mut message: ChatMessage,
             ) -> IpcResponse {
+                if message.id.trim().is_empty() {
+                    message.id = Uuid::new_v4().to_string();
+                }
                 if message.role == ChatRole::Assistant && message.execution.is_none() {
                     message.execution = Some(MessageExecution {
                         steps: Vec::new(),
@@ -1307,7 +1229,7 @@ pub mod daemon {
                 }
 
                 pub(super) async fn handle_run_cleanup(core: &Arc<AppCore>) -> IpcResponse {
-                    match crate::services::cleanup::run_cleanup(core).await {
+                    match restflow_core::services::cleanup::run_cleanup(core).await {
                         Ok(report) => IpcResponse::success(CleanupReportResponse {
                             chat_sessions: report.chat_sessions,
                             daemon_log_files: report.daemon_log_files,
@@ -1374,7 +1296,7 @@ pub mod daemon {
 
                 pub(super) async fn handle_set_config(
                     core: &Arc<AppCore>,
-                    config: crate::storage::SystemConfig,
+                    config: restflow_core::storage::SystemConfig,
                 ) -> IpcResponse {
                     match validate_and_update_config(core, config) {
                         Ok(()) => IpcResponse::success(OkResponse { ok: true }),
@@ -1475,6 +1397,7 @@ pub mod daemon {
                 pub(super) async fn handle_create_session(
                     core: &Arc<AppCore>,
                     agent_id: Option<String>,
+                    provider: Option<String>,
                     model: Option<String>,
                     name: Option<String>,
                     skill_id: Option<String>,
@@ -1484,26 +1407,16 @@ pub mod daemon {
                         Ok(agent_id) => agent_id,
                         Err(err) => return IpcResponse::error(400, err.to_string()),
                     };
-                    let model = match model {
-                        Some(model) => match normalize_model_input(&model) {
-                            Ok(normalized) => normalized,
-                            Err(err) => return IpcResponse::error(400, err.to_string()),
-                        },
-                        None => match core.storage.agents.get_agent(agent_id.clone()) {
-                            Ok(Some(agent)) => agent
-                                .agent
-                                .resolved_model_ref()
-                                .map(|model_ref| model_ref.model.as_serialized_str().to_string())
-                                .unwrap_or_else(|| ModelId::Gpt5_4.as_serialized_str().to_string()),
-                            Ok(None) => ModelId::Gpt5_4.as_serialized_str().to_string(),
-                            Err(err) => return IpcResponse::error(500, err.to_string()),
-                        },
-                    };
-                    match session_service
-                        .create_workspace_session(agent_id, model, name, skill_id, None)
-                    {
+                    match session_service.create_workspace_session_from_request(
+                        &core.storage,
+                        WorkspaceSessionCreateRequest::new(agent_id)
+                            .with_provider(provider)
+                            .with_model(model)
+                            .with_name(name)
+                            .with_skill_id(skill_id),
+                    ) {
                         Ok(session) => IpcResponse::success(session),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
+                        Err(err) => ipc_session_lifecycle_error(err),
                     }
                 }
 
@@ -1523,13 +1436,7 @@ pub mod daemon {
                             }
                             None => None,
                         },
-                        model: match updates.model {
-                            Some(model) => match normalize_model_input(&model) {
-                                Ok(normalized) => Some(normalized),
-                                Err(err) => return IpcResponse::error(400, err.to_string()),
-                            },
-                            None => None,
-                        },
+                        model: updates.model,
                         name: updates.name,
                     };
                     match session_service.update_session(&id, validated_updates) {
@@ -1627,28 +1534,35 @@ pub mod daemon {
                     append_message_to_session(&core.storage, &mut session, message)
                 }
 
-                pub(super) async fn handle_execute_chat_session_stream_unsupported() -> IpcResponse
-                {
-                    IpcResponse::error(-3, "Chat session streaming requires direct stream handler")
-                }
-
                 pub(super) async fn handle_steer_chat_session_stream(
                     core: &Arc<AppCore>,
                     session_id: String,
                     instruction: String,
                     scope: Option<ExecutionScope>,
                 ) -> IpcResponse {
-                    let steered =
-                        steer_chat_stream(core, &session_id, &instruction, scope.as_ref()).await;
-                    IpcResponse::success(SteerResponse { steered })
+                    match steer_chat_stream(core, &session_id, &instruction, scope.as_ref()).await {
+                        Ok(steered) => IpcResponse::success(SteerResponse { steered }),
+                        Err(error) => IpcResponse::error(500, error.to_string()),
+                    }
                 }
 
                 pub(super) async fn handle_cancel_chat_session_stream(
                     core: &Arc<AppCore>,
                     stream_id: String,
+                    session_id: Option<String>,
+                    scope: Option<ExecutionScope>,
                 ) -> IpcResponse {
-                    let canceled = cancel_chat_stream(core, &stream_id).await;
-                    IpcResponse::success(CancelResponse { canceled })
+                    match cancel_chat_stream(
+                        core,
+                        &stream_id,
+                        session_id.as_deref(),
+                        scope.as_ref(),
+                    )
+                    .await
+                    {
+                        Ok(canceled) => IpcResponse::success(CancelResponse { canceled }),
+                        Err(error) => IpcResponse::error(500, error.to_string()),
+                    }
                 }
 
                 pub(super) async fn handle_get_session_messages(
@@ -1706,7 +1620,7 @@ pub mod daemon {
                 pub(super) async fn handle_get_available_models(
                     core: &Arc<AppCore>,
                 ) -> IpcResponse {
-                    IpcResponse::success(available_model_catalog(core))
+                    IpcResponse::success(available_model_catalog(&core.storage.secrets))
                 }
 
                 pub(super) async fn handle_get_available_tools(
@@ -1744,21 +1658,6 @@ pub mod daemon {
                             IpcResponse::success(tools)
                         }
                         Err(err) => IpcResponse::error(500, err.to_string()),
-                    }
-                }
-
-                pub(super) async fn handle_execute_tool(
-                    core: &Arc<AppCore>,
-                    runtime_tool_registry: &OnceLock<types::toolset::ToolRegistry>,
-                    name: String,
-                    input: serde_json::Value,
-                ) -> IpcResponse {
-                    match get_runtime_tool_registry(core, runtime_tool_registry) {
-                        Ok(registry) => match registry.execute_safe(&name, input).await {
-                            Ok(output) => IpcResponse::success(to_tool_execution_result(output)),
-                            Err(err) => ipc_error_with_optional_json_details(500, err.to_string()),
-                        },
-                        Err(err) => ipc_error_with_optional_json_details(500, err.to_string()),
                     }
                 }
 
@@ -1845,7 +1744,20 @@ pub mod daemon {
                             name,
                             skill_id,
                         } => {
-                            Self::handle_create_session(core, agent_id, model, name, skill_id).await
+                            Self::handle_create_session(core, agent_id, None, model, name, skill_id)
+                                .await
+                        }
+                        IpcRequest::CreateSessionWithProvider {
+                            agent_id,
+                            provider,
+                            model,
+                            name,
+                            skill_id,
+                        } => {
+                            Self::handle_create_session(
+                                core, agent_id, provider, model, name, skill_id,
+                            )
+                            .await
                         }
                         IpcRequest::UpdateSession { id, updates } => match from_contract(updates) {
                             Ok(updates) => Self::handle_update_session(core, id, updates).await,
@@ -1879,13 +1791,6 @@ pub mod daemon {
                             }
                             Err(err) => invalid_request_response(err),
                         },
-                        IpcRequest::ExecuteChatSession { .. } => IpcResponse::error(
-                            -3,
-                            "Foreground chat execution runs in the TUI process",
-                        ),
-                        IpcRequest::ExecuteChatSessionStream { .. } => {
-                            Self::handle_execute_chat_session_stream_unsupported().await
-                        }
                         IpcRequest::SteerChatSessionStream {
                             session_id,
                             instruction,
@@ -1900,7 +1805,18 @@ pub mod daemon {
                             .await
                         }
                         IpcRequest::CancelChatSessionStream { stream_id } => {
-                            Self::handle_cancel_chat_session_stream(core, stream_id).await
+                            Self::handle_cancel_chat_session_stream(core, stream_id, None, None)
+                                .await
+                        }
+                        IpcRequest::CancelChatSessionStreamScoped {
+                            stream_id,
+                            session_id,
+                            scope,
+                        } => {
+                            Self::handle_cancel_chat_session_stream(
+                                core, stream_id, session_id, scope,
+                            )
+                            .await
                         }
                         IpcRequest::GetSessionMessages { session_id, limit } => {
                             Self::handle_get_session_messages(core, session_id, limit).await
@@ -1931,10 +1847,6 @@ pub mod daemon {
                             Self::handle_get_available_tool_definitions(core, runtime_tool_registry)
                                 .await
                         }
-                        IpcRequest::ExecuteTool { name, input } => {
-                            Self::handle_execute_tool(core, runtime_tool_registry, name, input)
-                                .await
-                        }
                         IpcRequest::ListMcpServers => Self::handle_list_mcp_servers().await,
                         IpcRequest::BuildAgentSystemPrompt { agent_node } => {
                             match types::AgentNode::try_from(agent_node) {
@@ -1945,6 +1857,7 @@ pub mod daemon {
                             }
                         }
                         IpcRequest::Shutdown => Self::handle_shutdown().await,
+                        _ => IpcResponse::error(400, "Unsupported IPC request"),
                     }
                 }
             }
@@ -1952,7 +1865,6 @@ pub mod daemon {
         #[path = "ipc_server/runtime.rs"]
         mod runtime {
             use super::*;
-            use ::agent::StreamDisplayMode;
             use thiserror::Error;
 
             #[derive(Debug, Error)]
@@ -1963,6 +1875,8 @@ pub mod daemon {
                 MissingUserMessage,
                 #[error("Interactive execution completed without assistant output")]
                 EmptyAssistantOutput,
+                #[error("Interactive execution was canceled")]
+                Canceled,
                 #[error(transparent)]
                 Internal(#[from] anyhow::Error),
             }
@@ -1973,6 +1887,7 @@ pub mod daemon {
                         Self::SessionNotFound => 404,
                         Self::MissingUserMessage => 400,
                         Self::EmptyAssistantOutput => 500,
+                        Self::Canceled => 409,
                         Self::Internal(_) => 500,
                     }
                 }
@@ -1986,73 +1901,17 @@ pub mod daemon {
                 pub ack_frame_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
                 pub emitter: Option<Box<dyn StreamEmitter>>,
                 pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                pub has_text_streamed: Option<Arc<AtomicBool>>,
             }
 
             pub(super) fn create_runtime_tool_registry_with_assessment(
                 core: &Arc<AppCore>,
             ) -> anyhow::Result<types::toolset::ToolRegistry> {
-                create_runtime_tool_registry(core.storage.config.clone(), None, None)
-            }
-
-            fn create_runtime_tool_registry(
-                config_storage: restflow_core::ConfigStorage,
-                agent_id: Option<String>,
-                security_gate: Option<Arc<dyn types::tool::SecurityGate>>,
-            ) -> anyhow::Result<types::toolset::ToolRegistry> {
-                let config_storage = Arc::new(config_storage);
-                let agent_defaults = load_agent_defaults(&config_storage);
-                let skill_provider =
-                    Arc::new(crate::services::adapters::SkrunSkillProvider::default());
-
-                let mut builder = ::tools::ToolRegistryBuilder::new();
-                let security_agent_id = agent_id.as_deref().unwrap_or("unknown-agent");
-                builder = builder.with_bash(::tools::BashConfig {
-                    timeout_secs: agent_defaults.bash_timeout_secs,
-                    ..Default::default()
-                });
-                builder = builder.with_file(::tools::FileConfig {
-                    allow_write: false,
-                    ..Default::default()
-                });
-                builder = if let Some(gate) = security_gate.clone() {
-                    builder.with_load_skill_with_security(
-                        skill_provider,
-                        gate,
-                        security_agent_id,
-                        "tool-registry",
-                    )
-                } else {
-                    builder.with_load_skill(skill_provider)
-                };
-
-                let mut run_skill_tool = ::tools::RunSkillTool::new()
-                    .with_root(crate::services::skills::skill_catalog_root()?);
-                if let Some(gate) = security_gate {
-                    run_skill_tool =
-                        run_skill_tool.with_security(gate, security_agent_id, "tool-registry");
-                }
-                builder.registry.register(run_skill_tool);
-
-                Ok(builder
-                    .with_patch_and_base_dir(None)
-                    .with_edit_and_base_dir(None)
-                    .with_multiedit_and_base_dir(None)
-                    .with_glob_and_base_dir(None)
-                    .with_grep_and_base_dir(None)
-                    .build())
-            }
-
-            fn load_agent_defaults(config_storage: &restflow_core::ConfigStorage) -> AgentDefaults {
-                match config_storage.get_effective_config() {
-                    Ok(config) => config.agent,
-                    Err(error) => {
-                        warn!(
-                            error = %error,
-                            "Failed to load system config defaults; falling back to built-in defaults"
-                        );
-                        restflow_core::SystemConfig::default().agent
-                    }
-                }
+                let agent_defaults = load_agent_defaults_from_core(core);
+                runner::default_runtime_tool_registry(
+                    &core.storage,
+                    agent_defaults.bash_timeout_secs,
+                )
             }
 
             pub(super) fn get_runtime_tool_registry<'a>(
@@ -2069,17 +1928,6 @@ pub mod daemon {
                 runtime_tool_registry
                     .get()
                     .ok_or_else(|| "runtime tool registry initialization failed".to_string())
-            }
-
-            pub(super) fn subagent_config_from_defaults(
-                defaults: &AgentDefaults,
-            ) -> SubagentConfig {
-                SubagentConfig {
-                    max_parallel_agents: defaults.max_parallel_subagents,
-                    subagent_timeout_secs: defaults.subagent_timeout_secs,
-                    max_iterations: defaults.max_iterations,
-                    max_depth: defaults.max_depth,
-                }
             }
 
             pub(super) fn load_agent_defaults_from_core(core: &Arc<AppCore>) -> AgentDefaults {
@@ -2110,50 +1958,99 @@ pub mod daemon {
 
             pub(super) fn create_chat_executor(core: &Arc<AppCore>) -> AgentRuntimeExecutor {
                 let agent_defaults = load_agent_defaults_from_core(core);
-                let (completion_tx, completion_rx) = mpsc::channel(128);
-                let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-                let subagent_definitions = Arc::new(StorageBackedSubagentLookup::new(
-                    core.storage.agents.clone(),
-                ));
-                let subagent_config = subagent_config_from_defaults(&agent_defaults);
-
-                AgentRuntimeExecutor::new(
-                    core.storage.clone(),
-                    subagent_tracker,
-                    subagent_definitions,
-                    subagent_config,
-                )
+                runner::chat_runtime_executor(core.storage.clone(), agent_defaults)
             }
 
-            pub(super) async fn cancel_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> bool {
+            pub(super) async fn cancel_chat_stream(
+                core: &Arc<AppCore>,
+                stream_id: &str,
+                session_id: Option<&str>,
+                scope: Option<&types::ExecutionScope>,
+            ) -> Result<bool> {
+                let binding = {
+                    let session_streams = active_chat_stream_sessions().lock().await;
+                    session_streams
+                        .iter()
+                        .find(|(_, binding)| binding.stream_id == stream_id)
+                        .map(|(session_id, binding)| (session_id.clone(), binding.clone()))
+                };
+
+                let Some((bound_session_id, binding)) = binding else {
+                    if let Some(session_id) = session_id {
+                        let mut pending = pending_canceled_chat_streams().lock().await;
+                        purge_expired_pending_canceled_streams(&mut pending);
+                        pending.insert(
+                            stream_id.to_string(),
+                            PendingCanceledChatStream::new(session_id, scope.cloned()),
+                        );
+                        return Ok(true);
+                    }
+                    if scope.is_some() {
+                        return Ok(false);
+                    }
+                    if let Some(handle) = active_chat_streams().lock().await.remove(stream_id) {
+                        handle.abort();
+                        let _ = handle.await;
+                        completed_chat_streams().lock().await.remove(stream_id);
+                        active_chat_stream_steers().lock().await.remove(stream_id);
+                        return Ok(true);
+                    }
+                    return Ok(false);
+                };
+
+                if session_id.is_some_and(|expected| expected != bound_session_id) {
+                    return Ok(false);
+                }
+                if binding.scope.is_some() && scope.is_none() {
+                    return Ok(false);
+                }
+                if scope.is_some() && binding.scope.as_ref() != scope {
+                    return Ok(false);
+                }
+
+                if !active_chat_streams().lock().await.contains_key(stream_id) {
+                    cancel_pending_turn_in_session_store(
+                        core,
+                        &bound_session_id,
+                        stream_id,
+                        binding.user_input.as_deref(),
+                    )?;
+                    let mut pending = pending_canceled_chat_streams().lock().await;
+                    purge_expired_pending_canceled_streams(&mut pending);
+                    pending.insert(
+                        stream_id.to_string(),
+                        PendingCanceledChatStream::new(&bound_session_id, binding.scope.clone()),
+                    );
+                    active_chat_stream_steers().lock().await.remove(stream_id);
+                    let mut session_streams = active_chat_stream_sessions().lock().await;
+                    if session_streams
+                        .get(&bound_session_id)
+                        .is_some_and(|active| active.stream_id == stream_id)
+                    {
+                        session_streams.remove(&bound_session_id);
+                    }
+                    return Ok(true);
+                }
+                cancel_pending_turn_in_session_store(
+                    core,
+                    &bound_session_id,
+                    stream_id,
+                    binding.user_input.as_deref(),
+                )?;
                 if let Some(handle) = active_chat_streams().lock().await.remove(stream_id) {
                     handle.abort();
                     let _ = handle.await;
-                    active_chat_stream_steers().lock().await.remove(stream_id);
-                    let mut session_streams = active_chat_stream_sessions().lock().await;
-                    if let Some((session_id, _)) = session_streams
-                        .iter()
-                        .find(|(_, binding)| binding.stream_id == stream_id)
-                        .map(|(session_id, binding)| {
-                            (session_id.clone(), binding.stream_id.clone())
-                        })
-                    {
-                        session_streams.remove(&session_id);
-                        if let Err(error) =
-                            cancel_turn_in_session_store(core, &session_id, stream_id)
-                        {
-                            warn!(
-                                session_id = %session_id,
-                                turn_id = %stream_id,
-                                error = %error,
-                                "Failed to persist canceled chat turn"
-                            );
-                        }
-                    }
-                    true
-                } else {
-                    false
                 }
+                completed_chat_streams().lock().await.remove(stream_id);
+                active_chat_stream_steers().lock().await.remove(stream_id);
+                let mut session_streams = active_chat_stream_sessions().lock().await;
+                if session_streams
+                    .get(&bound_session_id)
+                    .is_some_and(|active| active.stream_id == stream_id)
+                {
+                    session_streams.remove(&bound_session_id);
+                }
+                Ok(true)
             }
 
             pub(super) async fn steer_chat_stream(
@@ -2161,20 +2058,21 @@ pub mod daemon {
                 session_id: &str,
                 instruction: &str,
                 scope: Option<&types::ExecutionScope>,
-            ) -> bool {
+            ) -> Result<bool> {
+                let instruction = instruction.trim();
+                if instruction.is_empty() {
+                    return Ok(false);
+                }
                 let binding = {
                     let session_streams = active_chat_stream_sessions().lock().await;
-                    session_streams.get(session_id).and_then(|binding| {
-                        if scope.is_some() && binding.scope.as_ref() != scope {
-                            None
-                        } else {
-                            Some(binding.clone())
-                        }
-                    })
+                    session_streams
+                        .get(session_id)
+                        .filter(|binding| binding.scope.as_ref() == scope)
+                        .cloned()
                 };
 
                 let Some(binding) = binding else {
-                    return false;
+                    return Ok(false);
                 };
 
                 let sender = {
@@ -2182,17 +2080,32 @@ pub mod daemon {
                     steers.get(&binding.stream_id).cloned()
                 };
                 let Some(sender) = sender else {
-                    return false;
+                    return Ok(false);
                 };
+
+                if !persist_steer_if_stream_still_registered(
+                    core,
+                    session_id,
+                    &binding,
+                    instruction,
+                )
+                .await?
+                {
+                    return Ok(false);
+                }
 
                 let steer = SteerMessage::message(instruction.to_string(), SteerSource::User);
                 match sender.send(steer).await {
-                    Ok(()) => {
-                        persist_steer_user_update(core, session_id, &binding.turn_id, instruction)
-                            .map(|_| true)
-                            .unwrap_or(false)
-                    }
+                    Ok(()) => Ok(true),
                     Err(_) => {
+                        record_turn_event_in_session_store(
+                            core,
+                            session_id,
+                            &binding.turn_id,
+                            ChatTurnEventKind::Error {
+                                message: "Steer update was not delivered because the active stream closed".to_string(),
+                            },
+                        )?;
                         active_chat_stream_steers()
                             .lock()
                             .await
@@ -2204,34 +2117,38 @@ pub mod daemon {
                         {
                             session_streams.remove(session_id);
                         }
-                        false
+                        Ok(false)
                     }
                 }
             }
 
-            fn persist_steer_user_update(
+            pub(super) async fn persist_steer_if_stream_still_registered(
                 core: &Arc<AppCore>,
                 session_id: &str,
-                turn_id: &str,
+                binding: &ActiveChatStreamBinding,
                 instruction: &str,
-            ) -> Result<()> {
-                let instruction = instruction.trim();
-                if instruction.is_empty() {
-                    return Ok(());
+            ) -> Result<bool> {
+                let session_streams = active_chat_stream_sessions().lock().await;
+                if !session_streams
+                    .get(session_id)
+                    .is_some_and(|active| active == binding)
+                {
+                    return Ok(false);
                 }
-                let session_service = SessionService::from_storage(&core.storage);
-                let Some(mut session) = session_service.get_session_view(session_id)? else {
-                    return Ok(());
-                };
-                let already_latest = session.messages.last().is_some_and(|message| {
-                    message.role == ChatRole::User && message.content == instruction
-                });
-                if !already_latest {
-                    session.add_message(ChatMessage::user(instruction));
+
+                let steers = active_chat_stream_steers().lock().await;
+                if !steers.contains_key(&binding.stream_id) {
+                    return Ok(false);
                 }
-                session.record_turn_user_message(turn_id, instruction);
-                session_service.save_existing_session(&session, "ipc")?;
-                Ok(())
+                drop(steers);
+
+                core.storage
+                    .file_sessions
+                    .append_turn_user_message_if_non_terminal(
+                        session_id,
+                        &binding.turn_id,
+                        instruction,
+                    )
             }
 
             pub(super) fn latest_assistant_payload(
@@ -2291,6 +2208,46 @@ pub mod daemon {
                 latest_turn_assistant_output(session, turn_start_index)
             }
 
+            fn output_comes_from_buffered_reply(
+                execution_output: &str,
+                buffered_replies: &[String],
+                assistant_output: &str,
+                session: &ChatSession,
+                turn_start_index: usize,
+            ) -> bool {
+                execution_output.trim().is_empty()
+                    && latest_turn_assistant_output(session, turn_start_index).is_none()
+                    && buffered_replies
+                        .iter()
+                        .rev()
+                        .map(|reply| reply.trim())
+                        .find(|reply| !reply.is_empty())
+                        == Some(assistant_output.trim())
+            }
+
+            fn promote_matching_progress_to_assistant(
+                session: &mut ChatSession,
+                turn_id: &str,
+                assistant_output: &str,
+            ) -> bool {
+                let Some(turn) = session.turns.iter_mut().find(|turn| turn.id == turn_id) else {
+                    return false;
+                };
+                let Some(event) = turn.events.iter_mut().rev().find(|event| {
+                    matches!(
+                        &event.kind,
+                        ChatTurnEventKind::Progress { message }
+                            if message.trim() == assistant_output.trim()
+                    )
+                }) else {
+                    return false;
+                };
+                event.kind = ChatTurnEventKind::AssistantMessage {
+                    content: assistant_output.trim().to_string(),
+                };
+                true
+            }
+
             fn latest_turn_assistant_matches(
                 session: &ChatSession,
                 turn_start_index: usize,
@@ -2300,6 +2257,19 @@ pub mod daemon {
                 !trimmed.is_empty()
                     && latest_turn_assistant_output(session, turn_start_index).as_deref()
                         == Some(trimmed)
+            }
+
+            pub(super) fn complete_turn_after_execution(
+                session: &mut ChatSession,
+                turn_id: &str,
+                assistant_output: &str,
+                has_text_streamed: &AtomicBool,
+            ) {
+                if has_text_streamed.load(Ordering::Relaxed) {
+                    session.complete_turn(turn_id);
+                } else {
+                    session.complete_turn_with_assistant_message(turn_id, assistant_output);
+                }
             }
 
             pub(super) async fn execute_chat_session(
@@ -2314,6 +2284,7 @@ pub mod daemon {
                     ack_frame_tx,
                     emitter,
                     steer_rx,
+                    has_text_streamed: shared_text_streamed,
                 } = request;
                 let mut session = load_chat_session_for_execution(core, &session_id)?;
 
@@ -2339,16 +2310,23 @@ pub mod daemon {
                         &persisted_input,
                     )?;
                 }
-                record_turn_user_message_in_session_store(
+                if !record_turn_user_message_in_session_store(
                     core,
                     &mut session,
                     &turn_id,
                     &persisted_input,
-                )?;
+                )? {
+                    return Err(ExecuteChatSessionError::Canceled);
+                }
 
                 let turn_start_index = session.messages.len();
                 let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
+                let has_assistant_delta_streamed =
+                    shared_text_streamed.unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
                 let reply_sender = Arc::new(SessionReplySender::new(
+                    core.clone(),
+                    session_id.clone(),
+                    turn_id.clone(),
                     reply_buffer.clone(),
                     ack_frame_tx.clone(),
                 ));
@@ -2356,6 +2334,23 @@ pub mod daemon {
                 let chat_max_session_history = load_chat_max_session_history_from_core(core);
 
                 let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
+                let original_session_agent_id = session.agent_id.clone();
+                orchestrator
+                    .resolve_session_agent_for_execution(&mut session)
+                    .map_err(ExecuteChatSessionError::Internal)?;
+                let agent_id_repair =
+                    agent_id_repair(&original_session_agent_id, session.agent_id.as_str());
+                let execution_expected_provider = session.provider.clone();
+                let execution_expected_model = session.model.clone();
+                if let Some(repair) = agent_id_repair.as_ref() {
+                    SessionService::from_storage(&core.storage)
+                        .save_existing_session_with_agent_id_override(
+                            &session,
+                            "ipc",
+                            repair.expected_existing_agent_id.as_str(),
+                        )
+                        .map_err(ExecuteChatSessionError::Internal)?;
+                }
                 let traced_execution = match orchestrator
                     .run_traced_interactive_session_turn(InteractiveSessionRequest {
                         session: &mut session,
@@ -2374,13 +2369,25 @@ pub mod daemon {
                     Ok(execution) => execution,
                     Err(error) => {
                         let message = error.to_string();
-                        fail_turn_in_session_store(core, &session_id, &turn_id, &message)?;
+                        if let Err(persist_error) = fail_turn_in_session_store(
+                            core,
+                            &session_id,
+                            &turn_id,
+                            &message,
+                            agent_id_repair.clone(),
+                        ) {
+                            warn!(
+                                session_id = %session_id,
+                                turn_id = %turn_id,
+                                error = %persist_error,
+                                "Failed to persist failed chat turn"
+                            );
+                        }
                         return Err(anyhow::Error::new(error).into());
                     }
                 };
                 let duration_ms = traced_execution.duration_ms;
                 let exec_result = traced_execution.execution;
-
                 let original_persisted_input = persisted_input.clone();
                 let (execution, final_persisted_input) = build_turn_persistence_payload(
                     &original_persisted_input,
@@ -2397,9 +2404,6 @@ pub mod daemon {
                     .filter(|reply| !reply.trim().is_empty())
                     .collect::<Vec<_>>();
                 sync_session_view_from_session_store(core, &mut session)?;
-                for reply in &buffered_replies {
-                    session.add_message(ChatMessage::assistant(reply.as_str()));
-                }
                 let assistant_output = select_final_assistant_output(
                     &exec_result.output,
                     &buffered_replies,
@@ -2412,35 +2416,83 @@ pub mod daemon {
                         &session_id,
                         &turn_id,
                         "Interactive execution completed without assistant output",
+                        agent_id_repair.clone(),
                     );
                     ExecuteChatSessionError::EmptyAssistantOutput
                 })?;
                 sync_turns_from_session_store(core, &mut session)?;
-                session.complete_turn_with_assistant_message(&turn_id, &assistant_output);
-                if latest_turn_assistant_matches(&session, turn_start_index, &assistant_output) {
+                let streamed_assistant_delta = has_assistant_delta_streamed.load(Ordering::Relaxed);
+                let assistant_output_from_buffered_reply = output_comes_from_buffered_reply(
+                    &exec_result.output,
+                    &buffered_replies,
+                    &assistant_output,
+                    &session,
+                    turn_start_index,
+                );
+                let promoted_buffered_reply = assistant_output_from_buffered_reply
+                    && promote_matching_progress_to_assistant(
+                        &mut session,
+                        &turn_id,
+                        &assistant_output,
+                    );
+                if promoted_buffered_reply {
+                    session.complete_turn(&turn_id);
+                } else {
+                    complete_turn_after_execution(
+                        &mut session,
+                        &turn_id,
+                        &assistant_output,
+                        &has_assistant_delta_streamed,
+                    );
+                }
+                if !streamed_assistant_delta
+                    && latest_turn_assistant_matches(&session, turn_start_index, &assistant_output)
+                {
                     if let Some(message) = session.messages.last_mut() {
                         message.execution = Some(execution);
                     }
-                    if let Some(model) = Some(exec_result.final_model) {
-                        session.set_model_identity(model);
-                    } else {
-                        session.set_model_identity_from_raw(&exec_result.active_model);
-                    }
-                    SessionService::from_storage(&core.storage)
-                        .save_existing_session(&session, "ipc")?;
+                    session.set_model_identity(exec_result.final_model);
+                    let runtime_guard = runtime_identity_guard(
+                        &execution_expected_provider,
+                        &execution_expected_model,
+                        agent_id_repair.as_ref(),
+                    );
+                    let Some(persisted) = SessionService::from_storage(&core.storage)
+                        .save_existing_session_with_runtime_identity_if_turn_non_terminal_returning_session(
+                            &session,
+                            &turn_id,
+                            "ipc",
+                            runtime_guard,
+                        )?
+                    else {
+                        return Err(ExecuteChatSessionError::Canceled);
+                    };
+                    session = persisted;
                 } else {
-                    SessionService::from_storage(&core.storage).persist_interactive_turn(
-                        &mut session,
-                        PersistInteractiveTurnRequest {
-                            original_input: &original_persisted_input,
-                            persisted_input: &final_persisted_input,
-                            assistant_output: &assistant_output,
-                            active_model: Some(&exec_result.active_model),
-                            final_model: Some(exec_result.final_model),
-                            execution,
-                            source: "ipc",
-                        },
-                    )?;
+                    let runtime_guard = runtime_identity_guard(
+                        &execution_expected_provider,
+                        &execution_expected_model,
+                        agent_id_repair.as_ref(),
+                    );
+                    let Some(persisted) = SessionService::from_storage(&core.storage)
+                        .persist_interactive_turn_with_runtime_identity_if_turn_non_terminal_returning_session(
+                            &mut session,
+                            &turn_id,
+                            PersistInteractiveTurnRequest::new(
+                                &original_persisted_input,
+                                &final_persisted_input,
+                                &assistant_output,
+                                execution,
+                                "ipc",
+                            )
+                            .with_active_model(Some(&exec_result.active_model))
+                            .with_final_model(Some(exec_result.final_model)),
+                            runtime_guard,
+                        )?
+                    else {
+                        return Err(ExecuteChatSessionError::Canceled);
+                    };
+                    session = persisted;
                 }
                 Ok(session)
             }
@@ -2450,27 +2502,26 @@ pub mod daemon {
                 session_id: &str,
                 turn_id: &str,
                 event: ChatTurnEventKind,
-            ) -> Result<()> {
-                let session_service = SessionService::from_storage(&core.storage);
-                let Some(mut session) = session_service.get_session_view(session_id)? else {
-                    return Ok(());
-                };
-                session.record_turn_event(turn_id, event);
-                session_service.save_existing_session(&session, "ipc")?;
-                Ok(())
+            ) -> Result<bool> {
+                core.storage
+                    .file_sessions
+                    .append_turn_event_if_non_terminal(session_id, turn_id, event)
             }
 
-            fn record_turn_user_message_in_session_store(
+            pub(super) fn record_turn_user_message_in_session_store(
                 core: &Arc<AppCore>,
                 session: &mut ChatSession,
                 turn_id: &str,
                 content: &str,
-            ) -> Result<()> {
-                sync_turns_from_session_store(core, session)?;
-                session.record_turn_user_message(turn_id, content);
-                SessionService::from_storage(&core.storage)
-                    .save_existing_session(session, "ipc")?;
-                Ok(())
+            ) -> Result<bool> {
+                let recorded = core
+                    .storage
+                    .file_sessions
+                    .record_turn_user_message_if_non_terminal(&session.id, turn_id, content)?;
+                if recorded {
+                    sync_session_view_from_session_store(core, session)?;
+                }
+                Ok(recorded)
             }
 
             fn sync_turns_from_session_store(
@@ -2485,45 +2536,152 @@ pub mod daemon {
                 Ok(())
             }
 
-            fn sync_session_view_from_session_store(
+            pub(super) fn sync_session_view_from_session_store(
                 core: &Arc<AppCore>,
                 session: &mut ChatSession,
             ) -> Result<()> {
-                if let Some(stored) =
-                    SessionService::from_storage(&core.storage).get_session_view(&session.id)?
-                {
-                    session.messages = stored.messages;
-                    session.turns = stored.turns;
-                    session.updated_at = stored.updated_at;
-                    session.metadata = stored.metadata;
-                }
+                let execution_agent_id = session.agent_id.clone();
+                let stored = SessionService::from_storage(&core.storage)
+                    .get_session_view(&session.id)?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(types::session_not_found_message(&session.id))
+                    })?;
+                session.name = stored.name;
+                session.agent_id = execution_agent_id;
+                session.provider = stored.provider;
+                session.model = stored.model;
+                session.messages = stored.messages;
+                session.turns = stored.turns;
+                session.created_at = stored.created_at;
+                session.updated_at = stored.updated_at;
+                session.skill_id = stored.skill_id;
+                session.retention = stored.retention;
+                session.summary_message_id = stored.summary_message_id;
+                session.prompt_tokens = stored.prompt_tokens;
+                session.completion_tokens = stored.completion_tokens;
+                session.cost = stored.cost;
+                session.metadata = stored.metadata;
+                session.archived_at = stored.archived_at;
                 Ok(())
             }
 
-            fn fail_turn_in_session_store(
+            fn agent_id_repair(
+                expected_existing_agent_id: &str,
+                repaired_agent_id: &str,
+            ) -> Option<SessionAgentIdRepair> {
+                if repaired_agent_id.trim().is_empty()
+                    || repaired_agent_id == expected_existing_agent_id
+                {
+                    return None;
+                }
+                Some(SessionAgentIdRepair {
+                    expected_existing_agent_id: expected_existing_agent_id.to_string(),
+                    repaired_agent_id: repaired_agent_id.to_string(),
+                })
+            }
+
+            fn runtime_identity_guard<'a>(
+                expected_existing_provider: &'a str,
+                expected_existing_model: &'a str,
+                agent_id_repair: Option<&'a SessionAgentIdRepair>,
+            ) -> RuntimeIdentityGuard<'a> {
+                let guard =
+                    RuntimeIdentityGuard::new(expected_existing_provider, expected_existing_model);
+                if let Some(repair) = agent_id_repair {
+                    guard.with_agent_id_override(repair.expected_existing_agent_id.as_str())
+                } else {
+                    guard
+                }
+            }
+
+            pub(super) fn fail_turn_in_session_store(
                 core: &Arc<AppCore>,
                 session_id: &str,
                 turn_id: &str,
                 message: &str,
+                agent_id_repair: Option<SessionAgentIdRepair>,
             ) -> Result<()> {
                 let session_service = SessionService::from_storage(&core.storage);
                 let Some(mut session) = session_service.get_session_view(session_id)? else {
-                    return Ok(());
+                    anyhow::bail!(types::session_not_found_message(session_id));
                 };
+                if let Some(repair) = agent_id_repair.as_ref() {
+                    session.agent_id = repair.repaired_agent_id.clone();
+                }
                 session.fail_turn(turn_id, message);
-                session_service.save_existing_session(&session, "ipc")?;
+                if let Some(repair) = agent_id_repair {
+                    session_service.save_existing_session_with_agent_id_override(
+                        &session,
+                        "ipc",
+                        repair.expected_existing_agent_id.as_str(),
+                    )?;
+                } else {
+                    session_service.save_existing_session(&session, "ipc")?;
+                }
                 Ok(())
             }
 
-            fn cancel_turn_in_session_store(
+            pub(super) fn cancel_orphaned_running_turns_in_session_store(
+                core: &Arc<AppCore>,
+                session_id: &str,
+                current_turn_id: &str,
+            ) -> Result<usize> {
+                let session_service = SessionService::from_storage(&core.storage);
+                let Some(mut session) = session_service.get_session_view(session_id)? else {
+                    return Ok(0);
+                };
+                let running_turn_ids = session
+                    .turns
+                    .iter()
+                    .filter(|turn| {
+                        turn.id != current_turn_id && turn.status == types::ChatTurnStatus::Running
+                    })
+                    .map(|turn| turn.id.clone())
+                    .collect::<Vec<_>>();
+                if running_turn_ids.is_empty() {
+                    return Ok(0);
+                }
+                for turn_id in &running_turn_ids {
+                    session.cancel_turn(turn_id);
+                }
+                session_service.save_existing_session(&session, "ipc")?;
+                Ok(running_turn_ids.len())
+            }
+
+            pub(super) fn cancel_pending_turn_in_session_store(
                 core: &Arc<AppCore>,
                 session_id: &str,
                 turn_id: &str,
+                user_input: Option<&str>,
             ) -> Result<()> {
                 let session_service = SessionService::from_storage(&core.storage);
                 let Some(mut session) = session_service.get_session_view(session_id)? else {
-                    return Ok(());
+                    anyhow::bail!(types::session_not_found_message(session_id));
                 };
+                if session
+                    .turns
+                    .iter()
+                    .find(|turn| turn.id == turn_id)
+                    .is_some_and(|turn| turn.status.is_terminal())
+                {
+                    return Ok(());
+                }
+                if let Some(input) = user_input
+                    && !input.trim().is_empty()
+                {
+                    let already_persisted = session
+                        .messages
+                        .last()
+                        .map(|message| message.role == ChatRole::User && message.content == input)
+                        .unwrap_or(false);
+                    if !already_persisted {
+                        session.add_message(ChatMessage::user(input));
+                        if session.name == "New Chat" && session.messages.len() == 1 {
+                            session.auto_name_from_first_message();
+                        }
+                    }
+                    session.record_turn_user_message(turn_id, input);
+                }
                 session.cancel_turn(turn_id);
                 session_service.save_existing_session(&session, "ipc")?;
                 Ok(())
@@ -2596,9 +2754,10 @@ pub mod daemon {
             mod tests {
                 use super::{
                     latest_assistant_payload, latest_turn_assistant_matches,
+                    output_comes_from_buffered_reply, promote_matching_progress_to_assistant,
                     select_final_assistant_output,
                 };
-                use types::{ChatMessage, ChatSession};
+                use types::{ChatMessage, ChatSession, ChatTurnEventKind};
 
                 #[test]
                 fn final_output_prefers_non_empty_execution_output() {
@@ -2677,6 +2836,49 @@ pub mod daemon {
                 }
 
                 #[test]
+                fn buffered_reply_source_can_promote_progress_to_assistant() {
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.record_turn_user_message("turn-1", "hello");
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::Progress {
+                            message: "ack reply".to_string(),
+                        },
+                    );
+
+                    assert!(output_comes_from_buffered_reply(
+                        "",
+                        &["ack reply".to_string()],
+                        "ack reply",
+                        &session,
+                        session.messages.len()
+                    ));
+                    assert!(promote_matching_progress_to_assistant(
+                        &mut session,
+                        "turn-1",
+                        "ack reply"
+                    ));
+
+                    let turn = session
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "turn-1")
+                        .expect("turn");
+                    assert!(turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::AssistantMessage { content }
+                                if content == "ack reply"
+                        )
+                    }));
+                    assert!(
+                        !turn.events.iter().any(|event| {
+                            matches!(event.kind, ChatTurnEventKind::Progress { .. })
+                        })
+                    );
+                }
+
+                #[test]
                 fn latest_assistant_payload_skips_empty_assistant_messages() {
                     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
                     session.add_message(ChatMessage::assistant("visible"));
@@ -2693,8 +2895,8 @@ pub mod daemon {
         }
 
         use self::runtime::{
-            ExecuteChatSessionRequest, execute_chat_session, latest_assistant_payload,
-            record_turn_event_in_session_store,
+            ExecuteChatSessionError, ExecuteChatSessionRequest, execute_chat_session,
+            latest_assistant_payload, record_turn_event_in_session_store,
         };
 
         #[cfg(unix)]
@@ -2713,11 +2915,71 @@ pub mod daemon {
             STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
         }
 
+        fn completed_chat_streams() -> &'static Mutex<HashSet<String>> {
+            static COMPLETED_STREAMS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+            COMPLETED_STREAMS.get_or_init(|| Mutex::new(HashSet::new()))
+        }
+
+        const PENDING_CANCELED_CHAT_STREAM_TTL: Duration = Duration::from_secs(60);
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        struct PendingCanceledChatStream {
+            session_id: String,
+            scope: Option<ExecutionScope>,
+            expires_at: Instant,
+        }
+
+        impl PendingCanceledChatStream {
+            fn new(session_id: &str, scope: Option<ExecutionScope>) -> Self {
+                Self {
+                    session_id: session_id.to_string(),
+                    scope,
+                    expires_at: Instant::now() + PENDING_CANCELED_CHAT_STREAM_TTL,
+                }
+            }
+
+            fn is_expired(&self, now: Instant) -> bool {
+                self.expires_at <= now
+            }
+        }
+
+        fn pending_canceled_chat_streams()
+        -> &'static Mutex<HashMap<String, PendingCanceledChatStream>> {
+            static PENDING_CANCELED_STREAMS: OnceLock<
+                Mutex<HashMap<String, PendingCanceledChatStream>>,
+            > = OnceLock::new();
+            PENDING_CANCELED_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+        }
+
+        async fn take_pending_canceled_stream(
+            stream_id: &str,
+            session_id: &str,
+            scope: &Option<ExecutionScope>,
+        ) -> bool {
+            let mut pending = pending_canceled_chat_streams().lock().await;
+            purge_expired_pending_canceled_streams(&mut pending);
+            if pending.get(stream_id).is_some_and(|canceled| {
+                canceled.session_id == session_id && canceled.scope.as_ref() == scope.as_ref()
+            }) {
+                pending.remove(stream_id);
+                return true;
+            }
+            false
+        }
+
+        fn purge_expired_pending_canceled_streams(
+            pending: &mut HashMap<String, PendingCanceledChatStream>,
+        ) {
+            let now = Instant::now();
+            pending.retain(|_, canceled| !canceled.is_expired(now));
+        }
+
         #[derive(Debug, Clone, PartialEq, Eq)]
         struct ActiveChatStreamBinding {
             stream_id: String,
             turn_id: String,
             scope: Option<ExecutionScope>,
+            user_input: Option<String>,
         }
 
         impl ActiveChatStreamBinding {
@@ -2730,7 +2992,13 @@ pub mod daemon {
                     stream_id: stream_id.into(),
                     turn_id: turn_id.into(),
                     scope,
+                    user_input: None,
                 }
+            }
+
+            fn with_user_input(mut self, user_input: Option<String>) -> Self {
+                self.user_input = user_input;
+                self
             }
 
             fn same_owner(&self, scope: &Option<ExecutionScope>) -> bool {
@@ -2752,6 +3020,133 @@ pub mod daemon {
             STEERS.get_or_init(|| Mutex::new(HashMap::new()))
         }
 
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        struct SessionEventSnapshot {
+            updated_at: i64,
+            message_count: u32,
+            event_count: usize,
+            event_digest: u64,
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        struct SessionEventEmissionKey {
+            session_id: String,
+            kind: &'static str,
+            updated_at: Option<i64>,
+            message_count: Option<u32>,
+            event_count: Option<usize>,
+            event_digest: Option<u64>,
+        }
+
+        #[derive(Debug, Default)]
+        struct SessionEventDeduper {
+            seen: HashSet<SessionEventEmissionKey>,
+            order: VecDeque<SessionEventEmissionKey>,
+        }
+
+        impl SessionEventDeduper {
+            const MAX_KEYS: usize = 512;
+
+            fn should_send(
+                &mut self,
+                event: &ChatSessionEvent,
+                snapshot: &HashMap<String, SessionEventSnapshot>,
+            ) -> bool {
+                let key = SessionEventEmissionKey::from_event(event, snapshot);
+                if self.seen.contains(&key) {
+                    return false;
+                }
+                self.seen.insert(key.clone());
+                self.order.push_back(key);
+                while self.order.len() > Self::MAX_KEYS {
+                    if let Some(old) = self.order.pop_front() {
+                        self.seen.remove(&old);
+                    }
+                }
+                true
+            }
+        }
+
+        impl SessionEventEmissionKey {
+            fn from_event(
+                event: &ChatSessionEvent,
+                snapshot: &HashMap<String, SessionEventSnapshot>,
+            ) -> Self {
+                let (kind, session_id) = match event {
+                    ChatSessionEvent::Created { session_id } => ("created", session_id),
+                    ChatSessionEvent::Updated { session_id } => ("updated", session_id),
+                    ChatSessionEvent::MessageAdded { session_id, .. } => {
+                        ("message_added", session_id)
+                    }
+                    ChatSessionEvent::Deleted { session_id } => ("deleted", session_id),
+                };
+                let state = snapshot.get(session_id);
+                Self {
+                    session_id: session_id.clone(),
+                    kind,
+                    updated_at: state.map(|state| state.updated_at),
+                    message_count: state.map(|state| state.message_count),
+                    event_count: state.map(|state| state.event_count),
+                    event_digest: state.map(|state| state.event_digest),
+                }
+            }
+        }
+
+        struct ForegroundSessionLease {
+            file: File,
+        }
+
+        impl ForegroundSessionLease {
+            fn acquire(session_id: &str, scope: &Option<ExecutionScope>) -> Result<Option<Self>> {
+                if !matches!(scope, Some(ExecutionScope::Foreground { .. })) {
+                    return Ok(None);
+                }
+                let dir = restflow_core::paths::ensure_restflow_dir()?.join("foreground-streams");
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join(format!("{}.lock", session_lock_file_stem(session_id)));
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(&path)?;
+                match file.try_lock_exclusive() {
+                    Ok(()) => {
+                        file.set_len(0)?;
+                        writeln!(file, "pid={}", std::process::id())?;
+                        writeln!(file, "session_id={session_id}")?;
+                        writeln!(file, "scope={scope:?}")?;
+                        Ok(Some(Self { file }))
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        anyhow::bail!(
+                            "Session {session_id} already has an active foreground stream"
+                        )
+                    }
+                    Err(error) => Err(error.into()),
+                }
+            }
+        }
+
+        impl Drop for ForegroundSessionLease {
+            fn drop(&mut self) {
+                let _ = self.file.unlock();
+            }
+        }
+
+        fn session_lock_file_stem(session_id: &str) -> String {
+            session_id
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                        ch
+                    } else {
+                        '_'
+                    }
+                })
+                .collect()
+        }
+
         pub async fn open_foreground_chat_session_stream(
             core: Arc<AppCore>,
             session_id: String,
@@ -2770,16 +3165,80 @@ pub mod daemon {
             .await
         }
 
+        pub async fn open_foreground_chat_session_stream_for_scope(
+            core: Arc<AppCore>,
+            session_id: String,
+            user_input: Option<String>,
+            stream_id: String,
+            workspace_root: Option<String>,
+            scope: ExecutionScope,
+        ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
+            IpcServer::open_execute_chat_session_stream(
+                core,
+                session_id,
+                user_input,
+                stream_id,
+                workspace_root,
+                Some(scope),
+            )
+            .await
+        }
+
         pub async fn steer_foreground_chat_stream(
             core: &Arc<AppCore>,
             session_id: &str,
             instruction: &str,
         ) -> bool {
-            runtime::steer_chat_stream(core, session_id, instruction, None).await
+            runtime::steer_chat_stream(core, session_id, instruction, None)
+                .await
+                .unwrap_or(false)
+        }
+
+        pub async fn steer_foreground_chat_stream_for_scope(
+            core: &Arc<AppCore>,
+            session_id: &str,
+            instruction: &str,
+            scope: ExecutionScope,
+        ) -> bool {
+            runtime::steer_chat_stream(core, session_id, instruction, Some(&scope))
+                .await
+                .unwrap_or(false)
         }
 
         pub async fn cancel_foreground_chat_stream(core: &Arc<AppCore>, stream_id: &str) -> bool {
-            runtime::cancel_chat_stream(core, stream_id).await
+            let bound = {
+                let session_streams = active_chat_stream_sessions().lock().await;
+                session_streams
+                    .iter()
+                    .find(|(_, binding)| binding.stream_id == stream_id)
+                    .map(|(session_id, binding)| (session_id.clone(), binding.scope.clone()))
+            };
+
+            if let Some((session_id, scope)) = bound {
+                return runtime::cancel_chat_stream(
+                    core,
+                    stream_id,
+                    Some(&session_id),
+                    scope.as_ref(),
+                )
+                .await
+                .unwrap_or(false);
+            }
+
+            runtime::cancel_chat_stream(core, stream_id, None, None)
+                .await
+                .unwrap_or(false)
+        }
+
+        pub async fn cancel_foreground_chat_stream_for_scope(
+            core: &Arc<AppCore>,
+            session_id: &str,
+            stream_id: &str,
+            scope: ExecutionScope,
+        ) -> bool {
+            runtime::cancel_chat_stream(core, stream_id, Some(session_id), Some(&scope))
+                .await
+                .unwrap_or(false)
         }
 
         fn daemon_started_at_ms() -> i64 {
@@ -2807,7 +3266,7 @@ pub mod daemon {
             session_id: String,
             turn_id: String,
             tx: mpsc::UnboundedSender<StreamFrame>,
-            has_text_streamed: Arc<AtomicBool>,
+            has_assistant_delta_streamed: Arc<AtomicBool>,
             assistant_segment: String,
         }
 
@@ -2817,36 +3276,51 @@ pub mod daemon {
                 session_id: String,
                 turn_id: String,
                 tx: mpsc::UnboundedSender<StreamFrame>,
-                has_text_streamed: Arc<AtomicBool>,
+                has_assistant_delta_streamed: Arc<AtomicBool>,
             ) -> Self {
                 Self {
                     core,
                     session_id,
                     turn_id,
                     tx,
-                    has_text_streamed,
+                    has_assistant_delta_streamed,
                     assistant_segment: String::new(),
                 }
             }
 
-            fn persist_assistant_segment(&mut self) {
-                let content = self.assistant_segment.trim_end().to_string();
-                self.assistant_segment.clear();
+            fn persist_assistant_segment(&mut self) -> bool {
+                let content = self.assistant_segment.clone();
                 if content.trim().is_empty() {
-                    return;
+                    self.assistant_segment.clear();
+                    return true;
                 }
-                if let Err(error) = record_turn_event_in_session_store(
+                match record_turn_event_in_session_store(
                     &self.core,
                     &self.session_id,
                     &self.turn_id,
                     ChatTurnEventKind::AssistantMessage { content },
                 ) {
-                    warn!(
-                        session_id = %self.session_id,
-                        turn_id = %self.turn_id,
-                        error = %error,
-                        "Failed to persist streamed assistant segment"
-                    );
+                    Ok(true) => {
+                        self.assistant_segment.clear();
+                        true
+                    }
+                    Ok(false) => {
+                        self.assistant_segment.clear();
+                        false
+                    }
+                    Err(error) => {
+                        warn!(
+                            session_id = %self.session_id,
+                            turn_id = %self.turn_id,
+                            error = %error,
+                            "Failed to persist streamed assistant segment"
+                        );
+                        let _ = self.tx.send(StreamFrame::error(
+                            500,
+                            format!("Failed to persist streamed assistant segment: {error}"),
+                        ));
+                        false
+                    }
                 }
             }
         }
@@ -2858,16 +3332,25 @@ pub mod daemon {
         }
 
         struct SessionReplySender {
+            core: Arc<AppCore>,
+            session_id: String,
+            turn_id: String,
             buffered_messages: Arc<Mutex<VecDeque<String>>>,
             stream_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
         }
 
         impl SessionReplySender {
             fn new(
+                core: Arc<AppCore>,
+                session_id: String,
+                turn_id: String,
                 buffered_messages: Arc<Mutex<VecDeque<String>>>,
                 stream_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
             ) -> Self {
                 Self {
+                    core,
+                    session_id,
+                    turn_id,
                     buffered_messages,
                     stream_tx,
                 }
@@ -2879,6 +3362,9 @@ pub mod daemon {
                 &self,
                 message: String,
             ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
+                let core = self.core.clone();
+                let session_id = self.session_id.clone();
+                let turn_id = self.turn_id.clone();
                 let buffered_messages = self.buffered_messages.clone();
                 let stream_tx = self.stream_tx.clone();
 
@@ -2887,10 +3373,22 @@ pub mod daemon {
                         return Ok(());
                     }
 
+                    let recorded = record_turn_event_in_session_store(
+                        &core,
+                        &session_id,
+                        &turn_id,
+                        ChatTurnEventKind::Progress {
+                            message: message.clone(),
+                        },
+                    )?;
+                    if !recorded {
+                        return Ok(());
+                    }
+
                     buffered_messages.lock().await.push_back(message.clone());
 
                     if let Some(tx) = stream_tx {
-                        let _ = tx.send(StreamFrame::Ack {
+                        let _ = tx.send(StreamFrame::Progress {
                             content: message.clone(),
                         });
                     }
@@ -2910,18 +3408,38 @@ pub mod daemon {
             }
         }
 
+        #[cfg(test)]
         fn normalize_model_input(model: &str) -> Result<String> {
-            ModelId::normalize_model_id(model)
-                .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
+            types::ModelId::normalize_unambiguous_model_id(model).map_err(anyhow::Error::msg)
         }
 
         fn ipc_session_lifecycle_error(error: anyhow::Error) -> IpcResponse {
-            IpcResponse::error(500, error.to_string())
+            let message = error.to_string();
+            let code = if is_client_session_lifecycle_error(&message) {
+                400
+            } else {
+                500
+            };
+            IpcResponse::error(code, message)
         }
 
-        fn ipc_error_with_optional_json_details(code: i32, message: String) -> IpcResponse {
-            let details = serde_json::from_str::<serde_json::Value>(&message).ok();
-            IpcResponse::error_with_details(code, message, details)
+        fn is_client_session_lifecycle_error(message: &str) -> bool {
+            message.starts_with("Unknown provider:")
+                || message.starts_with("Unknown model:")
+                || message.starts_with("Ambiguous model identifier")
+                || message.starts_with("Unsupported model identifier:")
+        }
+
+        fn stream_open_error_frame(error: anyhow::Error) -> StreamFrame {
+            let message = error.to_string();
+            let code = if message == "Foreground chat streaming runs in the TUI process"
+                || message.starts_with("Unsupported streaming request:")
+            {
+                -3
+            } else {
+                500
+            };
+            StreamFrame::error(code, message)
         }
 
         #[async_trait]
@@ -2930,18 +3448,25 @@ pub mod daemon {
                 if text.is_empty() {
                     return;
                 }
-                self.has_text_streamed.store(true, Ordering::Relaxed);
                 self.assistant_segment.push_str(text);
-                let _ = self.tx.send(StreamFrame::Data {
-                    content: text.to_string(),
-                });
+                if self.assistant_segment.trim().is_empty() {
+                    return;
+                }
+                let content = self.assistant_segment.clone();
+                if self.persist_assistant_segment() {
+                    self.has_assistant_delta_streamed
+                        .store(true, Ordering::Relaxed);
+                    let _ = self.tx.send(StreamFrame::Data { content });
+                }
             }
 
             async fn emit_thinking_delta(&mut self, _text: &str) {}
 
             async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
-                self.persist_assistant_segment();
-                if let Err(error) = record_turn_event_in_session_store(
+                if !self.persist_assistant_segment() {
+                    return;
+                }
+                match record_turn_event_in_session_store(
                     &self.core,
                     &self.session_id,
                     &self.turn_id,
@@ -2951,13 +3476,22 @@ pub mod daemon {
                         arguments: arguments.to_string(),
                     },
                 ) {
-                    warn!(
-                        session_id = %self.session_id,
-                        turn_id = %self.turn_id,
-                        call_id = %id,
-                        error = %error,
-                        "Failed to persist turn tool call event"
-                    );
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(error) => {
+                        warn!(
+                            session_id = %self.session_id,
+                            turn_id = %self.turn_id,
+                            call_id = %id,
+                            error = %error,
+                            "Failed to persist turn tool call event"
+                        );
+                        let _ = self.tx.send(StreamFrame::error(
+                            500,
+                            format!("Failed to persist turn tool call event: {error}"),
+                        ));
+                        return;
+                    }
                 }
                 let _ = self.tx.send(StreamFrame::ToolCall {
                     id: id.to_string(),
@@ -2973,7 +3507,7 @@ pub mod daemon {
                 result: &str,
                 success: bool,
             ) {
-                if let Err(error) = record_turn_event_in_session_store(
+                match record_turn_event_in_session_store(
                     &self.core,
                     &self.session_id,
                     &self.turn_id,
@@ -2983,13 +3517,22 @@ pub mod daemon {
                         result: result.to_string(),
                     },
                 ) {
-                    warn!(
-                        session_id = %self.session_id,
-                        turn_id = %self.turn_id,
-                        call_id = %id,
-                        error = %error,
-                        "Failed to persist turn tool result event"
-                    );
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(error) => {
+                        warn!(
+                            session_id = %self.session_id,
+                            turn_id = %self.turn_id,
+                            call_id = %id,
+                            error = %error,
+                            "Failed to persist turn tool result event"
+                        );
+                        let _ = self.tx.send(StreamFrame::error(
+                            500,
+                            format!("Failed to persist turn tool result event: {error}"),
+                        ));
+                        return;
+                    }
                 }
                 let _ = self.tx.send(StreamFrame::ToolResult {
                     id: id.to_string(),
@@ -3086,25 +3629,24 @@ pub mod daemon {
                     stream.read_exact(&mut buf).await?;
 
                     match serde_json::from_slice::<IpcRequest>(&buf) {
-                        Ok(
-                            request @ (IpcRequest::ExecuteChatSessionStream { .. }
-                            | IpcRequest::SubscribeSessionEvents),
-                        ) => match Self::open_stream(core.clone(), request).await {
-                            Ok(mut rx) => {
-                                while let Some(frame) = rx.recv().await {
-                                    if let Err(err) =
-                                        Self::send_stream_frame(&mut stream, &frame).await
-                                    {
-                                        debug!(error = %err, "Stream client disconnected");
-                                        break;
+                        Ok(request @ IpcRequest::SubscribeSessionEvents) => {
+                            match Self::open_stream(core.clone(), request).await {
+                                Ok(mut rx) => {
+                                    while let Some(frame) = rx.recv().await {
+                                        if let Err(err) =
+                                            Self::send_stream_frame(&mut stream, &frame).await
+                                        {
+                                            debug!(error = %err, "Stream client disconnected");
+                                            break;
+                                        }
                                     }
                                 }
+                                Err(err) => {
+                                    let frame = stream_open_error_frame(err);
+                                    let _ = Self::send_stream_frame(&mut stream, &frame).await;
+                                }
                             }
-                            Err(err) => {
-                                let frame = StreamFrame::error(500, err.to_string());
-                                let _ = Self::send_stream_frame(&mut stream, &frame).await;
-                            }
-                        },
+                        }
                         Ok(req) => {
                             let response =
                                 Self::process(&core, runtime_tool_registry.as_ref(), req).await;
@@ -3137,14 +3679,13 @@ pub mod daemon {
             }
 
             pub(crate) async fn open_stream(
-                _core: Arc<AppCore>,
+                core: Arc<AppCore>,
                 request: IpcRequest,
             ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
                 match request {
-                    IpcRequest::ExecuteChatSessionStream { .. } => {
-                        anyhow::bail!("Foreground chat streaming runs in the TUI process")
+                    IpcRequest::SubscribeSessionEvents => {
+                        Self::open_session_event_stream(core).await
                     }
-                    IpcRequest::SubscribeSessionEvents => Self::open_session_event_stream().await,
                     other => anyhow::bail!("Unsupported streaming request: {:?}", other),
                 }
             }
@@ -3163,16 +3704,52 @@ pub mod daemon {
                     stream_id
                 };
 
-                // Abort an existing stream with the same ID to avoid duplicate workers.
-                if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
-                    existing.abort();
+                if take_pending_canceled_stream(&stream_id, &session_id, &scope).await {
+                    runtime::cancel_pending_turn_in_session_store(
+                        &core,
+                        &session_id,
+                        &stream_id,
+                        user_input.as_deref(),
+                    )?;
+                    let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
+                    let _ = tx.send(StreamFrame::Start {
+                        stream_id: stream_id.clone(),
+                    });
+                    let _ = tx.send(StreamFrame::Done { total_tokens: None });
+                    return Ok(rx);
                 }
-                active_chat_stream_steers().lock().await.remove(&stream_id);
+
+                completed_chat_streams().lock().await.remove(&stream_id);
+
+                {
+                    let session_streams = active_chat_stream_sessions().lock().await;
+                    if let Some((owner_session_id, existing)) = session_streams
+                        .iter()
+                        .find(|(_, binding)| binding.stream_id == stream_id)
+                        && !existing.same_owner(&scope)
+                    {
+                        anyhow::bail!(
+                            "Stream {stream_id} for session {owner_session_id} is owned by another client"
+                        );
+                    }
+                    if let Some(existing) = session_streams.get(&session_id)
+                        && existing.stream_id != stream_id
+                        && !existing.same_owner(&scope)
+                    {
+                        anyhow::bail!(
+                            "Session {session_id} already has an active stream owned by another client"
+                        );
+                    }
+                }
+
+                if active_chat_streams().lock().await.contains_key(&stream_id) {
+                    anyhow::bail!("Stream {stream_id} is already active");
+                }
 
                 // Keep foreground streams scoped to their terminal owner. A second TUI on
                 // the same session should not silently abort the first TUI's active turn.
                 let previous_binding = {
-                    let mut session_streams = active_chat_stream_sessions().lock().await;
+                    let session_streams = active_chat_stream_sessions().lock().await;
                     match session_streams.get(&session_id) {
                         Some(existing)
                             if existing.stream_id != stream_id && !existing.same_owner(&scope) =>
@@ -3181,25 +3758,29 @@ pub mod daemon {
                                 "Session {session_id} already has an active stream owned by another client"
                             );
                         }
-                        _ => session_streams.insert(
-                            session_id.clone(),
-                            ActiveChatStreamBinding::new(
-                                stream_id.clone(),
-                                stream_id.clone(),
-                                scope.clone(),
-                            ),
-                        ),
+                        existing => existing.cloned(),
                     }
                 };
                 if let Some(previous_binding) = previous_binding
                     && previous_binding.stream_id != stream_id
                 {
+                    runtime::cancel_pending_turn_in_session_store(
+                        &core,
+                        &session_id,
+                        &previous_binding.stream_id,
+                        previous_binding.user_input.as_deref(),
+                    )?;
                     if let Some(previous) = active_chat_streams()
                         .lock()
                         .await
                         .remove(&previous_binding.stream_id)
                     {
                         previous.abort();
+                        let _ = previous.await;
+                        completed_chat_streams()
+                            .lock()
+                            .await
+                            .remove(&previous_binding.stream_id);
                     }
                     active_chat_stream_steers()
                         .lock()
@@ -3207,11 +3788,33 @@ pub mod daemon {
                         .remove(&previous_binding.stream_id);
                 }
 
+                let foreground_lease = ForegroundSessionLease::acquire(&session_id, &scope)?;
+                if foreground_lease.is_some() {
+                    runtime::cancel_orphaned_running_turns_in_session_store(
+                        &core,
+                        &session_id,
+                        &stream_id,
+                    )?;
+                }
+                active_chat_stream_sessions().lock().await.insert(
+                    session_id.clone(),
+                    ActiveChatStreamBinding::new(
+                        stream_id.clone(),
+                        stream_id.clone(),
+                        scope.clone(),
+                    )
+                    .with_user_input(user_input.clone()),
+                );
                 let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
                 tx.send(StreamFrame::Start {
                     stream_id: stream_id.clone(),
                 })?;
+                let has_assistant_delta_streamed = Arc::new(AtomicBool::new(false));
                 let (steer_tx, steer_rx) = mpsc::channel::<SteerMessage>(64);
+                active_chat_stream_steers()
+                    .lock()
+                    .await
+                    .insert(stream_id.clone(), steer_tx);
                 let worker_stream_id = stream_id.clone();
                 let worker_turn_id = stream_id.clone();
                 let worker_session_id = session_id.clone();
@@ -3220,35 +3823,54 @@ pub mod daemon {
                 let worker_workspace_root = workspace_root.clone();
                 let worker_core = core.clone();
                 let handle = tokio::spawn(async move {
-                    let has_text_streamed = Arc::new(AtomicBool::new(false));
+                    let _foreground_lease = foreground_lease;
                     let emitter = IpcStreamEmitter::new(
                         worker_core.clone(),
                         worker_session_id.clone(),
                         worker_turn_id.clone(),
                         tx.clone(),
-                        has_text_streamed.clone(),
+                        has_assistant_delta_streamed.clone(),
                     );
-                    let result = execute_chat_session(
-                        &worker_core,
-                        ExecuteChatSessionRequest {
-                            session_id: worker_session_id,
-                            user_input: worker_user_input,
-                            turn_id: worker_turn_id,
-                            workspace_root: worker_workspace_root,
-                            ack_frame_tx: Some(tx.clone()),
-                            emitter: Some(Box::new(emitter)),
-                            steer_rx: Some(steer_rx),
-                        },
+                    let result = if take_pending_canceled_stream(
+                        &worker_stream_id,
+                        &worker_session_id,
+                        &scope,
                     )
-                    .await;
+                    .await
+                    {
+                        let _ = runtime::cancel_pending_turn_in_session_store(
+                            &worker_core,
+                            &worker_session_id,
+                            &worker_turn_id,
+                            worker_user_input.as_deref(),
+                        );
+                        Err(ExecuteChatSessionError::Canceled)
+                    } else {
+                        execute_chat_session(
+                            &worker_core,
+                            ExecuteChatSessionRequest {
+                                session_id: worker_session_id,
+                                user_input: worker_user_input,
+                                turn_id: worker_turn_id,
+                                workspace_root: worker_workspace_root,
+                                ack_frame_tx: Some(tx.clone()),
+                                emitter: Some(Box::new(emitter)),
+                                steer_rx: Some(steer_rx),
+                                has_text_streamed: Some(has_assistant_delta_streamed.clone()),
+                            },
+                        )
+                        .await
+                    };
 
                     match result {
                         Ok(session) => {
                             if let Some((content, total_tokens)) =
                                 latest_assistant_payload(&session)
                             {
-                                if !has_text_streamed.load(Ordering::Relaxed) && !content.is_empty()
+                                if !has_assistant_delta_streamed.load(Ordering::Relaxed)
+                                    && !content.is_empty()
                                 {
+                                    has_assistant_delta_streamed.store(true, Ordering::Relaxed);
                                     let _ = tx.send(StreamFrame::Data { content });
                                 }
                                 let _ = tx.send(StreamFrame::Done { total_tokens });
@@ -3259,13 +3881,22 @@ pub mod daemon {
                                 ));
                             }
                         }
+                        Err(ExecuteChatSessionError::Canceled) => {
+                            let _ = tx.send(StreamFrame::Done { total_tokens: None });
+                        }
                         Err(err) => {
                             let _ = tx.send(StreamFrame::error(err.status_code(), err.to_string()));
                         }
                     }
 
                     let mut streams = active_chat_streams().lock().await;
-                    streams.remove(&worker_stream_id);
+                    let removed_registered_handle = streams.remove(&worker_stream_id).is_some();
+                    if !removed_registered_handle {
+                        completed_chat_streams()
+                            .lock()
+                            .await
+                            .insert(worker_stream_id.clone());
+                    }
                     active_chat_stream_steers()
                         .lock()
                         .await
@@ -3279,51 +3910,146 @@ pub mod daemon {
                     }
                 });
 
-                active_chat_streams()
-                    .lock()
-                    .await
-                    .insert(stream_id.clone(), handle);
-                active_chat_stream_steers()
-                    .lock()
-                    .await
-                    .insert(stream_id.clone(), steer_tx);
+                let mut handle = Some(handle);
+                let completed_before_registration = {
+                    let mut streams = active_chat_streams().lock().await;
+                    let mut completed = completed_chat_streams().lock().await;
+                    if completed.remove(&stream_id) {
+                        true
+                    } else if let Some(handle) = handle.take() {
+                        streams.insert(stream_id.clone(), handle);
+                        false
+                    } else {
+                        false
+                    }
+                };
+                if completed_before_registration {
+                    active_chat_stream_steers().lock().await.remove(&stream_id);
+                    if let Some(handle) = handle.take() {
+                        let _ = handle.await;
+                    }
+                }
 
                 Ok(rx)
             }
 
-            async fn open_session_event_stream() -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
+            async fn open_session_event_stream(
+                core: Arc<AppCore>,
+            ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
                 let stream_id = format!("session-events-{}", Uuid::new_v4());
                 let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
                 let mut receiver = subscribe_session_events();
+                let mut snapshot = Self::session_event_snapshot(&core).unwrap_or_default();
+                let mut deduper = SessionEventDeduper::default();
                 tx.send(StreamFrame::Start {
                     stream_id: stream_id.clone(),
                 })?;
 
                 tokio::spawn(async move {
+                    let mut poll = interval(Duration::from_millis(750));
                     loop {
-                        let event = match receiver.recv().await {
-                            Ok(event) => event,
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                                warn!(
-                                    skipped,
-                                    "Session event stream lagged; dropping oldest events"
-                                );
-                                continue;
-                            }
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                                let _ =
-                                    tx.send(StreamFrame::error(500, "Session event stream closed"));
-                                break;
-                            }
-                        };
+                        tokio::select! {
+                            event = receiver.recv() => {
+                                let event = match event {
+                                    Ok(event) => event,
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                                        warn!(
+                                            skipped,
+                                            "Session event stream lagged; dropping oldest events"
+                                        );
+                                        continue;
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                        let _ =
+                                            tx.send(StreamFrame::error(500, "Session event stream closed"));
+                                        break;
+                                    }
+                                };
 
-                        if tx
-                            .send(StreamFrame::Event {
-                                event: IpcStreamEvent::Session(event),
-                            })
-                            .is_err()
-                        {
-                            break;
+                                if let Ok(next_snapshot) = Self::session_event_snapshot(&core) {
+                                    if deduper.should_send(&event, &next_snapshot)
+                                        && tx
+                                            .send(StreamFrame::Event {
+                                                event: IpcStreamEvent::Session(event),
+                                            })
+                                            .is_err()
+                                    {
+                                        break;
+                                    }
+                                    snapshot = next_snapshot;
+                                } else if tx
+                                    .send(StreamFrame::Event {
+                                        event: IpcStreamEvent::Session(event),
+                                    })
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            _ = poll.tick() => {
+                                let next_snapshot = match Self::session_event_snapshot(&core) {
+                                    Ok(snapshot) => snapshot,
+                                    Err(error) => {
+                                        warn!(error = %error, "Failed to poll session event snapshot");
+                                        continue;
+                                    }
+                                };
+                                for (session_id, next) in &next_snapshot {
+                                    let event = match snapshot.get(session_id) {
+                                        None => Some(ChatSessionEvent::Created {
+                                            session_id: session_id.clone(),
+                                        }),
+                                        Some(previous) if previous.message_count < next.message_count => {
+                                            Some(ChatSessionEvent::MessageAdded {
+                                                session_id: session_id.clone(),
+                                                source: "file".to_string(),
+                                            })
+                                        }
+                                        Some(previous)
+                                            if previous.updated_at != next.updated_at
+                                                || previous.event_count != next.event_count
+                                                || previous.event_digest != next.event_digest =>
+                                        {
+                                            Some(ChatSessionEvent::Updated {
+                                                session_id: session_id.clone(),
+                                            })
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(event) = event {
+                                        if !deduper.should_send(&event, &next_snapshot) {
+                                            continue;
+                                        }
+                                        if tx
+                                            .send(StreamFrame::Event {
+                                                event: IpcStreamEvent::Session(event),
+                                            })
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                    }
+                                }
+                                for session_id in snapshot.keys() {
+                                    if !next_snapshot.contains_key(session_id) {
+                                        let event = ChatSessionEvent::Deleted {
+                                            session_id: session_id.clone(),
+                                        };
+                                        if !deduper.should_send(&event, &next_snapshot) {
+                                            continue;
+                                        }
+                                        if tx
+                                            .send(StreamFrame::Event {
+                                                event: IpcStreamEvent::Session(event),
+                                            })
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                    }
+                                }
+                                snapshot = next_snapshot;
+                            }
                         }
                     }
 
@@ -3332,6 +4058,37 @@ pub mod daemon {
 
                 Ok(rx)
             }
+
+            fn session_event_snapshot(
+                core: &AppCore,
+            ) -> Result<HashMap<String, SessionEventSnapshot>> {
+                let sessions = core.storage.file_sessions.list_uncached()?;
+                Ok(sessions
+                    .into_iter()
+                    .map(|session| {
+                        let summary = types::ChatSessionSummary::from(&session.to_chat_session());
+                        (
+                            summary.id,
+                            SessionEventSnapshot {
+                                updated_at: summary.updated_at,
+                                message_count: summary.message_count,
+                                event_count: session.events.len(),
+                                event_digest: session_event_digest(&session.events),
+                            },
+                        )
+                    })
+                    .collect())
+            }
+        }
+
+        fn session_event_digest(events: &[restflow_core::session_log::SessionLogEvent]) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            for event in events {
+                if let Ok(bytes) = serde_json::to_vec(event) {
+                    bytes.hash(&mut hasher);
+                }
+            }
+            hasher.finish()
         }
 
         #[cfg(test)]
@@ -3339,18 +4096,18 @@ pub mod daemon {
         mod tests {
             pub(super) use super::runtime::{
                 build_agent_system_prompt, cancel_chat_stream,
-                load_chat_max_session_history_from_core, persist_ipc_user_message_if_needed,
-                record_turn_event_in_session_store, steer_chat_stream,
-                subagent_config_from_defaults,
+                cancel_orphaned_running_turns_in_session_store, complete_turn_after_execution,
+                fail_turn_in_session_store, load_chat_max_session_history_from_core,
+                persist_ipc_user_message_if_needed, persist_steer_if_stream_still_registered,
+                record_turn_event_in_session_store, record_turn_user_message_in_session_store,
+                steer_chat_stream, sync_session_view_from_session_store,
             };
             pub(super) use super::*;
-            pub(super) use crate::services::agent_catalog;
+            pub(super) use restflow_core::services::agent_catalog;
             pub(super) use restflow_core::test_support::RestflowTestEnv;
             pub(super) use types::AgentNode;
             pub(super) use types::SteerCommand;
-            pub(super) use types::ToolExecutionResult;
             pub(super) use types::store::ReplySender;
-            pub(super) use types::tool::ToolErrorCategory;
             pub(super) use uuid::Uuid;
 
             pub(super) struct TestCoreEnv {
@@ -3363,6 +4120,87 @@ pub mod daemon {
                 let db_path = state.db_path("ipc-server-test.db");
                 let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
                 (core, TestCoreEnv { state })
+            }
+
+            #[test]
+            fn purge_expired_pending_canceled_streams_removes_stale_entries() {
+                let mut pending = HashMap::new();
+                pending.insert(
+                    "old-stream".to_string(),
+                    PendingCanceledChatStream {
+                        session_id: "session-1".to_string(),
+                        scope: None,
+                        expires_at: Instant::now() - Duration::from_secs(1),
+                    },
+                );
+                pending.insert(
+                    "fresh-stream".to_string(),
+                    PendingCanceledChatStream::new("session-1", None),
+                );
+
+                purge_expired_pending_canceled_streams(&mut pending);
+
+                assert!(!pending.contains_key("old-stream"));
+                assert!(pending.contains_key("fresh-stream"));
+            }
+
+            #[test]
+            fn session_event_deduper_suppresses_poll_broadcast_echo() {
+                let mut deduper = SessionEventDeduper::default();
+                let mut snapshot = HashMap::new();
+                snapshot.insert(
+                    "session-1".to_string(),
+                    SessionEventSnapshot {
+                        updated_at: 20,
+                        message_count: 2,
+                        event_count: 4,
+                        event_digest: 400,
+                    },
+                );
+                let poll_event = ChatSessionEvent::MessageAdded {
+                    session_id: "session-1".to_string(),
+                    source: "file".to_string(),
+                };
+                let broadcast_event = ChatSessionEvent::MessageAdded {
+                    session_id: "session-1".to_string(),
+                    source: "workspace".to_string(),
+                };
+
+                assert!(deduper.should_send(&poll_event, &snapshot));
+                assert!(!deduper.should_send(&broadcast_event, &snapshot));
+
+                snapshot.insert(
+                    "session-1".to_string(),
+                    SessionEventSnapshot {
+                        updated_at: 30,
+                        message_count: 3,
+                        event_count: 5,
+                        event_digest: 500,
+                    },
+                );
+                assert!(deduper.should_send(&broadcast_event, &snapshot));
+
+                snapshot.insert(
+                    "session-1".to_string(),
+                    SessionEventSnapshot {
+                        updated_at: 30,
+                        message_count: 3,
+                        event_count: 6,
+                        event_digest: 600,
+                    },
+                );
+                assert!(deduper.should_send(&broadcast_event, &snapshot));
+
+                snapshot.insert(
+                    "session-1".to_string(),
+                    SessionEventSnapshot {
+                        updated_at: 30,
+                        message_count: 3,
+                        event_count: 6,
+                        event_digest: 601,
+                    },
+                );
+                assert!(deduper.should_send(&broadcast_event, &snapshot));
             }
 
             #[tokio::test]
@@ -3584,7 +4422,7 @@ pub mod daemon {
 
                     match response {
                         IpcResponse::Success(value) => {
-                            let _config: crate::storage::SystemConfig =
+                            let _config: restflow_core::storage::SystemConfig =
                                 serde_json::from_value(value).expect("system config");
                         }
                         other => panic!("expected success response, got {other:?}"),
@@ -3593,85 +4431,6 @@ pub mod daemon {
             }
             mod runtime_tools {
                 use super::*;
-                #[tokio::test]
-                async fn execute_tool_browser_is_not_registered_in_core_runtime() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let tools_response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::GetAvailableTools,
-                    )
-                    .await;
-                    match tools_response {
-                        IpcResponse::Success(value) => {
-                            let tools = value
-                                .as_array()
-                                .expect("available tools should be an array");
-                            assert!(!tools.iter().any(|tool| tool.as_str() == Some("browser")));
-                        }
-                        other => panic!("expected available tools response, got {other:?}"),
-                    }
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::ExecuteTool {
-                            name: "browser".to_string(),
-                            input: serde_json::json!({
-                                "action": "new_session",
-                                "headless": true
-                            }),
-                        },
-                    )
-                    .await;
-
-                    match response {
-                        IpcResponse::Error(error) => {
-                            assert_eq!(error.code, 500);
-                        }
-                        other => panic!("expected browser tool to be absent, got {other:?}"),
-                    }
-                }
-
-                #[tokio::test]
-                async fn execute_tool_failure_includes_structured_error_metadata() {
-                    let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
-
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::ExecuteTool {
-                            name: "bash".to_string(),
-                            input: serde_json::json!({
-                                "command": "definitely_not_a_real_command_restflow_12345",
-                                "yolo_mode": true
-                            }),
-                        },
-                    )
-                    .await;
-
-                    match response {
-                        IpcResponse::Success(value) => {
-                            let result: ToolExecutionResult = serde_json::from_value(value.clone())
-                                .expect("tool result should deserialize");
-                            assert!(!result.success);
-                            assert!(result.error.is_some());
-                            assert_eq!(result.error_category, Some(ToolErrorCategory::Config));
-                            assert_eq!(result.retryable, Some(false));
-                            assert_eq!(result.retry_after_ms, None);
-
-                            assert_eq!(value["error_category"], "Config");
-                            assert_eq!(value["retryable"], false);
-                            assert!(value.get("retry_after_ms").is_some());
-                        }
-                        other => panic!(
-                            "expected success response with failed tool payload, got {other:?}"
-                        ),
-                    }
-                }
 
                 #[tokio::test]
                 /// Skills are now registered as callable tools, not injected into the system prompt.
@@ -3713,24 +4472,6 @@ pub mod daemon {
                         .unwrap()
                         .expect("session")
                         .to_chat_session()
-                }
-
-                #[test]
-                fn subagent_config_from_defaults_maps_max_iterations() {
-                    let defaults = AgentDefaults {
-                        max_parallel_subagents: 21,
-                        subagent_timeout_secs: 1200,
-                        max_iterations: 111,
-                        max_depth: 4,
-                        ..AgentDefaults::default()
-                    };
-
-                    let config = subagent_config_from_defaults(&defaults);
-
-                    assert_eq!(config.max_parallel_agents, 21);
-                    assert_eq!(config.subagent_timeout_secs, 1200);
-                    assert_eq!(config.max_iterations, 111);
-                    assert_eq!(config.max_depth, 4);
                 }
 
                 #[tokio::test]
@@ -3800,6 +4541,74 @@ pub mod daemon {
                 }
 
                 #[tokio::test]
+                async fn record_turn_event_does_not_revive_canceled_turn() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.record_turn_user_message("turn-1", "hello");
+                    session.cancel_turn("turn-1");
+                    save_chat_session(&core, &session);
+
+                    record_turn_event_in_session_store(
+                        &core,
+                        &session.id,
+                        "turn-1",
+                        types::ChatTurnEventKind::ToolCall {
+                            call_id: "call-after-cancel".to_string(),
+                            name: "bash".to_string(),
+                            arguments: "pwd".to_string(),
+                        },
+                    )
+                    .unwrap();
+
+                    let stored = load_chat_session(&core, &session.id);
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "turn-1")
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(!turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            types::ChatTurnEventKind::ToolCall { call_id, .. }
+                                if call_id == "call-after-cancel"
+                        )
+                    }));
+                }
+
+                #[tokio::test]
+                async fn record_turn_user_message_does_not_revive_canceled_turn() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.record_turn_user_message("turn-1", "hello");
+                    session.cancel_turn("turn-1");
+                    save_chat_session(&core, &session);
+
+                    let recorded = record_turn_user_message_in_session_store(
+                        &core,
+                        &mut session,
+                        "turn-1",
+                        "late user",
+                    )
+                    .unwrap();
+
+                    assert!(!recorded);
+                    let stored = load_chat_session(&core, &session.id);
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "turn-1")
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(!turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::UserMessage { content } if content == "late user"
+                        )
+                    }));
+                }
+
+                #[tokio::test]
                 async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
                     let (core, _temp) = create_test_core().await;
                     let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
@@ -3817,18 +4626,275 @@ pub mod daemon {
                     assert_eq!(stored.name, "hello from ipc");
                 }
 
+                #[tokio::test]
+                async fn sync_session_view_preserves_execution_agent_id() {
+                    let (core, _temp) = create_test_core().await;
+                    let stored_session =
+                        ChatSession::new("missing-agent".to_string(), "gpt-5.5".to_string());
+                    save_chat_session(&core, &stored_session);
+
+                    let mut execution_session = stored_session.clone();
+                    execution_session.agent_id = "fallback-agent".to_string();
+                    sync_session_view_from_session_store(&core, &mut execution_session).unwrap();
+
+                    assert_eq!(execution_session.agent_id, "fallback-agent");
+                    assert_eq!(execution_session.id, stored_session.id);
+                }
+
+                #[tokio::test]
+                async fn fail_turn_persists_repaired_execution_agent_id() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("missing-agent".to_string(), "gpt-5.5".to_string());
+                    session.record_turn_user_message("turn-1", "hello");
+                    save_chat_session(&core, &session);
+
+                    fail_turn_in_session_store(
+                        &core,
+                        &session.id,
+                        "turn-1",
+                        "model failed",
+                        Some(SessionAgentIdRepair {
+                            expected_existing_agent_id: "missing-agent".to_string(),
+                            repaired_agent_id: "fallback-agent".to_string(),
+                        }),
+                    )
+                    .unwrap();
+
+                    let stored = load_chat_session(&core, &session.id);
+                    assert_eq!(stored.agent_id, "fallback-agent");
+                    assert_eq!(stored.turns[0].status, ChatTurnStatus::Failed);
+                }
+
                 #[test]
                 fn normalize_model_input_converts_to_serialized_form() {
-                    assert_eq!(
-                        normalize_model_input("MiniMax-M2.5").unwrap(),
-                        "minimax-m2-5"
-                    );
+                    assert_eq!(normalize_model_input("openai:gpt-5.5").unwrap(), "gpt-5-5");
                     assert_eq!(normalize_model_input("gpt-5.1").unwrap(), "gpt-5-1");
                 }
 
                 #[test]
                 fn normalize_model_input_rejects_unknown_value() {
                     assert!(normalize_model_input("not-a-real-model").is_err());
+                }
+
+                #[test]
+                fn normalize_model_input_rejects_cross_provider_collision() {
+                    let error = normalize_model_input("gpt-5.5").expect_err("ambiguous model");
+                    assert!(error.to_string().contains("Ambiguous model identifier"));
+                }
+
+                #[tokio::test]
+                async fn create_session_accepts_provider_qualified_api_model_name() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::CreateSessionWithProvider {
+                            agent_id: None,
+                            provider: Some("openai".to_string()),
+                            model: Some("gpt-5.5".to_string()),
+                            name: None,
+                            skill_id: None,
+                        },
+                    )
+                    .await;
+
+                    match response {
+                        IpcResponse::Success(value) => {
+                            let session: ChatSession =
+                                serde_json::from_value(value).expect("chat session");
+                            assert_eq!(session.provider, "openai");
+                            assert_eq!(session.model, types::ModelId::Gpt5_5.as_serialized_str());
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    }
+                }
+
+                #[tokio::test]
+                async fn create_session_preserves_legacy_providerless_api_model() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::CreateSession {
+                            agent_id: None,
+                            model: Some("gpt-5.5".to_string()),
+                            name: None,
+                            skill_id: None,
+                        },
+                    )
+                    .await;
+
+                    match response {
+                        IpcResponse::Success(value) => {
+                            let session: ChatSession = serde_json::from_value(value).unwrap();
+                            assert_eq!(session.provider, "openai");
+                            assert_eq!(session.model, "gpt-5-5");
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    }
+                }
+
+                #[tokio::test]
+                async fn create_session_provider_only_uses_provider_default_model() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::CreateSessionWithProvider {
+                            agent_id: None,
+                            provider: Some("openai".to_string()),
+                            model: None,
+                            name: None,
+                            skill_id: None,
+                        },
+                    )
+                    .await;
+
+                    match response {
+                        IpcResponse::Success(value) => {
+                            let session: ChatSession =
+                                serde_json::from_value(value).expect("chat session");
+                            assert_eq!(session.provider, "openai");
+                            assert_eq!(session.model, types::ModelId::Gpt5_5.as_serialized_str());
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    }
+                }
+
+                #[tokio::test]
+                async fn create_session_without_model_uses_available_secret_default() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+                    core.storage
+                        .secrets
+                        .set_secret("MINIMAX_API_KEY", "test-minimax-key", None)
+                        .unwrap();
+                    let agent = core
+                        .storage
+                        .agents
+                        .create_agent("No Model Agent".to_string(), AgentNode::new())
+                        .unwrap();
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::CreateSession {
+                            agent_id: Some(agent.id),
+                            model: None,
+                            name: None,
+                            skill_id: None,
+                        },
+                    )
+                    .await;
+
+                    match response {
+                        IpcResponse::Success(value) => {
+                            let session: ChatSession =
+                                serde_json::from_value(value).expect("chat session");
+                            assert_eq!(session.provider, "minimax");
+                            assert_eq!(
+                                session.model,
+                                restflow_core::provider_policy::provider_default_model(
+                                    types::Provider::MiniMax
+                                )
+                                .as_serialized_str()
+                            );
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    }
+                }
+
+                #[tokio::test]
+                async fn create_session_without_model_prefers_configured_cli_default() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+                    let mut cli_config =
+                        restflow_core::storage::load_global_cli_config().expect("cli config");
+                    cli_config.model = Some("openai:gpt-5.5".to_string());
+                    restflow_core::storage::write_cli_config(&cli_config)
+                        .expect("write cli config");
+                    core.storage
+                        .secrets
+                        .set_secret("MINIMAX_API_KEY", "test-minimax-key", None)
+                        .unwrap();
+                    let agent = core
+                        .storage
+                        .agents
+                        .create_agent("No Model Agent".to_string(), AgentNode::new())
+                        .unwrap();
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::CreateSession {
+                            agent_id: Some(agent.id),
+                            model: None,
+                            name: None,
+                            skill_id: None,
+                        },
+                    )
+                    .await;
+
+                    match response {
+                        IpcResponse::Success(value) => {
+                            let session: ChatSession =
+                                serde_json::from_value(value).expect("chat session");
+                            assert_eq!(session.provider, "openai");
+                            assert_eq!(session.model, types::ModelId::Gpt5_5.as_serialized_str());
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    }
+                }
+
+                #[tokio::test]
+                async fn create_session_without_model_prefers_agent_model_before_cli_default() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+                    let mut cli_config =
+                        restflow_core::storage::load_global_cli_config().expect("cli config");
+                    cli_config.model = Some("openai:gpt-5.5".to_string());
+                    restflow_core::storage::write_cli_config(&cli_config)
+                        .expect("write cli config");
+                    let agent = core
+                        .storage
+                        .agents
+                        .create_agent(
+                            "Pinned Agent".to_string(),
+                            AgentNode::with_model(types::ModelId::MiniMaxM27),
+                        )
+                        .unwrap();
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::CreateSession {
+                            agent_id: Some(agent.id),
+                            model: None,
+                            name: None,
+                            skill_id: None,
+                        },
+                    )
+                    .await;
+
+                    match response {
+                        IpcResponse::Success(value) => {
+                            let session: ChatSession =
+                                serde_json::from_value(value).expect("chat session");
+                            assert_eq!(session.provider, "minimax");
+                            assert_eq!(
+                                session.model,
+                                types::ModelId::MiniMaxM27.as_serialized_str()
+                            );
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    }
                 }
 
                 #[tokio::test]
@@ -3894,7 +4960,7 @@ pub mod daemon {
 
                     let steered =
                         steer_chat_stream(&core, &session_id, "continue with option B", None).await;
-                    assert!(steered);
+                    assert!(steered.unwrap());
 
                     let message = rx.recv().await.expect("steer message");
                     match message.command {
@@ -3920,6 +4986,78 @@ pub mod daemon {
                         &event.kind,
                         ChatTurnEventKind::UserMessage { content } if content == "continue with option B"
                     )));
+
+                    let steered_again =
+                        steer_chat_stream(&core, &session_id, "continue with option B", None).await;
+                    assert!(steered_again.unwrap());
+                    let repeated_message = rx.recv().await.expect("repeated steer message");
+                    match repeated_message.command {
+                        SteerCommand::Message { instruction } => {
+                            assert_eq!(instruction, "continue with option B")
+                        }
+                        _ => panic!("expected repeated message steer command"),
+                    }
+                    let stored = session_service
+                        .get_session_view(&session_id)
+                        .unwrap()
+                        .expect("stored session after repeated steer");
+                    assert_eq!(
+                        stored
+                            .messages
+                            .iter()
+                            .filter(|message| {
+                                message.role == ChatRole::User
+                                    && message.content == "continue with option B"
+                            })
+                            .count(),
+                        2
+                    );
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .expect("stored turn after repeated steer");
+                    assert_eq!(
+                        turn.events
+                            .iter()
+                            .filter(|event| matches!(
+                                &event.kind,
+                                ChatTurnEventKind::UserMessage { content }
+                                    if content == "continue with option B"
+                            ))
+                            .count(),
+                        2
+                    );
+
+                    active_chat_stream_sessions()
+                        .lock()
+                        .await
+                        .remove(&session_id);
+                    active_chat_stream_steers().lock().await.remove(&stream_id);
+                }
+
+                #[tokio::test]
+                async fn steer_chat_stream_does_not_deliver_when_persistence_fails() {
+                    let (core, _temp) = create_test_core().await;
+                    let session_id = format!("session-{}", Uuid::new_v4());
+                    let stream_id = format!("stream-{}", Uuid::new_v4());
+                    let (tx, mut rx) = mpsc::channel::<SteerMessage>(1);
+
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(stream_id.clone(), stream_id.clone(), None),
+                    );
+                    active_chat_stream_steers()
+                        .lock()
+                        .await
+                        .insert(stream_id.clone(), tx);
+
+                    let error = steer_chat_stream(&core, &session_id, "unpersisted steer", None)
+                        .await
+                        .expect_err("missing session should make steer persistence fail");
+
+                    assert!(error.to_string().contains(types::SESSION_NOT_FOUND));
+                    assert!(rx.try_recv().is_err());
 
                     active_chat_stream_sessions()
                         .lock()
@@ -3952,7 +5090,7 @@ pub mod daemon {
 
                     let steered =
                         steer_chat_stream(&core, &session_id, "continue", Some(&other_scope)).await;
-                    assert!(!steered);
+                    assert!(!steered.unwrap());
 
                     active_chat_stream_sessions()
                         .lock()
@@ -3962,18 +5100,220 @@ pub mod daemon {
                 }
 
                 #[tokio::test]
+                async fn steer_chat_stream_rejects_unscoped_request_for_scoped_stream() {
+                    let (core, _temp) = create_test_core().await;
+                    let session_id = format!("session-{}", Uuid::new_v4());
+                    let stream_id = format!("stream-{}", Uuid::new_v4());
+                    let owner_scope = types::ExecutionScope::foreground("client-a", "terminal-a");
+                    let (tx, mut rx) = mpsc::channel::<SteerMessage>(1);
+
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(
+                            stream_id.clone(),
+                            stream_id.clone(),
+                            Some(owner_scope),
+                        ),
+                    );
+                    active_chat_stream_steers()
+                        .lock()
+                        .await
+                        .insert(stream_id.clone(), tx);
+
+                    let steered = steer_chat_stream(&core, &session_id, "continue", None).await;
+                    assert!(!steered.unwrap());
+                    assert!(rx.try_recv().is_err());
+
+                    active_chat_stream_sessions()
+                        .lock()
+                        .await
+                        .remove(&session_id);
+                    active_chat_stream_steers().lock().await.remove(&stream_id);
+                }
+
+                #[tokio::test]
+                async fn steer_chat_stream_marks_persisted_update_when_delivery_fails() {
+                    let (core, _temp) = create_test_core().await;
+                    let session_service = SessionService::from_storage(&core.storage);
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.add_message(ChatMessage::user("start"));
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let stream_id = format!("stream-{}", Uuid::new_v4());
+                    let turn_id = stream_id.clone();
+                    let (tx, rx) = mpsc::channel::<SteerMessage>(1);
+                    drop(rx);
+
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(stream_id.clone(), turn_id.clone(), None),
+                    );
+                    active_chat_stream_steers()
+                        .lock()
+                        .await
+                        .insert(stream_id.clone(), tx);
+
+                    let steered = steer_chat_stream(&core, &session_id, "  late steer  ", None)
+                        .await
+                        .unwrap();
+                    assert!(!steered);
+
+                    let stored = session_service
+                        .get_session_view(&session_id)
+                        .unwrap()
+                        .expect("stored session");
+                    assert!(stored.messages.iter().any(|message| {
+                        message.role == ChatRole::User && message.content == "late steer"
+                    }));
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .expect("stored turn");
+                    assert!(turn.events.iter().any(|event| matches!(
+                        &event.kind,
+                        ChatTurnEventKind::Error { message }
+                            if message.contains("not delivered")
+                    )));
+                    assert!(
+                        !active_chat_stream_sessions()
+                            .lock()
+                            .await
+                            .contains_key(&session_id)
+                    );
+                    assert!(
+                        !active_chat_stream_steers()
+                            .lock()
+                            .await
+                            .contains_key(&stream_id)
+                    );
+                }
+
+                #[tokio::test]
                 async fn steer_chat_stream_returns_false_when_no_active_session_stream() {
                     let (core, _temp) = create_test_core().await;
                     let session_id = format!("session-{}", Uuid::new_v4());
                     let steered = steer_chat_stream(&core, &session_id, "test", None).await;
-                    assert!(!steered);
+                    assert!(!steered.unwrap());
+                }
+
+                #[tokio::test]
+                async fn steer_persistence_skips_removed_stream_binding() {
+                    let (core, _temp) = create_test_core().await;
+                    let session_service = SessionService::from_storage(&core.storage);
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.add_message(ChatMessage::user("start"));
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let binding =
+                        ActiveChatStreamBinding::new("stream-removed", "stream-removed", None);
+
+                    let persisted = persist_steer_if_stream_still_registered(
+                        &core,
+                        &session_id,
+                        &binding,
+                        "late steer",
+                    )
+                    .await;
+
+                    assert!(!persisted.unwrap());
+                    let stored = session_service
+                        .get_session_view(&session_id)
+                        .unwrap()
+                        .expect("stored session");
+                    assert!(
+                        !stored
+                            .messages
+                            .iter()
+                            .any(|message| message.content == "late steer")
+                    );
+                }
+
+                #[tokio::test]
+                async fn unscoped_foreground_cancel_resolves_scoped_stream_binding() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    let stream_id = format!("stream-{}", Uuid::new_v4());
+                    session.record_turn_user_message(&stream_id, "cancel me");
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let scope = types::ExecutionScope::foreground("client-a", "terminal-a");
+                    let handle = tokio::spawn(async {
+                        std::future::pending::<()>().await;
+                    });
+                    active_chat_streams()
+                        .lock()
+                        .await
+                        .insert(stream_id.clone(), handle);
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(
+                            stream_id.clone(),
+                            stream_id.clone(),
+                            Some(scope),
+                        ),
+                    );
+
+                    let canceled =
+                        super::super::cancel_foreground_chat_stream(&core, &stream_id).await;
+
+                    assert!(canceled);
+                    assert!(!active_chat_streams().lock().await.contains_key(&stream_id));
+                    assert!(
+                        !active_chat_stream_sessions()
+                            .lock()
+                            .await
+                            .contains_key(&session_id)
+                    );
+                }
+
+                #[tokio::test]
+                async fn foreground_startup_cancels_orphaned_running_turns() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    session.record_turn_user_message("old-turn", "old input");
+                    session.record_turn_user_message("current-turn", "current input");
+                    save_chat_session(&core, &session);
+
+                    let canceled = cancel_orphaned_running_turns_in_session_store(
+                        &core,
+                        &session.id,
+                        "current-turn",
+                    )
+                    .unwrap();
+
+                    assert_eq!(canceled, 1);
+                    let stored = load_chat_session(&core, &session.id);
+                    let old_turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "old-turn")
+                        .expect("old turn");
+                    assert_eq!(old_turn.status, types::ChatTurnStatus::Canceled);
+                    let current_turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "current-turn")
+                        .expect("current turn");
+                    assert_eq!(current_turn.status, types::ChatTurnStatus::Running);
                 }
 
                 #[tokio::test]
                 async fn session_reply_sender_buffers_message_and_emits_ack_frame() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    let turn_id = "reply-turn".to_string();
+                    session.record_turn_user_message(&turn_id, "hello");
+                    save_chat_session(&core, &session);
                     let buffer = Arc::new(Mutex::new(VecDeque::new()));
                     let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
-                    let sender = SessionReplySender::new(buffer.clone(), Some(tx));
+                    let sender = SessionReplySender::new(
+                        core.clone(),
+                        session.id.clone(),
+                        turn_id.clone(),
+                        buffer.clone(),
+                        Some(tx),
+                    );
                     ReplySender::send(&sender, "Working on it".to_string())
                         .await
                         .unwrap();
@@ -3982,18 +5322,75 @@ pub mod daemon {
                     assert_eq!(guard.pop_front(), Some("Working on it".to_string()));
                     drop(guard);
 
-                    let frame = rx.recv().await.expect("ack stream frame");
+                    let frame = rx.recv().await.expect("progress stream frame");
                     match frame {
-                        StreamFrame::Ack { content } => assert_eq!(content, "Working on it"),
-                        _ => panic!("expected ack frame"),
+                        StreamFrame::Progress { content } => assert_eq!(content, "Working on it"),
+                        _ => panic!("expected progress frame"),
                     }
+                    let stored = load_chat_session(&core, &session.id);
+                    assert!(stored.turns[0].events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::Progress { message }
+                                if message == "Working on it"
+                        )
+                    }));
+                }
+
+                #[tokio::test]
+                async fn session_reply_sender_suppresses_ack_when_turn_is_terminal() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    let turn_id = "reply-canceled-turn".to_string();
+                    session.record_turn_user_message(&turn_id, "hello");
+                    session.cancel_turn(&turn_id);
+                    save_chat_session(&core, &session);
+                    let buffer = Arc::new(Mutex::new(VecDeque::new()));
+                    let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+                    let sender = SessionReplySender::new(
+                        core.clone(),
+                        session.id.clone(),
+                        turn_id.clone(),
+                        buffer.clone(),
+                        Some(tx),
+                    );
+
+                    ReplySender::send(&sender, "late answer".to_string())
+                        .await
+                        .unwrap();
+
+                    assert!(buffer.lock().await.is_empty());
+                    assert!(rx.try_recv().is_err());
+                    let stored = load_chat_session(&core, &session.id);
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(!turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::Progress { message }
+                                if message == "late answer"
+                        )
+                    }));
                 }
 
                 #[tokio::test]
                 async fn session_reply_sender_ignores_blank_messages() {
+                    let (core, _temp) = create_test_core().await;
+                    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    save_chat_session(&core, &session);
                     let buffer = Arc::new(Mutex::new(VecDeque::new()));
                     let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
-                    let sender = SessionReplySender::new(buffer.clone(), Some(tx));
+                    let sender = SessionReplySender::new(
+                        core,
+                        session.id,
+                        "blank-turn".to_string(),
+                        buffer.clone(),
+                        Some(tx),
+                    );
                     ReplySender::send(&sender, "   ".to_string()).await.unwrap();
 
                     let guard = buffer.lock().await;
@@ -4048,6 +5445,115 @@ pub mod daemon {
                         &turn.events[3].kind,
                         ChatTurnEventKind::AssistantMessage { content } if content == "Done."
                     ));
+                }
+
+                #[tokio::test]
+                async fn ipc_stream_emitter_suppresses_frames_when_turn_is_terminal() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+                    let turn_id = "turn-stream-terminal".to_string();
+                    session.record_turn_user_message(&turn_id, "run tools");
+                    session.cancel_turn(&turn_id);
+                    save_chat_session(&core, &session);
+                    let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+                    let has_text_streamed = Arc::new(AtomicBool::new(false));
+                    let mut emitter = IpcStreamEmitter::new(
+                        core.clone(),
+                        session.id.clone(),
+                        turn_id.clone(),
+                        tx,
+                        has_text_streamed.clone(),
+                    );
+
+                    emitter.emit_text_delta("late data").await;
+                    emitter
+                        .emit_tool_call_start("call-late", "bash", "{\"command\":\"pwd\"}")
+                        .await;
+                    emitter
+                        .emit_tool_call_result("call-late", "bash", "pwd output", true)
+                        .await;
+                    emitter.emit_complete().await;
+
+                    assert!(!has_text_streamed.load(Ordering::Relaxed));
+                    assert!(rx.try_recv().is_err());
+                    let stored = SessionService::from_storage(&core.storage)
+                        .get_session_view(&session.id)
+                        .unwrap()
+                        .expect("stored session");
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(!turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::AssistantMessage { content }
+                                if content == "late data"
+                        ) || matches!(
+                            &event.kind,
+                            ChatTurnEventKind::ToolCall { call_id, .. }
+                                if call_id == "call-late"
+                        ) || matches!(
+                            &event.kind,
+                            ChatTurnEventKind::ToolResult { call_id, .. }
+                                if call_id == "call-late"
+                        )
+                    }));
+                }
+
+                #[tokio::test]
+                async fn ipc_stream_emitter_only_emits_persisted_text_delta() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+                    let turn_id = "turn-stream-exact-delta".to_string();
+                    session.record_turn_user_message(&turn_id, "stream exact");
+                    save_chat_session(&core, &session);
+                    let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+                    let mut emitter = IpcStreamEmitter::new(
+                        core.clone(),
+                        session.id.clone(),
+                        turn_id.clone(),
+                        tx,
+                        Arc::new(AtomicBool::new(false)),
+                    );
+
+                    emitter.emit_text_delta("   ").await;
+                    assert!(rx.try_recv().is_err());
+
+                    emitter.emit_text_delta("hello  ").await;
+
+                    match rx.recv().await.expect("data frame") {
+                        StreamFrame::Data { content } => assert_eq!(content, "   hello  "),
+                        frame => panic!("expected data frame, got {frame:?}"),
+                    }
+
+                    let stored = SessionService::from_storage(&core.storage)
+                        .get_session_view(&session.id)
+                        .unwrap()
+                        .expect("stored session");
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .expect("turn");
+                    assert!(turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::AssistantMessage { content }
+                                if content == "   hello  "
+                        )
+                    }));
+                    assert!(!turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::AssistantMessage { content }
+                                if content.trim().is_empty()
+                        )
+                    }));
                 }
 
                 #[tokio::test]
@@ -4121,7 +5627,11 @@ pub mod daemon {
                     );
                     emitted_rx.await.expect("worker emitted partial answer");
 
-                    assert!(cancel_chat_stream(&core, &turn_id).await);
+                    assert!(
+                        cancel_chat_stream(&core, &turn_id, None, None)
+                            .await
+                            .unwrap()
+                    );
 
                     let stored = SessionService::from_storage(&core.storage)
                         .get_session_view(&session_id)
@@ -4141,66 +5651,69 @@ pub mod daemon {
                 }
 
                 #[tokio::test]
-                async fn daemon_execute_chat_session_request_is_unsupported() {
+                async fn cancel_chat_stream_keeps_runtime_when_cancel_persistence_fails() {
                     let (core, _temp) = create_test_core().await;
-                    let runtime_tool_registry = OnceLock::new();
+                    let session_id = format!("missing-session-{}", Uuid::new_v4());
+                    let stream_id = format!("stream-{}", Uuid::new_v4());
+                    let handle = tokio::spawn(async {
+                        std::future::pending::<()>().await;
+                    });
+                    active_chat_streams()
+                        .lock()
+                        .await
+                        .insert(stream_id.clone(), handle);
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(stream_id.clone(), stream_id.clone(), None),
+                    );
 
-                    let response = IpcServer::process(
-                        &core,
-                        &runtime_tool_registry,
-                        IpcRequest::ExecuteChatSession {
-                            session_id: "session-1".to_string(),
-                            user_input: Some("hello".to_string()),
-                            workspace_root: None,
-                        },
-                    )
-                    .await;
+                    let error = cancel_chat_stream(&core, &stream_id, Some(&session_id), None)
+                        .await
+                        .expect_err("missing session should fail cancel persistence");
 
-                    match response {
-                        IpcResponse::Error(error) => {
+                    assert!(error.to_string().contains(types::SESSION_NOT_FOUND));
+                    let handle = active_chat_streams()
+                        .lock()
+                        .await
+                        .remove(&stream_id)
+                        .expect("runtime should remain active until cancel is persisted");
+                    handle.abort();
+                    let _ = handle.await;
+                    active_chat_stream_sessions()
+                        .lock()
+                        .await
+                        .remove(&session_id);
+                }
+
+                #[test]
+                fn daemon_stream_open_error_frame_marks_unsupported_stream_as_protocol_error() {
+                    let frame = stream_open_error_frame(anyhow::anyhow!(
+                        "Foreground chat streaming runs in the TUI process"
+                    ));
+
+                    match frame {
+                        StreamFrame::Error(error) => {
                             assert_eq!(error.code, -3);
                             assert_eq!(error.kind, types::ErrorKind::Protocol);
                             assert_eq!(
                                 error.message,
-                                "Foreground chat execution runs in the TUI process"
+                                "Foreground chat streaming runs in the TUI process"
                             );
                         }
-                        other => panic!("expected error response, got {other:?}"),
+                        other => panic!("expected stream error frame, got {other:?}"),
                     }
-                }
-
-                #[tokio::test]
-                async fn daemon_execute_chat_session_stream_request_is_unsupported() {
-                    let (core, _temp) = create_test_core().await;
-
-                    let err = IpcServer::open_stream(
-                        core,
-                        IpcRequest::ExecuteChatSessionStream {
-                            session_id: "session-1".to_string(),
-                            user_input: Some("hello".to_string()),
-                            stream_id: "turn-1".to_string(),
-                            workspace_root: None,
-                            scope: None,
-                        },
-                    )
-                    .await
-                    .expect_err("daemon foreground stream should be unsupported");
-
-                    assert_eq!(
-                        err.to_string(),
-                        "Foreground chat streaming runs in the TUI process"
-                    );
                 }
 
                 #[tokio::test]
                 async fn foreground_chat_stream_reports_missing_session_without_daemon_ipc() {
                     let (core, _temp) = create_test_core().await;
-                    let mut rx = open_foreground_chat_session_stream(
-                        core,
+                    let mut rx = open_foreground_chat_session_stream_for_scope(
+                        core.clone(),
                         "missing-session".to_string(),
                         Some("hello".to_string()),
                         "turn-missing".to_string(),
                         None,
+                        types::ExecutionScope::foreground("test-client", "test-terminal"),
                     )
                     .await
                     .expect("foreground stream");
@@ -4212,6 +5725,506 @@ pub mod daemon {
                         second,
                         StreamFrame::Error(error) if error.message == types::SESSION_NOT_FOUND
                     ));
+                }
+
+                #[tokio::test]
+                async fn legacy_foreground_helpers_keep_unscoped_signatures() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut rx = open_foreground_chat_session_stream(
+                        core.clone(),
+                        "missing-session".to_string(),
+                        Some("hello".to_string()),
+                        "turn-missing-legacy".to_string(),
+                        None,
+                    )
+                    .await
+                    .expect("foreground stream");
+
+                    assert!(matches!(rx.recv().await, Some(StreamFrame::Start { .. })));
+                    assert!(matches!(
+                        rx.recv().await,
+                        Some(StreamFrame::Error(error)) if error.message == types::SESSION_NOT_FOUND
+                    ));
+                    assert!(
+                        !steer_foreground_chat_stream(&core, "missing-session", "continue").await
+                    );
+                }
+
+                #[tokio::test]
+                async fn cancel_before_stream_registration_persists_canceled_user_turn() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let stream_id = "pending-cancel-stream".to_string();
+                    let scope = types::ExecutionScope::foreground("test-client", "test-terminal");
+
+                    assert!(
+                        cancel_chat_stream(&core, &stream_id, Some(&session_id), Some(&scope))
+                            .await
+                            .unwrap()
+                    );
+
+                    let mut rx = open_foreground_chat_session_stream_for_scope(
+                        core.clone(),
+                        session_id.clone(),
+                        Some("hello before start".to_string()),
+                        stream_id.clone(),
+                        None,
+                        scope,
+                    )
+                    .await
+                    .expect("foreground stream");
+
+                    assert!(matches!(rx.recv().await, Some(StreamFrame::Start { .. })));
+                    assert!(matches!(rx.recv().await, Some(StreamFrame::Done { .. })));
+                    assert!(!active_chat_streams().lock().await.contains_key(&stream_id));
+
+                    session = load_chat_session(&core, &session_id);
+                    let turn = session
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == stream_id)
+                        .expect("canceled turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(matches!(
+                        &turn.events[0].kind,
+                        ChatTurnEventKind::UserMessage { content } if content == "hello before start"
+                    ));
+                    assert!(matches!(turn.events[1].kind, ChatTurnEventKind::Canceled));
+                }
+
+                #[tokio::test]
+                async fn cancel_bound_stream_before_handle_registration_is_not_lost() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let stream_id = "bound-without-handle".to_string();
+                    let scope = types::ExecutionScope::foreground("test-client", "test-terminal");
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(
+                            stream_id.clone(),
+                            stream_id.clone(),
+                            Some(scope.clone()),
+                        )
+                        .with_user_input(Some("hello while binding".to_string())),
+                    );
+
+                    assert!(
+                        cancel_chat_stream(&core, &stream_id, Some(&session_id), Some(&scope))
+                            .await
+                            .unwrap()
+                    );
+
+                    assert!(
+                        !active_chat_stream_sessions()
+                            .lock()
+                            .await
+                            .contains_key(&session_id)
+                    );
+                    assert!(
+                        pending_canceled_chat_streams()
+                            .lock()
+                            .await
+                            .contains_key(&stream_id)
+                    );
+                    session = load_chat_session(&core, &session_id);
+                    let turn = session
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == stream_id)
+                        .expect("canceled turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(matches!(
+                        &turn.events[0].kind,
+                        ChatTurnEventKind::UserMessage { content } if content == "hello while binding"
+                    ));
+                    assert!(matches!(turn.events[1].kind, ChatTurnEventKind::Canceled));
+                    pending_canceled_chat_streams()
+                        .lock()
+                        .await
+                        .remove(&stream_id);
+                }
+
+                #[tokio::test]
+                async fn late_pending_cancel_does_not_mutate_completed_turn() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
+                    let turn_id = "completed-before-cancel".to_string();
+                    session.add_message(ChatMessage::user("hello"));
+                    session.add_message(ChatMessage::assistant("done"));
+                    session.record_turn_user_message(&turn_id, "hello");
+                    session.complete_turn_with_assistant_message(&turn_id, "done");
+                    save_chat_session(&core, &session);
+                    let message_count = session.messages.len();
+                    let event_count = session.turns[0].events.len();
+
+                    runtime::cancel_pending_turn_in_session_store(
+                        &core,
+                        &session.id,
+                        &turn_id,
+                        Some("hello"),
+                    )
+                    .unwrap();
+
+                    let stored = load_chat_session(&core, &session.id);
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == turn_id)
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Completed);
+                    assert_eq!(stored.messages.len(), message_count);
+                    assert_eq!(turn.events.len(), event_count);
+                }
+
+                #[tokio::test]
+                async fn cancel_pending_turn_preserves_raw_user_input() {
+                    let (core, _temp) = create_test_core().await;
+                    let session =
+                        ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
+                    save_chat_session(&core, &session);
+                    let raw_input = "  indented\n";
+
+                    runtime::cancel_pending_turn_in_session_store(
+                        &core,
+                        &session.id,
+                        "turn-with-spaces",
+                        Some(raw_input),
+                    )
+                    .unwrap();
+
+                    let stored = load_chat_session(&core, &session.id);
+                    assert_eq!(stored.messages.len(), 1);
+                    assert_eq!(stored.messages[0].content, raw_input);
+                    let turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "turn-with-spaces")
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Canceled);
+                    assert!(matches!(
+                        &turn.events[0].kind,
+                        ChatTurnEventKind::UserMessage { content } if content == raw_input
+                    ));
+                }
+
+                #[test]
+                fn completed_streaming_turn_does_not_append_aggregate_assistant_event() {
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
+                    session.record_turn_user_message("turn-1", "hello");
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::AssistantMessage {
+                            content: "he".to_string(),
+                        },
+                    );
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::AssistantMessage {
+                            content: "llo".to_string(),
+                        },
+                    );
+                    let streamed = std::sync::atomic::AtomicBool::new(true);
+
+                    complete_turn_after_execution(&mut session, "turn-1", "hello", &streamed);
+
+                    let turn = session
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "turn-1")
+                        .expect("turn");
+                    let assistant_events = turn
+                        .events
+                        .iter()
+                        .filter(|event| {
+                            matches!(event.kind, ChatTurnEventKind::AssistantMessage { .. })
+                        })
+                        .count();
+                    assert_eq!(turn.status, ChatTurnStatus::Completed);
+                    assert_eq!(assistant_events, 2);
+                }
+
+                #[test]
+                fn reply_ack_does_not_suppress_final_assistant_event() {
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "openai:gpt-5".to_string());
+                    session.record_turn_user_message("turn-1", "hello");
+                    session.record_turn_event(
+                        "turn-1",
+                        ChatTurnEventKind::Progress {
+                            message: "Working on it.".to_string(),
+                        },
+                    );
+                    let streamed_delta = std::sync::atomic::AtomicBool::new(false);
+
+                    complete_turn_after_execution(
+                        &mut session,
+                        "turn-1",
+                        "Final answer.",
+                        &streamed_delta,
+                    );
+
+                    let turn = session
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == "turn-1")
+                        .expect("turn");
+                    assert_eq!(turn.status, ChatTurnStatus::Completed);
+                    assert!(turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::Progress { message }
+                                if message == "Working on it."
+                        )
+                    }));
+                    assert!(turn.events.iter().any(|event| {
+                        matches!(
+                            &event.kind,
+                            ChatTurnEventKind::AssistantMessage { content }
+                                if content == "Final answer."
+                        )
+                    }));
+                }
+
+                #[tokio::test]
+                async fn foreground_lease_failure_does_not_leave_session_binding() {
+                    let (core, _temp) = create_test_core().await;
+                    let session_id = format!("session-{}", Uuid::new_v4());
+                    let scope = types::ExecutionScope::foreground("test-client", "test-terminal");
+                    let _held_lease =
+                        ForegroundSessionLease::acquire(&session_id, &Some(scope.clone()))
+                            .expect("lease")
+                            .expect("foreground lease");
+
+                    let error = open_foreground_chat_session_stream_for_scope(
+                        core,
+                        session_id.clone(),
+                        Some("hello".to_string()),
+                        "turn-held-lease".to_string(),
+                        None,
+                        scope,
+                    )
+                    .await
+                    .expect_err("duplicate foreground lease should fail");
+
+                    assert!(error.to_string().contains("active foreground stream"));
+                    assert!(
+                        !active_chat_stream_sessions()
+                            .lock()
+                            .await
+                            .contains_key(&session_id)
+                    );
+                }
+
+                #[tokio::test]
+                async fn same_owner_foreground_stream_replaces_previous_lease() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+                    session.record_turn_user_message("old-stream", "old input");
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let old_stream_id = "old-stream".to_string();
+                    let scope = types::ExecutionScope::foreground("test-client", "test-terminal");
+                    let lease = ForegroundSessionLease::acquire(&session_id, &Some(scope.clone()))
+                        .expect("lease")
+                        .expect("foreground lease");
+                    let handle = tokio::spawn(async move {
+                        let _lease = lease;
+                        std::future::pending::<()>().await;
+                    });
+                    active_chat_streams()
+                        .lock()
+                        .await
+                        .insert(old_stream_id.clone(), handle);
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(
+                            old_stream_id.clone(),
+                            old_stream_id.clone(),
+                            Some(scope.clone()),
+                        ),
+                    );
+
+                    let mut rx = open_foreground_chat_session_stream_for_scope(
+                        core.clone(),
+                        session_id.clone(),
+                        Some("hello".to_string()),
+                        "new-stream".to_string(),
+                        None,
+                        scope,
+                    )
+                    .await
+                    .expect("same owner replacement should acquire foreground lease");
+
+                    assert!(matches!(rx.recv().await, Some(StreamFrame::Start { .. })));
+                    assert!(
+                        !active_chat_streams()
+                            .lock()
+                            .await
+                            .contains_key(&old_stream_id)
+                    );
+                    let stored = load_chat_session(&core, &session_id);
+                    let old_turn = stored
+                        .turns
+                        .iter()
+                        .find(|turn| turn.id == old_stream_id)
+                        .expect("old turn");
+                    assert_eq!(old_turn.status, ChatTurnStatus::Canceled);
+                }
+
+                #[tokio::test]
+                async fn same_owner_replacement_keeps_old_stream_when_cancel_persistence_fails() {
+                    let (core, _temp) = create_test_core().await;
+                    let session_id = format!("missing-session-{}", Uuid::new_v4());
+                    let old_stream_id = "old-stream-missing-session".to_string();
+                    let scope = types::ExecutionScope::foreground("test-client", "test-terminal");
+                    let handle = tokio::spawn(async {
+                        std::future::pending::<()>().await;
+                    });
+                    active_chat_streams()
+                        .lock()
+                        .await
+                        .insert(old_stream_id.clone(), handle);
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(
+                            old_stream_id.clone(),
+                            old_stream_id.clone(),
+                            Some(scope.clone()),
+                        ),
+                    );
+
+                    let error = open_foreground_chat_session_stream_for_scope(
+                        core,
+                        session_id.clone(),
+                        Some("hello".to_string()),
+                        "new-stream-after-failed-cancel".to_string(),
+                        None,
+                        scope,
+                    )
+                    .await
+                    .expect_err("missing session should fail replacement cancel persistence");
+
+                    assert!(error.to_string().contains(types::SESSION_NOT_FOUND));
+                    let handle = active_chat_streams()
+                        .lock()
+                        .await
+                        .remove(&old_stream_id)
+                        .expect("old runtime should remain active until cancel is persisted");
+                    handle.abort();
+                    let _ = handle.await;
+                    active_chat_stream_sessions()
+                        .lock()
+                        .await
+                        .remove(&session_id);
+                }
+
+                #[tokio::test]
+                async fn same_stream_id_different_owner_cannot_replace_foreground_stream() {
+                    let (core, _temp) = create_test_core().await;
+                    let mut session =
+                        ChatSession::new("agent-1".to_string(), "deepseek-chat".to_string());
+                    let stream_id = "shared-stream".to_string();
+                    session.record_turn_user_message(&stream_id, "owner input");
+                    save_chat_session(&core, &session);
+                    let session_id = session.id.clone();
+                    let owner = types::ExecutionScope::foreground("owner", "terminal-a");
+                    let intruder = types::ExecutionScope::foreground("intruder", "terminal-b");
+                    let lease = ForegroundSessionLease::acquire(&session_id, &Some(owner.clone()))
+                        .expect("lease")
+                        .expect("foreground lease");
+                    let handle = tokio::spawn(async move {
+                        let _lease = lease;
+                        std::future::pending::<()>().await;
+                    });
+                    active_chat_streams()
+                        .lock()
+                        .await
+                        .insert(stream_id.clone(), handle);
+                    active_chat_stream_sessions().lock().await.insert(
+                        session_id.clone(),
+                        ActiveChatStreamBinding::new(
+                            stream_id.clone(),
+                            stream_id.clone(),
+                            Some(owner.clone()),
+                        ),
+                    );
+
+                    let error = open_foreground_chat_session_stream_for_scope(
+                        core.clone(),
+                        session_id.clone(),
+                        Some("hello".to_string()),
+                        stream_id.clone(),
+                        None,
+                        intruder.clone(),
+                    )
+                    .await
+                    .expect_err("different owner should not replace stream");
+
+                    assert!(error.to_string().contains("owned by another client"));
+                    assert!(active_chat_streams().lock().await.contains_key(&stream_id));
+                    assert!(
+                        active_chat_stream_sessions()
+                            .lock()
+                            .await
+                            .contains_key(&session_id)
+                    );
+                    assert!(
+                        !cancel_chat_stream(&core, &stream_id, Some(&session_id), Some(&intruder))
+                            .await
+                            .unwrap()
+                    );
+                    assert!(active_chat_streams().lock().await.contains_key(&stream_id));
+                    assert!(
+                        cancel_chat_stream(&core, &stream_id, Some(&session_id), Some(&owner))
+                            .await
+                            .unwrap()
+                    );
+                }
+
+                #[tokio::test]
+                async fn append_message_assigns_missing_message_id() {
+                    let (core, _temp) = create_test_core().await;
+                    let runtime_tool_registry = OnceLock::new();
+                    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+                    save_chat_session(&core, &session);
+
+                    let response = IpcServer::process(
+                        &core,
+                        &runtime_tool_registry,
+                        IpcRequest::AppendMessage {
+                            session_id: session.id.clone(),
+                            message: types::contracts::request::ChatMessage {
+                                id: String::new(),
+                                role: ChatRole::User,
+                                content: "hello".to_string(),
+                                timestamp: 1,
+                                execution: None,
+                                media: None,
+                                transcript: None,
+                            },
+                        },
+                    )
+                    .await;
+
+                    let session = match response {
+                        IpcResponse::Success(value) => {
+                            serde_json::from_value::<ChatSession>(value).expect("chat session")
+                        }
+                        other => panic!("expected success response, got {other:?}"),
+                    };
+                    assert_eq!(session.messages.len(), 1);
+                    assert!(!session.messages[0].id.is_empty());
+                    let stored = load_chat_session(&core, &session.id);
+                    assert_eq!(stored.messages[0].id, session.messages[0].id);
                 }
 
                 #[tokio::test]
@@ -4507,21 +6520,9 @@ pub mod daemon {
     mod launcher {
         use crate::daemon::ipc_client;
         use crate::daemon::process::{DaemonConfig, ProcessManager};
-        use crate::paths;
-        #[cfg(unix)]
-        use anyhow::Context;
         use anyhow::Result;
-        #[cfg(not(unix))]
-        use std::process::Command;
         use std::time::Duration;
         use tracing::{debug, info, warn};
-
-        #[cfg(unix)]
-        fn pid_to_unix_pid(pid: u32) -> Result<nix::unistd::Pid> {
-            let pid_i32 =
-                i32::try_from(pid).with_context(|| format!("PID {} exceeds i32 range", pid))?;
-            Ok(nix::unistd::Pid::from_raw(pid_i32))
-        }
 
         #[derive(Debug, Clone, PartialEq)]
         pub enum DaemonStatus {
@@ -4531,7 +6532,7 @@ pub mod daemon {
         }
 
         pub fn check_daemon_status() -> Result<DaemonStatus> {
-            let pid_path = paths::daemon_pid_path()?;
+            let pid_path = restflow_core::paths::daemon_pid_path()?;
             if !pid_path.exists() {
                 return Ok(DaemonStatus::NotRunning);
             }
@@ -4559,27 +6560,11 @@ pub mod daemon {
         }
 
         pub fn stop_daemon() -> Result<bool> {
-            match check_daemon_status()? {
-                DaemonStatus::Running { pid } => {
-                    #[cfg(unix)]
-                    {
-                        use nix::sys::signal::{Signal, kill};
-                        let signal_pid = pid_to_unix_pid(pid)?;
-                        kill(signal_pid, Signal::SIGTERM)?;
-                    }
-
-                    #[cfg(not(unix))]
-                    {
-                        Command::new("taskkill")
-                            .args(["/PID", &pid.to_string(), "/F"])
-                            .output()?;
-                    }
-
-                    info!(pid, "Sent stop signal to daemon");
-                    Ok(true)
-                }
-                _ => Ok(false),
+            let stopped = ProcessManager::new()?.stop()?;
+            if stopped {
+                info!("Stopped daemon");
             }
+            Ok(stopped)
         }
 
         pub async fn ensure_daemon_running() -> Result<()> {
@@ -4587,7 +6572,7 @@ pub mod daemon {
         }
 
         pub async fn ensure_daemon_running_with_config(config: DaemonConfig) -> Result<()> {
-            let socket_path = paths::socket_path()?;
+            let socket_path = restflow_core::paths::socket_path()?;
             if ipc_client::is_daemon_available(&socket_path).await {
                 debug!("Daemon already running");
                 return Ok(());
@@ -4602,7 +6587,23 @@ pub mod daemon {
                             return Ok(());
                         }
                     }
-                    warn!("Daemon running but socket unavailable");
+                    warn!(
+                        "Daemon running but socket unavailable or protocol-incompatible; restarting"
+                    );
+                    let _ = ProcessManager::new()?.stop()?;
+                    let report = super::recovery::recover().await?;
+                    if !report.is_clean() {
+                        info!("Recovered stale daemon state before restart: {}", report);
+                    }
+                    start_daemon_with_config(config)?;
+                    for _ in 0..600 {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        if ipc_client::is_daemon_available(&socket_path).await {
+                            info!("Daemon restarted successfully");
+                            return Ok(());
+                        }
+                    }
+                    anyhow::bail!("Daemon failed to restart within timeout");
                 }
                 DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => {
                     // Clean up any stale artifacts before attempting to start.
@@ -4622,8 +6623,6 @@ pub mod daemon {
                     anyhow::bail!("Daemon failed to start within timeout");
                 }
             }
-
-            Ok(())
         }
 
         fn is_process_alive(pid: u32) -> bool {
@@ -4648,21 +6647,8 @@ pub mod daemon {
                     .unwrap_or(false)
             }
         }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-
-            #[cfg(unix)]
-            #[test]
-            fn pid_to_unix_pid_rejects_out_of_range() {
-                assert!(pid_to_unix_pid(i32::MAX as u32).is_ok());
-                assert!(pid_to_unix_pid(i32::MAX as u32 + 1).is_err());
-            }
-        }
     }
     mod process {
-        use crate::paths;
         #[cfg(unix)]
         use anyhow::Context;
         use anyhow::Result;
@@ -4697,8 +6683,8 @@ pub mod daemon {
         impl ProcessManager {
             pub fn new() -> Result<Self> {
                 Ok(Self {
-                    pid_file: paths::daemon_pid_path()?,
-                    log_dir: paths::logs_dir()?,
+                    pid_file: restflow_core::paths::daemon_pid_path()?,
+                    log_dir: restflow_core::paths::logs_dir()?,
                 })
             }
 
@@ -4853,7 +6839,7 @@ pub mod daemon {
         }
 
         fn daemon_working_dir() -> Result<PathBuf> {
-            paths::ensure_restflow_dir()
+            restflow_core::paths::ensure_restflow_dir()
         }
 
         fn build_daemon_child_path() -> Option<OsString> {
@@ -4952,7 +6938,6 @@ pub mod daemon {
         }
     }
     pub mod recovery {
-        use crate::paths;
         use anyhow::Result;
         use std::fmt;
         use std::path::Path;
@@ -5060,8 +7045,8 @@ pub mod daemon {
         /// Remove stale artifacts. Only deletes files that are verified stale —
         /// never touches files belonging to a healthy daemon.
         pub async fn recover() -> Result<RecoveryReport> {
-            let pid_path = paths::daemon_pid_path()?;
-            let socket_path = paths::socket_path()?;
+            let pid_path = restflow_core::paths::daemon_pid_path()?;
+            let socket_path = restflow_core::paths::socket_path()?;
 
             let state = inspect(&pid_path, &socket_path).await?;
             let mut report = RecoveryReport::default();
@@ -5337,8 +7322,12 @@ pub mod daemon {
                 core_skill.source = SkillSource::External;
                 core_skill.read_only = false;
                 core_skill.source_ref = Some("marketplace:skill-1@1.0.0".to_string());
+                core_skill.kind = Some("markdown".to_string());
+                core_skill.executable = true;
 
                 let contract: types::request::Skill = to_contract(core_skill.clone()).unwrap();
+                assert_eq!(contract.kind.as_deref(), Some("markdown"));
+                assert!(contract.executable);
                 assert_eq!(
                     serde_json::to_value(contract.source).unwrap(),
                     serde_json::json!("external")
@@ -5349,6 +7338,8 @@ pub mod daemon {
                 );
 
                 let round_trip: Skill = from_contract(contract).unwrap();
+                assert_eq!(round_trip.kind.as_deref(), Some("markdown"));
+                assert!(round_trip.executable);
                 assert_eq!(round_trip.source, SkillSource::External);
                 assert_eq!(
                     round_trip.source_ref.as_deref(),
@@ -5377,49 +7368,6 @@ pub mod daemon {
             }
         }
     }
-    pub(crate) mod tool_result_mapper {
-        use types::ToolExecutionResult;
-        use types::ToolOutput;
-
-        pub fn to_tool_execution_result(output: ToolOutput) -> ToolExecutionResult {
-            ToolExecutionResult {
-                success: output.success,
-                result: output.result,
-                error: output.error,
-                error_category: output.error_category,
-                retryable: output.retryable,
-                retry_after_ms: output.retry_after_ms,
-            }
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::*;
-            use serde_json::json;
-            use types::ToolErrorCategory;
-
-            #[test]
-            fn maps_tool_output_to_contract_result() {
-                let output = ToolOutput {
-                    success: false,
-                    result: json!({"details":"x"}),
-                    error: Some("boom".to_string()),
-                    error_category: Some(ToolErrorCategory::Execution),
-                    retryable: Some(false),
-                    retry_after_ms: Some(100),
-                };
-
-                let mapped = to_tool_execution_result(output);
-                assert!(!mapped.success);
-                assert_eq!(mapped.result["details"], "x");
-                assert_eq!(mapped.error.as_deref(), Some("boom"));
-                assert_eq!(mapped.error_category, Some(ToolErrorCategory::Execution));
-                assert_eq!(mapped.retryable, Some(false));
-                assert_eq!(mapped.retry_after_ms, Some(100));
-            }
-        }
-    }
-
     pub use core_access::CoreAccess;
     pub use health::{HealthChecker, HealthStatus, check_health};
     pub use ipc_client::{IpcClient, is_daemon_available};
@@ -5428,17 +7376,15 @@ pub mod daemon {
         MAX_MESSAGE_SIZE, StreamFrame,
     };
     pub use ipc_server::{
-        IpcServer, cancel_foreground_chat_stream, open_foreground_chat_session_stream,
-        steer_foreground_chat_stream,
+        IpcServer, cancel_foreground_chat_stream, cancel_foreground_chat_stream_for_scope,
+        open_foreground_chat_session_stream, open_foreground_chat_session_stream_for_scope,
+        steer_foreground_chat_stream, steer_foreground_chat_stream_for_scope,
     };
     pub use launcher::{
         DaemonStatus, check_daemon_status, ensure_daemon_running,
         ensure_daemon_running_with_config, start_daemon, start_daemon_with_config, stop_daemon,
     };
     pub use process::{DaemonConfig, ProcessManager};
-    pub use restflow_core::session_events::{
-        ChatSessionEvent, publish_session_event, subscribe_session_events,
-    };
 }
 
 #[cfg(test)]
