@@ -211,6 +211,11 @@ def native_scrollback_insert_text(output: str) -> str:
     return "\n".join(native_scrollback_insert_segments(output))
 
 
+def latest_native_scrollback_insert_text(output: str) -> str:
+    segments = native_scrollback_insert_segments(output)
+    return segments[-1] if segments else ""
+
+
 def require_native_scrollback_markers(
     output: str, markers: list[str], failure_context: str
 ) -> bool:
@@ -221,6 +226,37 @@ def require_native_scrollback_markers(
     sys.stderr.write(output[-4000:])
     sys.stderr.write(
         f"\n{failure_context}: missing from native scrollback insert segments: {', '.join(missing)}\n"
+    )
+    return False
+
+
+def require_ordered_markers(text: str, markers: list[str], failure_context: str) -> bool:
+    offset = 0
+    for marker in markers:
+        index = text.find(marker, offset)
+        if index < 0:
+            sys.stderr.write(text[-4000:])
+            sys.stderr.write(f"\n{failure_context}: missing ordered marker: {marker}\n")
+            return False
+        offset = index + len(marker)
+    return True
+
+
+def require_unique_ordered_markers(
+    text: str, markers: list[str], failure_context: str
+) -> bool:
+    if not require_unique_markers(text, markers, failure_context):
+        return False
+    return require_ordered_markers(text, markers, failure_context)
+
+
+def require_unique_markers(text: str, markers: list[str], failure_context: str) -> bool:
+    duplicated = [marker for marker in markers if text.count(marker) > 1]
+    if not duplicated:
+        return True
+    sys.stderr.write(text[-4000:])
+    sys.stderr.write(
+        f"\n{failure_context}: duplicated marker(s): {', '.join(duplicated)}\n"
     )
     return False
 
@@ -431,6 +467,12 @@ def run_long_active_smoke(
             "long active fixture did not commit expected content",
         ):
             return 1
+        if expect_native_scrollback and not require_ordered_markers(
+            native_scrollback_insert_text(output),
+            ["assistant-line-00", "tool-smoke-output"],
+            "long active fixture committed content out of order",
+        ):
+            return 1
         if not prompt_rows(output):
             sys.stderr.write(output[-4000:])
             sys.stderr.write("\ncomposer prompt row was not observed during active fixture\n")
@@ -538,9 +580,15 @@ def run_long_single_line_smoke(
         terminate_tui(proc, master, restflow_dir)
 
 
-def run_completed_turn_smoke(binary: Path, repo: Path, rows: int = 24, cols: int = 100) -> int:
+def run_completed_turn_smoke(
+    binary: Path,
+    repo: Path,
+    rows: int = 24,
+    cols: int = 100,
+    fixture: str = "completed-turn",
+) -> int:
     proc, master, restflow_dir = launch_tui(
-        binary, repo, "completed-turn", rows=rows, cols=cols
+        binary, repo, fixture, rows=rows, cols=cols
     )
     try:
         output = read_until(master, time.time() + 8, "assistant-tail-final")
@@ -567,11 +615,34 @@ def run_completed_turn_smoke(binary: Path, repo: Path, rows: int = 24, cols: int
             "completed fixture did not commit expected content",
         ):
             return 1
+        if not require_unique_ordered_markers(
+            native_scrollback_insert_text(output),
+            ["assistant-line-00", "tool-smoke-output", "assistant-tail-final"],
+            "completed fixture committed content out of order",
+        ):
+            return 1
+        if latest_native_scrollback_insert_text(output).count("assistant-tail-final") > 1:
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncompleted fixture duplicated assistant tail in latest native history\n")
+            return 1
+        if "typing" in compact_screen_text(native_scrollback_insert_text(output)):
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncompleted fixture leaked active typing chrome into native history\n")
+            return 1
         if not prompt_rows(output):
             sys.stderr.write(output[-4000:])
             sys.stderr.write("\ncomposer prompt row was not observed after completed fixture\n")
             return 1
         final_screen = final_visible_screen(output, rows, cols)
+        final_text = compact_screen_text(final_screen)
+        if "assistant-tail-final" not in final_text:
+            sys.stderr.write(final_screen)
+            sys.stderr.write("\ncompleted fixture assistant tail disappeared from final screen\n")
+            return 1
+        if "typing" in final_text:
+            sys.stderr.write(final_screen)
+            sys.stderr.write("\ncompleted fixture leaked active typing chrome into final screen\n")
+            return 1
         if PROMPT not in final_screen:
             sys.stderr.write(final_screen)
             sys.stderr.write("\ncomposer prompt was not present after completed fixture\n")
@@ -587,6 +658,78 @@ def run_completed_turn_smoke(binary: Path, repo: Path, rows: int = 24, cols: int
         if scroll_region_reaches_composer(output):
             sys.stderr.write(output[-4000:])
             sys.stderr.write("\nscroll region reached the composer after completed fixture\n")
+            return 1
+        os.write(master, b"\x03")
+        return wait_for_clean_exit(proc)
+    finally:
+        terminate_tui(proc, master, restflow_dir)
+
+
+def run_completed_long_assistant_smoke(
+    binary: Path,
+    repo: Path,
+    rows: int = 24,
+    cols: int = 100,
+    fixture: str = "completed-long-assistant",
+) -> int:
+    proc, master, restflow_dir = launch_tui(binary, repo, fixture, rows=rows, cols=cols)
+    try:
+        output = read_until(master, time.time() + 8, "assistant-tail-final")
+        output += read_available(master, timeout=1)
+        if "assistant-line-00" not in output or "assistant-tail-final" not in output:
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncompleted long assistant fixture did not render expected markers\n")
+            return 1
+        if not has_native_scrollback_insert(output):
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncompleted long assistant fixture did not use native scrollback insertion\n")
+            return 1
+        if not require_unique_ordered_markers(
+            native_scrollback_insert_text(output),
+            ["assistant-line-00", "assistant-tail-final"],
+            "completed long assistant committed content out of order",
+        ):
+            return 1
+        latest_history = latest_native_scrollback_insert_text(output)
+        if latest_history.count("Default Assistant") > 1 or not require_unique_markers(
+            latest_history,
+            ["assistant-line-00", "assistant-tail-final"],
+            "completed long assistant duplicated content in latest native history",
+        ):
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncompleted long assistant rendered as duplicate assistant blocks\n")
+            return 1
+        if "typing" in compact_screen_text(native_scrollback_insert_text(output)):
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncompleted long assistant leaked active typing chrome into native history\n")
+            return 1
+        final_screen = final_visible_screen(output, rows, cols)
+        final_text = compact_screen_text(final_screen)
+        if "assistant-tail-final" not in final_text:
+            sys.stderr.write(final_screen)
+            sys.stderr.write("\ncompleted long assistant tail disappeared from final screen\n")
+            return 1
+        if "typing" in final_text:
+            sys.stderr.write(final_screen)
+            sys.stderr.write("\ncompleted long assistant leaked active typing chrome into final screen\n")
+            return 1
+        if final_text.count("Default Assistant") > 1:
+            sys.stderr.write(final_screen)
+            sys.stderr.write(
+                "\ncompleted long assistant rendered duplicate assistant blocks in final screen\n"
+            )
+            return 1
+        if visible_prompt_count(final_screen) != 1:
+            sys.stderr.write(final_screen)
+            sys.stderr.write("\nexpected exactly one composer prompt after completed long assistant fixture\n")
+            return 1
+        if ui_chrome_entered_native_scrollback(output):
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\ncomposer or footer chrome entered native scrollback after completed long assistant fixture\n")
+            return 1
+        if scroll_region_reaches_composer(output):
+            sys.stderr.write(output[-4000:])
+            sys.stderr.write("\nscroll region reached the composer after completed long assistant fixture\n")
             return 1
         os.write(master, b"\x03")
         return wait_for_clean_exit(proc)
@@ -626,7 +769,36 @@ def main() -> int:
     completed_status = run_completed_turn_smoke(binary, repo)
     if completed_status != 0:
         return completed_status
-    return run_completed_turn_smoke(binary, repo, rows=12)
+    completed_refresh_status = run_completed_turn_smoke(
+        binary, repo, fixture="completed-tool-turn-refresh"
+    )
+    if completed_refresh_status != 0:
+        return completed_refresh_status
+    tall_completed_refresh_status = run_completed_turn_smoke(
+        binary,
+        repo,
+        rows=50,
+        fixture="completed-tool-turn-refresh",
+    )
+    if tall_completed_refresh_status != 0:
+        return tall_completed_refresh_status
+    short_completed_status = run_completed_turn_smoke(binary, repo, rows=12)
+    if short_completed_status != 0:
+        return short_completed_status
+    long_completed_status = run_completed_long_assistant_smoke(binary, repo)
+    if long_completed_status != 0:
+        return long_completed_status
+    long_completed_refresh_status = run_completed_long_assistant_smoke(
+        binary, repo, fixture="completed-long-assistant-refresh"
+    )
+    if long_completed_refresh_status != 0:
+        return long_completed_refresh_status
+    return run_completed_long_assistant_smoke(
+        binary,
+        repo,
+        rows=50,
+        fixture="completed-long-assistant-refresh",
+    )
 
 
 if __name__ == "__main__":

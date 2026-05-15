@@ -305,7 +305,7 @@ mod app {
     use crate::event_loop::run_event_loop;
     use crate::state::AppState;
     #[cfg(debug_assertions)]
-    use types::StreamFrame;
+    use types::{ChatSession, ChatTurnEventKind, StreamFrame};
 
     use super::TuiLaunchOptions;
 
@@ -347,6 +347,9 @@ mod app {
         if fixture != "long-active-turn"
             && fixture != "completed-turn"
             && fixture != "long-active-single-line"
+            && fixture != "completed-long-assistant"
+            && fixture != "completed-long-assistant-refresh"
+            && fixture != "completed-tool-turn-refresh"
         {
             return None;
         }
@@ -354,6 +357,12 @@ mod app {
         state.apply_stream_frame(StreamFrame::Start {
             stream_id: "pty-smoke-stream".to_string(),
         });
+        if fixture == "completed-long-assistant" || fixture == "completed-long-assistant-refresh" {
+            state.apply_stream_frame(StreamFrame::Data {
+                content: pty_smoke_long_assistant_body(),
+            });
+            return Some(true);
+        }
         if fixture == "long-active-single-line" {
             state.apply_stream_frame(StreamFrame::Data {
                 content: format!(
@@ -383,12 +392,77 @@ mod app {
         state.apply_stream_frame(StreamFrame::Data {
             content: "\nassistant-tail-final".to_string(),
         });
-        Some(fixture == "completed-turn")
+        Some(fixture == "completed-turn" || fixture == "completed-tool-turn-refresh")
     }
 
     #[cfg(debug_assertions)]
     pub(crate) fn complete_pty_smoke_fixture(state: &mut AppState) {
+        let fixture = std::env::var("RESTFLOW_TUI_PTY_FIXTURE").ok();
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+        match fixture.as_deref() {
+            Some("completed-long-assistant-refresh") => {
+                let mut persisted =
+                    ChatSession::new("pty-smoke-agent".to_string(), "pty-smoke-model".to_string());
+                persisted
+                    .record_turn_user_message("pty-smoke-stream", "pty smoke long active turn");
+                persisted.complete_turn_with_assistant_message(
+                    "pty-smoke-stream",
+                    pty_smoke_long_assistant_body(),
+                );
+                state.refresh_current_session(persisted);
+            }
+            Some("completed-tool-turn-refresh") => {
+                let mut persisted =
+                    ChatSession::new("pty-smoke-agent".to_string(), "pty-smoke-model".to_string());
+                persisted
+                    .record_turn_user_message("pty-smoke-stream", "pty smoke long active turn");
+                persisted.record_turn_event(
+                    "pty-smoke-stream",
+                    ChatTurnEventKind::AssistantMessage {
+                        content: (0..24)
+                            .map(|index| format!("assistant-line-{index:02}"))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    },
+                );
+                persisted.record_turn_event(
+                    "pty-smoke-stream",
+                    ChatTurnEventKind::ToolCall {
+                        call_id: "pty-smoke-tool".to_string(),
+                        name: "bash".to_string(),
+                        arguments: serde_json::json!({"command": "printf smoke"}).to_string(),
+                    },
+                );
+                persisted.record_turn_event(
+                    "pty-smoke-stream",
+                    ChatTurnEventKind::ToolResult {
+                        call_id: "pty-smoke-tool".to_string(),
+                        success: true,
+                        result: "tool-smoke-output".to_string(),
+                    },
+                );
+                persisted.record_turn_event(
+                    "pty-smoke-stream",
+                    ChatTurnEventKind::AssistantMessage {
+                        content: "\nassistant-tail-final".to_string(),
+                    },
+                );
+                persisted.complete_turn("pty-smoke-stream");
+                state.refresh_current_session(persisted);
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn pty_smoke_long_assistant_body() -> String {
+        format!(
+            "{}\nassistant-tail-final",
+            (0..36)
+                .map(|index| format!("assistant-line-{index:02}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
     }
 
     fn install_terminal_panic_hook() {
@@ -6308,7 +6382,7 @@ mod scrollback {
     use ratatui::text::{Line, Span};
     use unicode_width::UnicodeWidthChar;
 
-    use crate::transcript::TranscriptCell;
+    use crate::transcript::{TranscriptCell, TranscriptCellKind};
 
     #[derive(Default)]
     pub struct ScrollbackWriter {
@@ -6343,6 +6417,19 @@ mod scrollback {
             F: FnMut(&[TranscriptCell], u16) -> Vec<Line<'static>>,
         {
             if !self.is_prefix_of(cells) {
+                if self.pending_lines.is_empty()
+                    && let Some(delta_cell) =
+                        assistant_body_extension_delta(&self.committed_cells, cells)
+                {
+                    self.pending_cells.clear();
+                    self.pending_lines = render_assistant_extension_lines(&delta_cell, width);
+                    self.pending_adopt_cells = Some(cells.to_vec());
+                    if self.pending_lines.is_empty() {
+                        self.committed_cells = cells.to_vec();
+                        self.pending_adopt_cells = None;
+                    }
+                    return false;
+                }
                 if !self.pending_lines.is_empty() {
                     let rewritten_lines = render_lines(cells, width);
                     if lines_text_equal(&self.pending_lines, &rewritten_lines) {
@@ -6409,6 +6496,71 @@ mod scrollback {
                 Err(error) => Err(error),
             }
         }
+    }
+
+    fn assistant_body_extension_delta(
+        previous: &[TranscriptCell],
+        current: &[TranscriptCell],
+    ) -> Option<TranscriptCell> {
+        if previous.is_empty() || previous.len() != current.len() {
+            return None;
+        }
+        let last_index = previous.len().saturating_sub(1);
+        if previous[..last_index] != current[..last_index] {
+            return None;
+        }
+        let previous_cell = &previous[last_index];
+        let current_cell = &current[last_index];
+        if previous_cell.kind != TranscriptCellKind::Assistant
+            || current_cell.kind != TranscriptCellKind::Assistant
+            || !same_cell_except_body(previous_cell, current_cell)
+            || !current_cell.body.starts_with(&previous_cell.body)
+            || current_cell.body == previous_cell.body
+        {
+            return None;
+        }
+        let raw_delta = &current_cell.body[previous_cell.body.len()..];
+        let delta = assistant_extension_body_delta(&previous_cell.body, raw_delta)?;
+        let mut delta_cell = current_cell.clone();
+        delta_cell.body = delta;
+        Some(delta_cell)
+    }
+
+    fn assistant_extension_body_delta(previous_body: &str, raw_delta: &str) -> Option<String> {
+        if raw_delta.is_empty() {
+            return None;
+        }
+        if raw_delta.starts_with("\r\n\r\n") || raw_delta.starts_with("\n\n") {
+            return None;
+        }
+        if let Some(delta) = raw_delta.strip_prefix("\r\n") {
+            return Some(delta.to_string());
+        }
+        if let Some(delta) = raw_delta.strip_prefix(['\r', '\n']) {
+            return Some(delta.to_string());
+        }
+        if previous_body.ends_with(['\r', '\n']) {
+            return Some(raw_delta.to_string());
+        }
+        None
+    }
+
+    fn same_cell_except_body(left: &TranscriptCell, right: &TranscriptCell) -> bool {
+        let mut left = left.clone();
+        let mut right = right.clone();
+        left.body.clear();
+        right.body.clear();
+        left == right
+    }
+
+    fn render_assistant_extension_lines(
+        delta_cell: &TranscriptCell,
+        width: u16,
+    ) -> Vec<Line<'static>> {
+        if delta_cell.body.trim().is_empty() {
+            return Vec::new();
+        }
+        crate::shell::render_assistant_body_append_lines(&delta_cell.body, width)
     }
 
     fn lines_text_equal(left: &[Line<'static>], right: &[Line<'static>]) -> bool {
@@ -6619,7 +6771,7 @@ mod scrollback {
 
     #[cfg(test)]
     mod tests {
-        use super::{ScrollbackWriter, insert_history_lines};
+        use super::{ScrollbackWriter, insert_history_lines, line_text};
         use crate::transcript::{MessageGroup, TranscriptCell, TranscriptCellKind};
         use ratatui::text::Line;
         use std::io::{Error, ErrorKind, Result as IoResult, Write};
@@ -6628,6 +6780,17 @@ mod scrollback {
             TranscriptCell {
                 kind: TranscriptCellKind::User,
                 title: "You".to_string(),
+                subtitle: None,
+                body: body.to_string(),
+                group: MessageGroup::Conversation,
+                is_active: false,
+            }
+        }
+
+        fn assistant_cell(body: &str) -> TranscriptCell {
+            TranscriptCell {
+                kind: TranscriptCellKind::Assistant,
+                title: "Default Assistant".to_string(),
                 subtitle: None,
                 body: body.to_string(),
                 group: MessageGroup::Conversation,
@@ -6673,6 +6836,82 @@ mod scrollback {
             });
             // Only the new cell ("two") produces pending lines since "one" is already committed.
             assert_eq!(scrollback.pending_lines.len(), 1);
+        }
+
+        #[test]
+        fn sync_history_appends_only_assistant_extension_delta() {
+            let mut scrollback = ScrollbackWriter::default();
+            let prefix = vec![assistant_cell("assistant-line-00\nassistant-line-01")];
+            scrollback.sync_history(&prefix, 80, |new_cells, width| {
+                crate::shell::render_history_append_lines(new_cells, width)
+            });
+            let mut output = Vec::new();
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 8, 80, 8)
+                    .expect("prefix should insert")
+            );
+
+            let full = vec![assistant_cell(
+                "assistant-line-00\nassistant-line-01\nassistant-tail-final",
+            )];
+            let rebuild_required = scrollback.sync_history(&full, 80, |new_cells, width| {
+                crate::shell::render_history_append_lines(new_cells, width)
+            });
+
+            assert!(!rebuild_required);
+            let pending = scrollback
+                .pending_lines
+                .iter()
+                .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+                .collect::<String>();
+            assert!(!pending.contains("Default Assistant"));
+            assert!(!pending.contains("assistant-line-00"));
+            assert!(pending.contains("assistant-tail-final"));
+            assert!(
+                !scrollback
+                    .pending_lines
+                    .last()
+                    .is_some_and(|line| { line_text(line).trim().is_empty() })
+            );
+
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 8, 80, 8)
+                    .expect("tail should insert")
+            );
+            assert_eq!(scrollback.committed_cells, full);
+        }
+
+        #[test]
+        fn assistant_extension_delta_requires_a_single_newline_boundary() {
+            let previous = vec![assistant_cell("prefix")];
+
+            let same_line = vec![assistant_cell("prefix-tail")];
+            assert!(
+                super::assistant_body_extension_delta(&previous, &same_line).is_none(),
+                "same-line extensions cannot be appended through native scrollback"
+            );
+
+            let blank_boundary = vec![assistant_cell("prefix\n\nbody")];
+            assert!(
+                super::assistant_body_extension_delta(&previous, &blank_boundary).is_none(),
+                "leading blank-line extensions need a full projection rewrite"
+            );
+
+            let next_line = vec![assistant_cell("prefix\nbody")];
+            let delta = super::assistant_body_extension_delta(&previous, &next_line)
+                .expect("single newline extension can be appended");
+            assert_eq!(delta.body, "body");
+
+            let previous_with_newline = vec![assistant_cell("prefix\n")];
+            let next_line_after_committed_newline = vec![assistant_cell("prefix\nbody")];
+            let delta = super::assistant_body_extension_delta(
+                &previous_with_newline,
+                &next_line_after_committed_newline,
+            )
+            .expect("committed newline can own the append boundary");
+            assert_eq!(delta.body, "body");
         }
 
         #[test]
@@ -7686,9 +7925,10 @@ mod shell {
             self.clear_rows_from(clear_from, size.1, size.0)?;
             let mut inserted_history = false;
             if self.scrollback.has_pending() {
+                let protected_top = self.protected_scrollback_top(viewport);
+                self.clear_rows_from(0, protected_top, size.0)?;
                 inserted_history = self.insert_pending_history(viewport, size)?;
                 if inserted_history {
-                    let protected_top = self.protected_scrollback_top(viewport);
                     self.clear_rows_from(protected_top, size.1, size.0)?;
                 }
             }
@@ -7706,6 +7946,9 @@ mod shell {
             size: (u16, u16),
         ) -> IoResult<()> {
             let protected_top = self.protected_scrollback_top(viewport);
+            if self.scrollback.has_pending() {
+                self.clear_rows_from(0, protected_top, size.0)?;
+            }
             let inserted_history = self.insert_pending_history(viewport, size)?;
             if inserted_history {
                 self.clear_rows_from(protected_top, size.1, size.0)?;
@@ -9073,10 +9316,26 @@ mod shell {
         }
     }
 
-    fn render_history_append_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> {
+    pub(crate) fn render_history_append_lines(
+        cells: &[TranscriptCell],
+        width: u16,
+    ) -> Vec<Line<'static>> {
         let mut lines = build_cell_lines(cells, width);
         if !lines.is_empty() {
             lines.push(Line::from(""));
+        }
+        lines
+    }
+
+    pub(crate) fn render_assistant_body_append_lines(body: &str, width: u16) -> Vec<Line<'static>> {
+        let mut lines = Vec::new();
+        for line in normalize_body_lines(body) {
+            lines.extend(wrap_prefixed_line(
+                CONTINUATION_PREFIX,
+                &line,
+                width,
+                Style::default(),
+            ));
         }
         lines
     }
@@ -11205,6 +11464,47 @@ mod shell {
             assert!(!ansi.contains("Type your message or use /help"));
             assert!(!ansi.contains('┌'));
             assert!(!ansi.contains('└'));
+        }
+
+        #[test]
+        fn completed_long_assistant_appends_only_uncommitted_tail_to_scrollback() {
+            let mut state = AppState::empty();
+            let mut scrollback = ScrollbackWriter::default();
+            state.push_local_user_message("long answer".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: format!(
+                    "{}\nassistant-tail-final",
+                    (0..36)
+                        .map(|index| format!("assistant-line-{index:02}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(100);
+
+            let live_stable = build_stable_history_cells(&state);
+            scrollback.sync_history(&live_stable, 100, render_history_append_lines);
+            let mut output = Vec::new();
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 50, 100, 40)
+                    .expect("live prefix should insert")
+            );
+
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+            let done_stable = build_stable_history_cells(&state);
+            scrollback.sync_history(&done_stable, 100, render_history_append_lines);
+            output.clear();
+            assert!(
+                scrollback
+                    .insert_pending(&mut output, 50, 100, 40)
+                    .expect("final tail should insert")
+            );
+            let inserted = String::from_utf8(output).expect("history append should be utf8");
+
+            assert!(!inserted.contains("Default Assistant"), "{inserted}");
+            assert!(!inserted.contains("assistant-line-00"), "{inserted}");
+            assert!(inserted.contains("assistant-tail-final"), "{inserted}");
         }
 
         #[test]
@@ -14380,6 +14680,13 @@ mod state {
 
         fn push_active_turn_completed_cell(&mut self, cell: TranscriptCell) {
             let active_turn = self.ensure_active_turn();
+            if cell.kind == TranscriptCellKind::Assistant
+                && let Some(last) = active_turn.completed_cells.last_mut()
+                && last.kind == TranscriptCellKind::Assistant
+            {
+                last.body.push_str(&cell.body);
+                return;
+            }
             if !matches!(cell.kind, TranscriptCellKind::Assistant)
                 && active_turn
                     .completed_cells
@@ -15051,6 +15358,15 @@ mod state {
             {
                 return false;
             }
+            let base_cell_index = self.conversation_cells.len();
+            if self.merge_adjacent_runtime_assistant_cell(&cell, base_cell_index) {
+                let refresh_session_id = self
+                    .active_turn_session_id
+                    .clone()
+                    .or_else(|| self.current_session_id().map(ToOwned::to_owned));
+                self.pending_runtime_refresh_session_id = refresh_session_id;
+                return true;
+            }
             if !allow_duplicate && self.replace_active_runtime_cell_if_superseded(&cell) {
                 let refresh_session_id = self
                     .active_turn_session_id
@@ -15076,10 +15392,36 @@ mod state {
                 .clone()
                 .or_else(|| self.current_session_id().map(ToOwned::to_owned));
             self.runtime_cells.push(AnchoredRuntimeCell {
-                base_cell_index: self.conversation_cells.len(),
+                base_cell_index,
                 cell,
             });
             self.pending_runtime_refresh_session_id = refresh_session_id;
+            true
+        }
+
+        fn merge_adjacent_runtime_assistant_cell(
+            &mut self,
+            cell: &TranscriptCell,
+            base_cell_index: usize,
+        ) -> bool {
+            if cell.kind != TranscriptCellKind::Assistant {
+                return false;
+            }
+            let start = self
+                .active_turn_runtime_start
+                .unwrap_or(0)
+                .min(self.runtime_cells.len());
+            let last_index = self.runtime_cells.len().saturating_sub(1);
+            let Some(last) = self.runtime_cells.last_mut() else {
+                return false;
+            };
+            if last_index < start
+                || last.base_cell_index != base_cell_index
+                || last.cell.kind != TranscriptCellKind::Assistant
+            {
+                return false;
+            }
+            last.cell.body.push_str(&cell.body);
             true
         }
 
@@ -15503,9 +15845,18 @@ mod state {
             let active_start = self.active_turn_runtime_start;
             let mut runtime_index = 0usize;
             let mut removed_before_active_start = 0usize;
-            self.runtime_cells.retain(|entry| {
+            let mut removed_duplicate_user_from_empty_projection_index: Option<usize> = None;
+            let new_empty_projection_anchor = self.conversation_cells.len();
+            self.runtime_cells.retain_mut(|entry| {
                 let current_index = runtime_index;
                 runtime_index += 1;
+                if old_cell_count == 0
+                    && removed_duplicate_user_from_empty_projection_index
+                        .is_some_and(|index| current_index > index)
+                    && entry.base_cell_index == 0
+                {
+                    entry.base_cell_index = new_empty_projection_anchor;
+                }
                 if active_start.is_some_and(|start| current_index >= start) {
                     return true;
                 }
@@ -15526,6 +15877,13 @@ mod state {
                                 == normalized_error_notice(&entry.cell.body)
                     });
                 let keep = !persisted_duplicate && !equivalent_error;
+                if !keep
+                    && old_cell_count == 0
+                    && persisted_duplicate
+                    && entry.cell.kind == TranscriptCellKind::User
+                {
+                    removed_duplicate_user_from_empty_projection_index = Some(current_index);
+                }
                 if !keep && active_start.is_some_and(|start| current_index < start) {
                     removed_before_active_start += 1;
                 }
@@ -16373,6 +16731,47 @@ mod state {
                 "Default Assistant",
             );
             assert!(super::runtime_cell_projected_by(&spilled.cell, &persisted));
+        }
+
+        #[test]
+        fn completed_spilled_assistant_chunks_coalesce_before_session_refresh() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("long answer".to_string());
+            let full_answer = format!(
+                "{}\nassistant-tail-final",
+                (0..24)
+                    .map(|index| format!("assistant-line-{index:02}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+
+            state.apply_stream_frame(StreamFrame::Data {
+                content: full_answer.clone(),
+            });
+            assert!(
+                state
+                    .runtime_cells
+                    .iter()
+                    .filter(|entry| entry.cell.kind == TranscriptCellKind::Assistant)
+                    .count()
+                    >= 1,
+                "long active answer should spill before completion"
+            );
+
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            let rendered = state.transcript_cells_for_render();
+            let assistant_cells = rendered
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Assistant)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                assistant_cells.len(),
+                1,
+                "one assistant message must not render as repeated assistant blocks"
+            );
+            assert_eq!(assistant_cells[0].body, full_answer);
+            assert!(state.active_turn.is_none());
         }
 
         #[test]
@@ -17411,6 +17810,134 @@ mod state {
         }
 
         #[test]
+        fn refresh_current_session_preserves_multisegment_tool_turn_order_after_reconcile() {
+            let mut state = AppState::empty();
+            let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            state.set_current_session(session);
+            state.begin_stream("turn-1".to_string());
+            state.push_local_user_message("inspect structure".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "before tool".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command":"pwd"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                success: true,
+                result: "/tmp/restflow".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "\nafter tool".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            persisted.record_turn_user_message("turn-1", "inspect structure");
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::AssistantMessage {
+                    content: "before tool".to_string(),
+                },
+            );
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command":"pwd"}).to_string(),
+                },
+            );
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::ToolResult {
+                    call_id: "call-1".to_string(),
+                    success: true,
+                    result: "/tmp/restflow".to_string(),
+                },
+            );
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::AssistantMessage {
+                    content: "\nafter tool".to_string(),
+                },
+            );
+            persisted.complete_turn("turn-1");
+
+            state.refresh_current_session(persisted);
+
+            let rendered = state.transcript_cells_for_render();
+            assert_eq!(state.runtime_cells.len(), 0);
+            assert!(state.active_turn.is_none());
+            assert_eq!(
+                rendered.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
+            assert_eq!(rendered[0].body, "inspect structure");
+            assert_eq!(rendered[1].body, "before tool");
+            assert_eq!(rendered[2].tool_call_id(), Some("call-1"));
+            assert!(rendered[2].body.contains("Output: /tmp/restflow"));
+            assert_eq!(rendered[3].body, "\nafter tool");
+        }
+
+        #[test]
+        fn refresh_current_session_keeps_completed_tool_turn_until_answer_persists() {
+            let mut state = AppState::empty();
+            let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            state.set_current_session(session);
+            state.begin_stream("turn-1".to_string());
+            state.push_local_user_message("inspect structure".to_string());
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command":"pwd"}),
+            });
+            state.apply_stream_frame(StreamFrame::ToolResult {
+                id: "call-1".to_string(),
+                success: true,
+                result: "/tmp/restflow".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "local answer".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            persisted.record_turn_user_message("turn-1", "inspect structure");
+            persisted.record_turn_event(
+                "turn-1",
+                types::ChatTurnEventKind::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command":"pwd"}).to_string(),
+                },
+            );
+
+            state.refresh_current_session(persisted);
+
+            let rendered = state.transcript_cells_for_render();
+            assert_eq!(
+                rendered.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
+            assert_eq!(rendered[0].body, "inspect structure");
+            assert_eq!(rendered[1].tool_call_id(), Some("call-1"));
+            assert!(rendered[1].body.contains("Output: /tmp/restflow"));
+            assert_eq!(rendered[2].body, "local answer");
+        }
+
+        #[test]
         fn refresh_flushes_active_assistant_when_completed_projection_only_has_tools() {
             let mut state = AppState::empty();
             let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
@@ -17456,9 +17983,17 @@ mod state {
             assert!(state.active_turn.is_none());
             assert!(state.active_turn_runtime_start.is_none());
             let rendered = state.transcript_cells_for_render();
-            assert!(rendered.iter().any(|cell| {
-                cell.kind == TranscriptCellKind::Assistant && cell.body == "local final answer"
-            }));
+            assert_eq!(
+                rendered.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
+            assert_eq!(rendered[0].body, "hello");
+            assert_eq!(rendered[1].tool_call_id(), Some("call-1"));
+            assert_eq!(rendered[2].body, "local final answer");
         }
 
         #[test]
@@ -17553,7 +18088,7 @@ mod state {
                     .iter()
                     .filter(|entry| entry.cell.kind == TranscriptCellKind::Assistant)
                     .count()
-                    > 1
+                    >= 1
             );
 
             session
@@ -18210,12 +18745,10 @@ mod transcript {
         legacy_messages: &[ProjectedShellMessage],
         turn_messages: &'a [ProjectedShellMessage],
     ) -> Option<&'a ProjectedShellMessage> {
-        let Some(previous_legacy) = legacy_messages.iter().rev().find(|candidate| {
+        let previous_legacy = legacy_messages.iter().rev().find(|candidate| {
             candidate.sequence < legacy.sequence
                 && matches!(candidate.message, ShellMessage::UserMessage { .. })
-        }) else {
-            return None;
-        };
+        })?;
         turn_messages
             .iter()
             .filter(|message| matches!(message.message, ShellMessage::UserMessage { .. }))
@@ -18818,6 +19351,106 @@ mod transcript {
                 transcript[3],
                 ShellMessage::AssistantMessage { .. }
             ));
+        }
+
+        #[test]
+        fn messages_from_session_preserves_assistant_tool_assistant_order() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            session.add_message(ChatMessage::user("inspect"));
+            session.add_message(ChatMessage::assistant("before\nafter"));
+            session.record_turn_user_message("turn-1", "inspect");
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "before".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::ToolCall {
+                    call_id: "call-1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: "pwd".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::ToolResult {
+                    call_id: "call-1".to_string(),
+                    success: true,
+                    result: "/tmp".to_string(),
+                },
+            );
+            session.record_turn_event(
+                "turn-1",
+                ChatTurnEventKind::AssistantMessage {
+                    content: "\nafter".to_string(),
+                },
+            );
+            session.complete_turn("turn-1");
+
+            let cells = transcript_cells(&messages_from_session(&session), "Agent");
+            assert_eq!(
+                cells.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
+            assert_eq!(cells[1].body, "before");
+            assert_eq!(cells[2].tool_call_id(), Some("call-1"));
+            assert!(cells[2].body.contains("Output: /tmp"));
+            assert_eq!(cells[3].body, "\nafter");
+        }
+
+        #[test]
+        fn messages_from_session_keeps_reused_call_ids_in_separate_turns() {
+            let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+            for (turn_id, user, output, answer) in [
+                ("turn-1", "first", "first-output", "first done"),
+                ("turn-2", "second", "second-output", "second done"),
+            ] {
+                session.record_turn_user_message(turn_id, user);
+                session.record_turn_event(
+                    turn_id,
+                    ChatTurnEventKind::ToolCall {
+                        call_id: "call-reused".to_string(),
+                        name: "bash".to_string(),
+                        arguments: "pwd".to_string(),
+                    },
+                );
+                session.record_turn_event(
+                    turn_id,
+                    ChatTurnEventKind::ToolResult {
+                        call_id: "call-reused".to_string(),
+                        success: true,
+                        result: output.to_string(),
+                    },
+                );
+                session.complete_turn_with_assistant_message(turn_id, answer);
+            }
+
+            let cells = transcript_cells(&messages_from_session(&session), "Agent");
+            let tools = cells
+                .iter()
+                .filter(|cell| cell.kind == TranscriptCellKind::Tool)
+                .collect::<Vec<_>>();
+            assert_eq!(tools.len(), 2);
+            assert!(tools[0].body.contains("first-output"));
+            assert!(tools[1].body.contains("second-output"));
+            assert_eq!(
+                cells.iter().map(|cell| cell.kind).collect::<Vec<_>>(),
+                vec![
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                    TranscriptCellKind::User,
+                    TranscriptCellKind::Tool,
+                    TranscriptCellKind::Assistant,
+                ]
+            );
         }
 
         #[test]
