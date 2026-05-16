@@ -34,5 +34,5 @@ test-utils = ["llm/test-utils"]
 [dev-dependencies]
 llm = { workspace = true, features = ["test-utils"] }
 tempfile = "3.25"
-tokio = { version = "1.51", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros"] }
 wiremock = "0.6"
