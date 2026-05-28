@@ -8101,12 +8101,14 @@ mod shell {
             let mut viewport_only = mode == SyncMode::ViewportOnly
                 && self.can_update_viewport_only(size, &viewport, stable_cells);
 
+            let mut history_rebuilt_without_insert = false;
             let rebuild_required =
                 self.scrollback
                     .sync_history(stable_cells, size.0, render_history_append_lines);
             if rebuild_required {
                 if preserve_native_scrollback_on_rebuild(state) {
                     self.scrollback.adopt_rebuilt_history_without_insert();
+                    history_rebuilt_without_insert = true;
                 } else {
                     queue_purge_visible_and_scrollback(&mut self.stdout)?;
                 }
@@ -8116,9 +8118,9 @@ mod shell {
             }
 
             if !viewport_only && self.needs_full_redraw(size, &viewport) {
-                self.redraw_full_frame(state, &viewport, stable_cells, size)?;
+                self.redraw_full_frame(state, &viewport, stable_cells, size, history_rebuilt_without_insert)?;
             } else {
-                self.redraw_incremental_frame(state, &viewport, stable_cells, size)?;
+                self.redraw_incremental_frame(state, &viewport, stable_cells, size, history_rebuilt_without_insert)?;
             }
 
             self.last_viewport = Some(viewport);
@@ -8157,6 +8159,7 @@ mod shell {
             viewport: &ViewportSnapshot,
             stable_cells: &[TranscriptCell],
             size: (u16, u16),
+            history_rebuilt_without_insert: bool,
         ) -> IoResult<()> {
             let had_pending_history = self.scrollback.has_pending();
             let inserted_history = self.insert_pending_history(viewport, size)?;
@@ -8165,6 +8168,7 @@ mod shell {
                 stable_cells,
                 had_pending_history,
                 inserted_history,
+                history_rebuilt_without_insert,
             ) {
                 self.redraw_history_tail(history_redraw_top(viewport), size.0, stable_cells)?;
             }
@@ -8177,6 +8181,7 @@ mod shell {
             viewport: &ViewportSnapshot,
             stable_cells: &[TranscriptCell],
             size: (u16, u16),
+            history_rebuilt_without_insert: bool,
         ) -> IoResult<()> {
             let protected_top = self.protected_scrollback_top(viewport);
             let had_pending_history = self.scrollback.has_pending();
@@ -8187,6 +8192,7 @@ mod shell {
                     stable_cells,
                     had_pending_history,
                     inserted_history,
+                    history_rebuilt_without_insert,
                 ) {
                     self.redraw_history_tail(history_redraw_top(viewport), size.0, stable_cells)?;
                 }
@@ -8197,6 +8203,7 @@ mod shell {
                     stable_cells,
                     had_pending_history,
                     inserted_history,
+                    history_rebuilt_without_insert,
                 ) {
                     self.redraw_history_tail(protected_top, size.0, stable_cells)?;
                 }
@@ -8297,11 +8304,12 @@ mod shell {
         stable_cells: &[TranscriptCell],
         had_pending_history: bool,
         inserted_history: bool,
+        history_rebuilt_without_insert: bool,
     ) -> bool {
         if preserve_native_scrollback_on_rebuild(state)
             && (had_pending_history || inserted_history || !stable_cells.is_empty())
         {
-            return false;
+            return history_rebuilt_without_insert;
         }
         true
     }
@@ -8456,11 +8464,28 @@ mod shell {
         build_cell_lines(active_cells, width)
     }
 
+    fn build_active_message_lines_with_context(
+        active_cells: &[TranscriptCell],
+        width: u16,
+        leading_assistant_continuation: bool,
+    ) -> Vec<Line<'static>> {
+        build_cell_lines_with_context(active_cells, width, leading_assistant_continuation)
+    }
+
+    #[cfg(test)]
     fn build_scrollable_message_lines(
         active_cells: &[TranscriptCell],
         width: u16,
     ) -> Vec<Line<'static>> {
         build_active_message_lines(active_cells, width)
+    }
+
+    fn build_scrollable_message_lines_with_context(
+        active_cells: &[TranscriptCell],
+        width: u16,
+        leading_assistant_continuation: bool,
+    ) -> Vec<Line<'static>> {
+        build_active_message_lines_with_context(active_cells, width, leading_assistant_continuation)
     }
 
     #[cfg(test)]
@@ -8492,7 +8517,16 @@ mod shell {
             return Vec::new();
         }
 
-        let lines = build_active_cell_priority_lines(timeline.active_cells(), width, max_rows);
+        let leading_assistant_continuation = active_view_starts_with_assistant_continuation(
+            timeline.committed_cells(),
+            timeline.active_cells(),
+        );
+        let lines = build_active_cell_priority_lines(
+            timeline.active_cells(),
+            width,
+            max_rows,
+            leading_assistant_continuation,
+        );
         if scroll_from_bottom == 0 {
             preserve_first_line_tail(lines, max_rows as usize)
         } else {
@@ -8572,12 +8606,17 @@ mod shell {
         active_cells: &[TranscriptCell],
         width: u16,
         max_rows: u16,
+        leading_assistant_continuation: bool,
     ) -> Vec<Line<'static>> {
         let max_rows = max_rows as usize;
         if active_cells.is_empty() || max_rows == 0 {
             return Vec::new();
         }
-        let all_lines = build_scrollable_message_lines(active_cells, width);
+        let all_lines = build_scrollable_message_lines_with_context(
+            active_cells,
+            width,
+            leading_assistant_continuation,
+        );
         if all_lines.len() <= max_rows {
             return all_lines;
         }
@@ -8590,8 +8629,15 @@ mod shell {
             let tail_capacity = max_rows.saturating_sub(running_tool_titles.len());
             let non_tool_lines = active_cells
                 .iter()
-                .filter(|cell| !is_running_tool_cell(cell))
-                .flat_map(|cell| build_active_message_lines(std::slice::from_ref(cell), width))
+                .enumerate()
+                .filter(|(_, cell)| !is_running_tool_cell(cell))
+                .flat_map(|(index, cell)| {
+                    build_active_message_lines_with_context(
+                        std::slice::from_ref(cell),
+                        width,
+                        leading_assistant_continuation && index == 0,
+                    )
+                })
                 .collect::<Vec<_>>();
             let mut visible = running_tool_titles;
             visible.extend(preserve_first_line_tail(non_tool_lines, tail_capacity));
@@ -8600,11 +8646,15 @@ mod shell {
 
         let mut visible = Vec::new();
         let mut remaining = max_rows;
-        for cell in active_cells.iter().rev() {
+        for (index, cell) in active_cells.iter().enumerate().rev() {
             if remaining == 0 {
                 break;
             }
-            let mut lines = build_active_message_lines(std::slice::from_ref(cell), width);
+            let mut lines = build_active_message_lines_with_context(
+                std::slice::from_ref(cell),
+                width,
+                leading_assistant_continuation && index == 0,
+            );
             if lines.is_empty() {
                 continue;
             }
@@ -8628,6 +8678,17 @@ mod shell {
         } else {
             visible
         }
+    }
+
+    fn active_view_starts_with_assistant_continuation(
+        committed_cells: &[TranscriptCell],
+        active_cells: &[TranscriptCell],
+    ) -> bool {
+        committed_cells.last().is_some_and(|cell| {
+            cell.kind == TranscriptCellKind::Assistant && !cell.body.trim().is_empty()
+        }) && active_cells
+            .first()
+            .is_some_and(|cell| cell.kind == TranscriptCellKind::Assistant && cell.is_active)
     }
 
     fn preserve_active_cell_visible_tail(
@@ -9599,16 +9660,28 @@ mod shell {
     }
 
     fn build_cell_lines(cells: &[TranscriptCell], width: u16) -> Vec<Line<'static>> {
+        build_cell_lines_with_context(cells, width, false)
+    }
+
+    fn build_cell_lines_with_context(
+        cells: &[TranscriptCell],
+        width: u16,
+        leading_assistant_continuation: bool,
+    ) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
+        let mut previous_rendered_assistant = leading_assistant_continuation;
         for cell in cells {
             if !should_render_cell(cell) {
                 continue;
             }
 
+            let assistant_continuation =
+                cell.kind == TranscriptCellKind::Assistant && previous_rendered_assistant;
             match cell.kind {
                 TranscriptCellKind::Tool | TranscriptCellKind::Subagent
                     if cell.group == MessageGroup::ToolActivity =>
                 {
+                    previous_rendered_assistant = false;
                     lines.extend(wrap_display_line(
                         &format_title(cell),
                         width,
@@ -9617,6 +9690,7 @@ mod shell {
                     append_limited_activity_body_lines(&mut lines, cell, width);
                 }
                 TranscriptCellKind::Tool | TranscriptCellKind::Subagent => {
+                    previous_rendered_assistant = false;
                     let title = format_title(cell);
                     let summary = summarize_tool_body(cell.body.as_str());
                     let line = if summary.is_empty() {
@@ -9631,11 +9705,13 @@ mod shell {
                     lines.extend(wrap_styled_line(line, width));
                 }
                 _ => {
-                    lines.extend(wrap_display_line(
-                        &format_title(cell),
-                        width,
-                        cell_title_style(cell),
-                    ));
+                    if !assistant_continuation {
+                        lines.extend(wrap_display_line(
+                            &format_title(cell),
+                            width,
+                            cell_title_style(cell),
+                        ));
+                    }
                     for line in cell_body_lines(cell) {
                         lines.extend(wrap_prefixed_line(
                             CONTINUATION_PREFIX,
@@ -9644,6 +9720,7 @@ mod shell {
                             cell_body_style(cell),
                         ));
                     }
+                    previous_rendered_assistant = cell.kind == TranscriptCellKind::Assistant;
                 }
             }
 
@@ -11549,6 +11626,146 @@ mod shell {
                     .collect::<String>()
                     .contains("assistant-tail-final"),
                 "{rendered:?}"
+            );
+        }
+
+        #[test]
+        fn active_assistant_continuation_hides_repeated_typing_title() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("long answer".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: format!("assistant-prefix-{}assistant-tail-final", "x".repeat(240)),
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(24);
+
+            let rendered = line_texts(&build_transient_lines(&state, 80, 8));
+
+            assert!(
+                !rendered.iter().any(|line| line.contains("Agent · typing")),
+                "{rendered:?}"
+            );
+            assert!(
+                rendered
+                    .join("\n")
+                    .chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>()
+                    .contains("assistant-tail-final"),
+                "{rendered:?}"
+            );
+        }
+
+        #[test]
+        fn streaming_then_tool_call_then_more_data_no_duplicate() {
+            // Simulates: model streams text, then calls tool, then streams more text
+            // This is the scenario from the user's screenshot
+            let mut state = AppState::empty();
+            state.push_local_user_message("123".to_string());
+
+            // Model starts streaming text
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "It seems you keep entering 123. Perhaps you are trying to access something.".to_string(),
+            });
+
+            // Spill (as would happen during a sync cycle)
+            state.spill_active_assistant_overflow_to_runtime_for_width(40);
+
+            // Tool call comes in while streaming
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "load_skill".to_string(),
+                arguments: serde_json::json!({"action": "list"}),
+            });
+
+            // Check after tool call - this is what the user sees
+            let timeline = Timeline::from_state(&state);
+            let committed = timeline.committed_cells();
+            let active = timeline.active_cells();
+
+            // The key assertion: assistant should NOT appear in both committed and active
+            let assistant_bodies: Vec<&str> = committed.iter()
+                .chain(active.iter())
+                .filter(|c| c.kind == TranscriptCellKind::Assistant)
+                .map(|c| c.body.as_str())
+                .collect();
+
+            // All assistant bodies should be unique (no duplicates)
+            let unique_bodies: std::collections::HashSet<&str> = assistant_bodies.iter().copied().collect();
+            assert_eq!(
+                assistant_bodies.len(),
+                unique_bodies.len(),
+                "assistant bodies should be unique across committed and active: {assistant_bodies:?}"
+            );
+
+            let rendered = line_texts(&build_transient_lines(&state, 80, 12));
+            let agent_headers: Vec<&String> = rendered.iter().filter(|l| l.contains("Agent") || l.contains("Default Assistant")).collect();
+            assert!(
+                agent_headers.len() <= 1,
+                "at most one agent header in viewport, got {}: {rendered:?}",
+                agent_headers.len()
+            );
+        }
+
+        #[test]
+        fn tool_call_after_spilled_assistant_does_not_show_duplicate() {
+            let mut state = AppState::empty();
+            state.push_local_user_message("123".to_string());
+            // Long text that will cause spill at narrow width
+            let long_response = format!(
+                "It seems you keep entering 123. {} Perhaps you are trying to access something specific or run a command.",
+                "This is filler text to make the response long enough. ".repeat(10)
+            );
+            state.apply_stream_frame(StreamFrame::Data {
+                content: long_response.clone(),
+            });
+            // Spill at narrow width to push prefix to committed
+            state.spill_active_assistant_overflow_to_runtime_for_width(40);
+
+            // Now the model makes a tool call (which finalizes the active assistant segment)
+            state.apply_stream_frame(StreamFrame::ToolCall {
+                id: "call-1".to_string(),
+                name: "load_skill".to_string(),
+                arguments: serde_json::json!({"action": "list"}),
+            });
+
+            let timeline = Timeline::from_state(&state);
+            let committed = timeline.committed_cells();
+            let active = timeline.active_cells();
+
+            // After tool call, assistant should only be in committed (finalized),
+            // not duplicated in active
+            let committed_assistant_count = committed
+                .iter()
+                .filter(|c| c.kind == TranscriptCellKind::Assistant)
+                .count();
+            let active_assistant_count = active
+                .iter()
+                .filter(|c| c.kind == TranscriptCellKind::Assistant)
+                .count();
+            let active_tool_count = active
+                .iter()
+                .filter(|c| c.kind == TranscriptCellKind::Tool)
+                .count();
+
+            assert_eq!(
+                committed_assistant_count, 1,
+                "exactly one assistant in committed: committed={committed:?}\nactive={active:?}"
+            );
+            assert_eq!(
+                active_assistant_count, 0,
+                "no assistant in active after tool call: committed={committed:?}\nactive={active:?}"
+            );
+            assert_eq!(
+                active_tool_count, 1,
+                "tool should be in active: committed={committed:?}\nactive={active:?}"
+            );
+
+            // Check that the rendered output doesn't show duplicate assistant headers
+            let rendered = line_texts(&build_transient_lines(&state, 80, 12));
+            let typing_count = rendered.iter().filter(|l| l.contains("typing")).count();
+            assert!(
+                typing_count == 0,
+                "no typing indicator after finalization, got {typing_count}: {rendered:?}"
             );
         }
 
@@ -13637,7 +13854,7 @@ mod shell {
             let rendered = line_texts(&super::build_message_lines(&state, 80, 8));
 
             assert!(!rendered.iter().any(|line| line == "  ..."));
-            assert!(rendered.iter().any(|line| line.contains("Agent")));
+            assert!(!rendered.iter().any(|line| line.contains("Agent · typing")));
             assert!(rendered.iter().any(|line| line.contains("line 30")));
 
             let timeline = Timeline::from_state(&state);
