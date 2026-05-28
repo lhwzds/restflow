@@ -8306,8 +8306,11 @@ mod shell {
         inserted_history: bool,
         history_rebuilt_without_insert: bool,
     ) -> bool {
+        if inserted_history {
+            return false;
+        }
         if preserve_native_scrollback_on_rebuild(state)
-            && (had_pending_history || inserted_history || !stable_cells.is_empty())
+            && (had_pending_history || !stable_cells.is_empty())
         {
             return history_rebuilt_without_insert;
         }
@@ -11652,6 +11655,54 @@ mod shell {
                     .collect::<String>()
                     .contains("assistant-tail-final"),
                 "{rendered:?}"
+            );
+        }
+
+        #[test]
+        fn session_refresh_after_stream_does_not_duplicate_assistant() {
+            let mut state = AppState::empty();
+            let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            state.set_current_session(session);
+
+            // User sends message
+            state.push_local_user_message("123".to_string());
+
+            // Model streams a response
+            let response = "I see you've sent 123 - is there something specific you'd like me to help you with?";
+            state.apply_stream_frame(StreamFrame::Data {
+                content: response.to_string(),
+            });
+            state.spill_active_assistant_overflow_to_runtime_for_width(80);
+
+            // Stream finishes
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            // At this point, the response is in runtime only
+            let after_stream = state.transcript_cells_for_render();
+            let assistant_count_after_stream = after_stream
+                .iter()
+                .filter(|c| c.kind == TranscriptCellKind::Assistant)
+                .count();
+            assert_eq!(
+                assistant_count_after_stream, 1,
+                "one assistant after stream: {after_stream:?}"
+            );
+
+            // Session refreshes with the persisted messages
+            let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            persisted.record_turn_user_message("turn-1", "123");
+            persisted.complete_turn_with_assistant_message("turn-1", response);
+            state.refresh_current_session(persisted);
+
+            // After refresh, there should still be exactly ONE assistant
+            let after_refresh = state.transcript_cells_for_render();
+            let assistant_count_after_refresh = after_refresh
+                .iter()
+                .filter(|c| c.kind == TranscriptCellKind::Assistant)
+                .count();
+            assert_eq!(
+                assistant_count_after_refresh, 1,
+                "one assistant after session refresh: {after_refresh:?}"
             );
         }
 
