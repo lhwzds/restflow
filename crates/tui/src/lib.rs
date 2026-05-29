@@ -16401,6 +16401,21 @@ mod state {
                 {
                     continue;
                 }
+                // Skip user/info cells already present in the session
+                // projection.  During a session refresh the user message
+                // can be projected into conversation_cells *before* the
+                // active turn is flushed.  Without this guard the cell
+                // ends up in both runtime_cells and conversation_cells,
+                // and reconcile may miss it because it only searches from
+                // old_cell_count onward.
+                if !matches!(cell.kind, TranscriptCellKind::Assistant)
+                    && self
+                        .conversation_cells
+                        .iter()
+                        .any(|cc| is_persisted_duplicate_cell(&cell, cc))
+                {
+                    continue;
+                }
                 self.runtime_cells.push(AnchoredRuntimeCell {
                     base_cell_index,
                     cell,
@@ -16432,13 +16447,13 @@ mod state {
                 if active_start.is_some_and(|start| current_index >= start) {
                     return true;
                 }
-                let persisted_cells = if entry.base_cell_index >= old_cell_count {
-                    self.conversation_cells
-                        .get(old_cell_count..)
-                        .unwrap_or_default()
-                } else {
-                    self.conversation_cells.as_slice()
-                };
+                // Check ALL conversation cells for duplicates.  The original
+                // split on old_cell_count assumed runtime cells could only
+                // duplicate *new* persisted cells, but during
+                // flush_active_turn_to_runtime (inside refresh_current_session)
+                // user messages that were projected in a prior refresh sit at
+                // indices < old_cell_count and would otherwise be missed.
+                let persisted_cells = self.conversation_cells.as_slice();
                 let persisted_duplicate_index = persisted_cells
                     .iter()
                     .position(|cell| runtime_cell_projected_by(&entry.cell, cell));
