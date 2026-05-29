@@ -11707,6 +11707,54 @@ mod shell {
         }
 
         #[test]
+        fn session_with_legacy_and_turn_events_no_duplicate() {
+            let mut state = AppState::empty();
+            let session = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            state.set_current_session(session);
+
+            state.push_local_user_message("123".to_string());
+            state.apply_stream_frame(StreamFrame::Data {
+                content: "I received 123 but I'm not sure what you'd like.".to_string(),
+            });
+            state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+            // Build the session the way the real backend does: both legacy messages AND turn events
+            let mut persisted = types::ChatSession::new("agent-1".to_string(), "model".to_string());
+            // Legacy messages (the original format)
+            persisted.messages.push(types::ChatMessage::user("123"));
+            persisted.messages.push(types::ChatMessage::assistant("I received 123 but I'm not sure what you'd like."));
+            // Turn events (the new format)
+            persisted.record_turn_user_message("turn-1", "123");
+            persisted.complete_turn_with_assistant_message("turn-1", "I received 123 but I'm not sure what you'd like.");
+
+            assert!(
+                !persisted.messages.is_empty(),
+                "session has {} legacy messages", persisted.messages.len()
+            );
+            assert!(
+                !persisted.turns.is_empty(),
+                "session has {} turns", persisted.turns.len()
+            );
+
+            state.refresh_current_session(persisted);
+
+            let cells = state.transcript_cells_for_render();
+            let assistant_cells: Vec<_> = cells
+                .iter()
+                .filter(|c| c.kind == TranscriptCellKind::Assistant)
+                .collect();
+            assert_eq!(
+                assistant_cells.len(), 1,
+                "exactly one assistant cell, got {}: {cells:?}",
+                assistant_cells.len()
+            );
+            assert_eq!(
+                assistant_cells[0].body,
+                "I received 123 but I'm not sure what you'd like."
+            );
+        }
+
+        #[test]
         fn streaming_then_tool_call_then_more_data_no_duplicate() {
             // Simulates: model streams text, then calls tool, then streams more text
             // This is the scenario from the user's screenshot
@@ -19576,7 +19624,15 @@ mod transcript {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        !assistant_chunks.is_empty() && assistant_chunks.concat() == *legacy_content
+        let legacy_trimmed = legacy_content.trim();
+        // Match by concatenated chunks (single-segment streaming) or by any
+        // individual chunk (multi-segment responses split by tool calls).
+        !assistant_chunks.is_empty()
+            && assistant_chunks
+                .iter()
+                .any(|chunk| chunk.trim() == legacy_trimmed)
+            || (!assistant_chunks.is_empty()
+                && assistant_chunks.concat().trim() == legacy_trimmed)
     }
 
     const LEGACY_TURN_DEDUPE_WINDOW_MS: u64 = 5_000;
@@ -19632,7 +19688,7 @@ mod transcript {
                         _ => None,
                     })
                     .collect::<String>();
-                if assistant_content != *legacy_assistant_content {
+                if assistant_content.trim() != legacy_assistant_content.trim() {
                     return false;
                 }
                 let latest_turn_timestamp = assistant_messages

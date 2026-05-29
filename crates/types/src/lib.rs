@@ -4816,6 +4816,10 @@ pub mod session {
         }
 
         /// Mark a turn as completed and persist its assistant output.
+        ///
+        /// Uses trimmed comparison when matching against existing turn events and
+        /// legacy messages so that whitespace differences (e.g. a leading `"\n\n"`)
+        /// from streaming do not prevent deduplication.
         pub fn complete_turn_with_assistant_message(
             &mut self,
             turn_id: &str,
@@ -4827,7 +4831,10 @@ pub mod session {
                 .messages
                 .iter()
                 .rev()
-                .find(|message| message.role == ChatRole::Assistant && message.content == content)
+                .find(|message| {
+                    message.role == ChatRole::Assistant
+                        && message.content.trim() == content.trim()
+                })
                 .map(|message| message.id.clone());
             let turn = &mut self.turns[index];
             if turn.status.is_terminal() {
@@ -4837,15 +4844,23 @@ pub mod session {
                 && let Some(event) = turn.events.iter_mut().find(|event| {
                     matches!(
                         &event.kind,
-                        ChatTurnEventKind::AssistantMessage { content: existing } if existing == &content
+                        ChatTurnEventKind::AssistantMessage { content: existing }
+                            if existing.trim() == content.trim()
                     )
                 })
             {
                 if event.message_id.is_none() {
                     event.message_id = message_id;
                 }
+                // Normalize the stored content so downstream dedup sees a
+                // canonical form.
+                event.kind = ChatTurnEventKind::AssistantMessage {
+                    content: content.trim().to_string(),
+                };
             } else if !content.trim().is_empty() {
-                let mut event = ChatTurnEvent::new(ChatTurnEventKind::AssistantMessage { content });
+                let mut event = ChatTurnEvent::new(ChatTurnEventKind::AssistantMessage {
+                    content: content.trim().to_string(),
+                });
                 event.message_id = message_id;
                 turn.events.push(event);
             }
