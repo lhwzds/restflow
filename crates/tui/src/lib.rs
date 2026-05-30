@@ -16447,13 +16447,20 @@ mod state {
                 if active_start.is_some_and(|start| current_index >= start) {
                     return true;
                 }
-                // Check ALL conversation cells for duplicates.  The original
-                // split on old_cell_count assumed runtime cells could only
-                // duplicate *new* persisted cells, but during
-                // flush_active_turn_to_runtime (inside refresh_current_session)
-                // user messages that were projected in a prior refresh sit at
-                // indices < old_cell_count and would otherwise be missed.
-                let persisted_cells = self.conversation_cells.as_slice();
+                // For User cells, check ALL conversation cells — user
+                // messages projected in a prior refresh may sit at indices
+                // below old_cell_count.  For other cells (especially
+                // Assistant), keep the original split to preserve repeated
+                // text across turns.
+                let persisted_cells = if entry.cell.kind == TranscriptCellKind::User {
+                    self.conversation_cells.as_slice()
+                } else if entry.base_cell_index >= old_cell_count {
+                    self.conversation_cells
+                        .get(old_cell_count..)
+                        .unwrap_or_default()
+                } else {
+                    self.conversation_cells.as_slice()
+                };
                 let persisted_duplicate_index = persisted_cells
                     .iter()
                     .position(|cell| runtime_cell_projected_by(&entry.cell, cell));
