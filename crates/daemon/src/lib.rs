@@ -6638,6 +6638,7 @@ pub mod daemon {
 
             #[cfg(not(unix))]
             {
+                use std::process::Command;
                 Command::new("tasklist")
                     .args(["/FI", &format!("PID eq {}", pid)])
                     .output()
