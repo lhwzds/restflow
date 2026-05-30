@@ -1226,7 +1226,7 @@ mod executor {
                         IPC_PROTOCOL_VERSION
                     );
                 }
-                return Ok(Arc::new(ipc::IpcExecutor::from_client(client)));
+                Ok(Arc::new(ipc::IpcExecutor::from_client(client)))
             }
             Err(error) => {
                 anyhow::bail!(
@@ -2585,7 +2585,7 @@ mod commands {
             };
 
             if limits.rlim_cur >= hard_cap {
-                return;
+                return
             }
 
             let desired = libc::rlimit {
