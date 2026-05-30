@@ -55,6 +55,8 @@ lint: toolchain
 tui-pty-smoke:
 	@if [ "$$(uname -s 2>/dev/null || echo Windows)" = "Windows" ]; then \
 		echo "Skipping TUI PTY smoke on Windows: pseudo-terminal APIs are Unix-only."; \
+	elif [ ! -f scripts/tui_pty_smoke.py ]; then \
+		echo "Skipping TUI PTY smoke: scripts/tui_pty_smoke.py not found."; \
 	else \
 		python3 scripts/tui_pty_smoke.py; \
 	fi
