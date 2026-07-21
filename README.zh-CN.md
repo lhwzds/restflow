@@ -4,8 +4,7 @@
 
 [English](./README.md)
 
-[![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
-[![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
+[![Docs](https://img.shields.io/badge/docs-GitHub-blue)](./docs/index.md)
 [![Release](https://img.shields.io/github/v/release/lhwzds/restflow?label=latest)](https://github.com/lhwzds/restflow/releases/latest)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-dea584)](https://www.rust-lang.org/)
 
@@ -69,6 +68,6 @@ restflow
 
 ## 链接
 
-- Site: [restflow.ai](https://restflow.ai)
-- Docs: [restflow.ai/docs](https://restflow.ai/docs/)
+- 仓库：[GitHub](https://github.com/lhwzds/restflow)
+- 文档：[仓库文档](./docs/index.md)
 - Releases: [GitHub Releases](https://github.com/lhwzds/restflow/releases/latest)

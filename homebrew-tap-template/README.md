@@ -18,4 +18,4 @@ restflow
 ## Links
 
 - [RestFlow GitHub](https://github.com/lhwzds/restflow)
-- [Documentation](https://docs.restflow.ai)
+- [Documentation](https://github.com/lhwzds/restflow/tree/main/docs)
