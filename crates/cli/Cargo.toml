@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 
 # CLI
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 clap_complete = "4.5"
 colored = "3.1"
 comfy-table = "7"
@@ -47,5 +47,5 @@ tracing-appender = "0.2"
 nix = { version = "0.31", features = ["signal", "process"] }
 
 [build-dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.5"
